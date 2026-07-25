@@ -1,33 +1,46 @@
 # Gremlin (Android)
 
 Talks to a Gremlin desktop instance over your home Wi-Fi when it's
-reachable, and falls back -- in order -- to a fully offline on-device
-model, then Claude, then Gemini (using your own API keys, entered in
-Settings) when it's not. Same hologram widget as the desktop version.
+reachable, and falls back to Claude, then Gemini (using your own API
+keys, entered in Settings) when it's not. Same hologram widget as the
+desktop version.
 
-## Offline on-device model
+Pure Kotlin -- no NDK, no native build, no submodules. A plain
+`git clone` is enough.
 
-Settings → "Offline (fully local)" downloads a small (~910MB,
-`mradermacher/Llama-3.2-1B-Instruct-abliterated-GGUF`, `Q4_K_M`) model
-straight to the phone and runs it with llama.cpp compiled from source
-via JNI (see `app/src/main/cpp/`). This is what actually keeps "talking
-to Gremlin" working with zero connectivity at all -- no desktop, no
-Wi-Fi, no cell signal, no API key. Once you get back in range of the
-desktop (or just get signal again), whatever was said in offline mode
-rides along with your next message and gets folded into the desktop's
-own `data/away_session_log.jsonl` the same way an away-mode Claude/Gemini
-exchange already does (see `gremlin_core/away_sync.py`) -- nothing new
-needed server-side, that sync path already existed.
+## No on-device model (removed on purpose)
 
-`android/llama.cpp` is a **git submodule** (pinned to release `b10091`),
-not vendored source -- llama.cpp has no published Maven artifact, only
-its own CMake project, so building it from source via
-`add_subdirectory()` is the actual supported way to embed it (same
-approach as llama.cpp's own `examples/llama.android` reference app,
-which `app/src/main/cpp/gremlin_llama.cpp` was adapted from). A fresh
-clone needs `git clone --recurse-submodules`, or `git submodule update
---init` after a plain clone -- the CI workflow already does this
-(`submodules: recursive` in the checkout step).
+There used to be a small offline model that ran on the phone via
+llama.cpp compiled from source. It's gone. It duplicated, badly, what
+the desktop already does well: a model small enough to sit on a phone
+answered noticeably differently from the desktop's primary, so "Gremlin
+away from home" was effectively a different assistant wearing the same
+name. Syncing the desktop's real (multi-GB) model instead fixed the
+*thinking-differently* problem but replaced it with a multi-gigabyte
+transfer and slow phone-side generation.
+
+Dropping it entirely removed: a from-source llama.cpp build on every CI
+run, a git submodule, the whole `cpp/` JNI layer, and roughly half the
+APK size.
+
+Away from home the app now uses your Claude/Gemini keys directly, in
+the persona voice cached from the last time the desktop was reachable.
+Anything said while away still rides along with your next message and
+folds into the desktop's `data/away_session_log.jsonl` (see
+`gremlin_core/away_sync.py`) -- that sync path is unchanged.
+
+If you genuinely need zero-connectivity answers later, the honest
+options are a much smaller purpose-built model or a local llama.cpp
+server on something you carry -- not re-embedding a general model in
+this APK.
+
+## Overlay mode
+
+Settings → "Turn on overlay mode" floats a bubble over other apps. Tap
+it anywhere -- in a browser doing homework, say -- and it captures the
+screen once, OCRs it on-device (ML Kit, bundled model, no network), and
+answers about what's actually on the page. There's also an "Attach"
+button in the main screen for files, PDFs, and images.
 
 **This folder is part of the combined `gremlin` repo, not its own
 separate repo** -- see the root `README.md`'s "Putting this on GitHub"

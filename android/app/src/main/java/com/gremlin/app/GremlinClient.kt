@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import com.gremlin.app.llama.LocalLlama
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -94,10 +93,8 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         val port = prefs.getInt("port", 0)
         val token = prefs.getString("token", null)
 
-        // Network-gated only for the desktop attempt -- chatAway() below
-        // tries the offline on-device model *before* checking for network
-        // at all, since that's the one path meant to keep working with
-        // zero connectivity (airplane mode, a dead zone, etc.).
+        // Skip straight to away-mode when there's clearly no network at
+        // all, rather than waiting out a connect timeout for nothing.
         if (hasAnyNetwork() && host != null && port != 0 && token != null) {
             try {
                 val pending = readPendingSync()
@@ -111,7 +108,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
 
         val result = chatAway(message)
-        if (result.source == "claude" || result.source == "gemini" || result.source == "local") {
+        if (result.source == "claude" || result.source == "gemini") {
             appendPendingSync(message, result.answer, result.source)
         }
         return result
@@ -120,29 +117,9 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     private fun chatAway(message: String): ChatResult {
         val personaPrompt = prefs.getString("cached_persona_prompt", "") ?: ""
 
-        // Offline on-device model first -- it needs no network and no API
-        // key, so it's the only path that actually keeps "talking to
-        // Gremlin" working with zero connectivity. Only tried if the user
-        // downloaded+enabled it in Settings (see LocalModelManager); any
-        // failure here just falls through to the cloud providers below
-        // rather than surfacing a raw error for what's meant to be a
-        // best-effort offline fallback.
-        if (prefs.getBoolean("local_model_enabled", false)) {
-            val modelPath = prefs.getString("local_model_path", null)
-            if (!modelPath.isNullOrBlank() && (LocalLlama.isReady() || LocalLlama.loadModel(modelPath))) {
-                val reply = LocalLlama.generateReply(personaPrompt, message)
-                if (!reply.isNullOrBlank()) {
-                    return ChatResult(reply, "local")
-                }
-            }
-        }
-
         if (!hasAnyNetwork()) {
             return ChatResult(
-                if (prefs.getBoolean("local_model_enabled", false))
-                    "No network connection, and the offline model couldn't answer either."
-                else
-                    "No network connection right now. Enable the offline model in Settings to keep chatting without one.",
+                "No network connection right now, so I can't reach the desktop or fall back to an API.",
                 "no-network",
             )
         }
@@ -172,7 +149,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         return if (anthropicKey.isNullOrBlank() && geminiKey.isNullOrBlank()) {
             ChatResult(
                 "Can't reach the desktop and no API keys are set up. " +
-                "Connect to your home Wi-Fi, add a Claude/Gemini API key, or enable the offline model in Settings.",
+                "Connect to your home Wi-Fi, or add a Claude/Gemini API key in Settings.",
                 "none-configured",
             )
         } else {

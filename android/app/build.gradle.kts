@@ -6,11 +6,11 @@ android {
     namespace = "com.gremlin.app"
     compileSdk = 35
 
-    // Pinned so a local build and the CI runner (android-build.yml)
-    // install the exact same NDK -- "whichever sdkmanager feels like
-    // giving you today" is how native-build mismatches turn into a CI
-    // failure that doesn't reproduce locally.
-    ndkVersion = "27.0.12077973"
+    // No NDK/CMake config here any more: the on-device model was removed
+    // (it duplicated what the desktop already does far better, and cost a
+    // multi-GB download plus a from-source llama.cpp build on every CI
+    // run). This app is pure Kotlin again -- away from home it reaches
+    // Claude/Gemini directly instead.
 
     defaultConfig {
         applicationId = "com.gremlin.app"
@@ -18,28 +18,6 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-
-        // arm64-v8a only -- that's every real phone this app will ever
-        // run on. Skipping x86_64 keeps the from-source llama.cpp build
-        // (see src/main/cpp/CMakeLists.txt) to one ABI instead of two,
-        // which matters a lot for CI build time since there's no
-        // prebuilt llama.cpp Android artifact to depend on instead.
-        ndk {
-            abiFilters += "arm64-v8a"
-        }
-
-        externalNativeBuild {
-            cmake {
-                arguments += "-DCMAKE_BUILD_TYPE=Release"
-            }
-        }
-    }
-
-    externalNativeBuild {
-        cmake {
-            path("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 
     buildTypes {

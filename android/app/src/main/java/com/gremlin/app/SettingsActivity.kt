@@ -20,8 +20,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.gremlin.app.llama.LocalLlama
-import com.gremlin.app.llama.LocalModelManager
 import com.gremlin.app.overlay.OverlayPermissionActivity
 import com.gremlin.app.overlay.OverlayService
 import com.gremlin.app.voice.VoiceOutput
@@ -103,7 +101,6 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
         }
 
-        setUpLocalModelSection(prefs)
         setUpVoiceSection(prefs)
 
         if (host.isNotEmpty()) {
@@ -320,169 +317,6 @@ class SettingsActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Offline on-device model.
-     *
-     * The default and strongly-preferred action here is *syncing the
-     * desktop's actual primary model* rather than downloading some other
-     * model -- an offline model that isn't the same weights doesn't just
-     * run slower, it answers differently, which would mean being away
-     * from home meant talking to a different assistant with the same
-     * name. The small fallback model is offered only when there's no
-     * desktop to clone from, and is labelled as not-the-same-model. */
-    private fun setUpLocalModelSection(prefs: SharedPreferences) {
-        val statusText = findViewById<TextView>(R.id.local_model_status)
-        val progressBar = findViewById<ProgressBar>(R.id.local_model_progress)
-        val downloadButton = findViewById<Button>(R.id.local_model_download_button)
-        val enabledCheckbox = findViewById<CheckBox>(R.id.local_model_enabled_checkbox)
-        val removeButton = findViewById<Button>(R.id.local_model_remove_button)
-
-        // Cached so the button label doesn't have to hit the network on
-        // every refresh() -- refreshed in the background below.
-        var desktopModel: LocalModelManager.DesktopModel? = null
-
-        fun refresh() {
-            val have = LocalModelManager.isDownloaded(applicationContext)
-            val inSync = LocalModelManager.isInSyncWithDesktop(prefs, desktopModel)
-            val paired = !prefs.getString("host", null).isNullOrBlank()
-
-            statusText.text = buildString {
-                append(LocalModelManager.describeLocal(applicationContext, prefs))
-                val d = desktopModel
-                if (d != null) {
-                    append("\nDesktop is running: ${d.name} (${d.sizeBytes / 1_000_000}MB).")
-                    if (have && !inSync) append("\nYour copy is out of date -- sync again to match it.")
-                    else if (inSync) append("\nIn sync.")
-                } else if (paired) {
-                    append("\n(Couldn't reach the desktop to check which model it's running.)")
-                }
-            }
-
-            downloadButton.text = when {
-                desktopModel != null && inSync -> "Re-sync from desktop"
-                desktopModel != null -> "Sync desktop's model to this phone"
-                paired -> "Sync from desktop"
-                else -> "Download small fallback model"
-            }
-            enabledCheckbox.isEnabled = have
-            removeButton.visibility = if (have) View.VISIBLE else View.GONE
-            enabledCheckbox.isChecked = have && prefs.getBoolean(LocalModelManager.KEY_ENABLED, false)
-        }
-        refresh()
-
-        Thread {
-            val info = LocalModelManager.fetchDesktopModelInfo(prefs)
-            runOnUiThread { desktopModel = info; refresh() }
-        }.start()
-
-        fun runSync() {
-            downloadButton.isEnabled = false
-            progressBar.visibility = View.VISIBLE
-            progressBar.progress = 0
-            statusText.text = "Syncing from desktop..."
-            Thread {
-                val result = LocalModelManager.syncFromDesktop(applicationContext, prefs) { done, total ->
-                    runOnUiThread {
-                        if (total > 0) {
-                            progressBar.progress = ((done * 100) / total).toInt()
-                            statusText.text = "Syncing... ${done / 1_000_000}MB / ${total / 1_000_000}MB"
-                        }
-                    }
-                }
-                runOnUiThread {
-                    downloadButton.isEnabled = true
-                    progressBar.visibility = View.GONE
-                    when (result) {
-                        is LocalModelManager.SyncResult.Success ->
-                            Toast.makeText(this, "Synced -- the phone now runs your desktop's model", Toast.LENGTH_LONG).show()
-                        is LocalModelManager.SyncResult.Failure ->
-                            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
-                    }
-                    Thread {
-                        val info = LocalModelManager.fetchDesktopModelInfo(prefs)
-                        runOnUiThread { desktopModel = info; refresh() }
-                    }.start()
-                }
-            }.start()
-        }
-
-        fun runFallbackDownload() {
-            downloadButton.isEnabled = false
-            progressBar.visibility = View.VISIBLE
-            progressBar.progress = 0
-            statusText.text = "Downloading fallback model..."
-            Thread {
-                val ok = LocalModelManager.downloadFallback(applicationContext, prefs) { done, total ->
-                    runOnUiThread {
-                        if (total > 0) {
-                            progressBar.progress = ((done * 100) / total).toInt()
-                            statusText.text = "Downloading... ${done / 1_000_000}MB / ${total / 1_000_000}MB"
-                        }
-                    }
-                }
-                runOnUiThread {
-                    downloadButton.isEnabled = true
-                    progressBar.visibility = View.GONE
-                    Toast.makeText(
-                        this,
-                        if (ok) "Fallback model downloaded (not your desktop's model)" else "Download failed",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    refresh()
-                }
-            }.start()
-        }
-
-        downloadButton.setOnClickListener {
-            val paired = !prefs.getString("host", null).isNullOrBlank()
-            if (!paired) {
-                AlertDialog.Builder(this)
-                    .setTitle("Not paired with a desktop")
-                    .setMessage(
-                        "The point of the offline model is to be a clone of your desktop's, so it thinks " +
-                            "the same way. Without a desktop to copy from, the only option is a much smaller " +
-                            "stand-in model that will NOT answer the same way.\n\nDownload the stand-in anyway?"
-                    )
-                    .setPositiveButton("Download stand-in") { _, _ -> runFallbackDownload() }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-                return@setOnClickListener
-            }
-
-            val d = desktopModel
-            val sizeNote = if (d != null) "about ${d.sizeBytes / 1_000_000}MB" else "several GB"
-            AlertDialog.Builder(this)
-                .setTitle("Sync desktop's model?")
-                .setMessage(
-                    "Copies your desktop's exact model (${d?.name ?: "primary"}, $sizeNote) to this phone over " +
-                        "Wi-Fi, so offline answers match what the desktop would say.\n\n" +
-                        "It resumes if interrupted, so it's safe to stop and restart."
-                )
-                .setPositiveButton("Sync") { _, _ -> runSync() }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        enabledCheckbox.setOnCheckedChangeListener { _, checked ->
-            prefs.edit().putBoolean(LocalModelManager.KEY_ENABLED, checked).apply()
-            if (!checked) {
-                Thread { LocalLlama.unloadModel() }.start()
-            }
-        }
-
-        removeButton.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Remove offline model?")
-                .setMessage("Frees the space back up. You can sync it again anytime.")
-                .setPositiveButton("Remove") { _, _ ->
-                    Thread {
-                        LocalModelManager.delete(applicationContext, prefs)
-                        runOnUiThread { refresh() }
-                    }.start()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-    }
 
     /** Speaks replies aloud via Android's built-in TTS -- see
      * VoiceOutput.kt for the actual speak-on-reply logic (that lives in
