@@ -5,8 +5,9 @@ reachable, and falls back to Claude, then Gemini (using your own API
 keys, entered in Settings) when it's not. Same hologram widget as the
 desktop version.
 
-Pure Kotlin -- no NDK, no native build, no submodules. A plain
-`git clone` is enough.
+Needs `git clone --recurse-submodules` (or `git submodule update --init
+--recursive` after a plain clone) -- `android/llama.cpp` is a pinned
+submodule used by the on-device vision specialist.
 
 ## No on-device model (removed on purpose)
 
@@ -33,6 +34,27 @@ If you genuinely need zero-connectivity answers later, the honest
 options are a much smaller purpose-built model or a local llama.cpp
 server on something you carry -- not re-embedding a general model in
 this APK.
+
+## On-device vision specialist
+
+Settings -> "On-device vision" downloads SmolVLM-256M (~279MB: language
+weights + an `mmproj` projector -- a VLM is two files, and with only the
+weights it loads fine and then silently can't see). Overlay mode and
+attachments then get BOTH readings: ML Kit OCR transcribes text exactly,
+and the vision model describes what OCR structurally can't -- diagrams,
+figures, handwriting, layout. Complementary, not either/or.
+
+This is deliberately a *specialist*, which is why it's worth the native
+build where the removed general model wasn't: it does something the
+desktop's primary cannot do at all, and its output feeds that model
+rather than replacing it.
+
+**Hard 2GB ceiling on anything synced to this phone**, enforced against
+the advertised size before writing, against the running total
+mid-download (a server can omit Content-Length and otherwise stream
+forever), and against free space. The desktop's own vision model
+(Qwen2.5-VL-3B, ~2.8GB) is deliberately above that line -- it belongs on
+the desktop's GPU, and would be unusably slow here.
 
 ## Overlay mode
 

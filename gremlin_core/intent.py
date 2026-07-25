@@ -11,13 +11,13 @@ wrong with my backup script, fix it" just works.
 
 Three deliberate design choices:
 
-1. **Cost nothing on normal chat.** Classifying every message with a
-   model call would make ordinary conversation slower for the sake of
-   the rare action message. So there's a cheap regex pre-filter first:
-   only if a message contains an action-shaped signal (a system noun
-   like "update"/"snapshot"/"reboot", or an imperative aimed at
-   Gremlin itself) does it cost one classification call. Talking about
-   birds never touches the classifier.
+1. **Phrasing never has to be exact.** A handful of unambiguous
+   phrasings short-circuit to an action for free (see _FAST_PATHS), but
+   everything else is judged by the model rather than by a keyword
+   list. That costs one local classification call per message -- a
+   deliberate trade, because a keyword gate meant anything worded
+   unusually silently never got recognized at all, which is the
+   "needs magic words" behavior this module exists to remove.
 
 2. **Never guess destructively.** Read-only actions (update check,
    listing snapshots) just run. Anything that changes the machine

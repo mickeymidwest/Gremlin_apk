@@ -35,6 +35,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # android/llama.cpp is a pinned submodule -- the on-device
+          # vision specialist builds llama.cpp + mtmd from source. Without
+          # this it checks out empty and the native build fails instantly.
+          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -58,8 +63,27 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # Must match app/build.gradle.kts's ndkVersion exactly.
+      - name: Install NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      # llama.cpp + mtmd are compiled from source and dominate build
+      # time. The objects are identical run to run (submodule is pinned),
+      # so caching them means only our own JNI file recompiles.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: android-ndk-mtmd-${{ runner.os }}
+          max-size: 2G
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
+        env:
+          # Via CMAKE_*_COMPILER_LAUNCHER, not PATH: the NDK invokes clang
+          # by absolute path, so a PATH shim is never consulted and the
+          # cache would silently do nothing.
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

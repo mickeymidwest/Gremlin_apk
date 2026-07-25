@@ -20,6 +20,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.gremlin.app.llama.LocalVision
+import com.gremlin.app.llama.VisionModelManager
 import com.gremlin.app.overlay.OverlayPermissionActivity
 import com.gremlin.app.overlay.OverlayService
 import com.gremlin.app.voice.VoiceOutput
@@ -102,6 +104,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         setUpVoiceSection(prefs)
+        setUpVisionSection(prefs)
 
         if (host.isNotEmpty()) {
             loadStatus(host, port, token)
@@ -317,6 +320,76 @@ class SettingsActivity : AppCompatActivity() {
         }.start()
     }
 
+
+
+    /** On-device vision specialist -- see gremlin_core/specialists.py for
+     * why a small focused model beats routing images through a general
+     * one, and android/README.md for why this is NOT the general offline
+     * chat model that was removed. */
+    private fun setUpVisionSection(prefs: SharedPreferences) {
+        val status = findViewById<TextView>(R.id.vision_status)
+        val progress = findViewById<ProgressBar>(R.id.vision_progress)
+        val downloadButton = findViewById<Button>(R.id.vision_download_button)
+        val enabled = findViewById<CheckBox>(R.id.vision_enabled_checkbox)
+        val removeButton = findViewById<Button>(R.id.vision_remove_button)
+
+        fun refresh() {
+            val have = VisionModelManager.isDownloaded(applicationContext)
+            status.text = VisionModelManager.describeLocal(applicationContext)
+            downloadButton.text = if (have) "Re-download vision model" else "Download vision model"
+            enabled.isEnabled = have
+            enabled.isChecked = have && prefs.getBoolean(VisionModelManager.KEY_ENABLED, false)
+            removeButton.visibility = if (have) View.VISIBLE else View.GONE
+        }
+        refresh()
+
+        downloadButton.setOnClickListener {
+            downloadButton.isEnabled = false
+            progress.visibility = View.VISIBLE
+            progress.progress = 0
+            status.text = "Downloading..."
+            Thread {
+                val result = VisionModelManager.download(applicationContext, prefs) { done, total ->
+                    runOnUiThread {
+                        if (total > 0) {
+                            progress.progress = ((done * 100) / total).toInt()
+                            status.text = "Downloading... ${done / 1_000_000}MB / ${total / 1_000_000}MB"
+                        }
+                    }
+                }
+                runOnUiThread {
+                    downloadButton.isEnabled = true
+                    progress.visibility = View.GONE
+                    when (result) {
+                        is VisionModelManager.Result.Success ->
+                            Toast.makeText(this, "Vision model ready", Toast.LENGTH_SHORT).show()
+                        is VisionModelManager.Result.Failure ->
+                            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+                    }
+                    refresh()
+                }
+            }.start()
+        }
+
+        enabled.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean(VisionModelManager.KEY_ENABLED, checked).apply()
+            if (!checked) Thread { LocalVision.unloadModel() }.start()
+        }
+
+        removeButton.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Remove vision model?")
+                .setMessage("Overlay mode and attachments will go back to reading text only.")
+                .setPositiveButton("Remove") { _, _ ->
+                    Thread {
+                        VisionModelManager.delete(applicationContext, prefs)
+                        runOnUiThread { refresh() }
+                    }.start()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
 
     /** Speaks replies aloud via Android's built-in TTS -- see
      * VoiceOutput.kt for the actual speak-on-reply logic (that lives in

@@ -6,11 +6,12 @@ android {
     namespace = "com.gremlin.app"
     compileSdk = 35
 
-    // No NDK/CMake config here any more: the on-device model was removed
-    // (it duplicated what the desktop already does far better, and cost a
-    // multi-GB download plus a from-source llama.cpp build on every CI
-    // run). This app is pure Kotlin again -- away from home it reaches
-    // Claude/Gemini directly instead.
+    // Native build is back, but for a *vision specialist* only -- not the
+    // general offline chat model that was removed (see android/README.md
+    // for why that one wasn't worth its cost). This one does something
+    // the desktop's primary can't do at all: look at a screenshot.
+    // Pinned so a local build and CI install the same NDK.
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.gremlin.app"
@@ -19,13 +20,26 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        // Still needed even though this app has no native code of its
-        // own any more: ML Kit's bundled OCR model ships .so files for
-        // four ABIs (~41MB all told). Without this filter all four get
-        // packaged and the APK is ~49MB instead of ~19MB. arm64-v8a is
-        // every real phone this runs on.
+        // Doubly load-bearing: it keeps our own llama.cpp/mtmd build to
+        // one architecture, AND caps ML Kit's bundled OCR model, which
+        // ships .so files for four ABIs (~41MB). Dropping this filter
+        // once took the APK from 30MB to 49MB. arm64-v8a is every real
+        // phone this runs on.
         ndk {
             abiFilters += "arm64-v8a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments += "-DCMAKE_BUILD_TYPE=Release"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
