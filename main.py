@@ -41,6 +41,12 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     --promote the new .gguf is left on disk untouched; with it, persona.primary_model in
     config/models.yaml is switched to the new version (the old model entry/file are left
     alone either way, so reverting is a one-line config edit).
+  gremlin council [--target=20] [--rounds=3]
+    Gremlin's own primary + 4 consult models propose the specialist network themselves,
+    all required to be uncensored. Every proposed repo is verified against the real
+    Hugging Face API before it counts -- models invent plausible repo names constantly,
+    so proposals are checked, not trusted. Writes a proposal to data/council_roster.json;
+    never edits config/models.yaml or your existing models.
   gremlin specialists              -- list registered specialists (narrow models that
     handle one kind of work, e.g. vision, so the primary keeps its context for reasoning)
   gremlin bench [cases.jsonl] [--judge=NAME]
@@ -81,6 +87,7 @@ from gremlin_core import update_check
 from gremlin_core import research
 from gremlin_core import specialists
 from gremlin_core import bench
+from gremlin_core import council
 from gremlin_core.pressure import PressureLevel
 from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
 
@@ -408,6 +415,30 @@ async def cmd_list(registry: ModelRegistry):
         b = registry.get(name)
         tag = " <- talk to this one" if b.info.kind == "persona" else ""
         print(f"  - {name} ({b.info.kind}) {b.info.notes}{tag}")
+
+
+async def cmd_council(registry: ModelRegistry, router: Router, target: int, rounds: int):
+    """Gremlin's own five models pick the specialist network themselves."""
+    print(f"Convening the council: primary + {len(registry.consult_models())} consult models.")
+    print(f"Target {target} specialists, up to {rounds} rounds, all must be uncensored.")
+    print("Every proposal is checked against the real Hugging Face API -- models invent")
+    print("repo names confidently, so a proposal is not a selection.\n")
+
+    def show(cand):
+        if cand.accepted:
+            mb = cand.smallest_gguf_bytes / 1_000_000
+            print(f"  ACCEPTED  {cand.repo}  ({cand.task_type}, {mb:.0f}MB)")
+        else:
+            print(f"  rejected  {cand.repo}: {cand.rejected_reason}")
+
+    result = await council.convene(router, registry, target=target, rounds=rounds, progress=show)
+    if result.get("error"):
+        print(result["error"])
+        return
+
+    print("\n" + council.roster_summary(result))
+    path = council.write_roster(PROJECT_ROOT, result)
+    print(f"\n(full roster written to {path})")
 
 
 def cmd_specialists(registry: ModelRegistry):
@@ -930,6 +961,16 @@ async def main():
                     print(f"Queued. Run `gremlin research --daemon` to work through it.")
                 else:
                     await cmd_research(registry, router, goal, max_rounds, target, level, constraints)
+        elif cmd == "council":
+            extra = sys.argv[2:]
+            target = council.DEFAULT_TARGET
+            rounds = council.DEFAULT_ROUNDS
+            for a in extra:
+                if a.startswith("--target="):
+                    target = int(a.split("=", 1)[1])
+                elif a.startswith("--rounds="):
+                    rounds = int(a.split("=", 1)[1])
+            await cmd_council(registry, router, target, rounds)
         elif cmd == "specialists":
             cmd_specialists(registry)
         elif cmd == "bench":
