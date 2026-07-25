@@ -55,6 +55,8 @@ from typing import Optional
 
 from gremlin_core.registry import ModelRegistry
 from gremlin_core.router import Router
+from gremlin_core import actions
+from gremlin_core import intent
 from gremlin_core import self_improve
 from gremlin_core import consult
 from gremlin_core import model_scan
@@ -393,9 +395,51 @@ async def cmd_list(registry: ModelRegistry):
         print(f"  - {name} ({b.info.kind}) {b.info.notes}{tag}")
 
 
+async def _handle_cli_action(
+    registry: ModelRegistry,
+    router: Router,
+    message: str,
+    pending_confirmations,
+    key: str,
+) -> Optional[str]:
+    """Mirror of server.py's _handle_possible_action for the terminal.
+
+    Returns the text to print, or None to let the message be handled as
+    ordinary conversation. Both call the same intent/actions modules, so
+    talking to Gremlin in the terminal and talking to it from the phone
+    behave identically -- that's the point."""
+    pending = pending_confirmations.get(key)
+    if pending is not None:
+        if intent.is_negative(message):
+            pending_confirmations.clear(key)
+            return "Alright, left it alone."
+        if intent.is_affirmative(message):
+            pending_confirmations.clear(key)
+            result = await actions.execute(pending, router, registry, PROJECT_ROOT)
+            return result["answer"]
+        pending_confirmations.clear(key)
+
+    detected = await intent.classify(router, "gremlin", message)
+    if detected.is_chat:
+        return None
+
+    prepared, question = actions.prepare(detected, PROJECT_ROOT)
+    if question:
+        return question
+
+    if not prepared.needs_confirmation:
+        result = await actions.execute(prepared, router, registry, PROJECT_ROOT)
+        return result["answer"]
+
+    pending_confirmations.put(key, prepared)
+    return prepared.confirmation_prompt
+
+
 async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
     backend = registry.get(model_name)
     is_persona = backend.info.kind == "persona"
+    pending_confirmations = intent.PendingConfirmations()
+    CONVERSATION_KEY = "cli"
 
     print(f"Chatting with {model_name}. Ctrl+C to quit.\n")
     while True:
@@ -404,6 +448,17 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
         except (KeyboardInterrupt, EOFError):
             print()
             break
+
+        # Same natural-language action routing the phone gets over
+        # /chat -- "check for updates" or "fix my backup script" work
+        # here too, no slash commands (see gremlin_core/intent.py).
+        if is_persona:
+            handled = await _handle_cli_action(
+                registry, router, user_input, pending_confirmations, CONVERSATION_KEY,
+            )
+            if handled is not None:
+                print(f"{model_name}> {handled}\n")
+                continue
 
         if is_persona:
             result = await consult.consult_and_learn(

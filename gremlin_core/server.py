@@ -32,7 +32,9 @@ from flask import Flask, jsonify, request
 
 from .registry import ModelRegistry
 from .router import Router
+from . import actions
 from . import consult
+from . import intent as intent_mod
 from . import away_sync
 from . import eviction
 from . import model_scan
@@ -117,6 +119,11 @@ def create_app(
     app = Flask(__name__)
     config_path = project_root / "config" / "models.yaml"
 
+    # One pending action per paired client, awaiting a plain-English
+    # yes/no -- see gremlin_core/intent.py. Lives for the server's
+    # lifetime, entries expire on their own.
+    pending_confirmations = intent_mod.PendingConfirmations()
+
     def _check_auth() -> Optional[tuple]:
         supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         if not supplied:
@@ -167,6 +174,18 @@ def create_app(
             synced_count = away_sync.append_away_session(str(project_root), pending_sync)
 
         gremlin_backend = registry.get("gremlin")
+
+        # Natural-language actions: "check for updates", "fix my backup
+        # script", "reboot the desktop" all arrive on this same /chat
+        # route as ordinary messages -- there is no separate command
+        # channel any more (see gremlin_core/intent.py). Anything that
+        # isn't an action falls straight through to the normal consult
+        # path below, at zero added cost.
+        action_result = _handle_possible_action(message)
+        if action_result is not None:
+            action_result["synced_count"] = synced_count
+            return jsonify(action_result)
+
         result = run_coro(
             loop,
             consult.consult_and_learn(
@@ -177,6 +196,68 @@ def create_app(
         )
         result["synced_count"] = synced_count
         return jsonify(result)
+
+    def _chat_reply(answer: str, action: str = "chat", ok: bool = True) -> dict:
+        """Same shape /chat already returns, so the phone renders an
+        action result and an ordinary answer through one code path."""
+        return {
+            "answer": answer,
+            "consulted": False,
+            "from_memory": False,
+            "contributors": [],
+            "action": action,
+            "action_ok": ok,
+        }
+
+    def _handle_possible_action(message: str) -> Optional[dict]:
+        """Returns a response dict if this message was (or completed) an
+        action, or None to let it be handled as ordinary conversation.
+
+        Conversation key is the auth token: this is a single-user
+        system, so one paired client is one conversation, and a "yes"
+        can only ever confirm that client's own most recent proposal."""
+        key = request.headers.get("Authorization", "") or "default"
+
+        pending = pending_confirmations.get(key)
+        if pending is not None:
+            if intent_mod.is_negative(message):
+                pending_confirmations.clear(key)
+                return _chat_reply("Alright, left it alone.")
+            if intent_mod.is_affirmative(message):
+                pending_confirmations.clear(key)
+                result = run_coro(
+                    loop,
+                    actions.execute(pending, router, registry, str(project_root)),
+                    timeout=900.0,
+                )
+                return _chat_reply(result["answer"], result["action"], result["ok"])
+            # Neither yes nor no -- treat it as a new message entirely
+            # and drop the stale proposal, rather than half-remembering
+            # something the user has clearly moved on from.
+            pending_confirmations.clear(key)
+
+        detected = run_coro(
+            loop,
+            intent_mod.classify(router, "gremlin", message),
+            timeout=90.0,
+        )
+        if detected.is_chat:
+            return None
+
+        prepared, question = actions.prepare(detected, str(project_root))
+        if question:
+            return _chat_reply(question, prepared.action, ok=False)
+
+        if not prepared.needs_confirmation:
+            result = run_coro(
+                loop,
+                actions.execute(prepared, router, registry, str(project_root)),
+                timeout=900.0,
+            )
+            return _chat_reply(result["answer"], result["action"], result["ok"])
+
+        pending_confirmations.put(key, prepared)
+        return _chat_reply(prepared.confirmation_prompt, prepared.action)
 
     @app.route("/update-check", methods=["GET"])
     def update_check_route():
