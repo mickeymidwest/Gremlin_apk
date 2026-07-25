@@ -18,6 +18,15 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+
+        // Still needed even though this app has no native code of its
+        // own any more: ML Kit's bundled OCR model ships .so files for
+        // four ABIs (~41MB all told). Without this filter all four get
+        // packaged and the APK is ~49MB instead of ~19MB. arm64-v8a is
+        // every real phone this runs on.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildTypes {
