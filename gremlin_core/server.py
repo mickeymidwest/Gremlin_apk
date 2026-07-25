@@ -254,7 +254,25 @@ def create_app(
                 actions.execute(prepared, router, registry, str(project_root)),
                 timeout=900.0,
             )
-            return _chat_reply(result["answer"], result["action"], result["ok"])
+            answer = result["answer"]
+
+            # update_check is read-only and runs immediately, but finding
+            # real pending updates is exactly the point where "check for
+            # updates" and "update my computer" should converge -- chain
+            # a follow-up confirmation for the actual install rather than
+            # making the user ask again in different words.
+            if prepared.action == "update_check" and result.get("ok") and result.get("pending_updates"):
+                apply_intent = intent_mod.Intent(
+                    action="apply_updates",
+                    args={"pending": result["pending_updates"]},
+                    confidence=1.0,
+                    needs_confirmation=True,
+                )
+                apply_intent.confirmation_prompt = intent_mod._confirmation_text(apply_intent, "")
+                pending_confirmations.put(key, apply_intent)
+                answer = f"{answer}\n\n{apply_intent.confirmation_prompt}"
+
+            return _chat_reply(answer, result["action"], result["ok"])
 
         pending_confirmations.put(key, prepared)
         return _chat_reply(prepared.confirmation_prompt, prepared.action)

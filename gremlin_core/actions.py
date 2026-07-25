@@ -57,7 +57,30 @@ async def execute(
         result = update_check.run_check()
         if not result.get("ok"):
             return {"answer": result.get("error", "Couldn't check updates."), "action": action, "ok": False}
-        return {"answer": result.get("summary", ""), "action": action, "ok": True}
+        return {
+            "answer": result.get("summary", ""),
+            "action": action,
+            "ok": True,
+            # Server.py reads this to decide whether to chain a follow-up
+            # "want me to actually install these?" confirmation -- see
+            # _handle_possible_action. Empty when nothing's pending, so
+            # that chaining only happens when there's something to apply.
+            "pending_updates": result.get("pending", []),
+        }
+
+    if action == "apply_updates":
+        # checkupdates (used by update_check) never touches the real
+        # pacman database -- this is the one place that actually changes
+        # anything, hence why it's a separate mutating action requiring
+        # its own confirmation rather than update_check just doing this
+        # itself. --noconfirm is required, not optional: pacman's own
+        # "Proceed? [Y/n]" prompt has no way to be answered through a
+        # non-interactive pipe (same reasoning as the rest of this
+        # project's admin commands).
+        result = await root_exec.run_as_root("pacman -Syu --noconfirm", project_root, timeout=1800)
+        if result.ok:
+            return {"answer": f"Updated.\n\n{_fmt_exec(result)}", "action": action, "ok": True}
+        return {"answer": f"Update failed: {_fmt_exec(result)}", "action": action, "ok": False}
 
     if action == "snapshots":
         ok, result = await snapshots.list_snapshots(project_root)

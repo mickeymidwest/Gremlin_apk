@@ -614,7 +614,24 @@ async def _handle_cli_action(
 
     if not prepared.needs_confirmation:
         result = await actions.execute(prepared, router, registry, PROJECT_ROOT)
-        return result["answer"]
+        answer = result["answer"]
+
+        # Same chaining as server.py's _handle_possible_action: finding
+        # real pending updates converges "check for updates" and "update
+        # my computer" into one flow instead of needing a second,
+        # differently-worded request.
+        if prepared.action == "update_check" and result.get("ok") and result.get("pending_updates"):
+            apply_intent = intent.Intent(
+                action="apply_updates",
+                args={"pending": result["pending_updates"]},
+                confidence=1.0,
+                needs_confirmation=True,
+            )
+            apply_intent.confirmation_prompt = intent._confirmation_text(apply_intent, "")
+            pending_confirmations.put(key, apply_intent)
+            answer = f"{answer}\n\n{apply_intent.confirmation_prompt}"
+
+        return answer
 
     pending_confirmations.put(key, prepared)
     return prepared.confirmation_prompt

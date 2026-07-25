@@ -53,7 +53,13 @@ from .router import Router
 
 # Read-only actions run immediately. Mutating ones always confirm first.
 READ_ONLY_ACTIONS = {"update_check", "snapshots", "run_command_read", "find_file"}
-MUTATING_ACTIONS = {"self_edit", "script_fix", "run_command", "rollback", "reboot"}
+# apply_updates is deliberately NOT something the classifier ever outputs
+# directly -- it only ever gets synthesized by server.py as a chained
+# follow-up once update_check has actually found pending packages (see
+# _handle_possible_action). That's what lets "check for updates" and
+# "update my computer" both naturally lead to the same real update
+# without the classifier needing to guess which one the user meant.
+MUTATING_ACTIONS = {"self_edit", "script_fix", "run_command", "rollback", "reboot", "apply_updates"}
 ALL_ACTIONS = READ_ONLY_ACTIONS | MUTATING_ACTIONS | {"chat"}
 
 # Directly-answerable without any model call at all -- unambiguous
@@ -222,6 +228,14 @@ def _confirmation_text(intent: Intent, original_message: str) -> str:
         )
     if intent.action == "run_command":
         return f"I'd run this on the desktop:\n\n    {a.get('command', '')}\n\nWant me to go ahead?"
+    if intent.action == "apply_updates":
+        pkgs = a.get("pending") or []
+        shown = ", ".join(pkgs[:6]) + ("..." if len(pkgs) > 6 else "")
+        listed = f" ({shown})" if shown else ""
+        return (
+            f"Want me to go ahead and install {len(pkgs)} pending update(s){listed}? "
+            "This actually changes the system -- not something a snapshot rollback undoes instantly."
+        )
     return "Want me to go ahead?"
 
 
