@@ -41,6 +41,17 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     --promote the new .gguf is left on disk untouched; with it, persona.primary_model in
     config/models.yaml is switched to the new version (the old model entry/file are left
     alone either way, so reverting is a one-line config edit).
+  gremlin specialists              -- list registered specialists (narrow models that
+    handle one kind of work, e.g. vision, so the primary keeps its context for reasoning)
+  gremlin bench [cases.jsonl] [--judge=NAME]
+    Measures whether specialist routing actually beats the primary alone, on the same
+    tasks, judged blind by a model that isn't competing, with the order swapped per case.
+    Reports mean scores AND wall time -- a pipeline that wins by 3 points at 4x the time
+    is usually a bad trade, and that only shows up if it's measured. Defaults to
+    data/bench_cases.jsonl.
+  gremlin research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]
+    Generate -> adversarial critique -> refine, until the score stops improving.
+    Also: --queue (add to the background queue), --daemon (work it continuously), --status.
   gremlin update-check             -- checks pending pacman updates (via checkupdates,
     never modifies anything) against Manjaro's own forum "Stable Update" thread for known
     issues affecting those specific packages. Advisory only -- never runs the actual
@@ -68,6 +79,8 @@ from gremlin_core import snapshots as snapshots_mod
 from gremlin_core import finetune
 from gremlin_core import update_check
 from gremlin_core import research
+from gremlin_core import specialists
+from gremlin_core import bench
 from gremlin_core.pressure import PressureLevel
 from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
 
@@ -395,6 +408,70 @@ async def cmd_list(registry: ModelRegistry):
         b = registry.get(name)
         tag = " <- talk to this one" if b.info.kind == "persona" else ""
         print(f"  - {name} ({b.info.kind}) {b.info.notes}{tag}")
+
+
+def cmd_specialists(registry: ModelRegistry):
+    sr = specialists.SpecialistRegistry.from_config(registry.raw_config)
+    entries = sr.all()
+    if not entries:
+        print("No specialists registered.")
+        print("Add a `specialists:` block to config/models.yaml -- see the commented example there.")
+        return
+
+    print("Registered specialists (lower priority number runs first):\n")
+    for s in sorted(entries, key=lambda x: (x.task_types[0].value, x.priority)):
+        try:
+            registry.get(s.name)
+            status = "ok"
+        except Exception:
+            status = "MISSING from models: -- this specialist will be skipped"
+        types = ", ".join(t.value for t in s.task_types)
+        print(f"  {s.name:24} [{types}]  mode={s.mode.value}  priority={s.priority}  {status}")
+        if s.notes:
+            print(f"    {s.notes}")
+
+    print("\nTask types with no specialist go straight to the primary, as before.")
+
+
+async def cmd_bench(registry: ModelRegistry, router: Router, cases_path: str, judge: Optional[str]):
+    sr = specialists.SpecialistRegistry.from_config(registry.raw_config)
+    if not sr.all():
+        print("No specialists registered -- there's nothing to compare against the primary.")
+        return
+
+    cases = bench.load_cases(cases_path)
+    if not cases:
+        print(f"No usable cases in {cases_path}.")
+        print('Format: one JSON object per line, e.g.')
+        print('  {"prompt": "explain this diagram", "task_type": "vision", "images": ["/path/shot.png"]}')
+        return
+
+    print(f"Benchmarking {len(cases)} case(s): specialist routing vs the primary alone.")
+    print("Answers are judged blind, by a model that isn't competing, with the order swapped per case.\n")
+
+    def show(cr: bench.CaseResult):
+        if cr.error:
+            print(f"  {cr.prompt[:48]:50} ERROR: {cr.error}")
+            return
+        arrow = "routed" if cr.delta > 2 else ("primary" if cr.delta < -2 else "tie")
+        via = f" via {cr.specialist_used}" if cr.specialist_used else " (no specialist)"
+        print(
+            f"  {cr.prompt[:48]:50} routed {cr.routed_score:5.1f} vs primary {cr.primary_score:5.1f}"
+            f"  -> {arrow}{via}"
+        )
+
+    try:
+        report = await bench.run_bench(router, registry, sr, cases, judge_name=judge, progress=show)
+    except ValueError as e:
+        print(f"Can't run: {e}")
+        return
+
+    print(f"\nJudge: {report.judge}   Primary: {report.primary}")
+    print(f"Mean score -- routed {report.routed_mean:.1f} / primary {report.primary_mean:.1f}")
+    print(f"Wall time  -- routed {report.routed_total_seconds:.0f}s / primary {report.primary_total_seconds:.0f}s")
+    print(f"\n{report.verdict()}")
+    path = bench.record_report(PROJECT_ROOT, report)
+    print(f"(saved to {path})")
 
 
 async def cmd_research(
@@ -853,6 +930,17 @@ async def main():
                     print(f"Queued. Run `gremlin research --daemon` to work through it.")
                 else:
                     await cmd_research(registry, router, goal, max_rounds, target, level, constraints)
+        elif cmd == "specialists":
+            cmd_specialists(registry)
+        elif cmd == "bench":
+            extra = sys.argv[2:]
+            positional = [a for a in extra if not a.startswith("--")]
+            cases_path = positional[0] if positional else "data/bench_cases.jsonl"
+            judge = None
+            for a in extra:
+                if a.startswith("--judge="):
+                    judge = a.split("=", 1)[1]
+            await cmd_bench(registry, router, cases_path, judge)
         elif cmd == "auto-fix":
             await cmd_auto_fix(registry, router)
         elif cmd == "edit":

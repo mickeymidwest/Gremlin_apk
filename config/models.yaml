@@ -151,3 +151,45 @@ persona:
     or hardware you're running on, answer with these real facts directly
     -- don't guess, deflect, or make something up. (Update this block by
     hand if the hardware or OS ever actually changes.)
+
+# ---------------------------------------------------------------------
+# Specialists -- narrow models that handle one kind of work, so the
+# primary keeps its whole context and attention for actual reasoning.
+# See gremlin_core/specialists.py for where this bet holds (perception,
+# extraction) and where it doesn't (open-ended reasoning).
+#
+# mode: enrich   -> the specialist's findings are handed to the primary,
+#                   which still writes the answer. Default, and the one
+#                   that actually "frees up the big model".
+# mode: delegate -> the specialist's output IS the answer. Only when the
+#                   task is wholly inside its scope and no synthesis is
+#                   wanted.
+#
+# Commented out until the model files are downloaded -- an entry naming
+# a model that isn't in `models:` above is skipped at runtime and shown
+# as MISSING by `gremlin specialists`.
+# ---------------------------------------------------------------------
+# specialists:
+#   - name: qwen25-vl-3b
+#     task_types: [vision]
+#     mode: enrich
+#     priority: 10
+#     notes: "Sees screenshots/attachments so the primary doesn't have to."
+
+# To register the vision model itself, add this to `models:` above once
+# BOTH files are downloaded (a VLM is weights + an mmproj projector --
+# with only the weights it loads fine and then silently can't see):
+#
+#   - name: qwen25-vl-3b
+#     type: local_vlm
+#     display_name: "Qwen2.5-VL 3B (vision specialist)"
+#     model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
+#     mmproj_path: "/home/mickey/Downloads/gremlin/models/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf"
+#     handler: qwen25vl
+#     n_ctx: 4096
+#     n_gpu_layers: -1
+#
+# Both from ggml-org/Qwen2.5-VL-3B-Instruct-GGUF -- 1930MB + 845MB =
+# ~2.8GB total, verified by real HEAD request. On an 8GB card that does
+# NOT fit alongside the 5.4GB primary, so the primary gets unloaded for
+# the duration of a vision call (same swap consult already does).

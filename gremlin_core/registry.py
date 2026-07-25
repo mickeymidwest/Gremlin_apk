@@ -4,6 +4,7 @@ from typing import Dict, Optional
 
 from .backends.base import ModelBackend, ModelInfo
 from .backends.llamacpp_backend import LlamaCppBackend
+from .backends.vision_backend import VisionBackend
 from .backends.anthropic_backend import AnthropicBackend
 from .backends.openai_backend import OpenAIBackend
 from .backends.gemini_backend import GeminiBackend
@@ -18,6 +19,7 @@ class ModelRegistry:
     """
 
     def __init__(self):
+        self.raw_config: dict = {}
         self.backends: Dict[str, ModelBackend] = {}
 
     @classmethod
@@ -25,6 +27,10 @@ class ModelRegistry:
         reg = cls()
         with open(path, "r") as f:
             cfg = yaml.safe_load(f) or {}
+        # Kept so callers can read config blocks this class doesn't model
+        # itself (e.g. `specialists:` -- see gremlin_core/specialists.py)
+        # without re-reading and re-parsing the same file.
+        reg.raw_config = cfg
 
         for entry in cfg.get("models", []):
             name = entry["name"]
@@ -42,6 +48,19 @@ class ModelRegistry:
                     n_ctx=entry.get("n_ctx", 4096),
                     n_gpu_layers=entry.get("n_gpu_layers", -1),
                     chat_format=entry.get("chat_format", "chatml"),
+                )
+            elif entry["type"] == "local_vlm":
+                # A vision-language model: two files, weights + mmproj
+                # projector. Missing mmproj means a model that loads fine
+                # and then silently can't see, so it's required here
+                # rather than defaulted.
+                backend = VisionBackend(
+                    info,
+                    model_path=entry["model_path"],
+                    mmproj_path=entry["mmproj_path"],
+                    handler=entry.get("handler", "qwen25vl"),
+                    n_ctx=entry.get("n_ctx", 4096),
+                    n_gpu_layers=entry.get("n_gpu_layers", -1),
                 )
             elif entry["type"] == "anthropic":
                 backend = AnthropicBackend(
