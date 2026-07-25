@@ -163,25 +163,39 @@ async def execute(
 
 
 def prepare(intent: Intent, project_root: str) -> tuple[Intent, Optional[str]]:
-    """Fill in anything the intent needs before it can run or be confirmed.
+    """Fill in anything the intent needs before it can run or be confirmed,
+    or catch something that looks like a bad guess before it ever reaches
+    a confirmation prompt. Returns (intent, blocking_question) -- a
+    non-None question means we can't proceed and should ask instead of
+    guessing, which is the whole safety story for "fix my script" with
+    no path given, and for a command that looks incomplete."""
+    if intent.action == "script_fix":
+        resolved, candidates = intent_mod.resolve_file_argument(intent, project_root=project_root)
+        if resolved:
+            intent.args["resolved_path"] = resolved
+            # Rebuild the confirmation text now that we know the real path.
+            intent.confirmation_prompt = intent_mod._confirmation_text(intent, "")
+            return intent, None
 
-    Right now that means resolving a fuzzy file description into a real
-    path. Returns (intent, blocking_question) -- a non-None question
-    means we can't proceed and should ask instead of guessing, which is
-    the whole safety story for "fix my script" with no path given."""
-    if intent.action != "script_fix":
-        return intent, None
+        hint = intent.args.get("file_hint") or "that"
+        if not candidates:
+            return intent, f"I couldn't find anything matching \"{hint}\". What's the full path?"
 
-    resolved, candidates = intent_mod.resolve_file_argument(intent, project_root=project_root)
-    if resolved:
-        intent.args["resolved_path"] = resolved
-        # Rebuild the confirmation text now that we know the real path.
-        intent.confirmation_prompt = intent_mod._confirmation_text(intent, "")
-        return intent, None
+        listed = "\n".join(f"  - {c}" for c in candidates[:5])
+        return intent, f"I found a few things matching \"{hint}\" -- which one?\n{listed}"
 
-    hint = intent.args.get("file_hint") or "that"
-    if not candidates:
-        return intent, f"I couldn't find anything matching \"{hint}\". What's the full path?"
+    if intent.action == "run_command":
+        # A bare single word (e.g. "docker", "nginx") with no verb/flags
+        # is almost never a real, useful command on its own -- it's what
+        # the classifier lands on when it can't actually figure out what
+        # you meant. Better to ask than to confirm-and-run something that
+        # does nothing. Multi-word commands (systemctl restart docker,
+        # df -h, docker ps) pass through untouched.
+        command = str(intent.args.get("command") or "").strip()
+        if command and len(command.split()) == 1:
+            return intent, (
+                f"I'm not sure what exactly to run for \"{command}\" -- what's the actual command? "
+                f"(e.g. `systemctl restart {command}`, `{command} ps`, something else?)"
+            )
 
-    listed = "\n".join(f"  - {c}" for c in candidates[:5])
-    return intent, f"I found a few things matching \"{hint}\" -- which one?\n{listed}"
+    return intent, None
