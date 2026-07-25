@@ -56,30 +56,6 @@ READ_ONLY_ACTIONS = {"update_check", "snapshots", "run_command_read", "find_file
 MUTATING_ACTIONS = {"self_edit", "script_fix", "run_command", "rollback", "reboot"}
 ALL_ACTIONS = READ_ONLY_ACTIONS | MUTATING_ACTIONS | {"chat"}
 
-# Words that make a message *possibly* an action request. This is a
-# recall-oriented filter, not precision -- a false positive here just
-# costs one classification call, a false negative means the feature
-# silently doesn't work, so it errs toward matching.
-_TRIGGER_PATTERN = re.compile(
-    r"""\b(
-        update|updates|upgrade|patch(es)?|pacman|package
-      | reboot|restart|shut\s*down
-      | snapshot|snapshots|roll\s*back|rollback|revert|restore
-      | fix|broken|bug|error|failing|crash(ing|ed)?|repair
-      | install|uninstall|remove
-      | run|execute|launch|start|stop|kill
-      | disk|memory|ram|cpu|df|uptime|process(es)?|service|systemctl
-      | (add|give|build|make|write|teach|learn|wire)\b[^.?!]{0,60}?\bto\s+(you|yourself|your\s+own)\b
-      | teach\s+yourself|improve\s+yourself|edit\s+yourself|change\s+yourself|update\s+yourself
-      | you\s+should\s+(be\s+able\s+to|have|support|know\s+how)
-      | can\s+you\s+(learn|add|support|handle)
-      | your\s+(own\s+)?(code|source|self)
-      | script|\.sh\b|\.py\b|\.conf\b|\.yaml\b|\.yml\b
-      | check\s+(for|the|my|if)
-    )\b""",
-    re.IGNORECASE | re.VERBOSE,
-)
-
 # Directly-answerable without any model call at all -- unambiguous
 # enough that spending a classification call on them is pure waste.
 _FAST_PATHS: list[tuple[re.Pattern, str]] = [
@@ -123,15 +99,6 @@ class Intent:
     @property
     def is_chat(self) -> bool:
         return self.action == "chat"
-
-
-def looks_like_action(message: str) -> bool:
-    """Cheap pre-filter: is it even worth asking the model to classify?
-
-    Deliberately generous -- a false positive costs one fast local call,
-    a false negative means "hey reboot the desktop" silently gets
-    answered as conversation."""
-    return bool(_TRIGGER_PATTERN.search(message or ""))
 
 
 def fast_path(message: str) -> Optional[str]:
@@ -183,12 +150,21 @@ def _parse_classification(raw: str) -> Optional[Intent]:
 async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6) -> Intent:
     """Decide what the user actually wants.
 
-    Order matters: fast path (free) -> pre-filter (free) -> model call
-    (only for messages that plausibly want something done). Anything the
-    model isn't confident about falls back to plain chat, because the
-    cost of misrouting a conversation into a system action is much
-    higher than the cost of answering an action request conversationally
-    (the user can just rephrase)."""
+    Order: fast path (free, unambiguous phrasings skip the model call
+    entirely) -> model call for everything else. There used to be a
+    regex pre-filter here (looks_like_action()) that skipped the model
+    call entirely unless the message contained a specific trigger word
+    -- cheaper, but it meant "what OS is this" or anything phrased
+    without one of those words silently never got classified at all,
+    which is exactly the "needs magic words to work" behavior this
+    module was supposed to avoid. Every non-fast-path message now
+    actually gets judged by the model, the same way a real assistant
+    would rather than a keyword filter. Anything the model isn't
+    confident about still falls back to plain chat, because the cost of
+    misrouting a conversation into a system action is much higher than
+    the cost of answering an action request conversationally (the user
+    can just rephrase) -- that safety net is untouched, only the free
+    pre-filter in front of it is gone."""
     text = (message or "").strip()
     if not text:
         return Intent(action="chat", confidence=1.0)
@@ -196,9 +172,6 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
     quick = fast_path(text)
     if quick:
         return _finalize(Intent(action=quick, args={}, confidence=1.0), text)
-
-    if not looks_like_action(text):
-        return Intent(action="chat", confidence=1.0)
 
     try:
         result = await router.route(model_name, _CLASSIFY_PROMPT + text)
