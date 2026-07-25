@@ -28,8 +28,8 @@ import android.widget.Toast
 import com.gremlin.app.GremlinClient
 import com.gremlin.app.MainActivity
 import com.gremlin.app.R
-import com.gremlin.app.llama.LocalVision
-import com.gremlin.app.llama.VisionModelManager
+import com.gremlin.app.llama.LocalModel
+import com.gremlin.app.llama.OfflineModelManager
 import kotlin.math.abs
 
 /**
@@ -295,7 +295,7 @@ class OverlayService : Service() {
                 // model is present both go to Gremlin rather than one
                 // replacing the other.
                 val visionText = if (frame != null && visionAvailable()) {
-                    LocalVision.describe(
+                    LocalModel.describe(
                         frame,
                         prompt = "Describe this screen for someone who can't see it: layout, diagrams, " +
                             "figures, and anything a plain text extraction would miss.",
@@ -321,13 +321,16 @@ class OverlayService : Service() {
         }
     }
 
+    /** The offline model can only *see* if the mmproj projector synced
+     * too -- weights alone chat fine and silently can't look at anything. */
     private fun visionAvailable(): Boolean {
         val prefs = getSharedPreferences("gremlin_prefs", MODE_PRIVATE)
-        if (!prefs.getBoolean(VisionModelManager.KEY_ENABLED, false)) return false
-        if (LocalVision.isReady()) return true
-        val model = prefs.getString(VisionModelManager.KEY_MODEL_PATH, null) ?: return false
-        val mmproj = prefs.getString(VisionModelManager.KEY_MMPROJ_PATH, null) ?: return false
-        return LocalVision.loadModel(model, mmproj)
+        if (!prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false)) return false
+        if (!OfflineModelManager.hasVision(this)) return false
+        if (LocalModel.isReady()) return true
+        val weights = prefs.getString(OfflineModelManager.KEY_WEIGHTS, null) ?: return false
+        val mmproj = prefs.getString(OfflineModelManager.KEY_MMPROJ, null) ?: return false
+        return LocalModel.loadModel(weights, mmproj)
     }
 
     private fun buildPrompt(question: String, screenText: String, visionText: String?): String {

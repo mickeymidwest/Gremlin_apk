@@ -7,8 +7,8 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
-import com.gremlin.app.llama.LocalVision
-import com.gremlin.app.llama.VisionModelManager
+import com.gremlin.app.llama.LocalModel
+import com.gremlin.app.llama.OfflineModelManager
 import com.gremlin.app.overlay.ScreenReader
 import java.io.File
 import java.io.FileOutputStream
@@ -107,11 +107,12 @@ object Attachments {
     /** True only if the vision model is downloaded, enabled, and loads. */
     private fun visionAvailable(context: Context): Boolean {
         val prefs = context.getSharedPreferences("gremlin_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(VisionModelManager.KEY_ENABLED, false)) return false
-        if (LocalVision.isReady()) return true
-        val model = prefs.getString(VisionModelManager.KEY_MODEL_PATH, null) ?: return false
-        val mmproj = prefs.getString(VisionModelManager.KEY_MMPROJ_PATH, null) ?: return false
-        return LocalVision.loadModel(model, mmproj)
+        if (!prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false)) return false
+        if (!OfflineModelManager.hasVision(context)) return false
+        if (LocalModel.isReady()) return true
+        val weights = prefs.getString(OfflineModelManager.KEY_WEIGHTS, null) ?: return false
+        val mmproj = prefs.getString(OfflineModelManager.KEY_MMPROJ, null) ?: return false
+        return LocalModel.loadModel(weights, mmproj)
     }
 
     private fun readImage(context: Context, uri: Uri): String {
@@ -125,7 +126,7 @@ object Attachments {
             // spatial layout. Complementary, so use both when available.
             val text = ScreenReader.extractText(bitmap)
             val described = if (visionAvailable(context)) {
-                LocalVision.describe(
+                LocalModel.describe(
                     bitmap,
                     prompt = "Describe this image for someone who can't see it, including any " +
                         "diagrams, figures, or handwriting. Transcribe text exactly.",

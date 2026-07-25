@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
-project("gremlin-vision")
+project("gremlin-model")
 
 # llama.cpp lives at android/llama.cpp (git submodule, pinned -- see
 # ../../../../.gitmodules). Path is relative to this file:
@@ -56,15 +56,15 @@ set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/llama.cpp)
 
-add_library(gremlin-vision SHARED gremlin_vision.cpp)
+add_library(gremlin-model SHARED gremlin_model.cpp)
 
-target_include_directories(gremlin-vision PRIVATE
+target_include_directories(gremlin-model PRIVATE
     ${LLAMA_ROOT}/include
     ${LLAMA_ROOT}/ggml/include
     ${LLAMA_ROOT}/tools/mtmd
 )
 
-target_compile_features(gremlin-vision PRIVATE cxx_std_17)
+target_compile_features(gremlin-model PRIVATE cxx_std_17)
 
 # Deliberately NOT linking llama.cpp's common library. Two reasons, and
 # CI caught the first: the target is called `llama-common`, not `common`
@@ -73,7 +73,7 @@ target_compile_features(gremlin-vision PRIVATE cxx_std_17)
 # itself links what it needs (ggml, llama, Threads), so there's nothing
 # to inherit either. Linking a library we don't use would just be a
 # rename waiting to break again.
-target_link_libraries(gremlin-vision
+target_link_libraries(gremlin-model
     mtmd
     llama
     ggml

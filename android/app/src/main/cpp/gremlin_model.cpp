@@ -1,15 +1,24 @@
-// JNI bridge for on-device vision (SmolVLM via llama.cpp's mtmd layer).
+// JNI bridge for the phone's single offline model (a VLM, via
+// llama.cpp's mtmd layer).
 //
-// Scope is deliberately narrow: load a vision model, hand it one image
-// plus a prompt, get text back. No chat history, no streaming, no audio.
-// This is a *specialist* -- it describes what it sees so the general
-// model can reason about it (see gremlin_core/specialists.py for why
-// that split is the whole point). Keeping it to one function means far
-// less native surface area to get wrong, and native bugs here are
-// process-killing crashes rather than exceptions.
+// One model, both jobs. A vision-language model IS a language model, so
+// the same weights that describe a screenshot also answer a plain
+// question -- there is no reason to ship two. That collapse is why this
+// file has exactly ONE generate entry point with the image made
+// optional, rather than separate chat and vision paths that would drift
+// apart and double the native surface area.
+//
+// Passing zero bitmaps to mtmd_tokenize yields text-only chunks, which
+// mtmd_helper_eval_chunks evaluates through plain llama_decode. So the
+// text path is not a second implementation -- it is the same pipeline
+// with nothing to encode.
+//
+// No chat history and no streaming, deliberately: native bugs here are
+// process-killing crashes rather than exceptions, so the surface stays
+// small.
 //
 // Threading: every entry point is called from one dedicated Kotlin
-// thread (see LocalVision.kt), and mtmd_helper_eval_chunks is explicitly
+// thread (see LocalModel.kt), and mtmd_helper_eval_chunks is explicitly
 // documented as NOT thread-safe, so there is no locking here -- the
 // single-threaded contract is enforced on the Kotlin side instead.
 
@@ -23,7 +32,7 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 
-#define LOG_TAG "gremlin-vision"
+#define LOG_TAG "gremlin-model"
 #define LOGi(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
 #define LOGe(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -33,7 +42,7 @@ static mtmd_context  * g_mtmd    = nullptr;
 static bool            g_backend_ready = false;
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_gremlin_app_llama_LocalVision_nativeInit(JNIEnv *, jobject) {
+Java_com_gremlin_app_llama_LocalModel_nativeInit(JNIEnv *, jobject) {
     if (!g_backend_ready) {
         llama_backend_init();
         g_backend_ready = true;
@@ -47,7 +56,7 @@ static void unload_all() {
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_gremlin_app_llama_LocalVision_nativeLoad(
+Java_com_gremlin_app_llama_LocalModel_nativeLoad(
         JNIEnv *env, jobject, jstring model_path, jstring mmproj_path, jint n_threads) {
     unload_all();
 
@@ -105,15 +114,16 @@ Java_com_gremlin_app_llama_LocalVision_nativeLoad(
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_gremlin_app_llama_LocalVision_nativeIsReady(JNIEnv *, jobject) {
+Java_com_gremlin_app_llama_LocalModel_nativeIsReady(JNIEnv *, jobject) {
     return (g_model && g_ctx && g_mtmd) ? JNI_TRUE : JNI_FALSE;
 }
 
-// rgb must be tightly packed RGB888, length == width*height*3.
-// Kotlin does the ARGB_8888 -> RGB conversion (see LocalVision.kt) since
-// doing it there avoids a second copy of a multi-megabyte screenshot.
+// One entry point for both jobs. `rgb` may be null for a text-only
+// turn; when present it must be tightly packed RGB888 of length
+// width*height*3. Kotlin does the ARGB_8888 -> RGB conversion (see
+// LocalModel.kt) to avoid a second copy of a multi-megabyte screenshot.
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_gremlin_app_llama_LocalVision_nativeDescribe(
+Java_com_gremlin_app_llama_LocalModel_nativeGenerate(
         JNIEnv *env, jobject,
         jbyteArray rgb, jint width, jint height,
         jstring prompt, jint max_tokens) {
@@ -122,13 +132,17 @@ Java_com_gremlin_app_llama_LocalVision_nativeDescribe(
         return env->NewStringUTF("");
     }
 
-    const jsize expected = (jsize) width * height * 3;
-    if (env->GetArrayLength(rgb) != expected) {
-        LOGe("bad rgb buffer: got %d, expected %d", env->GetArrayLength(rgb), expected);
-        return env->NewStringUTF("");
+    const bool has_image = (rgb != nullptr) && width > 0 && height > 0;
+
+    if (has_image) {
+        const jsize expected = (jsize) width * height * 3;
+        if (env->GetArrayLength(rgb) != expected) {
+            LOGe("bad rgb buffer: got %d, expected %d", env->GetArrayLength(rgb), expected);
+            return env->NewStringUTF("");
+        }
     }
 
-    jbyte *rgb_data = env->GetByteArrayElements(rgb, nullptr);
+    jbyte *rgb_data = has_image ? env->GetByteArrayElements(rgb, nullptr) : nullptr;
     const char *prompt_c = env->GetStringUTFChars(prompt, nullptr);
 
     std::string out;
@@ -136,15 +150,21 @@ Java_com_gremlin_app_llama_LocalVision_nativeDescribe(
     mtmd_input_chunks *chunks = nullptr;
 
     do {
-        bitmap = mtmd_bitmap_init((uint32_t) width, (uint32_t) height,
-                                  (const unsigned char *) rgb_data);
-        if (!bitmap) { LOGe("mtmd_bitmap_init failed"); break; }
-
         // The media marker is where the image gets spliced into the
         // prompt. Without it mtmd_tokenize has nowhere to put the image
         // and the model answers from the text alone -- the exact silent
         // "model that can't see" failure this whole path exists to avoid.
-        std::string full_prompt = std::string(mtmd_default_marker()) + "\n" + prompt_c;
+        // For a text-only turn there is deliberately NO marker, since a
+        // marker with no bitmap behind it is a tokenize error.
+        std::string full_prompt;
+        if (has_image) {
+            bitmap = mtmd_bitmap_init((uint32_t) width, (uint32_t) height,
+                                      (const unsigned char *) rgb_data);
+            if (!bitmap) { LOGe("mtmd_bitmap_init failed"); break; }
+            full_prompt = std::string(mtmd_default_marker()) + "\n" + prompt_c;
+        } else {
+            full_prompt = prompt_c;
+        }
 
         mtmd_input_text text{};
         text.text          = full_prompt.c_str();
@@ -155,8 +175,12 @@ Java_com_gremlin_app_llama_LocalVision_nativeDescribe(
         chunks = mtmd_input_chunks_init();
         if (!chunks) { LOGe("mtmd_input_chunks_init failed"); break; }
 
+        // Zero bitmaps is the text-only case: mtmd emits plain text
+        // chunks and the helper below evaluates them with llama_decode.
         const mtmd_bitmap *bitmaps[1] = { bitmap };
-        if (mtmd_tokenize(g_mtmd, chunks, &text, bitmaps, 1) != 0) {
+        if (mtmd_tokenize(g_mtmd, chunks, &text,
+                          has_image ? bitmaps : nullptr,
+                          has_image ? 1 : 0) != 0) {
             LOGe("mtmd_tokenize failed");
             break;
         }
@@ -212,7 +236,7 @@ Java_com_gremlin_app_llama_LocalVision_nativeDescribe(
     if (bitmap) mtmd_bitmap_free(bitmap);
 
     // JNI_ABORT: the buffer was only read, so skip copying it back.
-    env->ReleaseByteArrayElements(rgb, rgb_data, JNI_ABORT);
+    if (rgb_data) env->ReleaseByteArrayElements(rgb, rgb_data, JNI_ABORT);
     env->ReleaseStringUTFChars(prompt, prompt_c);
 
     // Clear the KV cache so the next image starts clean rather than
@@ -223,6 +247,6 @@ Java_com_gremlin_app_llama_LocalVision_nativeDescribe(
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_com_gremlin_app_llama_LocalVision_nativeUnload(JNIEnv *, jobject) {
+Java_com_gremlin_app_llama_LocalModel_nativeUnload(JNIEnv *, jobject) {
     unload_all();
 }

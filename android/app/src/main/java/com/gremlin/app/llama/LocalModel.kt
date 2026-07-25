@@ -6,15 +6,19 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
- * On-device vision specialist -- describes an image so the general model
- * can reason about it.
+ * The phone's single offline model. It chats AND it sees.
  *
- * This is NOT the general offline chat model that was removed (see
- * android/README.md). It does one thing the primary genuinely cannot do
- * at all: look at a screenshot or a photo. Its output is a description
- * that gets handed to whatever answers the actual question, which is the
- * point -- perception gets handled by a small focused model so the big
- * one spends its whole budget on reasoning.
+ * A vision-language model is a language model, so one set of weights
+ * covers both jobs -- there was never a reason to ship a separate chat
+ * model and a separate vision model, and doing so meant two downloads,
+ * two code paths, and two things to keep in sync. [chat] and [describe]
+ * are the same pipeline with and without an image.
+ *
+ * What this buys: with the desktop unreachable and no API key, Gremlin
+ * still answers, and still understands a screenshot. What it costs,
+ * honestly: a ~0.5B VLM is a much weaker conversationalist than the
+ * desktop's primary. It's a fallback, not a peer -- the desktop is still
+ * tried first, always.
  *
  * Everything runs on ONE dedicated thread. mtmd's eval helper is
  * explicitly documented as not thread-safe, and the native side keeps no
@@ -22,14 +26,14 @@ import java.util.concurrent.TimeUnit
  * guarantee. Calling in from two threads would corrupt the KV cache or
  * crash the process outright rather than throw.
  */
-object LocalVision {
+object LocalModel {
 
-    private const val TAG = "LocalVision"
+    private const val TAG = "LocalModel"
 
     // Single thread, not a pool -- see class docs. Also means a second
     // request queues behind the first rather than racing it.
     private val executor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "gremlin-vision").apply { isDaemon = true }
+        Thread(r, "gremlin-model").apply { isDaemon = true }
     }
 
     @Volatile private var libraryLoaded = false
@@ -38,13 +42,15 @@ object LocalVision {
     private external fun nativeInit()
     private external fun nativeLoad(modelPath: String, mmprojPath: String, nThreads: Int): Boolean
     private external fun nativeIsReady(): Boolean
-    private external fun nativeDescribe(rgb: ByteArray, width: Int, height: Int, prompt: String, maxTokens: Int): String
+    // rgb may be null -- that's the text-only turn. One native entry
+    // point for both jobs; see gremlin_model.cpp.
+    private external fun nativeGenerate(rgb: ByteArray?, width: Int, height: Int, prompt: String, maxTokens: Int): String
     private external fun nativeUnload()
 
     private fun ensureLibrary(): Boolean {
         if (libraryLoaded) return true
         return try {
-            System.loadLibrary("gremlin-vision")
+            System.loadLibrary("gremlin-model")
             libraryLoaded = true
             true
         } catch (e: Throwable) {
@@ -104,7 +110,23 @@ object LocalVision {
         } ?: return null
 
         return submit {
-            val text = nativeDescribe(rgb, width, height, prompt, maxTokens)
+            val text = nativeGenerate(rgb, width, height, prompt, maxTokens)
+            text.takeIf { it.isNotBlank() }
+        }
+    }
+
+    /**
+     * Text-only turn -- same weights, same pipeline, no image.
+     *
+     * [system] is the cached persona prompt, so an offline answer still
+     * sounds like Gremlin rather than like a raw base model.
+     */
+    fun chat(system: String, message: String, maxTokens: Int = 320): String? {
+        if (!loaded && !ensureLibrary()) return null
+        if (!loaded) return null
+        val prompt = if (system.isBlank()) message else "$system\n\n$message"
+        return submit {
+            val text = nativeGenerate(null, 0, 0, prompt, maxTokens)
             text.takeIf { it.isNotBlank() }
         }
     }

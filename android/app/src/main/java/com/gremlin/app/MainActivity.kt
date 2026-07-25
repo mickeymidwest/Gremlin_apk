@@ -139,6 +139,7 @@ class MainActivity : AppCompatActivity() {
                 val sub = when (result.source) {
                     "claude" -> "(standalone, via Claude)"
                     "gemini" -> "(standalone, via Gemini)"
+                    "local" -> "(offline, on this phone)"
                     else -> null
                 }
                 appendAssistantTurn(result.answer, sub)
@@ -352,6 +353,7 @@ class MainActivity : AppCompatActivity() {
                 val subStatus = when (result.source) {
                     "claude" -> "(standalone, via Claude)"
                     "gemini" -> "(standalone, via Gemini)"
+                    "local" -> "(offline, on this phone)"
                     else -> null
                 }
                 appendAssistantTurn(result.answer, subStatus)

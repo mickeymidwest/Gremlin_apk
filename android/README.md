@@ -1,60 +1,45 @@
 # Gremlin (Android)
 
 Talks to a Gremlin desktop instance over your home Wi-Fi when it's
-reachable, and falls back to Claude, then Gemini (using your own API
-keys, entered in Settings) when it's not. Same hologram widget as the
+reachable, and falls back -- in order -- to its own
+offline model, then Claude, then Gemini (using your own API keys,
+entered in Settings) when it's not. Same hologram widget as the
 desktop version.
 
 Needs `git clone --recurse-submodules` (or `git submodule update --init
 --recursive` after a plain clone) -- `android/llama.cpp` is a pinned
-submodule used by the on-device vision specialist.
+submodule used by the on-device offline model.
 
-## No on-device model (removed on purpose)
+## One offline model: it chats AND it sees
 
-There used to be a small offline model that ran on the phone via
-llama.cpp compiled from source. It's gone. It duplicated, badly, what
-the desktop already does well: a model small enough to sit on a phone
-answered noticeably differently from the desktop's primary, so "Gremlin
-away from home" was effectively a different assistant wearing the same
-name. Syncing the desktop's real (multi-GB) model instead fixed the
-*thinking-differently* problem but replaced it with a multi-gigabyte
-transfer and slow phone-side generation.
+Settings -> "Offline model" puts a single vision-language model on the
+phone. A VLM *is* a language model, so the same weights answer a question
+and read a screenshot -- there was never a reason to ship a separate chat
+model and a separate vision model, and doing so meant two downloads and
+two code paths to keep in sync.
 
-Dropping it entirely removed: a from-source llama.cpp build on every CI
-run, a git submodule, the whole `cpp/` JNI layer, and roughly half the
-APK size.
+**Synced from the desktop** when paired: it serves whatever
+`persona.phone_model` names in `config/models.yaml`, so the desktop
+decides what the phone runs. That key is deliberately separate from
+`primary_model` -- the primary is ~5GB and tuned for an 8GB GPU, and
+would be refused by the ceiling below anyway. Unpaired, it falls back to
+downloading SmolVLM-500M (~546MB) directly.
 
-Away from home the app now uses your Claude/Gemini keys directly, in
-the persona voice cached from the last time the desktop was reachable.
-Anything said while away still rides along with your next message and
-folds into the desktop's `data/away_session_log.jsonl` (see
-`gremlin_core/away_sync.py`) -- that sync path is unchanged.
+**Hard 2GB ceiling** on anything that lands on the phone, enforced three
+ways: against the advertised size before a byte is written, against the
+running total mid-stream (a server can omit Content-Length and otherwise
+stream forever, which makes the first check trivially bypassable), and
+against free space. Transfers resume rather than restart.
 
-If you genuinely need zero-connectivity answers later, the honest
-options are a much smaller purpose-built model or a local llama.cpp
-server on something you carry -- not re-embedding a general model in
-this APK.
+`phone_model` must be a VLM (weights + `mmproj` projector). The phone
+initialises through mtmd, which needs a projector even for a text-only
+reply. With weights alone it won't load; with a projector missing after a
+partial sync it would chat but silently not see -- which is why both
+parts are promoted together or not at all.
 
-## On-device vision specialist
-
-Settings -> "On-device vision" downloads SmolVLM-256M (~279MB: language
-weights + an `mmproj` projector -- a VLM is two files, and with only the
-weights it loads fine and then silently can't see). Overlay mode and
-attachments then get BOTH readings: ML Kit OCR transcribes text exactly,
-and the vision model describes what OCR structurally can't -- diagrams,
-figures, handwriting, layout. Complementary, not either/or.
-
-This is deliberately a *specialist*, which is why it's worth the native
-build where the removed general model wasn't: it does something the
-desktop's primary cannot do at all, and its output feeds that model
-rather than replacing it.
-
-**Hard 2GB ceiling on anything synced to this phone**, enforced against
-the advertised size before writing, against the running total
-mid-download (a server can omit Content-Length and otherwise stream
-forever), and against free space. The desktop's own vision model
-(Qwen2.5-VL-3B, ~2.8GB) is deliberately above that line -- it belongs on
-the desktop's GPU, and would be unusably slow here.
+Honest limits: a ~0.5B VLM is a much weaker conversationalist than the
+desktop's primary. It's a fallback, not a peer, and the desktop is always
+tried first.
 
 ## Overlay mode
 

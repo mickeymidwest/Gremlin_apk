@@ -28,7 +28,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 
 from .registry import ModelRegistry
 from .router import Router
@@ -314,6 +314,97 @@ def create_app(
         })
 
         return jsonify(result)
+
+    def _phone_model_files() -> Optional[tuple[Path, Optional[Path], str]]:
+        """The model the PHONE should run offline -- (weights, mmproj, name).
+
+        Deliberately its own config key (persona.phone_model) rather than
+        the desktop primary: the primary is 5.4GB and would be refused by
+        the phone's 2GB ceiling anyway, and shipping a model tuned for an
+        8GB GPU to a phone CPU is the wrong trade. mmproj is optional so
+        a plain (non-vision) model still works, but a VLM needs it -- with
+        weights alone it loads fine and silently can't see."""
+        cfg = registry.raw_config or {}
+        name = ((cfg.get("persona") or {}).get("phone_model") or "").strip()
+        if not name:
+            return None
+        entry = next((m for m in (cfg.get("models") or []) if m.get("name") == name), None)
+        if not entry or not entry.get("model_path"):
+            return None
+
+        def _abs(p: str) -> Path:
+            path = Path(p).expanduser()
+            return path if path.is_absolute() else (project_root / path).resolve()
+
+        weights = _abs(entry["model_path"])
+        mmproj = _abs(entry["mmproj_path"]) if entry.get("mmproj_path") else None
+        return weights, mmproj, name
+
+    @app.route("/model-info", methods=["GET"])
+    def model_info():
+        """What the phone needs to decide whether to sync, and whether its
+        copy is current. Regular auth -- this is a filename and a size,
+        the same tier /status already gives out."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+
+        files = _phone_model_files()
+        if files is None:
+            return jsonify({
+                "ok": False,
+                "error": "no phone_model configured -- set persona.phone_model in config/models.yaml",
+            }), 404
+        weights, mmproj, name = files
+        if not weights.exists():
+            return jsonify({"ok": False, "error": f"phone model file missing: {weights}"}), 404
+
+        parts = [{"role": "weights", "filename": weights.name, "size_bytes": weights.stat().st_size,
+                  "mtime": int(weights.stat().st_mtime)}]
+        if mmproj and mmproj.exists():
+            parts.append({"role": "mmproj", "filename": mmproj.name, "size_bytes": mmproj.stat().st_size,
+                          "mtime": int(mmproj.stat().st_mtime)})
+
+        total = sum(p["size_bytes"] for p in parts)
+        return jsonify({
+            "ok": True,
+            "model_name": name,
+            "parts": parts,
+            "total_bytes": total,
+            "has_vision": any(p["role"] == "mmproj" for p in parts),
+            # Size+mtime, not a hash: hashing gigabytes on every poll costs
+            # seconds of disk I/O to answer what these already answer.
+            "version": "-".join(f"{p['size_bytes']}:{p['mtime']}" for p in parts),
+        })
+
+    @app.route("/admin/model-file", methods=["GET"])
+    def admin_model_file():
+        """Streams one part of the phone model (?part=weights|mmproj).
+
+        Admin-gated: this is the actual weights, not metadata. Range
+        requests work (Flask send_file conditional=True), which is what
+        makes a multi-hundred-MB Wi-Fi transfer resumable instead of
+        restarting on every blip."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+
+        files = _phone_model_files()
+        if files is None:
+            return jsonify({"error": "no phone_model configured"}), 404
+        weights, mmproj, _name = files
+
+        part = (request.args.get("part") or "weights").strip().lower()
+        target = mmproj if part == "mmproj" else weights
+        if target is None:
+            return jsonify({"error": "this phone model has no mmproj part"}), 404
+        if not target.exists():
+            return jsonify({"error": f"file missing: {target}"}), 404
+
+        return send_file(
+            str(target), mimetype="application/octet-stream",
+            as_attachment=True, download_name=target.name, conditional=True,
+        )
 
     @app.route("/admin/execute", methods=["POST"])
     def admin_execute():

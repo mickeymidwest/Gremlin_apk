@@ -20,8 +20,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.gremlin.app.llama.LocalVision
-import com.gremlin.app.llama.VisionModelManager
+import com.gremlin.app.llama.LocalModel
+import com.gremlin.app.llama.OfflineModelManager
 import com.gremlin.app.overlay.OverlayPermissionActivity
 import com.gremlin.app.overlay.OverlayService
 import com.gremlin.app.voice.VoiceOutput
@@ -322,67 +322,118 @@ class SettingsActivity : AppCompatActivity() {
 
 
 
-    /** On-device vision specialist -- see gremlin_core/specialists.py for
-     * why a small focused model beats routing images through a general
-     * one, and android/README.md for why this is NOT the general offline
-     * chat model that was removed. */
+    /** The phone's ONE offline model -- it chats AND sees.
+     *
+     * Preferred source is the desktop (whatever persona.phone_model names),
+     * so the desktop decides what the phone runs. Hugging Face is only the
+     * fallback for a phone that has never been paired. */
     private fun setUpVisionSection(prefs: SharedPreferences) {
         val status = findViewById<TextView>(R.id.vision_status)
         val progress = findViewById<ProgressBar>(R.id.vision_progress)
-        val downloadButton = findViewById<Button>(R.id.vision_download_button)
+        val actionButton = findViewById<Button>(R.id.vision_download_button)
         val enabled = findViewById<CheckBox>(R.id.vision_enabled_checkbox)
         val removeButton = findViewById<Button>(R.id.vision_remove_button)
 
+        var desktopModel: OfflineModelManager.DesktopModel? = null
+
         fun refresh() {
-            val have = VisionModelManager.isDownloaded(applicationContext)
-            status.text = VisionModelManager.describeLocal(applicationContext)
-            downloadButton.text = if (have) "Re-download vision model" else "Download vision model"
+            val have = OfflineModelManager.isDownloaded(applicationContext)
+            val paired = !prefs.getString("host", null).isNullOrBlank()
+            val inSync = OfflineModelManager.isInSyncWithDesktop(prefs, desktopModel)
+
+            status.text = buildString {
+                append(OfflineModelManager.describeLocal(applicationContext, prefs))
+                val d = desktopModel
+                if (d != null) {
+                    append("\nDesktop offers: ${d.name} (${d.totalBytes / 1_000_000}MB")
+                    append(if (d.hasVision) ", with vision)." else ", chat only).")
+                    if (have && !inSync) append("\nYours is out of date -- sync again.")
+                    else if (inSync) append("\nIn sync.")
+                } else if (paired) {
+                    append("\n(Couldn't reach the desktop to ask what it wants you running.)")
+                }
+            }
+
+            actionButton.text = when {
+                desktopModel != null && inSync -> "Re-sync from desktop"
+                desktopModel != null -> "Sync from desktop"
+                paired -> "Sync from desktop"
+                else -> "Download offline model"
+            }
             enabled.isEnabled = have
-            enabled.isChecked = have && prefs.getBoolean(VisionModelManager.KEY_ENABLED, false)
+            enabled.isChecked = have && prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false)
             removeButton.visibility = if (have) View.VISIBLE else View.GONE
         }
         refresh()
 
-        downloadButton.setOnClickListener {
-            downloadButton.isEnabled = false
+        Thread {
+            val info = OfflineModelManager.fetchDesktopModel(prefs)
+            runOnUiThread { desktopModel = info; refresh() }
+        }.start()
+
+        fun run(fromDesktop: Boolean) {
+            actionButton.isEnabled = false
             progress.visibility = View.VISIBLE
             progress.progress = 0
-            status.text = "Downloading..."
+            status.text = if (fromDesktop) "Syncing from desktop..." else "Downloading..."
             Thread {
-                val result = VisionModelManager.download(applicationContext, prefs) { done, total ->
+                val onProgress: (Long, Long) -> Unit = { done, total ->
                     runOnUiThread {
                         if (total > 0) {
                             progress.progress = ((done * 100) / total).toInt()
-                            status.text = "Downloading... ${done / 1_000_000}MB / ${total / 1_000_000}MB"
+                            status.text = "${done / 1_000_000}MB / ${total / 1_000_000}MB"
                         }
                     }
                 }
+                val result = if (fromDesktop)
+                    OfflineModelManager.syncFromDesktop(applicationContext, prefs, onProgress)
+                else
+                    OfflineModelManager.downloadFallback(applicationContext, prefs, onProgress)
+
                 runOnUiThread {
-                    downloadButton.isEnabled = true
+                    actionButton.isEnabled = true
                     progress.visibility = View.GONE
                     when (result) {
-                        is VisionModelManager.Result.Success ->
-                            Toast.makeText(this, "Vision model ready", Toast.LENGTH_SHORT).show()
-                        is VisionModelManager.Result.Failure ->
+                        is OfflineModelManager.Result.Success ->
+                            Toast.makeText(this, "Offline model ready", Toast.LENGTH_SHORT).show()
+                        is OfflineModelManager.Result.Failure ->
                             Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
                     }
-                    refresh()
+                    Thread {
+                        val info = OfflineModelManager.fetchDesktopModel(prefs)
+                        runOnUiThread { desktopModel = info; refresh() }
+                    }.start()
                 }
             }.start()
         }
 
+        actionButton.setOnClickListener {
+            val paired = !prefs.getString("host", null).isNullOrBlank()
+            if (paired) { run(fromDesktop = true); return@setOnClickListener }
+            AlertDialog.Builder(this)
+                .setTitle("Not paired with a desktop")
+                .setMessage(
+                    "Normally the desktop decides what model your phone runs. With no desktop " +
+                        "to sync from, this downloads a small stand-in (SmolVLM-500M, ~546MB) " +
+                        "that chats and reads images offline.\n\nDownload it?"
+                )
+                .setPositiveButton("Download") { _, _ -> run(fromDesktop = false) }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
         enabled.setOnCheckedChangeListener { _, checked ->
-            prefs.edit().putBoolean(VisionModelManager.KEY_ENABLED, checked).apply()
-            if (!checked) Thread { LocalVision.unloadModel() }.start()
+            prefs.edit().putBoolean(OfflineModelManager.KEY_ENABLED, checked).apply()
+            if (!checked) Thread { LocalModel.unloadModel() }.start()
         }
 
         removeButton.setOnClickListener {
             AlertDialog.Builder(this)
-                .setTitle("Remove vision model?")
-                .setMessage("Overlay mode and attachments will go back to reading text only.")
+                .setTitle("Remove offline model?")
+                .setMessage("Gremlin will need the desktop or an API key to answer anything.")
                 .setPositiveButton("Remove") { _, _ ->
                     Thread {
-                        VisionModelManager.delete(applicationContext, prefs)
+                        OfflineModelManager.delete(applicationContext, prefs)
                         runOnUiThread { refresh() }
                     }.start()
                 }

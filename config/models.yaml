@@ -193,3 +193,31 @@ persona:
 # ~2.8GB total, verified by real HEAD request. On an 8GB card that does
 # NOT fit alongside the 5.4GB primary, so the primary gets unloaded for
 # the duration of a vision call (same swap consult already does).
+
+# ---------------------------------------------------------------------
+# phone_model -- which model the ANDROID app syncs and runs offline.
+#
+# Deliberately separate from primary_model: the primary is ~5GB, tuned
+# for an 8GB GPU, and would be refused outright by the phone's hard 2GB
+# ceiling. This key lets the desktop decide what the phone runs, so one
+# line here updates the phone instead of the phone hardcoding a model
+# the desktop knows nothing about.
+#
+# MUST be a vision-language model (type: local_vlm, i.e. weights + an
+# mmproj projector). The phone initialises through mtmd, which requires
+# a projector even for a text-only reply -- one model there both chats
+# and reads screenshots, so a chat-only GGUF simply won't load.
+#
+# Add under persona:  phone_model: phone-vlm
+# and register it under models: as e.g.
+#
+#   - name: phone-vlm
+#     type: local_vlm
+#     display_name: "SmolVLM 500M (phone offline model)"
+#     model_path: "/home/mickey/Downloads/gremlin/models/SmolVLM-500M-Instruct-Q8_0.gguf"
+#     mmproj_path: "/home/mickey/Downloads/gremlin/models/mmproj-SmolVLM-500M-Instruct-Q8_0.gguf"
+#     handler: mtmd
+#
+# Both from ggml-org/SmolVLM-500M-Instruct-GGUF (437MB + 109MB = 546MB,
+# verified by real HEAD request) -- comfortably under the 2GB ceiling.
+# ---------------------------------------------------------------------
