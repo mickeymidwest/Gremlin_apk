@@ -67,10 +67,16 @@ target_include_directories(gremlin-vision PRIVATE
 
 target_compile_features(gremlin-vision PRIVATE cxx_std_17)
 
+# Deliberately NOT linking llama.cpp's common library. Two reasons, and
+# CI caught the first: the target is called `llama-common`, not `common`
+# (so `-lcommon` simply doesn't exist), and this JNI file uses no
+# common_* helper at all -- only llama.h and the mtmd headers. mtmd
+# itself links what it needs (ggml, llama, Threads), so there's nothing
+# to inherit either. Linking a library we don't use would just be a
+# rename waiting to break again.
 target_link_libraries(gremlin-vision
     mtmd
     llama
-    common
     ggml
     android
     log
