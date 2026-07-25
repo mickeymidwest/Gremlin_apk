@@ -67,6 +67,8 @@ from gremlin_core import root_exec
 from gremlin_core import snapshots as snapshots_mod
 from gremlin_core import finetune
 from gremlin_core import update_check
+from gremlin_core import research
+from gremlin_core.pressure import PressureLevel
 from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
 
 try:
@@ -393,6 +395,81 @@ async def cmd_list(registry: ModelRegistry):
         b = registry.get(name)
         tag = " <- talk to this one" if b.info.kind == "persona" else ""
         print(f"  - {name} ({b.info.kind}) {b.info.notes}{tag}")
+
+
+async def cmd_research(
+    registry: ModelRegistry,
+    router: Router,
+    goal: str,
+    max_rounds: int,
+    target_score: float,
+    pressure_level: int,
+    constraints: str,
+):
+    model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+    if not model_names:
+        print("No non-persona models registered -- nothing to run the loop with.")
+        return
+
+    print(f"Running until convergence: {goal}")
+    print(f"Models: {', '.join(model_names)} (generator rotates, critic is always a different one)")
+    print(f"Max {max_rounds} rounds, target {target_score:.0f}/100, pressure {PressureLevel(pressure_level).name}\n")
+
+    def show(attempt: research.Attempt):
+        print(
+            f"  round {attempt.round}: {attempt.score:5.1f}/100  "
+            f"[{attempt.generated_by} -> {attempt.critiqued_by}, "
+            f"pressure {PressureLevel(attempt.pressure_level).name}, {attempt.elapsed_seconds:.0f}s]"
+        )
+        if attempt.fix_next:
+            print(f"      next: {attempt.fix_next}")
+
+    result = await research.run_loop(
+        router, goal, model_names,
+        constraints=constraints,
+        max_rounds=max_rounds,
+        target_score=target_score,
+        base_pressure=pressure_level,
+        progress=show,
+    )
+
+    print(f"\n{result.converged_reason} -- best {result.score:.0f}/100 after {result.rounds_run} round(s), {result.total_seconds:.0f}s\n")
+    print("=== Result ===")
+    print(result.content)
+    research.record_result(PROJECT_ROOT, result)
+    print(f"\n(saved to data/research_results.jsonl)")
+
+
+async def cmd_research_daemon(registry: ModelRegistry, router: Router):
+    model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+    if not model_names:
+        print("No non-persona models registered -- nothing to run the loop with.")
+        return
+    print(f"Working data/research_queue.jsonl continuously. Ctrl+C to stop.")
+    print(f"Models: {', '.join(model_names)}\n")
+
+    def announce(result: research.LoopResult):
+        print(f"  done: {result.goal[:60]!r} -> {result.score:.0f}/100 ({result.converged_reason})")
+
+    try:
+        await research.run_daemon(router, PROJECT_ROOT, model_names, on_result=announce)
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
+def cmd_research_status():
+    entries = research.read_queue(PROJECT_ROOT)
+    if not entries:
+        print("Queue is empty. Add something with: gremlin research --queue \"<goal>\"")
+        return
+    counts: dict[str, int] = {}
+    for e in entries:
+        counts[e.get("status", "?")] = counts.get(e.get("status", "?"), 0) + 1
+    print("  ".join(f"{k}: {v}" for k, v in sorted(counts.items())))
+    print()
+    for e in entries[-20:]:
+        score = f"  {e['score']:.0f}/100" if e.get("score") is not None else ""
+        print(f"  [{e.get('status','?'):8}] {e.get('goal','')[:70]}{score}")
 
 
 async def _handle_cli_action(
@@ -739,6 +816,43 @@ async def main():
                 consult_models=registry.consult_models(),
                 teach_on_failure=teach_on_failure, teacher_model=teacher_model,
             )
+        elif cmd == "research":
+            extra = sys.argv[2:]
+            if "--daemon" in extra:
+                await cmd_research_daemon(registry, router)
+            elif "--status" in extra:
+                cmd_research_status()
+            else:
+                positional = [a for a in extra if not a.startswith("--")]
+                goal = positional[0] if positional else ""
+                if not goal:
+                    print('Usage: gremlin research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]')
+                    print('       gremlin research --queue "<goal>"   -- add to the background queue')
+                    print('       gremlin research --daemon           -- work the queue continuously')
+                    print('       gremlin research --status           -- show the queue')
+                    return
+                max_rounds = research.DEFAULT_MAX_ROUNDS
+                target = research.DEFAULT_TARGET_SCORE
+                level = int(PressureLevel.MEDIUM)
+                constraints = ""
+                for arg in extra:
+                    if arg.startswith("--rounds="):
+                        max_rounds = int(arg.split("=", 1)[1])
+                    elif arg.startswith("--target="):
+                        target = float(arg.split("=", 1)[1])
+                    elif arg.startswith("--pressure="):
+                        level = max(0, min(4, int(arg.split("=", 1)[1])))
+                    elif arg.startswith("--constraints="):
+                        constraints = arg.split("=", 1)[1]
+                if "--queue" in extra:
+                    research.queue_task(
+                        PROJECT_ROOT, goal,
+                        max_rounds=max_rounds, target_score=target,
+                        pressure=level, constraints=constraints,
+                    )
+                    print(f"Queued. Run `gremlin research --daemon` to work through it.")
+                else:
+                    await cmd_research(registry, router, goal, max_rounds, target, level, constraints)
         elif cmd == "auto-fix":
             await cmd_auto_fix(registry, router)
         elif cmd == "edit":

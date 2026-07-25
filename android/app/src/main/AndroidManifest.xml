@@ -10,6 +10,18 @@
          waiting out a connect timeout for nothing. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Overlay mode: the floating bubble that can sit on top of other
+         apps (a browser doing homework, say) and read what's on screen.
+         SYSTEM_ALERT_WINDOW is a special permission: it can't be
+         granted by a normal runtime prompt, the user has to toggle it in
+         a system settings screen, which SettingsActivity sends them to.
+         The MEDIA_PROJECTION foreground-service type is required from
+         API 29 on before getMediaProjection() will return anything. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Deliberately NOT requesting WRITE_EXTERNAL_STORAGE /
          READ_EXTERNAL_STORAGE: modern Android restricts and deprecates
          broad storage permissions, and Google Play flags apps that
@@ -49,5 +61,22 @@
             android:name=".ModelSettingsActivity"
             android:exported="false"
             android:label="Model Settings" />
+
+        <!-- foregroundServiceType must be declared here as well as passed
+             to startForeground(). On API 34+ a mismatch between the two
+             is a hard crash, not a warning. -->
+        <service
+            android:name=".overlay.OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Transparent shim that asks for screen-capture consent and
+             hands the result to OverlayService. The consent dialog needs
+             an Activity to return into, and the service can't be one. -->
+        <activity
+            android:name=".overlay.OverlayPermissionActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
     </application>
 </manifest>

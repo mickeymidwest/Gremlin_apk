@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The expanded ask panel. Near-opaque rather than translucent so OCR
+     text and answers stay readable over a busy page underneath. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#F20B0F0C" />
+    <corners android:radius="12dp" />
+    <stroke android:width="1dp" android:color="@color/gremlin_accent" />
+</shape>

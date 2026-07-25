@@ -340,6 +340,41 @@
             android:fontFamily="monospace"
             android:layout_marginBottom="20dp" />
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#22FFFFFF"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Overlay mode"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Puts a floating Gremlin bubble on top of other apps. Tap it anywhere -- in a browser doing homework, say -- and it reads what's on the screen so you can ask about it. Needs two permissions: draw over other apps, and screen capture."
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/overlay_toggle_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Turn on overlay mode"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/overlay_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:layout_marginBottom="20dp" />
+
         <Button
             android:id="@+id/admin_reboot_button"
             android:layout_width="wrap_content"

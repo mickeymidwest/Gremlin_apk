@@ -20,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.integration.android.IntentResult
+import com.gremlin.app.attach.Attachments
 import com.gremlin.app.voice.VoiceOutput
 import java.io.File
 import java.net.URI
@@ -53,6 +54,14 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    // Storage Access Framework -- the user picks any file, PDF, or image
+    // and we read it through a content:// URI. No storage permission is
+    // needed on any Android version, which is why there's still no
+    // READ_EXTERNAL_STORAGE in the manifest.
+    private val attachLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) handleAttachment(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,6 +98,56 @@ class MainActivity : AppCompatActivity() {
         // effectively unreachable once you'd actually set anything up.
         // This button doesn't depend on the hologram's state at all.
         findViewById<Button>(R.id.settings_button).setOnClickListener { openSettings() }
+        findViewById<Button>(R.id.attach_button).setOnClickListener {
+            // Broad filter rather than a narrow allow-list: Attachments
+            // sniffs the real type itself, and an over-strict picker
+            // filter is how "why can't I select my own file" bugs happen.
+            attachLauncher.launch(arrayOf("*/*"))
+        }
+    }
+
+    /** Reads a picked file/PDF/image into text and sends it to Gremlin
+     * along with whatever's already typed in the message box, so
+     * "explain question 3" + a worksheet PDF is one turn. */
+    private fun handleAttachment(uri: android.net.Uri) {
+        val question = messageInput.text.toString().trim()
+        val name = Attachments.displayName(this, uri)
+        appendUserTurn(if (question.isEmpty()) "[attached $name]" else "$question  [attached $name]")
+        messageInput.setText("")
+        voiceOutput.stop()
+
+        thinkingStatus.visibility = View.VISIBLE
+        hologramView.evaluateJavascript("setTalking(true)", null)
+
+        Thread {
+            val extracted = try {
+                Attachments.extract(this, uri)
+            } catch (e: Exception) {
+                null
+            }
+            if (extracted == null) {
+                runOnUiThread {
+                    appendSystemTurn("Couldn't read $name.", true)
+                    thinkingStatus.visibility = View.GONE
+                    hologramView.evaluateJavascript("setTalking(false)", null)
+                }
+                return@Thread
+            }
+
+            val result = gremlinClient.chat(Attachments.buildPrompt(question, extracted))
+            runOnUiThread {
+                val sub = when (result.source) {
+                    "claude" -> "(standalone, via Claude)"
+                    "gemini" -> "(standalone, via Gemini)"
+                    "local" -> "(standalone, offline model)"
+                    else -> null
+                }
+                appendAssistantTurn(result.answer, sub)
+                voiceOutput.speak(result.answer)
+                thinkingStatus.visibility = View.GONE
+                hologramView.evaluateJavascript("setTalking(false)", null)
+            }
+        }.start()
     }
 
     override fun onResume() {
@@ -306,89 +365,27 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Slash commands are intercepted before the normal chat path -- all
-     * of them talk to the desktop's admin-token-gated routes via
-     * GremlinClient, rendered as a visually distinct "system" turn (see
-     * appendSystemTurn) right in this same chat, no need to go into
-     * Settings. Same split as the desktop chat panel
-     * (gui/assets/main.html's handleSlashCommand), plus /desktop and
-     * /reboot here since those are specifically about controlling the
-     * desktop *from the phone* -- redundant on the desktop's own chat,
-     * where you're already sitting at it. */
+    /** `/claude` is the ONE remaining typed command, on purpose.
+     *
+     * Everything else that used to need a slash command (/desktop,
+     * /root, /edit, /fix, /reboot, /snapshots, /rollback, /updatecheck)
+     * is now just something you say -- "check for updates", "fix my
+     * backup script", "reboot the desktop" -- and the desktop's intent
+     * router (gremlin_core/intent.py) works out what you meant, finds
+     * any file paths itself, and asks for a plain yes/no before anything
+     * destructive. See that module for why conversation never pays a
+     * latency cost for this.
+     *
+     * /claude stays explicit because it hands full autonomy to a
+     * separate Claude Code session that can read and write anything in
+     * the project with no further confirmation. That should require
+     * deliberately typing it, never a classifier's best guess. */
     private fun handleSlashCommand(message: String) {
         appendUserTurn(message)
         val parts = message.trim().split(Regex("\\s+"))
         val cmd = parts.getOrNull(0) ?: ""
 
         when (cmd) {
-            "/desktop" -> {
-                val command = message.removePrefix("/desktop").trim()
-                if (command.isEmpty()) {
-                    appendSystemTurn("Usage: /desktop <command>", true)
-                } else {
-                    runAdminSlash { gremlinClient.runCommand(command, asRoot = false) }
-                }
-            }
-
-            "/root" -> {
-                val command = message.removePrefix("/root").trim()
-                if (command.isEmpty()) {
-                    appendSystemTurn("Usage: /root <command>", true)
-                } else {
-                    runAdminSlash { gremlinClient.runCommand(command, asRoot = true) }
-                }
-            }
-
-            "/reboot" -> {
-                val confirmed = parts.getOrNull(1) == "confirm"
-                if (!confirmed) {
-                    appendSystemTurn("This reboots the desktop right now. Type \"/reboot confirm\" to proceed.", false)
-                } else {
-                    runAdminSlash { gremlinClient.reboot() }
-                }
-            }
-
-            "/edit" -> {
-                val rest = message.removePrefix("/edit").trim()
-                val confirmed = rest.endsWith(" confirm")
-                val goal = (if (confirmed) rest.removeSuffix("confirm") else rest).trim()
-                if (goal.isEmpty()) {
-                    appendSystemTurn("Usage: /edit <what to change>  (then /edit <what to change> confirm to actually apply it)", true)
-                } else if (!confirmed) {
-                    appendSystemTurn(
-                        "This asks Gremlin to propose a code change for itself, reviewed by two independent " +
-                            "models, and commits it to git if both approve. Type \"/edit $goal confirm\" to proceed.",
-                        false,
-                    )
-                } else {
-                    runAdminSlash { gremlinClient.selfEdit(goal, runTests = true) }
-                }
-            }
-
-            "/snapshots" -> runAdminSlash { gremlinClient.listSnapshots() }
-
-            "/updatecheck" -> runAdminSlash { gremlinClient.checkUpdates() }
-
-            "/fix" -> {
-                val rest = message.removePrefix("/fix").trim()
-                val confirmed = rest.endsWith(" confirm")
-                val withoutConfirm = (if (confirmed) rest.removeSuffix("confirm") else rest).trim()
-                val path = withoutConfirm.substringBefore(" ", "")
-                val problem = withoutConfirm.substringAfter(" ", "").trim()
-                if (path.isEmpty() || problem.isEmpty()) {
-                    appendSystemTurn("Usage: /fix <path> <what's wrong>  (then /fix <path> <what's wrong> confirm to actually apply it)", true)
-                } else if (!confirmed) {
-                    appendSystemTurn(
-                        "This asks Gremlin's own registered models to fix $path (not the separate `claude` " +
-                            "CLI -- see /claude for that). Backs up the file first and reverts automatically " +
-                            "if the fix fails to compile. Type \"/fix $path $problem confirm\" to proceed.",
-                        false,
-                    )
-                } else {
-                    runAdminSlash { gremlinClient.scriptFix(path, problem) }
-                }
-            }
-
             "/claude" -> {
                 val rest = message.removePrefix("/claude").trim()
                 val confirmed = rest.endsWith(" confirm")
@@ -407,24 +404,11 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            "/rollback" -> {
-                val number = parts.getOrNull(1)
-                val confirmed = parts.getOrNull(2) == "confirm"
-                if (number == null) {
-                    appendSystemTurn("Usage: /rollback <number>  (then /rollback <number> confirm to actually do it)", true)
-                } else if (!confirmed) {
-                    appendSystemTurn(
-                        "This rolls back to snapshot $number AND REBOOTS the desktop. " +
-                            "Type \"/rollback $number confirm\" to proceed.",
-                        false,
-                    )
-                } else {
-                    runAdminSlash { gremlinClient.rollback(number) }
-                }
-            }
-
             else -> appendSystemTurn(
-                "Unknown command: $cmd\nAvailable: /desktop <command>, /root <command>, /edit <goal>, /fix <path> <problem>, /reboot, /snapshots, /rollback <number>, /updatecheck, /claude <problem>",
+                "There's only one command left: /claude <problem>.\n\n" +
+                    "Everything else, just say it normally -- \"check for updates\", \"list my snapshots\", " +
+                    "\"fix my backup script\", \"reboot the desktop\", \"add X to yourself\". " +
+                    "I'll work out what you mean and ask before doing anything destructive.",
                 true,
             )
         }

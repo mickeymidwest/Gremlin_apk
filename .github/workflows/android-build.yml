@@ -71,8 +71,26 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
+      # llama.cpp is built from source here (it's a submodule -- there's
+      # no prebuilt Android artifact to depend on), which dominates the
+      # build time. Caching the compiler output means only the files that
+      # actually changed get recompiled; the llama.cpp objects are
+      # identical run to run since it's pinned to a fixed commit.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: android-ndk-${{ runner.os }}
+          max-size: 1G
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
+        env:
+          # Routed through CMAKE_*_COMPILER_LAUNCHER rather than by putting
+          # ccache on PATH: the NDK toolchain invokes clang by absolute
+          # path, so a PATH shim never gets used and the cache silently
+          # does nothing.
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

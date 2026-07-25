@@ -62,4 +62,10 @@ dependencies {
     // QR scanning without needing Google Play Services -- opens its own
     // camera activity and hands back the scanned text.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // On-device OCR for overlay mode (reading what's on screen) and for
+    // attached images/PDFs. This is the BUNDLED model, not the
+    // Play-Services-backed one: it ships inside the APK and works with
+    // no network and no Google Play, which matters because the rest of
+    // this app goes out of its way to keep working offline.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }
