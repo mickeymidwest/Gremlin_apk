@@ -320,6 +320,66 @@
             android:textSize="12sp"
             android:layout_marginBottom="20dp" />
 
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#22FFFFFF"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="On-device vision"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="A small model (~279MB) that actually looks at screenshots and images, so overlay mode and attachments understand diagrams, figures and handwriting instead of only reading text. Runs on this phone, no network needed. Nothing synced here is ever allowed past 2GB."
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/vision_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:layout_marginBottom="8dp" />
+
+        <ProgressBar
+            android:id="@+id/vision_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/vision_download_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Download vision model"
+            android:layout_marginBottom="8dp" />
+
+        <CheckBox
+            android:id="@+id/vision_enabled_checkbox"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Use it for screenshots and images"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/vision_remove_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Remove vision model"
+            android:visibility="gone"
+            android:backgroundTint="#8B2020"
+            android:layout_marginBottom="20dp" />
+
         <Button
             android:id="@+id/admin_reboot_button"
             android:layout_width="wrap_content"
