@@ -28,7 +28,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 
 from .registry import ModelRegistry
 from .router import Router
@@ -296,6 +296,83 @@ def create_app(
         })
 
         return jsonify(result)
+
+    def _primary_model_file() -> Optional[Path]:
+        """Absolute path to the GGUF the persona actually speaks with."""
+        name = registry.primary_model_name()
+        if not name:
+            return None
+        backend = registry.get(name)
+        raw = getattr(backend, "model_path", None)
+        if not raw:
+            return None
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            path = (project_root / path).resolve()
+        return path
+
+    @app.route("/model-info", methods=["GET"])
+    def model_info():
+        """What the phone needs to decide whether its offline copy is
+        still a faithful clone of this desktop's primary.
+
+        Regular (non-admin) auth: this only reports a filename and size,
+        the same tier of information /status already hands out. Actually
+        *downloading* the weights is admin-gated below."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+
+        name = registry.primary_model_name()
+        path = _primary_model_file()
+        if not name or path is None:
+            return jsonify({"ok": False, "error": "no primary model configured"}), 404
+        if not path.exists():
+            return jsonify({"ok": False, "error": f"primary model file missing: {path}"}), 404
+
+        stat = path.stat()
+        return jsonify({
+            "ok": True,
+            "model_name": name,
+            "filename": path.name,
+            "size_bytes": stat.st_size,
+            "mtime": int(stat.st_mtime),
+            # Size+mtime rather than a hash on purpose: hashing a 5GB file
+            # on every poll would cost seconds of disk I/O to answer a
+            # question that size+mtime already answers correctly for the
+            # only case that matters (the desktop's model was swapped or
+            # re-quantized).
+            "version": f"{stat.st_size}-{int(stat.st_mtime)}",
+        })
+
+    @app.route("/admin/model-file", methods=["GET"])
+    def admin_model_file():
+        """Streams the primary model's GGUF so the phone can hold a
+        byte-identical copy rather than a different, smaller model that
+        would think differently.
+
+        Admin-gated because this is multi-gigabyte egress of the actual
+        weights, not metadata. Range requests are supported (Flask's
+        send_file does this by default via conditional=True), which is
+        what makes a 5GB transfer over Wi-Fi resumable instead of
+        restarting from zero every time the connection blips."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+
+        path = _primary_model_file()
+        if path is None:
+            return jsonify({"error": "no primary model configured"}), 404
+        if not path.exists():
+            return jsonify({"error": f"primary model file missing: {path}"}), 404
+
+        return send_file(
+            str(path),
+            mimetype="application/octet-stream",
+            as_attachment=True,
+            download_name=path.name,
+            conditional=True,
+        )
 
     @app.route("/admin/execute", methods=["POST"])
     def admin_execute():
