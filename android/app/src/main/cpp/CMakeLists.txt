@@ -19,9 +19,35 @@ set(LLAMA_BUILD_TOOLS    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
-# mtmd needs common/ for its helpers, so this one stays ON even though
-# LLAMA_BUILD_TOOLS is off.
-set(LLAMA_BUILD_COMMON   ON  CACHE BOOL "" FORCE)
+
+# OFF, verified rather than assumed: no source compiled into the mtmd
+# target (mtmd.cpp, mtmd-helper.cpp, mtmd-image.cpp, mtmd-audio.cpp,
+# clip.cpp, models/*.cpp) includes anything from common/, and this JNI
+# file uses no common_* helper either. Leaving it ON built a 4.3MB
+# libllama-common.so that Gradle then packaged into the APK even though
+# nothing linked it -- Gradle sweeps up every .so in the build tree, so
+# an unused library is not free. Also skips vendor/cpp-httplib, which
+# llama.cpp only adds under this same flag.
+set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+
+# The supported way to get libmtmd without the rest of tools/ -- llama.cpp
+# added this hook specifically for packaging mtmd for language bindings,
+# and it only fires when LLAMA_BUILD_TOOLS is OFF, which is our case.
+#
+# Using it instead of add_subdirectory(tools/mtmd) directly also removes
+# a real trap: tools/mtmd/CMakeLists.txt reads ${LLAMA_INSTALL_VERSION},
+# which the root sets as a plain (non-cache) variable. Adding tools/mtmd
+# from OUR scope left that empty -- an odd argument count and a hard
+# "set_target_properties called with incorrect number of arguments"
+# failure. This hook adds it from the root's own scope, where the value
+# actually exists, so the problem can't arise.
+set(LLAMA_BUILD_MTMD ON CACHE BOOL "" FORCE)
+
+# MTMD_VIDEO defaults ON and shells out to an ffmpeg binary -- there
+# isn't one on a phone, and video isn't wanted here. Set before the
+# subdirectory is added; a CACHE var set afterwards would be read too
+# late to matter.
+set(MTMD_VIDEO OFF CACHE BOOL "" FORCE)
 
 # GGML_NATIVE must be OFF for a cross-compile: left on, ggml probes the
 # *build machine's* CPU (a CI runner) and bakes in instructions the
@@ -30,38 +56,11 @@ set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(${LLAMA_ROOT} ${CMAKE_CURRENT_BINARY_DIR}/llama.cpp)
 
-# mtmd is the multimodal layer (image -> embeddings the language model
-# can attend over). LLAMA_BUILD_TOOLS=OFF above means tools/ isn't added
-# automatically, so pull in just this one target.
-#
-# MTMD_VIDEO defaults ON and shells out to an ffmpeg binary -- there
-# isn't one on a phone, and video isn't wanted here, so it's forced off
-# before the subdirectory is added (a CACHE var set afterwards would be
-# read too late to matter).
-set(MTMD_VIDEO OFF CACHE BOOL "" FORCE)
-
-# tools/mtmd/CMakeLists.txt does:
-#     set_target_properties(mtmd PROPERTIES VERSION ${LLAMA_INSTALL_VERSION} ...)
-# and llama.cpp's root CMakeLists sets LLAMA_INSTALL_VERSION as a plain
-# (non-cache) variable. add_subdirectory() gives that root its own child
-# scope, so the value never propagates back up here -- leaving VERSION
-# with an empty value, an odd argument count, and a hard configure
-# failure: "set_target_properties called with incorrect number of
-# arguments". Defining it in this scope is what makes mtmd usable as a
-# nested subdirectory at all. The value is only shared-library version
-# metadata and is irrelevant to an Android .so.
-if(NOT DEFINED LLAMA_INSTALL_VERSION)
-    set(LLAMA_INSTALL_VERSION 0.0.0)
-endif()
-
-add_subdirectory(${LLAMA_ROOT}/tools/mtmd ${CMAKE_CURRENT_BINARY_DIR}/mtmd)
-
 add_library(gremlin-vision SHARED gremlin_vision.cpp)
 
 target_include_directories(gremlin-vision PRIVATE
     ${LLAMA_ROOT}/include
     ${LLAMA_ROOT}/ggml/include
-    ${LLAMA_ROOT}/common
     ${LLAMA_ROOT}/tools/mtmd
 )
 
