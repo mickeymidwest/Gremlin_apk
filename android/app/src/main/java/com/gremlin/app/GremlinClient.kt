@@ -38,7 +38,16 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     // this connects almost instantly, so it costs nothing there. Away
     // from home it means falling back quickly instead of hanging.
     private val desktopConnectTimeoutMs = 4_000
-    private val desktopReadTimeoutMs = 120_000 // consult/synthesis can take a while, once connected
+    // Once CONNECTED, give the desktop real time to answer before giving
+    // up and dropping to the (much weaker) offline model. A desktop turn
+    // can legitimately run minutes: intent classification, a model swap
+    // on an 8GB card, a consult across several models, or a
+    // natural-language self-edit. Timing out at 2 minutes was the main
+    // reason a paired phone kept falling back to offline mid-conversation
+    // and answering with garbage. This only extends the wait when the
+    // desktop is actually working -- an unreachable desktop still fails
+    // fast at connect (desktopConnectTimeoutMs above).
+    private val desktopReadTimeoutMs = 300_000
 
     // Away-mode exchanges the desktop doesn't know about yet -- queued
     // here, sent along with the next message that actually reaches the

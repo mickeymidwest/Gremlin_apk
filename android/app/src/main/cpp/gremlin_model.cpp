@@ -150,20 +150,41 @@ Java_com_gremlin_app_llama_LocalModel_nativeGenerate(
     mtmd_input_chunks *chunks = nullptr;
 
     do {
-        // The media marker is where the image gets spliced into the
-        // prompt. Without it mtmd_tokenize has nowhere to put the image
-        // and the model answers from the text alone -- the exact silent
-        // "model that can't see" failure this whole path exists to avoid.
-        // For a text-only turn there is deliberately NO marker, since a
-        // marker with no bitmap behind it is a tokenize error.
-        std::string full_prompt;
+        // Build the user turn. The media marker is where the image gets
+        // spliced in; without it mtmd has nowhere to put the image and
+        // the model answers from text alone. No marker on a text-only
+        // turn -- a marker with no bitmap is a tokenize error.
+        std::string user_content;
         if (has_image) {
             bitmap = mtmd_bitmap_init((uint32_t) width, (uint32_t) height,
                                       (const unsigned char *) rgb_data);
             if (!bitmap) { LOGe("mtmd_bitmap_init failed"); break; }
-            full_prompt = std::string(mtmd_default_marker()) + "\n" + prompt_c;
+            user_content = std::string(mtmd_default_marker()) + "\n" + prompt_c;
         } else {
-            full_prompt = prompt_c;
+            user_content = prompt_c;
+        }
+
+        // Apply the model's OWN chat template so it gets proper turn
+        // markers and reliably stops at end-of-turn. This is the fix for
+        // the runaway "Gremlin. Gremlin. Gremlin." loops: fed raw text
+        // with no template, a small model never emits its end token and
+        // just keeps going. If the model ships no template, fall back to
+        // a ChatML wrap (SmolVLM and most small instructs use ChatML).
+        std::string full_prompt;
+        {
+            const char *tmpl = llama_model_chat_template(g_model, nullptr);
+            llama_chat_message msg{"user", user_content.c_str()};
+            if (tmpl) {
+                int need = llama_chat_apply_template(tmpl, &msg, 1, /*add_ass*/ true, nullptr, 0);
+                if (need > 0) {
+                    std::vector<char> tbuf((size_t) need);
+                    int wrote = llama_chat_apply_template(tmpl, &msg, 1, true, tbuf.data(), (int32_t) tbuf.size());
+                    if (wrote > 0) full_prompt.assign(tbuf.data(), (size_t) wrote);
+                }
+            }
+            if (full_prompt.empty()) {
+                full_prompt = "<|im_start|>user\n" + user_content + "<|im_end|>\n<|im_start|>assistant\n";
+            }
         }
 
         mtmd_input_text text{};
@@ -196,12 +217,22 @@ Java_com_gremlin_app_llama_LocalModel_nativeGenerate(
 
         const llama_vocab *vocab = llama_model_get_vocab(g_model);
 
-        // Greedy sampling on purpose: this is perception, not creative
-        // writing. The same screenshot should describe the same way
-        // twice, and a hallucinated detail here gets reasoned over as
-        // fact by the general model downstream.
+        // A repetition penalty is the other half of stopping the loops --
+        // even with a chat template, a small model left on pure greedy
+        // will happily repeat the same token/line forever. penalty_repeat
+        // 1.3 over the last 256 tokens is a firm-but-not-destructive
+        // setting. Vision runs cooler (lower temperature) because a
+        // description should be literal and stable; chat gets a little
+        // more temperature so it isn't robotic. Neither is pure greedy
+        // any more.
+        const float temp = has_image ? 0.3f : 0.7f;
         llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
-        llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+            /*penalty_last_n*/ 256, /*penalty_repeat*/ 1.3f,
+            /*penalty_freq*/ 0.0f, /*penalty_present*/ 0.0f));
+        llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.95f, 1));
+        llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
+        llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
         llama_batch batch = llama_batch_init(1, 0, 1);
         const int limit = max_tokens > 0 ? max_tokens : 256;
