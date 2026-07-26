@@ -41,6 +41,13 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     --promote the new .gguf is left on disk untouched; with it, persona.primary_model in
     config/models.yaml is switched to the new version (the old model entry/file are left
     alone either way, so reverting is a one-line config edit).
+  gremlin enlist [--yes]
+    Download the 20 verified uncensored sub-models and link every one into
+    persona.consult_models -- making them part of Gremlin the same way the
+    original consult models are. Each repo is re-verified against the live
+    Hugging Face API before anything downloads (models invent repo names,
+    so nothing is trusted). Large one-time download, resumable, idempotent.
+    Only ADDS -- never changes your existing models.
   gremlin council [--target=20] [--rounds=3]
     Gremlin's own primary + 4 consult models propose the specialist network themselves,
     all required to be uncensored. Every proposed repo is verified against the real
@@ -439,6 +446,46 @@ async def cmd_council(registry: ModelRegistry, router: Router, target: int, roun
     print("\n" + council.roster_summary(result))
     path = council.write_roster(PROJECT_ROOT, result)
     print(f"\n(full roster written to {path})")
+
+
+def cmd_enlist(assume_yes: bool):
+    """Download the verified 20 and link them into consult_models -- the
+    step that makes them part of Gremlin."""
+    roster = council.DEFAULT_ROSTER
+    print(f"This downloads {len(roster)} uncensored models and links each into")
+    print("persona.consult_models -- the same list the 4 existing consult models")
+    print("already use to feed Gremlin's answers. Nothing existing is changed.\n")
+    print("Two things to know before you say yes:")
+    print("  - It's a large one-time download (tens of GB). It resumes if interrupted.")
+    print("  - On an 8GB card these load ONE AT A TIME, not all at once. Adding all 20")
+    print("    to consult_models means an uncertain answer could try many of them in")
+    print("    sequence, which is slow. The task-based `gremlin specialists` router is")
+    print("    the efficient way to actually use them; consult is the blunt way.\n")
+
+    if not assume_yes:
+        confirm = input("Download and link all of them now? (y/N): ").strip().lower()
+        if confirm != "y":
+            print("Cancelled -- nothing downloaded, config untouched.")
+            return
+
+    def show(repo, stage, detail):
+        if stage == "downloading":
+            print(f"  {repo}: downloading {detail}")
+        elif stage == "linked":
+            print(f"  {repo}: linked as '{detail}'")
+        elif stage in ("rejected", "failed"):
+            print(f"  {repo}: SKIPPED -- {detail}")
+
+    result = council.enlist(PROJECT_ROOT, CONFIG_PATH, progress=show)
+    print(f"\nLinked {len(result['added'])} of {result['roster_size']} into consult_models.")
+    if result["skipped"]:
+        print(f"Already present: {len(result['skipped'])}")
+    if result["failed"]:
+        print(f"Couldn't add {len(result['failed'])}:")
+        for repo, why in result["failed"]:
+            print(f"  {repo}: {why}")
+    print("\nRun `gremlin list` to see them. They're part of Gremlin now -- reached")
+    print("when its own answer is uncertain, same as the original consult models.")
 
 
 def cmd_specialists(registry: ModelRegistry):
@@ -978,6 +1025,8 @@ async def main():
                     print(f"Queued. Run `gremlin research --daemon` to work through it.")
                 else:
                     await cmd_research(registry, router, goal, max_rounds, target, level, constraints)
+        elif cmd == "enlist":
+            cmd_enlist(assume_yes="--yes" in sys.argv[2:] or "-y" in sys.argv[2:])
         elif cmd == "council":
             extra = sys.argv[2:]
             target = council.DEFAULT_TARGET

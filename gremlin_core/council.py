@@ -45,6 +45,7 @@ from typing import Any, Optional
 import requests
 
 from . import hf_hub
+from . import model_scan
 from .registry import ModelRegistry
 from .router import Router
 from .specialists import TaskType
@@ -351,3 +352,161 @@ def roster_summary(result: dict[str, Any]) -> str:
         "primary and four consult models are untouched."
     )
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- enlist
+
+# The 20, each verified against the live Hugging Face API (repo exists,
+# has GGUF files, tagged uncensored/abliterated) and small enough to load
+# one at a time on an 8GB card. Curated across the task areas the network
+# is meant to cover -- code, math/reasoning, security-capable general,
+# and everyday uncensored general -- rather than 20 of the same thing.
+# `gremlin enlist` verifies every one AGAIN at run time before touching
+# anything, so a repo that vanished upstream is caught, not trusted.
+DEFAULT_ROSTER: list[tuple[str, str]] = [
+    # code / Android dev
+    ("bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF", "code"),
+    ("bartowski/Qwen2.5-Coder-3B-Instruct-abliterated-GGUF", "code"),
+    ("bartowski/Qwen2.5-Coder-1.5B-Instruct-abliterated-GGUF", "code"),
+    ("bartowski/Qwen2.5-Coder-0.5B-Instruct-abliterated-GGUF", "code"),
+    # math / reasoning
+    ("mradermacher/DeepSeek-R1-Distill-Qwen-1.5B-abliterated-GGUF", "math"),
+    ("mradermacher/DeepSeek-R1-Distill-Qwen-7B-abliterated-GGUF", "math"),
+    ("mradermacher/DeepSeek-R1-Distill-Llama-8B-abliterated-GGUF", "math"),
+    ("mradermacher/Marco-o1-uncensored-GGUF", "math"),
+    # small general
+    ("mradermacher/Qwen2.5-0.5B-Instruct-abliterated-GGUF", "general"),
+    ("mradermacher/Llama-3.2-1B-Instruct-abliterated-GGUF", "general"),
+    ("mradermacher/Qwen2.5-1.5B-Instruct-Uncensored-GGUF", "general"),
+    ("mradermacher/Llama-3.2-3B-Instruct-abliterated-GGUF", "general"),
+    # mid general / security-capable
+    ("bartowski/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF", "general"),
+    ("bartowski/NeuralDaredevil-8B-abliterated-GGUF", "general"),
+    ("mradermacher/Josiefied-Qwen2.5-7B-Instruct-abliterated-v2-GGUF", "general"),
+    ("mradermacher/Llama-3.1-8B-Lexi-Uncensored-V2-GGUF", "general"),
+    # dolphin / gemma diversity
+    ("mradermacher/dolphin-2.9-llama3-8b-GGUF", "general"),
+    ("cognitivecomputations/dolphin-2.9-llama3-8b-gguf", "general"),
+    ("mradermacher/gemma-2-2b-it-abliterated-GGUF", "extraction"),
+    ("bartowski/gemma-2-9b-it-abliterated-GGUF", "general"),
+]
+
+# Prefer these quants in order -- a middle-of-the-road Q4 is the sane
+# default for an 8GB card, not the absolute smallest (which is often a
+# quality-wrecking Q2) nor the largest.
+_QUANT_PREFERENCE = ["q4_k_m", "q4_k_s", "q4_0", "q5_k_m", "q3_k_m", "q8_0", "q6_k"]
+
+
+def choose_quant(files: list[dict]) -> Optional[dict]:
+    """Pick a reasonable GGUF from a repo's file list.
+
+    Skips multi-part shards (name contains '-00001-of-') -- those need
+    reassembly this simple downloader doesn't do, and every model here
+    has a single-file quant available."""
+    single = [f for f in files if "-of-" not in f["filename"].lower()]
+    pool = single or files
+    for pref in _QUANT_PREFERENCE:
+        for f in pool:
+            if pref in f["filename"].lower():
+                return f
+    # No preferred quant matched -- take the smallest single-file one, so
+    # this never silently pulls a 15GB f16 by accident.
+    return min(pool, key=lambda f: f.get("size", 1 << 62)) if pool else None
+
+
+def enlist(
+    root: str,
+    config_path: str,
+    roster: Optional[list[tuple[str, str]]] = None,
+    progress=None,
+) -> dict[str, Any]:
+    """Download every verified model and link it into consult_models.
+
+    This is the "make all of them part of Gremlin" step. Each model is:
+    re-verified live -> a quant chosen -> downloaded to models/ ->
+    registered in config -> added to persona.consult_models, which is
+    exactly how the four existing consult models already feed Gremlin's
+    answers. Additive only; nothing existing is touched.
+
+    Idempotent: a repo whose file is already on disk and already
+    registered is skipped, so re-running after an interrupted pull
+    resumes the roster rather than re-downloading."""
+    roster = roster or DEFAULT_ROSTER
+    session = requests.Session()
+    dest_dir = Path(root) / "models"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    config_text = open(config_path).read()
+    registered_paths = set(model_scan.already_registered_paths(config_text))
+    taken_names = set(model_scan.existing_model_names(config_text))
+
+    added: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    failed: list[tuple[str, str]] = []
+
+    for repo, task_type in roster:
+        def note(stage: str, detail: str = ""):
+            if progress:
+                try:
+                    progress(repo, stage, detail)
+                except Exception:
+                    pass
+
+        cand = verify_candidate(Candidate(repo=repo, task_type=task_type, why="", proposed_by="roster"), session=session)
+        if not cand.accepted:
+            failed.append((repo, cand.rejected_reason))
+            note("rejected", cand.rejected_reason)
+            continue
+
+        try:
+            files = hf_hub.list_gguf_files(repo, session=session)
+        except Exception as e:
+            failed.append((repo, f"list failed: {e}"))
+            note("failed", str(e))
+            continue
+
+        chosen = choose_quant(files)
+        if not chosen:
+            failed.append((repo, "no usable single-file quant"))
+            note("failed", "no quant")
+            continue
+
+        dest = dest_dir / chosen["filename"]
+        if str(dest.resolve()) in registered_paths:
+            skipped.append((repo, "already registered"))
+            note("skipped", "already registered")
+            continue
+
+        # Resume-friendly: a fully-downloaded file that just isn't
+        # registered yet gets registered without re-pulling.
+        need_download = not (dest.exists() and dest.stat().st_size == chosen.get("size", -1))
+        if need_download:
+            note("downloading", f"{chosen['filename']} ({chosen.get('size', 0) / 1_000_000:.0f}MB)")
+            try:
+                hf_hub.download_file(
+                    repo, chosen["filename"], str(dest), session=session,
+                    progress_callback=(lambda d, t: note("progress", f"{d}/{t}")) if progress else None,
+                )
+            except Exception as e:
+                # Leave a partial file for a manual resume rather than
+                # deleting hundreds of MB on one dropped connection.
+                failed.append((repo, f"download failed: {e}"))
+                note("failed", str(e))
+                continue
+
+        base = model_scan.slugify(chosen["filename"])
+        name = model_scan.unique_name(base, taken_names)
+        taken_names.add(name)
+        block = model_scan.build_entry_block(name, str(dest.resolve()), chosen["filename"])
+        model_scan.insert_entries(config_path, [block])
+        model_scan.add_to_flow_list(config_path, "consult_models", name)
+        registered_paths.add(str(dest.resolve()))
+        added.append(name)
+        note("linked", name)
+
+    return {
+        "added": added,
+        "skipped": skipped,
+        "failed": failed,
+        "roster_size": len(roster),
+    }
