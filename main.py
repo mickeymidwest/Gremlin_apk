@@ -81,6 +81,7 @@ from gremlin_core.registry import ModelRegistry
 from gremlin_core.router import Router
 from gremlin_core import actions
 from gremlin_core import intent
+from gremlin_core import history
 from gremlin_core import self_improve
 from gremlin_core import consult
 from gremlin_core import model_scan
@@ -688,6 +689,7 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
     backend = registry.get(model_name)
     is_persona = backend.info.kind == "persona"
     pending_confirmations = intent.PendingConfirmations()
+    conversation_history = history.ConversationHistory(PROJECT_ROOT)
     CONVERSATION_KEY = "cli"
 
     print(f"Chatting with {model_name}. Ctrl+C to quit.\n")
@@ -697,6 +699,12 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
         except (KeyboardInterrupt, EOFError):
             print()
             break
+
+        # "clear the conversation" wipes this thread; kept until told to.
+        if is_persona and history.is_clear_command(user_input):
+            conversation_history.clear(CONVERSATION_KEY)
+            print(f"{model_name}> Cleared -- fresh start.\n")
+            continue
 
         # Same natural-language action routing the phone gets over
         # /chat -- "check for updates" or "fix my backup script" work
@@ -714,8 +722,12 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
                 router, model_name, backend.consult_model_names, user_input, PROJECT_ROOT,
                 last_resort_model=backend.last_resort_model_name,
                 consult_sample_rate=backend.consult_sample_rate,
+                history=conversation_history.render(CONVERSATION_KEY),
             )
+            conversation_history.record(CONVERSATION_KEY, user_input, result.get("answer", ""))
             print(f"{model_name}> {result['answer']}")
+            if result.get("autosaved_note"):
+                print(f"   (noted for later: {result['autosaved_note']})")
             if result["from_memory"]:
                 print("   (answered from something learned earlier -- no model call needed)")
             elif result["consulted"]:

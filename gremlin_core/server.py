@@ -35,6 +35,7 @@ from .router import Router
 from . import actions
 from . import consult
 from . import intent as intent_mod
+from . import history as history_mod
 from . import away_sync
 from . import eviction
 from . import model_scan
@@ -124,6 +125,10 @@ def create_app(
     # lifetime, entries expire on their own.
     pending_confirmations = intent_mod.PendingConfirmations()
 
+    # The last few turns of each ongoing conversation, so Gremlin keeps
+    # the thread instead of forgetting after a few sentences.
+    conversation_history = history_mod.ConversationHistory(str(project_root))
+
     def _check_auth() -> Optional[tuple]:
         supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         if not supplied:
@@ -181,19 +186,34 @@ def create_app(
         # channel any more (see gremlin_core/intent.py). Anything that
         # isn't an action falls straight through to the normal consult
         # path below, at zero added cost.
+        conv_key = request.headers.get("Authorization", "") or "default"
+
+        # "clear the conversation" / "start fresh" wipes this thread's
+        # memory (kept until told to clear -- see history.py). Checked
+        # before anything else so it can't be mistaken for a chat message.
+        if history_mod.is_clear_command(message):
+            conversation_history.clear(conv_key)
+            return jsonify(_chat_reply("Cleared -- fresh start. I won't reference anything from before this."))
+
         action_result = _handle_possible_action(message)
         if action_result is not None:
             action_result["synced_count"] = synced_count
             return jsonify(action_result)
 
+        # Fold the last few turns of THIS conversation in, so Gremlin
+        # continues the thread instead of reintroducing itself every few
+        # sentences. See gremlin_core/history.py.
+        history = conversation_history.render(conv_key)
         result = run_coro(
             loop,
             consult.consult_and_learn(
                 router, "gremlin", gremlin_backend.consult_model_names, message, str(project_root),
                 last_resort_model=gremlin_backend.last_resort_model_name,
                 consult_sample_rate=gremlin_backend.consult_sample_rate,
+                history=history,
             ),
         )
+        conversation_history.record(conv_key, message, result.get("answer", ""))
         result["synced_count"] = synced_count
         return jsonify(result)
 

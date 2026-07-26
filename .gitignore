@@ -29,3 +29,11 @@ android/**/build/
 # quantize tooling when finetune.py promotes a new fine-tuned GGUF,
 # not project source. Re-clonable, not something to track.
 tools/llama.cpp/
+
+# Per-conversation short-term memory (survives restarts, wiped on 'clear')
+data/conversations/
+# Runtime data written by research/bench/council -- not source
+data/*.json
+data/research_queue.jsonl
+data/bench_results.jsonl
+data/research_results.jsonl

@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import time
 from contextlib import contextmanager
 from typing import Optional
@@ -211,6 +212,103 @@ def remember_fact(root: str, text: str) -> None:
 
 REMEMBER_PREFIXES = ("remember that ", "remember: ", "remember ")
 
+# --- automatic long-term notes ---------------------------------------
+#
+# Beyond the explicit "remember X" path, Gremlin saves durable facts it
+# notices on its own -- a name, a preference, an ongoing project detail,
+# hardware -- to the SAME long-term memory file. Two safeguards keep that
+# from turning the memory file into noise:
+#
+#  1. A tight pre-filter. Only a first-person STATEMENT of fact ("my dog
+#     is named Cyclops", "I use Manjaro") is even considered. Questions,
+#     commands, chitchat, and anything not about the user are skipped
+#     with no model call at all -- so this costs nothing on most turns.
+#  2. Dedup + an [auto] tag. A note already recorded isn't written again,
+#     and auto-saved notes are tagged so they're distinguishable from
+#     ones the user explicitly asked for, and easy to prune.
+
+_PERSONAL_FACT_HINT = re.compile(
+    r"\b("
+    r"my (name|dog|cat|pet|wife|husband|partner|kid|son|daughter|job|"
+    r"desktop|laptop|phone|gpu|card|setup|project|goal|birthday|address|"
+    r"email|favou?rite|preference)"
+    r"|i(\x27m | am | have | use | run | prefer | like | hate | love | work | live |"
+    r" own | drive | need | want | always | never | usually )"
+    r"|we (are |have |use |run |prefer |live |own )"
+    r"|call me\b"
+    r"|remember this"
+    r")",
+    re.IGNORECASE,
+)
+
+_AUTONOTE_SYSTEM = (
+    "You extract at most ONE durable fact worth remembering long-term about the user, "
+    "from their message. Durable = still true next week: a name, a preference, an ongoing "
+    "project, their hardware, a relationship, a goal. NOT questions, NOT one-off requests, "
+    "NOT transient state (\"I'm tired\"), NOT anything about you the assistant. "
+    "Reply with ONLY the fact as a short third-person note (e.g. \"User's dog is named "
+    "Cyclops\"), or exactly NONE if there is nothing durable. No preamble, no quotes."
+)
+
+
+def looks_like_personal_fact(message: str) -> bool:
+    """Cheap gate: is it even worth a model call to extract a note?"""
+    m = (message or "").strip()
+    if len(m) < 6 or m.endswith("?"):
+        return False
+    return bool(_PERSONAL_FACT_HINT.search(m))
+
+
+def _normalize_note(text: str) -> str:
+    return re.sub(r"[^a-z0-9 ]", "", (text or "").lower()).strip()
+
+
+def note_already_saved(root: str, note: str) -> bool:
+    """Dedup against what's already in the memory file, loosely -- an
+    exact re-statement or a near-identical one shouldn't be saved twice."""
+    path = _memory_file_path(root)
+    if not os.path.exists(path):
+        return False
+    target = _normalize_note(note)
+    if not target:
+        return True  # nothing meaningful to save
+    try:
+        existing = open(path).read().lower()
+    except OSError:
+        return False
+    return _normalize_note(note) in _normalize_note(existing)
+
+
+def parse_autonote(raw: str) -> Optional[str]:
+    """A model's autonote reply -> a fact string, or None."""
+    if not raw:
+        return None
+    text = raw.strip().strip('"').strip()
+    # Models sometimes prepend "Note:" or wrap it -- take the first line.
+    text = text.splitlines()[0].strip() if text else ""
+    if not text or text.upper().startswith("NONE") or len(text) < 4:
+        return None
+    return text
+
+
+async def maybe_autosave_note(router: "Router", persona_name: str, message: str, root: str) -> Optional[str]:
+    """Notice and save a durable fact from the user's message. Best-effort:
+    returns the saved note, or None if nothing worth keeping. Never raises
+    -- a failed extraction must not affect the actual reply."""
+    if not looks_like_personal_fact(message):
+        return None
+    try:
+        result = await router.route(persona_name, message, system=_AUTONOTE_SYSTEM, max_tokens=60)
+    except Exception:
+        return None
+    if not result.ok:
+        return None
+    note = parse_autonote(result.text)
+    if not note or note_already_saved(root, note):
+        return None
+    remember_fact(root, f"[auto] {note}")
+    return note
+
 
 def _extract_remember_command(prompt: str) -> Optional[str]:
     stripped = prompt.strip()
@@ -246,6 +344,7 @@ async def consult_and_learn(
     root: str,
     last_resort_model: Optional[str] = None,
     consult_sample_rate: float = 0.0,
+    history: Optional[str] = None,
 ) -> dict:
     """Thin wrapper around _consult_and_learn_inner that marks Gremlin as
     'talking' (see _talking/is_talking above) for exactly the duration of
@@ -259,6 +358,7 @@ async def consult_and_learn(
             router, persona_name, consult_models, prompt, root,
             last_resort_model=last_resort_model,
             consult_sample_rate=consult_sample_rate,
+            history=history,
         )
 
 
@@ -270,6 +370,7 @@ async def _consult_and_learn_inner(
     root: str,
     last_resort_model: Optional[str] = None,
     consult_sample_rate: float = 0.0,
+    history: Optional[str] = None,
 ) -> dict:
     """
     0. If the message is a "remember ..." command, just write it to the
@@ -299,13 +400,29 @@ async def _consult_and_learn_inner(
             "contributors": [],
         }
 
-    cached = load_learned_answer(root, prompt)
-    if cached is not None:
-        return {"answer": cached, "consulted": False, "from_memory": True, "contributors": []}
+    # The exact-match learned-answer cache is a real feature for one-off
+    # facts, but returning a canned answer MID-CONVERSATION is a big part
+    # of the "forgets and reintroduces itself" feeling -- a cached "hi ->
+    # I'm Gremlin" ignores everything just said. So only use it on a cold
+    # turn (no live history for this conversation); once a conversation is
+    # underway, always actually think with the context in hand.
+    if not history:
+        cached = load_learned_answer(root, prompt)
+        if cached is not None:
+            return {"answer": cached, "consulted": False, "from_memory": True, "contributors": []}
 
+    # Short-term conversation history goes FIRST in the context so the
+    # persona reads it as the thread it's continuing. Then the durable
+    # memory file and any away-mode context.
     context_note = "\n\n".join(
-        part for part in (_load_memory_notes(root), _recent_away_context(root)) if part
+        part for part in (history, _load_memory_notes(root), _recent_away_context(root)) if part
     ) or None
+
+    # Notice and save a durable fact from this message on its own (not
+    # just when told "remember ..."). Best-effort and gated by a cheap
+    # pre-filter, so it costs nothing on the overwhelming majority of
+    # turns and never affects the reply.
+    autosaved_note = await maybe_autosave_note(router, persona_name, prompt, root)
 
     primary_result = await router.route(persona_name, prompt, system=context_note)
     if not primary_result.ok:
@@ -329,6 +446,7 @@ async def _consult_and_learn_inner(
             "consulted": False,
             "from_memory": False,
             "contributors": [],
+            "autosaved_note": autosaved_note,
         }
 
     # Uncertain (or sampled) -- first pass: the general consult group (typically local models).
@@ -397,4 +515,5 @@ async def _consult_and_learn_inner(
         "from_memory": False,
         "contributors": list(confident.keys()),
         "escalated": escalated,
+        "autosaved_note": autosaved_note,
     }
