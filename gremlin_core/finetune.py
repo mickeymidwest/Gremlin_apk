@@ -33,6 +33,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 
 def _log_path(root: str) -> str:
@@ -56,22 +57,12 @@ def _read_log_entries(root: str) -> list[dict]:
     return entries
 
 
-def build_training_dataset(root: str, eval_fraction: float = 0.15) -> tuple[list[dict], list[dict]]:
-    """
-    Returns (train_examples, eval_examples) -- both lists of chat-format
-    SFT examples: {"messages": [{"role": "user", "content": prompt},
-    {"role": "assistant", "content": final_answer}]}.
-
-    Every entry in learning_log.jsonl already represents a real
-    "Gremlin didn't know this on its own" moment -- load_learned_answer
-    short-circuits an exact-repeat question before a consult ever
-    happens, so nothing here is an already-known answer. Split by time
-    (oldest first), not a random shuffle, so the eval set is genuinely
-    held out from whatever a fine-tune would have trained on, not just
-    a random sample of the same distribution.
-    """
-    entries = _read_log_entries(root)
-    entries.sort(key=lambda e: e.get("timestamp", 0))
+def _entries_to_split(entries: list[dict], eval_fraction: float) -> tuple[list[dict], list[dict]]:
+    """Shared by build_training_dataset and build_training_dataset_for_model:
+    turns a set of learning_log.jsonl entries into a chat-format SFT
+    (train, eval) split, oldest-first so eval is genuinely held out
+    rather than a random sample of the same distribution."""
+    entries = sorted(entries, key=lambda e: e.get("timestamp", 0))
 
     examples = []
     for e in entries:
@@ -96,13 +87,61 @@ def build_training_dataset(root: str, eval_fraction: float = 0.15) -> tuple[list
     return examples[:split_at], examples[split_at:]
 
 
-def write_training_set(root: str, eval_fraction: float = 0.15) -> dict:
-    """Writes data/training_set.jsonl (train split) and
-    data/eval_set.jsonl (held-out split, used later by
-    checkpoint_eval.py) -- returns counts for the CLI to report."""
-    train, eval_examples = build_training_dataset(root, eval_fraction=eval_fraction)
+def build_training_dataset(root: str, eval_fraction: float = 0.15) -> tuple[list[dict], list[dict]]:
+    """
+    Returns (train_examples, eval_examples) -- both lists of chat-format
+    SFT examples: {"messages": [{"role": "user", "content": prompt},
+    {"role": "assistant", "content": final_answer}]}.
 
-    data_dir = Path(root) / "data"
+    Every entry in learning_log.jsonl already represents a real
+    "Gremlin didn't know this on its own" moment -- load_learned_answer
+    short-circuits an exact-repeat question before a consult ever
+    happens, so nothing here is an already-known answer. Used to fine-
+    tune the PRIMARY on everything logged, regardless of which
+    specialist contributed each entry -- see build_training_dataset_for_model
+    for training a specific sub-model on just its own contributions.
+    """
+    return _entries_to_split(_read_log_entries(root), eval_fraction)
+
+
+def build_training_dataset_for_model(
+    root: str, model_name: str, eval_fraction: float = 0.15,
+) -> tuple[list[dict], list[dict]]:
+    """Same shape as build_training_dataset, filtered to only the entries
+    where `model_name` was the (single) specialist consulted -- every
+    entry logged since the switch away from broadcast-consult (see
+    gremlin_core/consult.py) records consulted_models as a one-element
+    list naming exactly who answered. Used to fine-tune that SPECIFIC
+    sub-model on what it itself contributed, instead of folding
+    everything into the primary."""
+    entries = [e for e in _read_log_entries(root) if e.get("consulted_models") == [model_name]]
+    return _entries_to_split(entries, eval_fraction)
+
+
+def _target_data_dir(root: str, model_name: Optional[str]) -> Path:
+    """Where a target's training_set.jsonl/eval_set.jsonl (and, for a
+    sub-model, its own fine-tune runs) live. None (the primary) keeps
+    the original flat data/ location unchanged; a named sub-model gets
+    its own subdirectory so multiple sub-models' datasets/runs never
+    collide with each other or with the primary's."""
+    if model_name:
+        return Path(root) / "data" / "finetunes" / "by_model" / model_name
+    return Path(root) / "data"
+
+
+def write_training_set(root: str, eval_fraction: float = 0.15, model_name: Optional[str] = None) -> dict:
+    """Writes <target>/training_set.jsonl (train split) and
+    <target>/eval_set.jsonl (held-out split, used later by
+    checkpoint_eval.py) -- returns counts for the CLI to report. Trains
+    on everything in data/learning_log.jsonl by default (model_name=None,
+    folding it all toward the primary); pass model_name to instead train
+    only on what that specific sub-model itself contributed."""
+    if model_name:
+        train, eval_examples = build_training_dataset_for_model(root, model_name, eval_fraction=eval_fraction)
+    else:
+        train, eval_examples = build_training_dataset(root, eval_fraction=eval_fraction)
+
+    data_dir = _target_data_dir(root, model_name)
     data_dir.mkdir(parents=True, exist_ok=True)
 
     train_path = data_dir / "training_set.jsonl"
@@ -138,19 +177,39 @@ def _load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def train_lora(root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, lr: float = 2e-4) -> dict:
+def train_lora(
+    root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, lr: float = 2e-4,
+    model_name: Optional[str] = None,
+) -> dict:
     """
-    QLoRA fine-tune on data/training_set.jsonl (write_training_set() must
-    have already been run -- this doesn't call it itself, since building
-    the dataset and deciding to spend GPU time training on it are separate
-    decisions). 4-bit base + a small LoRA adapter keeps peak VRAM well
-    inside an 8GB card; the adapter is saved on its own here, merged into
-    full precision only later in merge_and_export_gguf, right before
-    conversion -- training never needs the merged model resident.
+    QLoRA fine-tune on <target>/training_set.jsonl (write_training_set()
+    must have already been run for the SAME model_name -- this doesn't
+    call it itself, since building the dataset and deciding to spend GPU
+    time training on it are separate decisions). 4-bit base + a small
+    LoRA adapter keeps peak VRAM well inside an 8GB card; the adapter is
+    saved on its own here, merged into full precision only later in
+    merge_and_export_gguf, right before conversion -- training never
+    needs the merged model resident.
+
+    model_name=None (default) trains toward the primary, same as always.
+    Pass a sub-model's registered name to instead fine-tune THAT model on
+    its own contributions -- base_repo then MUST be that sub-model's own
+    full-precision HF repo (not its GGUF quantizer repo -- e.g. bartowski/
+    mradermacher only publish GGUF quants of someone else's original
+    transformers-format checkpoint; that original is what QLoRA needs).
 
     Returns {"out_dir", "adapter_dir", "base_repo", "train_loss", "eval_loss"}.
     Raises RuntimeError if training_set.jsonl is empty or missing.
     """
+    # Must be set before torch's CUDA allocator initializes (first import/use) --
+    # confirmed by a real OOM on this 8GB card: an 8B model in 4-bit alone
+    # already uses ~7.5 of the ~7.6GB actually usable, so the allocator
+    # needs to be able to grow existing memory segments instead of only
+    # ever requesting new ones, or a request as small as ~2GB for
+    # optimizer/activation memory fails even though the *total* free+
+    # reserved-but-unallocated space would have covered it (fragmentation,
+    # not real exhaustion).
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     import torch
     from datasets import Dataset
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -163,13 +222,14 @@ def train_lora(root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, l
         TrainingArguments,
     )
 
-    data_dir = Path(root) / "data"
+    data_dir = _target_data_dir(root, model_name)
     train_rows = _load_jsonl(data_dir / "training_set.jsonl")
     if not train_rows:
         raise RuntimeError(
-            "data/training_set.jsonl is empty -- run write_training_set() first "
-            "(needs real entries in data/learning_log.jsonl, i.e. Gremlin actually "
-            "consulting on something, not just downloading models)."
+            f"{data_dir / 'training_set.jsonl'} is empty -- run write_training_set("
+            f"model_name={model_name!r}) first (needs real entries in "
+            "data/learning_log.jsonl -- Gremlin actually consulting on something for "
+            "this specific model, not just downloading it)."
         )
     eval_rows = _load_jsonl(data_dir / "eval_set.jsonl")
 
@@ -179,7 +239,18 @@ def train_lora(root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, l
 
     def _tokenize(example):
         text = tokenizer.apply_chat_template(example["messages"], tokenize=False, add_generation_prompt=False)
-        return tokenizer(text, truncation=True, max_length=2048)
+        # 2048 -> 384: confirmed by repeated real OOMs that this 8B model's
+        # 4-bit weights alone (~6.3GB) leave only ~1GB of real headroom on
+        # this 7.6GB-usable card. bitsandbytes 4-bit doesn't support the
+        # obvious fix (splitting the quantized model across GPU/CPU via
+        # device_map + max_memory -- it errored outright asking for
+        # llm_int8_enable_fp32_cpu_offload plus per-module placement,
+        # real extra complexity for a narrow gain). Shrinking what
+        # training itself needs got there instead: a much shorter
+        # sequence length (activation memory scales with it) combined
+        # with the smaller LoRA config below. Longer synthesized answers
+        # get truncated harder than before, not dropped.
+        return tokenizer(text, truncation=True, max_length=384)
 
     train_ds = Dataset.from_list(train_rows).map(_tokenize, remove_columns=["messages"])
     eval_ds = Dataset.from_list(eval_rows).map(_tokenize, remove_columns=["messages"]) if eval_rows else None
@@ -190,22 +261,47 @@ def train_lora(root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, l
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
     )
+    # NOTE (confirmed by real testing): this 8B model's 4-bit weights
+    # alone (~6.3GB) leave only ~1GB of real headroom on this 7.6GB-
+    # usable card, and something needs ~2GB more right after loading
+    # finishes -- reproduced at IDENTICAL byte counts across different
+    # LoRA ranks and sequence lengths, so it's a fixed cost (very likely
+    # dequantizing this model's large embedding/lm_head matrix, an 8B
+    # model's ~128k-vocabulary tax), not a training-hyperparameter one.
+    # A device_map="auto" + max_memory split (forcing part of the 4-bit
+    # model onto CPU via llm_int8_enable_fp32_cpu_offload=True) DOES
+    # avoid the OOM, but was measured to be catastrophically slow in
+    # practice -- 6+ real hours and still not finished loading, not a
+    # usable tradeoff. Left as plain full-GPU 4-bit (fails fast and
+    # clearly if retried as-is) until either this box gets more VRAM
+    # headroom or a properly-scoped device_map (offloading ONLY the
+    # embedding/lm_head, not whatever automatic dispatch was choosing)
+    # is worth building and re-measuring.
     model = AutoModelForCausalLM.from_pretrained(base_repo, quantization_config=bnb_config, device_map="auto")
     model = prepare_model_for_kbit_training(model)
     model.gradient_checkpointing_enable()
+    model.config.use_cache = False
 
+    # r=16 -> r=8, and only the attention projections (not the 4 MLP
+    # projections too) -- roughly a 4x smaller adapter, so its gradients
+    # and (even paged) optimizer state ask for meaningfully less scratch
+    # VRAM during the backward pass, which is where both prior OOMs hit.
     lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
+        r=8,
+        lora_alpha=16,
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        target_modules=["q_proj", "v_proj"],
     )
     model = get_peft_model(model, lora_config)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = data_dir / "finetunes" / stamp
+    # Primary case (model_name=None): data_dir is already data/, so this
+    # keeps the original data/finetunes/<stamp> layout unchanged. Sub-model
+    # case: data_dir is data/finetunes/by_model/<name>, so runs land at
+    # .../by_model/<name>/runs/<stamp> instead of nesting "finetunes" twice.
+    out_dir = (data_dir / "finetunes" / stamp) if model_name is None else (data_dir / "runs" / stamp)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     args = TrainingArguments(
@@ -219,6 +315,14 @@ def train_lora(root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, l
         save_strategy="no",
         eval_strategy="epoch" if eval_ds is not None else "no",
         report_to=[],
+        # Confirmed by a real CUDA OOM on this 8GB card: a plain AdamW's
+        # optimizer states (2x model size for the trainable params) were
+        # enough to blow the tiny remaining VRAM budget after the 4-bit
+        # base model itself. Paged 8-bit Adam keeps optimizer state in
+        # CPU RAM and only pages it to GPU as needed -- the standard
+        # QLoRA fix for exactly this situation, not a quality tradeoff
+        # (it's still full Adam, just paged).
+        optim="paged_adamw_8bit",
     )
     trainer = Trainer(
         model=model,
@@ -333,11 +437,30 @@ def promote_finetuned_model(config_path: str, gguf_path: str, base_chat_format: 
     return name
 
 
+def promote_finetuned_submodel(config_path: str, model_name: str, gguf_path: str) -> None:
+    """The sub-model equivalent of promote_finetuned_model: swaps
+    `model_name`'s own model_path to point at the newly fine-tuned GGUF,
+    in place -- unlike the primary path, this never creates a new entry
+    and never touches persona.primary_model, so every specialists:/
+    consult_models: reference to `model_name` keeps working unchanged.
+    The old file is left on disk untouched (same "reverting is a config
+    edit, not a re-download" property as promote_finetuned_model).
+    Raises RuntimeError if the entry doesn't exist or the resulting
+    config doesn't validate."""
+    from . import model_scan
+
+    ok, err = model_scan.update_model_path(config_path, model_name, gguf_path)
+    if not ok:
+        raise RuntimeError(f"couldn't promote '{model_name}': {err}")
+
+
 def run_pipeline(root: str, config_path: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3,
                   quant: str = "Q4_K_M", promote: bool = False) -> dict:
     """Full ladder: dataset -> LoRA training -> merge/convert/quantize ->
     (optionally) promote. Returns a dict the CLI prints as it goes; raises
-    on any stage's failure rather than half-applying a broken result."""
+    on any stage's failure rather than half-applying a broken result.
+    Always targets the PRIMARY -- see run_pipeline_for_model to instead
+    fine-tune one specific sub-model on just its own contributions."""
     ds = write_training_set(root)
     if ds["train_count"] == 0:
         return {"stage": "dataset", **ds}
@@ -355,4 +478,42 @@ def run_pipeline(root: str, config_path: str, base_repo: str = DEFAULT_BASE_REPO
         **train_result,
         "gguf_path": gguf_path,
         "promoted_name": promoted_name,
+    }
+
+
+def run_pipeline_for_model(
+    root: str, config_path: str, model_name: str, base_repo: str, epochs: int = 3,
+    quant: str = "Q4_K_M", promote: bool = False,
+) -> dict:
+    """Same ladder as run_pipeline, but targets one specific sub-model:
+    trains only on entries where `model_name` was the one consulted (see
+    build_training_dataset_for_model), and promotion swaps that model's
+    own file in place rather than creating a new primary entry.
+
+    base_repo MUST be that sub-model's own full-precision HF repo, not
+    the GGUF quantizer repo it was downloaded from (bartowski/mradermacher
+    etc. only publish quants of someone else's original checkpoint --
+    QLoRA needs that original, loaded via transformers). Verify it
+    actually exists and matches before running this -- a wrong repo
+    either fails fast (repo not found) or, worse, silently trains an
+    architecture mismatch for hours before merge/convert fails."""
+    ds = write_training_set(root, model_name=model_name)
+    if ds["train_count"] == 0:
+        return {"stage": "dataset", **ds}
+
+    train_result = train_lora(root, base_repo=base_repo, epochs=epochs, model_name=model_name)
+    gguf_path = merge_and_export_gguf(root, train_result["adapter_dir"], base_repo, quant=quant)
+
+    promoted = False
+    if promote:
+        promote_finetuned_submodel(config_path, model_name, gguf_path)
+        promoted = True
+
+    return {
+        "stage": "done",
+        **ds,
+        **train_result,
+        "gguf_path": gguf_path,
+        "promoted": promoted,
+        "model_name": model_name,
     }

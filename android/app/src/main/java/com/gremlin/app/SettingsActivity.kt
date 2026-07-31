@@ -12,7 +12,6 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
-import android.widget.ProgressBar
 import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.Spinner
@@ -20,8 +19,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.gremlin.app.llama.LocalModel
-import com.gremlin.app.llama.OfflineModelManager
 import com.gremlin.app.overlay.OverlayPermissionActivity
 import com.gremlin.app.overlay.OverlayService
 import com.gremlin.app.voice.VoiceOutput
@@ -104,7 +101,6 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         setUpVoiceSection(prefs)
-        setUpVisionSection(prefs)
 
         if (host.isNotEmpty()) {
             loadStatus(host, port, token)
@@ -321,126 +317,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
 
-
-    /** The phone's ONE offline model -- it chats AND sees.
-     *
-     * Preferred source is the desktop (whatever persona.phone_model names),
-     * so the desktop decides what the phone runs. Hugging Face is only the
-     * fallback for a phone that has never been paired. */
-    private fun setUpVisionSection(prefs: SharedPreferences) {
-        val status = findViewById<TextView>(R.id.vision_status)
-        val progress = findViewById<ProgressBar>(R.id.vision_progress)
-        val actionButton = findViewById<Button>(R.id.vision_download_button)
-        val enabled = findViewById<CheckBox>(R.id.vision_enabled_checkbox)
-        val removeButton = findViewById<Button>(R.id.vision_remove_button)
-
-        var desktopModel: OfflineModelManager.DesktopModel? = null
-
-        fun refresh() {
-            val have = OfflineModelManager.isDownloaded(applicationContext)
-            val paired = !prefs.getString("host", null).isNullOrBlank()
-            val inSync = OfflineModelManager.isInSyncWithDesktop(prefs, desktopModel)
-
-            status.text = buildString {
-                append(OfflineModelManager.describeLocal(applicationContext, prefs))
-                val d = desktopModel
-                if (d != null) {
-                    append("\nDesktop offers: ${d.name} (${d.totalBytes / 1_000_000}MB")
-                    append(if (d.hasVision) ", with vision)." else ", chat only).")
-                    if (have && !inSync) append("\nYours is out of date -- sync again.")
-                    else if (inSync) append("\nIn sync.")
-                } else if (paired) {
-                    append("\n(Couldn't reach the desktop to ask what it wants you running.)")
-                }
-            }
-
-            actionButton.text = when {
-                desktopModel != null && inSync -> "Re-sync from desktop"
-                desktopModel != null -> "Sync from desktop"
-                paired -> "Sync from desktop"
-                else -> "Download offline model"
-            }
-            enabled.isEnabled = have
-            enabled.isChecked = have && prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false)
-            removeButton.visibility = if (have) View.VISIBLE else View.GONE
-        }
-        refresh()
-
-        Thread {
-            val info = OfflineModelManager.fetchDesktopModel(prefs)
-            runOnUiThread { desktopModel = info; refresh() }
-        }.start()
-
-        fun run(fromDesktop: Boolean) {
-            actionButton.isEnabled = false
-            progress.visibility = View.VISIBLE
-            progress.progress = 0
-            status.text = if (fromDesktop) "Syncing from desktop..." else "Downloading..."
-            Thread {
-                val onProgress: (Long, Long) -> Unit = { done, total ->
-                    runOnUiThread {
-                        if (total > 0) {
-                            progress.progress = ((done * 100) / total).toInt()
-                            status.text = "${done / 1_000_000}MB / ${total / 1_000_000}MB"
-                        }
-                    }
-                }
-                val result = if (fromDesktop)
-                    OfflineModelManager.syncFromDesktop(applicationContext, prefs, onProgress)
-                else
-                    OfflineModelManager.downloadFallback(applicationContext, prefs, onProgress)
-
-                runOnUiThread {
-                    actionButton.isEnabled = true
-                    progress.visibility = View.GONE
-                    when (result) {
-                        is OfflineModelManager.Result.Success ->
-                            Toast.makeText(this, "Offline model ready", Toast.LENGTH_SHORT).show()
-                        is OfflineModelManager.Result.Failure ->
-                            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
-                    }
-                    Thread {
-                        val info = OfflineModelManager.fetchDesktopModel(prefs)
-                        runOnUiThread { desktopModel = info; refresh() }
-                    }.start()
-                }
-            }.start()
-        }
-
-        actionButton.setOnClickListener {
-            val paired = !prefs.getString("host", null).isNullOrBlank()
-            if (paired) { run(fromDesktop = true); return@setOnClickListener }
-            AlertDialog.Builder(this)
-                .setTitle("Not paired with a desktop")
-                .setMessage(
-                    "Normally the desktop decides what model your phone runs. With no desktop " +
-                        "to sync from, this downloads a small stand-in (SmolVLM-500M, ~546MB) " +
-                        "that chats and reads images offline.\n\nDownload it?"
-                )
-                .setPositiveButton("Download") { _, _ -> run(fromDesktop = false) }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        enabled.setOnCheckedChangeListener { _, checked ->
-            prefs.edit().putBoolean(OfflineModelManager.KEY_ENABLED, checked).apply()
-            if (!checked) Thread { LocalModel.unloadModel() }.start()
-        }
-
-        removeButton.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Remove offline model?")
-                .setMessage("Gremlin will need the desktop or an API key to answer anything.")
-                .setPositiveButton("Remove") { _, _ ->
-                    Thread {
-                        OfflineModelManager.delete(applicationContext, prefs)
-                        runOnUiThread { refresh() }
-                    }.start()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-    }
 
     /** Speaks replies aloud via Android's built-in TTS -- see
      * VoiceOutput.kt for the actual speak-on-reply logic (that lives in

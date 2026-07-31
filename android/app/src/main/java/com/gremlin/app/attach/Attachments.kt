@@ -7,8 +7,6 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
-import com.gremlin.app.llama.LocalModel
-import com.gremlin.app.llama.OfflineModelManager
 import com.gremlin.app.overlay.ScreenReader
 import java.io.File
 import java.io.FileOutputStream
@@ -104,43 +102,15 @@ object Attachments {
         }
     }
 
-    /** True only if the vision model is downloaded, enabled, and loads. */
-    private fun visionAvailable(context: Context): Boolean {
-        val prefs = context.getSharedPreferences("gremlin_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false)) return false
-        if (!OfflineModelManager.hasVision(context)) return false
-        if (LocalModel.isReady()) return true
-        val weights = prefs.getString(OfflineModelManager.KEY_WEIGHTS, null) ?: return false
-        val mmproj = prefs.getString(OfflineModelManager.KEY_MMPROJ, null) ?: return false
-        return LocalModel.loadModel(weights, mmproj)
-    }
-
     private fun readImage(context: Context, uri: Uri): String {
         return try {
             val bitmap = context.contentResolver.openInputStream(uri)?.use {
                 android.graphics.BitmapFactory.decodeStream(it)
             } ?: return "[Couldn't decode that image.]"
 
-            // OCR transcribes text exactly; the vision model catches what
-            // OCR structurally can't -- diagrams, figures, handwriting,
-            // spatial layout. Complementary, so use both when available.
             val text = ScreenReader.extractText(bitmap)
-            val described = if (visionAvailable(context)) {
-                LocalModel.describe(
-                    bitmap,
-                    prompt = "Describe this image for someone who can't see it, including any " +
-                        "diagrams, figures, or handwriting. Transcribe text exactly.",
-                )
-            } else null
             bitmap.recycle()
-
-            when {
-                !described.isNullOrBlank() && text.isNotBlank() ->
-                    "TEXT IN IMAGE:\n$text\n\nWHAT THE IMAGE SHOWS:\n$described"
-                !described.isNullOrBlank() -> "WHAT THE IMAGE SHOWS:\n$described"
-                text.isNotBlank() -> text
-                else -> "[No readable text found in that image.]"
-            }
+            if (text.isNotBlank()) text else "[No readable text found in that image.]"
         } catch (e: Exception) {
             "[Couldn't read the image: ${e.message}]"
         }

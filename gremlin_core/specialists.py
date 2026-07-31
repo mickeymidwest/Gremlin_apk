@@ -42,6 +42,7 @@ primary as it always did.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
@@ -99,6 +100,56 @@ DEFAULT_SYSTEM_PROMPTS: dict[TaskType, str] = {
         "category alone, and nothing else."
     ),
 }
+
+
+# Cheap keyword heuristics for "which topic group should answer this
+# chat question" -- not a perceptual classifier like vision/extraction,
+# just picking which of several similarly-capable general-purpose local
+# models gets asked. A borderline prompt landing in GENERAL instead of
+# CODE/MATH isn't a failure the way a mis-routed vision task would be,
+# so a regex pass is the right amount of machinery here, not a model
+# call spent just to decide who gets the real model call.
+_CODE_HINTS = re.compile(
+    r"\b(coding|source code|code review|code snippet|piece of code|write code|"
+    r"this code|my code|code that|program(?:s|ming)?|function(?:s)?|debug(?:ging|s)?|"
+    r"script(?:s|ing)?|algorithm(?:s)?|syntax|compil(?:e|ing|er)|variable(?:s)?|"
+    r"rest api|\bapi\b|regex|\bjson\b|\bsql\b|python|javascript|typescript|\bjava\b|"
+    r"c\+\+|repositor(?:y|ies)|repo\b|git\b|\bclass(?:es)?\b|\bloop(?:s)?\b|"
+    r"\barray(?:s)?\b|framework(?:s)?|librar(?:y|ies)|linux command|command.line|"
+    r"docker|kubernetes|\bk8s\b|container(?:ize|s)?|\bbash\b|\bshell\b|terminal|"
+    r"\bcli\b|devops|\byaml\b|\bnpm\b|\bpip\b|deploy(?:ment)?|\bssh\b|\bcron\b|"
+    r"systemd|\bnode\.?js\b|\bexpress\b|\bflask\b|\bdjango\b)\b",
+    # Deliberately no bare "code" -- too ambiguous ("building code",
+    # "electrical code", "color code" all fired false-positive during
+    # testing on the real prompt set). "coding" and the qualified
+    # phrases above (source code, this code, ...) catch real programming
+    # references without that collision.
+    re.IGNORECASE,
+)
+_MATH_HINTS = re.compile(
+    r"\b(math(?:s|ematics)?|equations?|algebra|geometry|calculus|probabilit(?:y|ies)|"
+    r"theorems?|solve for|logic puzzles?|calculate|percentages?|fractions?|ratios?|"
+    r"proofs?\b|pythagorean|arithmetic|order of operations|knights.and.knaves)\b",
+    re.IGNORECASE,
+)
+
+
+def classify_task_type(prompt: str) -> TaskType:
+    """Which specialist group should get this chat question. MATH is
+    checked first -- its keyword list (algebra, equation, geometry, ...)
+    rarely appears outside genuine math questions, whereas CODE's list
+    has real overlap (e.g. "variable" means an algebraic unknown just as
+    often as a programming one -- "solve for x ... with variables on
+    both sides" was misrouting to CODE before this order was fixed).
+    Everything else (including topics no specialist is dedicated to,
+    like electrical work or security) falls through to GENERAL, where
+    the broad general-purpose models live."""
+    text = prompt or ""
+    if _MATH_HINTS.search(text):
+        return TaskType.MATH
+    if _CODE_HINTS.search(text):
+        return TaskType.CODE
+    return TaskType.GENERAL
 
 
 @dataclass

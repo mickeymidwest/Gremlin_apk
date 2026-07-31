@@ -1,45 +1,16 @@
 # Gremlin (Android)
 
 Talks to a Gremlin desktop instance over your home Wi-Fi when it's
-reachable, and falls back -- in order -- to its own
-offline model, then Claude, then Gemini (using your own API keys,
+reachable, and falls back to Claude or Gemini (using your own API keys,
 entered in Settings) when it's not. Same hologram widget as the
 desktop version.
 
-Needs `git clone --recurse-submodules` (or `git submodule update --init
---recursive` after a plain clone) -- `android/llama.cpp` is a pinned
-submodule used by the on-device offline model.
-
-## One offline model: it chats AND it sees
-
-Settings -> "Offline model" puts a single vision-language model on the
-phone. A VLM *is* a language model, so the same weights answer a question
-and read a screenshot -- there was never a reason to ship a separate chat
-model and a separate vision model, and doing so meant two downloads and
-two code paths to keep in sync.
-
-**Synced from the desktop** when paired: it serves whatever
-`persona.phone_model` names in `config/models.yaml`, so the desktop
-decides what the phone runs. That key is deliberately separate from
-`primary_model` -- the primary is ~5GB and tuned for an 8GB GPU, and
-would be refused by the ceiling below anyway. Unpaired, it falls back to
-downloading SmolVLM-500M (~546MB) directly.
-
-**Hard 2GB ceiling** on anything that lands on the phone, enforced three
-ways: against the advertised size before a byte is written, against the
-running total mid-stream (a server can omit Content-Length and otherwise
-stream forever, which makes the first check trivially bypassable), and
-against free space. Transfers resume rather than restart.
-
-`phone_model` must be a VLM (weights + `mmproj` projector). The phone
-initialises through mtmd, which needs a projector even for a text-only
-reply. With weights alone it won't load; with a projector missing after a
-partial sync it would chat but silently not see -- which is why both
-parts are promoted together or not at all.
-
-Honest limits: a ~0.5B VLM is a much weaker conversationalist than the
-desktop's primary. It's a fallback, not a peer, and the desktop is always
-tried first.
+This app is pure Kotlin -- no NDK, no native model weights on the
+phone. An on-device offline model was tried twice in this project's
+history and removed both times: it ate a large chunk of app size and
+storage for a much weaker conversationalist than the desktop's primary,
+and the desktop (or Claude/Gemini away from home) is always the better
+answer anyway.
 
 ## Overlay mode
 
@@ -101,16 +72,3 @@ toolchain. If it fails, that's genuinely useful information -- paste me
 the exact error from the Actions log and I'll fix it against something
 real instead of guessing again.
 
-The native/JNI piece (`app/src/main/cpp/gremlin_llama.cpp`,
-`LocalLlama.kt`) carries the same caveat but more so -- it's adapted
-line-by-line from the real, working `ai_chat.cpp` in the pinned
-llama.cpp submodule (read directly off disk, not reconstructed from
-memory or a lossy web summary, specifically to avoid guessing at C API
-signatures that drift across llama.cpp versions), with
-`processUserPrompt()` + `generateNextToken()`'s per-token JNI loop
-collapsed into one blocking `generate()` call. The CMake/NDK wiring in
-`app/build.gradle.kts` and `app/src/main/cpp/CMakeLists.txt` is new
-territory for this project's CI (`android-build.yml` now installs NDK
-27 and checks out the submodule) and has never actually run yet as of
-this writing -- expect at least one round of real build errors on the
-first push, most likely in the CMake config rather than the C++ itself.

@@ -139,7 +139,6 @@ class MainActivity : AppCompatActivity() {
                 val sub = when (result.source) {
                     "claude" -> "(standalone, via Claude)"
                     "gemini" -> "(standalone, via Gemini)"
-                    "local" -> "(offline, on this phone)"
                     else -> null
                 }
                 appendAssistantTurn(result.answer, sub)
@@ -215,7 +214,7 @@ class MainActivity : AppCompatActivity() {
         val hasGeminiKey = !prefs.getString("gemini_key", null).isNullOrBlank()
 
         connectionLabel.text = when {
-            host != null && port != 0 -> "Paired with $host:$port (falls back to offline/direct API away from home)"
+            host != null && port != 0 -> "Paired with $host:$port (falls back to Claude/Gemini away from home)"
             hasAnthropicKey || hasGeminiKey -> "Standalone mode -- not paired with a desktop"
             else -> "Not set up yet -- tap the hologram for Settings, or pair with a desktop below"
         }
@@ -353,7 +352,6 @@ class MainActivity : AppCompatActivity() {
                 val subStatus = when (result.source) {
                     "claude" -> "(standalone, via Claude)"
                     "gemini" -> "(standalone, via Gemini)"
-                    "local" -> "(offline, on this phone)"
                     else -> null
                 }
                 appendAssistantTurn(result.answer, subStatus)

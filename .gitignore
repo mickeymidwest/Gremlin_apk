@@ -37,3 +37,12 @@ data/*.json
 data/research_queue.jsonl
 data/bench_results.jsonl
 data/research_results.jsonl
+
+# Fine-tuned checkpoints/merges/GGUFs -- tens of GB, regenerable via
+# `gremlin finetune --target=<model>`, never something to push to GitHub.
+data/finetunes/
+
+# Curated source content, not runtime output -- exceptions to the
+# data/*.txt and data/*.json blanket rules above.
+!data/distill_prompts.txt
+!data/submodel_base_repos.json

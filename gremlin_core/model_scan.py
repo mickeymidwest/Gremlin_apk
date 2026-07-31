@@ -319,3 +319,53 @@ def update_entry_field(config_path: str, name: str, field: str, value: str) -> t
         return False, f"edit would have broken the config, restored original: {e}"
 
     return True, None
+
+
+def update_model_path(config_path: str, name: str, new_path: str) -> tuple[bool, Optional[str]]:
+    """Swaps one model entry's `model_path` in place -- used by
+    finetune.py to promote a sub-model fine-tune without creating a new
+    entry or touching anything else about it (task_types/priority in
+    `specialists:`, membership in `consult_models:`, etc. all keep
+    working since the registered name never changes).
+
+    Deliberately separate from update_entry_field/EDITABLE_FIELDS above:
+    that function is what `gremlin model-edit` and the phone hologram's
+    remote /admin/execute path call, and model_path swaps -- pointing a
+    registered name at an arbitrary file -- are a bigger safety surface
+    than that remote-triggerable editor is meant to have. This one is
+    only ever called from a local CLI fine-tune run, never from a
+    request.
+
+    Same edit-then-validate-or-rollback pattern as update_entry_field:
+    returns (True, None) on success, (False, reason) otherwise, with the
+    original file restored if the resulting config doesn't load."""
+    from .registry import ModelRegistry
+
+    path = Path(config_path)
+    backup_text = path.read_text()
+
+    span = _find_block_span(backup_text, name)
+    if span is None:
+        return False, f"no model named '{name}' found"
+    start, end = span
+    block = backup_text[start:end]
+
+    line_pattern = re.compile(r"^(    model_path:\s*)(\S.*?)(\s*#.*)?$", re.MULTILINE)
+    line_match = line_pattern.search(block)
+    if line_match is None:
+        return False, f"'{name}' has no existing model_path field to edit"
+
+    escaped = str(new_path).replace('"', '\\"')
+    prefix, comment = line_match.group(1), line_match.group(3) or ""
+    new_line = f'{prefix}"{escaped}"{comment}'
+    new_block = block[:line_match.start()] + new_line + block[line_match.end():]
+    new_text = backup_text[:start] + new_block + backup_text[end:]
+
+    path.write_text(new_text)
+    try:
+        ModelRegistry.from_yaml(config_path)
+    except Exception as e:
+        path.write_text(backup_text)
+        return False, f"promoting '{name}' would have broken the config, restored original: {e}"
+
+    return True, None

@@ -327,59 +327,6 @@
             android:layout_marginTop="20dp"
             android:layout_marginBottom="20dp" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Offline model (chats + sees)"
-            android:textStyle="bold"
-            android:layout_marginBottom="4dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="One model on this phone that both answers questions and reads screenshots, so Gremlin still works with no desktop, no Wi-Fi and no API key. Synced from your desktop when paired (it decides which model), otherwise downloaded directly. Nothing synced here is ever allowed past 2GB."
-            android:textSize="12sp"
-            android:layout_marginBottom="8dp" />
-
-        <TextView
-            android:id="@+id/vision_status"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textSize="12sp"
-            android:layout_marginBottom="8dp" />
-
-        <ProgressBar
-            android:id="@+id/vision_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:max="100"
-            android:visibility="gone"
-            android:layout_marginBottom="8dp" />
-
-        <Button
-            android:id="@+id/vision_download_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Sync offline model"
-            android:layout_marginBottom="8dp" />
-
-        <CheckBox
-            android:id="@+id/vision_enabled_checkbox"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Use it when the desktop is unreachable"
-            android:layout_marginBottom="8dp" />
-
-        <Button
-            android:id="@+id/vision_remove_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Remove offline model"
-            android:visibility="gone"
-            android:backgroundTint="#8B2020"
-            android:layout_marginBottom="20dp" />
-
         <Button
             android:id="@+id/admin_reboot_button"
             android:layout_width="wrap_content"

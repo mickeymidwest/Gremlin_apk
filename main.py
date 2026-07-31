@@ -41,6 +41,19 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     --promote the new .gguf is left on disk untouched; with it, persona.primary_model in
     config/models.yaml is switched to the new version (the old model entry/file are left
     alone either way, so reverting is a one-line config edit).
+  gremlin finetune --target=<name> [--base-repo=<repo>] [--promote]
+    Same ladder, but for one specific sub-model instead of the primary -- trains only on
+    learning_log.jsonl entries where <name> was the one actually consulted (see
+    gremlin_core/consult.py's topic routing), so it learns from just its own contributions.
+    --base-repo is that sub-model's own full-precision HF repo (transformers format), NOT
+    the GGUF quantizer repo it was downloaded from -- bartowski/mradermacher etc. only
+    publish quants of someone else's original checkpoint, and QLoRA needs that original.
+    Omit --base-repo and it's looked up in data/submodel_base_repos.json (pre-verified for
+    all 21 roster models); only needed explicitly for a model added since. Without
+    --promote the new .gguf is left on disk; with it, <name>'s own model_path is swapped
+    in place (every specialists:/consult_models:
+    reference to it keeps working, and the old file is left alone so reverting is a
+    one-line config edit).
   gremlin enlist [--yes]
     Download the 20 verified uncensored sub-models and link every one into
     persona.consult_models -- making them part of Gremlin the same way the
@@ -48,6 +61,13 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     Hugging Face API before anything downloads (models invent repo names,
     so nothing is trusted). Large one-time download, resumable, idempotent.
     Only ADDS -- never changes your existing models.
+  gremlin distill [prompts.txt]   (default: data/distill_prompts.txt)
+    Batch data-generation for `gremlin finetune`: forces every prompt in the
+    file through the same consult_and_learn path real chat uses (sampling
+    forced on, one line = one prompt), against whatever persona.consult_models
+    is currently set to. Populates data/learning_log.jsonl without waiting on
+    real conversations or consult_sample_rate's random trickle. Resumable --
+    a prompt already logged is skipped via the normal exact-match cache.
   gremlin council [--target=20] [--rounds=3]
     Gremlin's own primary + 4 consult models propose the specialist network themselves,
     all required to be uncensored. Every proposed repo is verified against the real
@@ -73,6 +93,8 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
 Or directly: python main.py <command> ...
 """
 import asyncio
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
@@ -96,6 +118,7 @@ from gremlin_core import research
 from gremlin_core import specialists
 from gremlin_core import bench
 from gremlin_core import council
+from gremlin_core import distill
 from gremlin_core.pressure import PressureLevel
 from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
 
@@ -108,6 +131,39 @@ except ImportError:
 CONFIG_PATH = "config/models.yaml"
 PROJECT_ROOT = "."
 DEFAULT_SCAN_DIR = "~/Downloads"
+
+# `gremlin distill` self-restart tuning -- see distill.run_distillation's
+# docstring for why this exists (confirmed-by-testing memory degradation
+# after many sequential local-model loads in one process on this 8GB/
+# 7.5GB-RAM box). 5 real attempts/process is conservative headroom under
+# the ~13-14 that were observed to start failing; 20 restarts is a
+# generous cap for a 40-prompt batch (well beyond the ~8 actually needed)
+# so a genuinely stuck run still stops instead of looping forever.
+DISTILL_RESTART_AFTER = 5
+DISTILL_MAX_RESTARTS = 20
+
+
+def _throttle_background_work():
+    """Lowest CPU (nice 19) and I/O (ionice idle class) scheduling priority
+    for the calling process -- confirmed by real incident, not theory: a
+    `gremlin distill` run alone pushed load average past 11 on this
+    4-core box and visibly starved the Jellyfin server running alongside
+    it. Called at the start of every heavy batch command (distill,
+    finetune) so they still finish, just only using CPU/disk the desktop
+    isn't otherwise asking for, instead of competing with it. Survives
+    distill's own os.execv self-restart (nice/ionice are process
+    scheduling attributes, not something exec resets). Best-effort: a
+    missing `ionice` binary or a sandboxed/restricted environment that
+    refuses os.nice() shouldn't stop the actual work, just leave it
+    unthrottled."""
+    try:
+        os.nice(19)
+    except OSError:
+        pass
+    try:
+        subprocess.run(["ionice", "-c", "3", "-p", str(os.getpid())], check=False)
+    except FileNotFoundError:
+        pass
 
 
 def cmd_models(directory: str):
@@ -376,7 +432,58 @@ def cmd_build_training_set():
         )
 
 
+async def cmd_distill(registry: ModelRegistry, router: Router, prompts_path: str):
+    _throttle_background_work()
+    prompts = distill.load_prompts(prompts_path)
+    if not prompts:
+        print(f"No prompts found in {prompts_path} (blank lines and lines starting with # are skipped).")
+        return
+
+    print(f"Running {len(prompts)} prompt(s) from {prompts_path} through consult_and_learn...\n")
+
+    def show(i, total, prompt, outcome):
+        short = prompt if len(prompt) <= 70 else prompt[:67] + "..."
+        # flush=True: stdout is block-buffered (not line-buffered) once it's
+        # redirected to a file rather than a TTY, and the self-restart below
+        # uses os.execv, which replaces the process image WITHOUT flushing
+        # Python's buffers first -- without this, whole runs' worth of
+        # progress output was silently vanishing on every restart even
+        # though the actual work (and logging) was happening fine.
+        print(f"[{i}/{total}] {short}\n    -> {outcome}", flush=True)
+
+    result = await distill.run_distillation(
+        registry, router, PROJECT_ROOT, prompts, progress=show, restart_after=DISTILL_RESTART_AFTER,
+    )
+
+    if result.get("stopped_early"):
+        restart_count = int(os.environ.get("GREMLIN_DISTILL_RESTARTS", "0"))
+        if restart_count >= DISTILL_MAX_RESTARTS:
+            print(
+                f"\nHit the restart safety cap ({DISTILL_MAX_RESTARTS}) -- stopping here. "
+                "Some prompts may still be unresolved; re-run `gremlin distill` to keep going "
+                "(already-learned ones are cache-skipped, so this is cheap)."
+            )
+            return
+        print(
+            f"\n{DISTILL_RESTART_AFTER} real attempt(s) done in this process -- restarting into a "
+            f"fresh one to clear whatever accumulates over many sequential model loads on this "
+            f"hardware (restart {restart_count + 1}/{DISTILL_MAX_RESTARTS})...\n",
+            flush=True,
+        )
+        os.environ["GREMLIN_DISTILL_RESTARTS"] = str(restart_count + 1)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    print(
+        f"\nDone. {result['learned']} newly learned, {result['from_cache']} already learned, "
+        f"{result['failed']} failed, out of {result['total']} total."
+    )
+    print("Run `gremlin finetune --promote` next to fold this into the primary model.")
+
+
 def cmd_finetune(promote: bool):
+    _throttle_background_work()
     print("Building training set from data/learning_log.jsonl...")
     try:
         result = finetune.run_pipeline(PROJECT_ROOT, CONFIG_PATH, promote=promote)
@@ -406,6 +513,60 @@ def cmd_finetune(promote: bool):
         print(
             "Not promoted -- the new GGUF is on disk but gremlin's primary_model is untouched. "
             "Re-run with --promote once you've sanity-checked it, or register/point to it manually."
+        )
+
+
+def _lookup_submodel_base_repo(model_name: str) -> Optional[str]:
+    """data/submodel_base_repos.json maps each registered sub-model to the
+    full-precision HF repo its GGUF was quantized from -- verified once
+    (by fetching each model's actual HF page) so `--base-repo` doesn't
+    need to be hunted down and typed out by hand every time. Returns None
+    if `model_name` isn't in the table (a model added since, or a typo) --
+    caller falls back to requiring --base-repo explicitly in that case."""
+    import json
+    path = Path(PROJECT_ROOT) / "data" / "submodel_base_repos.json"
+    if not path.exists():
+        return None
+    try:
+        table = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    return table.get(model_name)
+
+
+def cmd_finetune_submodel(model_name: str, base_repo: str, promote: bool):
+    _throttle_background_work()
+    print(f"Building training set for '{model_name}' from data/learning_log.jsonl...")
+    try:
+        result = finetune.run_pipeline_for_model(
+            PROJECT_ROOT, CONFIG_PATH, model_name, base_repo, promote=promote,
+        )
+    except Exception as e:
+        print(f"Fine-tune failed: {e}")
+        return
+
+    if result["stage"] == "dataset":
+        print(f"Wrote {result['train_count']} training example(s) -- nothing to train on yet.")
+        print(
+            f"These come from data/learning_log.jsonl entries where '{model_name}' specifically "
+            "was the one consulted (see gremlin_core/consult.py's routing). Use 'go learn about "
+            "X' on a topic that group handles, or run `gremlin distill`, to generate some first."
+        )
+        return
+
+    print(f"Trained on {result['train_count']} example(s), held out {result['eval_count']} for eval.")
+    loss_line = f"Train loss: {result['train_loss']:.4f}"
+    if result["eval_loss"] is not None:
+        loss_line += f", eval loss: {result['eval_loss']:.4f}"
+    print(loss_line)
+    print(f"Merged + quantized GGUF: {result['gguf_path']}")
+    if result["promoted"]:
+        print(f"Promoted -- '{model_name}' now points at the fine-tuned file.")
+        print("Run `gremlin list` to confirm, or edit its model_path in config/models.yaml to revert.")
+    else:
+        print(
+            f"Not promoted -- the new GGUF is on disk but '{model_name}' still points at its "
+            "original file. Re-run with --promote once you've sanity-checked it."
         )
 
 
@@ -452,6 +613,7 @@ async def cmd_council(registry: ModelRegistry, router: Router, target: int, roun
 def cmd_enlist(assume_yes: bool):
     """Download the verified 20 and link them into consult_models -- the
     step that makes them part of Gremlin."""
+    _throttle_background_work()
     roster = council.DEFAULT_ROSTER
     print(f"This downloads {len(roster)} uncensored models and links each into")
     print("persona.consult_models -- the same list the 4 existing consult models")
@@ -719,7 +881,7 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
 
         if is_persona:
             result = await consult.consult_and_learn(
-                router, model_name, backend.consult_model_names, user_input, PROJECT_ROOT,
+                router, model_name, user_input, PROJECT_ROOT,
                 last_resort_model=backend.last_resort_model_name,
                 consult_sample_rate=backend.consult_sample_rate,
                 history=conversation_history.render(CONVERSATION_KEY),
@@ -954,8 +1116,27 @@ async def main():
         return
 
     if cmd == "finetune":
-        promote = "--promote" in sys.argv[2:]
-        cmd_finetune(promote)
+        extra_args = sys.argv[2:]
+        promote = "--promote" in extra_args
+        target_model = None
+        target_base_repo = None
+        for arg in extra_args:
+            if arg.startswith("--target="):
+                target_model = arg.split("=", 1)[1]
+            elif arg.startswith("--base-repo="):
+                target_base_repo = arg.split("=", 1)[1]
+        if target_model:
+            if not target_base_repo:
+                target_base_repo = _lookup_submodel_base_repo(target_model)
+            if not target_base_repo:
+                print(
+                    "--target requires --base-repo=<the sub-model's own full-precision HF repo> "
+                    f"(no entry for '{target_model}' in data/submodel_base_repos.json either)"
+                )
+                return
+            cmd_finetune_submodel(target_model, target_base_repo, promote)
+        else:
+            cmd_finetune(promote)
         return
 
     if cmd == "update-check":
@@ -973,6 +1154,9 @@ async def main():
         elif cmd == "broadcast":
             models = sys.argv[2].split(",")
             await cmd_broadcast(router, models, sys.argv[3])
+        elif cmd == "distill":
+            prompts_path = sys.argv[2] if len(sys.argv) > 2 else "data/distill_prompts.txt"
+            await cmd_distill(registry, router, prompts_path)
         elif cmd == "plan":
             models = sys.argv[2].split(",")
             await cmd_plan(router, models, sys.argv[3])
@@ -1067,6 +1251,15 @@ async def main():
             problem = sys.argv[3] if len(sys.argv) > 3 else None
             await cmd_edit(registry, router, path, problem)
         elif cmd == "serve":
+            # Same reasoning as distill/finetune/enlist -- confirmed by a
+            # SECOND real incident, this time during normal /chat traffic
+            # (not a batch job): a local model generating during a consult
+            # call was enough to starve Jellyfin again. nice/ionice are
+            # process-wide, so setting this once here covers every
+            # request thread this process ever spawns, not just the main
+            # one. Costs nothing when nothing else wants the CPU -- niceness
+            # only matters under real contention.
+            _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
         elif cmd == "admin-token":

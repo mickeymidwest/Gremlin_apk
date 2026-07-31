@@ -1,0 +1,53 @@
+# Prompts for `gremlin distill` -- each line is sent through
+# consult_and_learn with sampling forced on, so every one gets broadcast
+# to the full consult_models roster and the synthesized answer is logged
+# to data/learning_log.jsonl as fine-tuning material. Lines starting with
+# # are ignored; blank lines are ignored.
+
+# --- Android pentesting (authorized/educational testing methodology) ---
+Walk me through a typical Android app pentest methodology from setup to report, using tools like MobSF, Frida, and Burp Suite.
+How do I set up a rooted Android emulator or device for dynamic analysis, and how do I get an app's traffic into Burp Suite despite certificate pinning?
+Explain how to reverse-engineer an APK: decompiling with jadx/apktool, reading the manifest, and finding hardcoded secrets or insecure exported components.
+What are the most common OWASP Mobile Top 10 vulnerabilities in Android apps, and how would I test for each one hands-on?
+How does Frida work for runtime instrumentation, and what's a basic Frida script to bypass a root-detection check for testing purposes?
+Explain Android's permission model and intent system, and how insecure exported activities or broadcast receivers can be abused, and how to test for that safely on your own app.
+How do I identify insecure data storage in an Android app during an authorized test -- SharedPreferences, SQLite databases, or logs leaking sensitive data?
+What's the difference between static and dynamic analysis of an Android APK, and when do you use each during an authorized pentest?
+How do I test an Android app's network layer for SSL/TLS pinning bypass and man-in-the-middle susceptibility in a legal testing environment?
+What tools and steps make up a solid personal Android pentesting lab setup (emulator, proxy, Frida, decompilers) for practicing on your own apps?
+
+# --- Electrical / wiring (school + work field) ---
+Explain Ohm's Law and how to use it to calculate current, voltage, and resistance in a basic residential circuit.
+What wire gauge (AWG) should I use for a 20-amp circuit, and why does wire gauge matter for ampacity and voltage drop?
+Walk me through wiring a standard single-pole light switch, then a 3-way switch setup for a hallway with two switches.
+Explain the difference between series and parallel circuits, with a worked example calculating total resistance for each.
+What's the purpose of a circuit breaker vs a fuse, and how do I correctly size a breaker for a given load?
+Explain grounding and bonding in residential electrical systems, why they matter, and common NEC code basics around them.
+How do I calculate the total electrical load for a room or panel to make sure I'm not overloading a circuit?
+What's the correct wiring order and color code convention (US) for outlets, switches, and a standard electrical panel?
+Explain how a GFCI outlet works and where they're required by code, like bathrooms, kitchens, and outdoors.
+Walk me through troubleshooting a dead outlet: the logical steps an electrician takes to find the fault safely.
+
+# --- Math / logic / understanding ---
+Explain the order of operations (PEMDAS) with a tricky example that trips people up.
+Walk me through solving a system of two linear equations with two unknowns, step by step.
+Explain how to convert between fractions, decimals, and percentages, with quick mental-math tricks.
+What's the Pythagorean theorem, and how would I use it to find a diagonal brace length for a rectangular frame?
+Explain basic algebra: how do you solve for x in an equation with variables on both sides?
+Walk me through a classic knights-and-knaves logic puzzle and explain the reasoning process, not just the answer.
+Explain probability basics using dice or cards, and how to calculate the odds of a compound event.
+How do you calculate area and volume for common shapes like a rectangle, circle, cylinder, and cone, the way trade work actually uses them?
+Explain unit conversion between metric and imperial in a way that's fast and error-resistant.
+What's the difference between correlation and causation, and how does that affect logical reasoning about cause and effect?
+
+# --- Generic / advanced, everyday-useful ---
+How do I write a clear, professional email asking for a deadline extension without sounding like I'm making excuses?
+Explain how a basic REST API works to someone who's never coded before.
+What's a realistic weekly study schedule for someone balancing school, work, and a trade apprenticeship at the same time?
+Explain how compound interest works and why starting to save early matters so much.
+What are the most useful Linux command-line commands for someone getting into IT or cybersecurity?
+How do I debug a piece of code that isn't working when I don't know where the bug is?
+Explain how a computer network actually works: IP addresses, routers, and DNS, in plain language.
+What's a good way to negotiate a raise or a better wage as a tradesperson or apprentice?
+Explain the basics of resume writing for someone applying to both tech jobs and trade jobs.
+What's the difference between AC and DC power, and why does it matter for both electrical work and electronics/Android hardware?

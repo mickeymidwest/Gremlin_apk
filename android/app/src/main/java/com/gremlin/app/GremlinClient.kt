@@ -4,8 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import com.gremlin.app.llama.LocalModel
-import com.gremlin.app.llama.OfflineModelManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -39,14 +37,14 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     // from home it means falling back quickly instead of hanging.
     private val desktopConnectTimeoutMs = 4_000
     // Once CONNECTED, give the desktop real time to answer before giving
-    // up and dropping to the (much weaker) offline model. A desktop turn
-    // can legitimately run minutes: intent classification, a model swap
-    // on an 8GB card, a consult across several models, or a
-    // natural-language self-edit. Timing out at 2 minutes was the main
-    // reason a paired phone kept falling back to offline mid-conversation
-    // and answering with garbage. This only extends the wait when the
-    // desktop is actually working -- an unreachable desktop still fails
-    // fast at connect (desktopConnectTimeoutMs above).
+    // up and falling back to away-mode. A desktop turn can legitimately
+    // run minutes: intent classification, a model swap on an 8GB card, a
+    // consult across several models, or a natural-language self-edit.
+    // Timing out at 2 minutes was the main reason a paired phone kept
+    // falling back to away-mode mid-conversation and answering with a
+    // different voice. This only extends the wait when the desktop is
+    // actually working -- an unreachable desktop still fails fast at
+    // connect (desktopConnectTimeoutMs above).
     private val desktopReadTimeoutMs = 300_000
 
     // Away-mode exchanges the desktop doesn't know about yet -- queued
@@ -92,19 +90,6 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
     }
 
-    /** Loads the offline model on demand; false if it isn't set up. */
-    private fun offlineModelReady(): Boolean {
-        if (!prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false)) return false
-        if (LocalModel.isReady()) return true
-        val weights = prefs.getString(OfflineModelManager.KEY_WEIGHTS, null) ?: return false
-        // mmproj is REQUIRED, not optional: the native layer initialises
-        // through mtmd_init_from_file, which needs a projector even for a
-        // text-only turn. So persona.phone_model must name a VLM (weights
-        // + mmproj), and a chat-only GGUF won't load here at all.
-        val mmproj = prefs.getString(OfflineModelManager.KEY_MMPROJ, null) ?: return false
-        return LocalModel.loadModel(weights, mmproj)
-    }
-
     private fun hasAnyNetwork(): Boolean {
         val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return true
         val network = cm.activeNetwork ?: return false
@@ -132,7 +117,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
 
         val result = chatAway(message)
-        if (result.source == "claude" || result.source == "gemini" || result.source == "local") {
+        if (result.source == "claude" || result.source == "gemini") {
             appendPendingSync(message, result.answer, result.source)
         }
         return result
@@ -141,23 +126,9 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     private fun chatAway(message: String): ChatResult {
         val personaPrompt = prefs.getString("cached_persona_prompt", "") ?: ""
 
-        // The phone's own model first -- it needs no network and no API
-        // key, so it's the only tier that works in airplane mode or a
-        // dead zone. Same weights that read screenshots (see
-        // LocalModel); a VLM is a language model. Any failure falls
-        // through to the cloud providers rather than surfacing an error,
-        // since this is a best-effort tier.
-        if (offlineModelReady()) {
-            val reply = LocalModel.chat(personaPrompt, message)
-            if (!reply.isNullOrBlank()) return ChatResult(reply, "local")
-        }
-
         if (!hasAnyNetwork()) {
             return ChatResult(
-                if (prefs.getBoolean(OfflineModelManager.KEY_ENABLED, false))
-                    "No network, and the offline model couldn't answer either."
-                else
-                    "No network connection right now. Sync the offline model in Settings to keep working without one.",
+                "No network connection right now. Connect to Wi-Fi or mobile data to reach the desktop or Claude/Gemini.",
                 "no-network",
             )
         }
@@ -187,7 +158,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         return if (anthropicKey.isNullOrBlank() && geminiKey.isNullOrBlank()) {
             ChatResult(
                 "Can't reach the desktop and no API keys are set up. " +
-                "Connect to your home Wi-Fi, add a Claude/Gemini API key, or sync the offline model in Settings.",
+                "Connect to your home Wi-Fi, or add a Claude/Gemini API key in Settings.",
                 "none-configured",
             )
         } else {
