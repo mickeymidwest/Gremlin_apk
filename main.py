@@ -82,6 +82,13 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     Reports mean scores AND wall time -- a pipeline that wins by 3 points at 4x the time
     is usually a bad trade, and that only shows up if it's measured. Defaults to
     data/bench_cases.jsonl.
+  gremlin checkpoint-eval [--judge=NAME]
+    For every promoted sub-model fine-tune (`gremlin finetune --target=<name> --promote`
+    has run), replays its own held-out question through both the original base checkpoint
+    and the fine-tuned one that replaced it, and has an independent judge score both blind
+    (reuses gremlin bench's judge machinery). "The training run finished without erroring"
+    and "the fine-tune actually made it better at its own material" are different claims --
+    this checks the second one. Results saved to data/checkpoint_eval_results.jsonl.
   gremlin research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]
     Generate -> adversarial critique -> refine, until the score stops improving.
     Also: --queue (add to the background queue), --daemon (work it continuously), --status.
@@ -117,6 +124,7 @@ from gremlin_core import update_check
 from gremlin_core import research
 from gremlin_core import specialists
 from gremlin_core import bench
+from gremlin_core import checkpoint_eval
 from gremlin_core import council
 from gremlin_core import distill
 from gremlin_core.pressure import PressureLevel
@@ -715,6 +723,43 @@ async def cmd_bench(registry: ModelRegistry, router: Router, cases_path: str, ju
     print(f"(saved to {path})")
 
 
+async def cmd_checkpoint_eval(registry: ModelRegistry, router: Router, judge: Optional[str]):
+    _throttle_background_work()
+    cases = checkpoint_eval.find_promoted_submodels(os.path.join(PROJECT_ROOT, "config", "models.yaml"))
+    if not cases:
+        print("No promoted sub-model fine-tunes found -- nothing to compare yet.")
+        print("(a model counts once `gremlin finetune --target=<name> --promote` has run)")
+        return
+
+    print(f"Comparing {len(cases)} promoted sub-model fine-tune(s) against their original base checkpoint.")
+    print("Each held-out question runs through both; an independent judge scores them blind.\n")
+
+    def show(msg: str):
+        print(f"  {msg}")
+
+    report = await checkpoint_eval.run_checkpoint_eval(
+        router, registry, os.path.join(PROJECT_ROOT, "config", "models.yaml"),
+        judge_name=judge, progress=show,
+    )
+
+    print(f"\nJudge: {report.judge}\n")
+    for r in report.results:
+        if r.error:
+            print(f"  {r.name:45} ERROR: {r.error}")
+            continue
+        arrow = "IMPROVED" if r.delta > 2 else ("REGRESSED" if r.delta < -2 else "unchanged")
+        print(f"  {r.name:45} base {r.base_score:5.1f} vs fine-tuned {r.finetuned_score:5.1f}  -> {arrow}")
+        if r.reason:
+            print(f"      {r.reason}")
+
+    print(
+        f"\n{len(report.improved)} improved / {len(report.regressed)} regressed / "
+        f"{len(report.unchanged)} unchanged (out of {len(report.scored)} scored)."
+    )
+    path = checkpoint_eval.record_report(PROJECT_ROOT, report)
+    print(f"(saved to {path})")
+
+
 async def cmd_research(
     registry: ModelRegistry,
     router: Router,
@@ -1244,6 +1289,13 @@ async def main():
                 if a.startswith("--judge="):
                     judge = a.split("=", 1)[1]
             await cmd_bench(registry, router, cases_path, judge)
+        elif cmd == "checkpoint-eval":
+            extra = sys.argv[2:]
+            judge = None
+            for a in extra:
+                if a.startswith("--judge="):
+                    judge = a.split("=", 1)[1]
+            await cmd_checkpoint_eval(registry, router, judge)
         elif cmd == "auto-fix":
             await cmd_auto_fix(registry, router)
         elif cmd == "edit":

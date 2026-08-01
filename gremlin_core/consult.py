@@ -654,6 +654,21 @@ async def _consult_and_learn_inner(
     task_type = specialists_mod.classify_task_type(prompt)
     candidates = specialist_registry.for_task(task_type)
 
+    # Ask gremlin itself (still resident -- see _deliberate_candidate's
+    # docstring) which of this group's own models best fits THIS prompt,
+    # before freeing any VRAM for it. Bumps that pick to the front by
+    # priority so specialists.route tries it first; the rest of the
+    # group -- including the big lead -- stays as the normal
+    # error/empty-response fallback chain, just re-anchored around it.
+    if candidates:
+        chosen_name = await _deliberate_candidate(router, persona_name, prompt, candidates)
+        if chosen_name:
+            candidates = [
+                dataclasses.replace(c, priority=-1) if c.name == chosen_name else c
+                for c in candidates
+            ]
+            specialist_registry = specialists_mod.SpecialistRegistry(candidates)
+
     # Free the primary's VRAM first if the picked topic's candidates are
     # local GGUF models -- on a card where primary + even one local model
     # wouldn't both fit resident at once, this is what actually lets the

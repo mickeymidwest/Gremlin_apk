@@ -322,15 +322,23 @@ persona:
 # The code/math/general/extraction groups below are also what
 # gremlin_core/consult.py routes to when Gremlin's own answer is
 # uncertain: consult classifies the question's topic (see
-# specialists.classify_task_type) and calls ONLY the lowest-priority
-# (highest-ranked) model in that one group -- never a broadcast to all
-# of them. Same roster `gremlin enlist` downloaded, just organized by
-# what each model is actually for instead of one flat list everyone
-# gets asked at once, which is what made a single consult take hours on
-# an 8GB card. priority 10 = the group's lead, tried first; higher
-# numbers are only reached if the lead's own call errors or comes back
-# empty (see specialists.route), not merely because its answer seemed
-# weak.
+# specialists.classify_task_type), then asks gremlin itself (still
+# resident, so this costs no extra model load/swap) which specific
+# model in that one group best fits THIS question (see
+# _deliberate_candidate) -- never a broadcast to all of them. That pick
+# is tried first regardless of its priority number below; priority only
+# decides the fallback order if deliberation is inconclusive or the
+# picked model's own call errors or comes back empty (see
+# specialists.route), not merely because its answer seemed weak.
+#
+# Within a group, the small already-fine-tuned sub-models (0.5B-3B) are
+# given lower priority numbers than the ~7-9B "lead"/alternate models on
+# purpose: models/ lives on a spinning HDD here, not an SSD, so every
+# model swap costs a real multi-second-to-tens-of-seconds disk read
+# proportional to file size (380MB-2.1GB for a sub-model vs.
+# 4.4-5.6GB for a lead). Falling back to a small sub-model is cheap;
+# falling back to a lead is the expensive path, so it's reserved for
+# when nothing smaller in the group could answer at all.
 # ---------------------------------------------------------------------
 # specialists:
 #   - name: qwen25-vl-3b
@@ -341,29 +349,33 @@ persona:
 
 specialists:
   # --- code ---
-  - name: qwen3-coder
+  - name: qwen2-5-coder-0-5b-instruct-abliterated-q4-k-m
     task_types: [code]
     mode: enrich
     priority: 10
-    notes: "Qwen2.5-Coder-7B -- code lead."
+  - name: qwen2-5-coder-1-5b-instruct-abliterated-q4-k-m
+    task_types: [code]
+    mode: enrich
+    priority: 15
   - name: qwen2-5-coder-3b-instruct-abliterated-q4-k-m
     task_types: [code]
     mode: enrich
     priority: 20
-  - name: qwen2-5-coder-1-5b-instruct-abliterated-q4-k-m
+  - name: qwen3-coder
     task_types: [code]
     mode: enrich
-    priority: 20
-  - name: qwen2-5-coder-0-5b-instruct-abliterated-q4-k-m
-    task_types: [code]
-    mode: enrich
-    priority: 20
+    priority: 30
+    notes: "Qwen2.5-Coder-7B -- code lead."
 
   # --- math / reasoning ---
-  - name: deepseek-r1-distill-8b
+  - name: deepseek-r1-distill-qwen-1-5b-abliterated-q4-k-m
     task_types: [math]
     mode: enrich
     priority: 10
+  - name: deepseek-r1-distill-8b
+    task_types: [math]
+    mode: enrich
+    priority: 20
     notes: "DeepSeek-R1-Distill-Qwen-8B -- math/reasoning lead."
   - name: deepseek-r1-distill-qwen-7b-abliterated-q4-k-m
     task_types: [math]
@@ -377,23 +389,35 @@ specialists:
     task_types: [math]
     mode: enrich
     priority: 20
-  - name: deepseek-r1-distill-qwen-1-5b-abliterated-q4-k-m
-    task_types: [math]
-    mode: enrich
-    priority: 30
 
   # --- general (also covers topics no model here specializes in,
   # e.g. android security or electrical work -- these are broad
   # general-purpose models, not domain-narrow ones) ---
-  - name: gpt-oss-20b
+  - name: llama-3-2-1b-instruct-abliterated-q4-k-m
     task_types: [general]
     mode: enrich
     priority: 10
+  - name: qwen2-5-0-5b-instruct-abliterated-q4-k-m
+    task_types: [general]
+    mode: enrich
+    priority: 10
+  - name: llama-3-2-3b-instruct-abliterated-q4-k-m
+    task_types: [general]
+    mode: enrich
+    priority: 15
+  - name: qwen2-5-1-5b-instruct-uncensored-q4-k-m
+    task_types: [general]
+    mode: enrich
+    priority: 15
+  - name: gpt-oss-20b
+    task_types: [general]
+    mode: enrich
+    priority: 20
     notes: "Dolphin 2.9 Llama3 8B -- general lead, closest to ChatGPT."
   - name: gemma-3-12b
     task_types: [general]
     mode: enrich
-    priority: 10
+    priority: 20
     notes: "Gemma 2 9B -- general co-lead, closest to Gemini."
   - name: meta-llama-3-1-8b-instruct-abliterated-q4-k-m
     task_types: [general]
@@ -415,22 +439,6 @@ specialists:
     task_types: [general]
     mode: enrich
     priority: 20
-  - name: llama-3-2-3b-instruct-abliterated-q4-k-m
-    task_types: [general]
-    mode: enrich
-    priority: 30
-  - name: qwen2-5-1-5b-instruct-uncensored-q4-k-m
-    task_types: [general]
-    mode: enrich
-    priority: 30
-  - name: llama-3-2-1b-instruct-abliterated-q4-k-m
-    task_types: [general]
-    mode: enrich
-    priority: 40
-  - name: qwen2-5-0-5b-instruct-abliterated-q4-k-m
-    task_types: [general]
-    mode: enrich
-    priority: 40
 
   # --- extraction ---
   - name: gemma-2-2b-it-abliterated-q4-k-m
