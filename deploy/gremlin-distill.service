@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Gremlin distillation batch
+
+[Service]
+Type=oneshot
+# A distill batch can legitimately run for hours -- without this, the
+# default 90s start timeout would kill it mid-run every single night.
+TimeoutStartSec=infinity
+# Filled in by hand, same two lines as gremlin.service/gremlin-update.service.
+WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/deploy/gremlin-distill.sh

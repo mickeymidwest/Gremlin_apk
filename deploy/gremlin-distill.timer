@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly Gremlin distillation batch trigger
+
+[Timer]
+# Once a night. Persistent=true catches up (runs shortly after boot)
+# if the machine was off/asleep at 2am instead of silently skipping
+# that night entirely.
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
