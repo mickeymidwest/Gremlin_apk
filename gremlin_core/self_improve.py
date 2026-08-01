@@ -72,6 +72,17 @@ def _format_source_dump(source: dict[str, str]) -> str:
     return "\n\n".join(chunks)
 
 
+# The 512-token default (backends/base.py's generate()) is tuned for a
+# short chat reply, not a unified diff -- a diff for even a small,
+# multi-file change needs real room for headers, @@ hunks, and every
+# changed line prefixed with +/-. Confirmed by testing: with the
+# default, both a local model AND gemini (as the teacher fallback) came
+# back with diffs truncated mid-hunk-header, with no file content at
+# all -- not a model-quality problem, just not enough token budget for
+# what was being asked.
+DIFF_MAX_TOKENS = 4096
+
+
 async def propose_patch(
     router: Router,
     model_names: list[str],
@@ -84,22 +95,126 @@ async def propose_patch(
     prompt = f"Goal: {goal}\n\nCurrent source:\n\n{source_dump}"
 
     if len(model_names) == 1:
-        result = await router.route(model_names[0], prompt, system=SELF_IMPROVE_SYSTEM_PROMPT)
+        result = await router.route(model_names[0], prompt, system=SELF_IMPROVE_SYSTEM_PROMPT, max_tokens=DIFF_MAX_TOKENS)
         return result.text
 
-    results = await router.broadcast(model_names, prompt, system=SELF_IMPROVE_SYSTEM_PROMPT)
+    results = await router.broadcast(model_names, prompt, system=SELF_IMPROVE_SYSTEM_PROMPT, max_tokens=DIFF_MAX_TOKENS)
     proposals_text = "\n\n".join(
         f"=== Proposal from {name} ===\n{r.text if r.ok else f'[failed: {r.error}]'}"
         for name, r in results.items()
     )
     merge_prompt = f"Goal: {goal}\n\n{proposals_text}\n\nMerge into one final diff."
     synth = synthesizer or model_names[0]
-    merged = await router.route(synth, merge_prompt, system=MERGE_SYSTEM_PROMPT)
+    merged = await router.route(synth, merge_prompt, system=MERGE_SYSTEM_PROMPT, max_tokens=DIFF_MAX_TOKENS)
     return merged.text
+
+
+TEACHER_PROPOSE_SYSTEM_PROMPT = (
+    "You are helping an AI orchestrator's own local model learn to improve its own source "
+    "code. It was unable to produce a working unified diff for the stated goal after "
+    "several tries. Solve it yourself: respond with ONLY a valid unified diff (git-style, "
+    "with ---/+++ headers and @@ hunks) that achieves the goal -- no explanation, no "
+    "markdown fences, no commentary. Never remove the sandboxing, safety checks, or error "
+    "handling that already exist in the code. This becomes teaching material for the local "
+    "model, so keep it clean, correct, and exactly as minimal as the goal requires."
+)
+
+
+async def propose_with_retry_and_teacher(
+    router: Router,
+    model_names: list[str],
+    goal: str,
+    root: str,
+    teacher_model: str,
+    max_local_attempts: int = 3,
+) -> tuple[str, bool]:
+    """The local model is genuinely flaky at this -- confirmed by testing
+    that the SAME goal sometimes gets a real, working diff and sometimes
+    comes back completely empty. Retries a few times (cheap: same model,
+    already loaded) before falling back to `teacher_model` to actually
+    solve it. Returns (patch, used_teacher) -- used_teacher tells the
+    caller to log this as teaching material (see _log_teacher_assist),
+    so gremlin's own model genuinely gets better at this over successive
+    fine-tunes instead of permanently leaning on an external model."""
+    patch = ""
+    for _ in range(max_local_attempts):
+        patch = await propose_patch(router, model_names, goal, root)
+        if patch and patch.strip() and check_patch_applies(patch, root)[0]:
+            return patch, False
+
+    source_dump = _format_source_dump(gather_source(root))
+    prompt = f"Goal: {goal}\n\nCurrent source:\n\n{source_dump}"
+    result = await router.route(teacher_model, prompt, system=TEACHER_PROPOSE_SYSTEM_PROMPT, max_tokens=DIFF_MAX_TOKENS)
+    teacher_patch = result.text if result.ok else ""
+
+    if teacher_patch.strip():
+        ok, err = check_patch_applies(teacher_patch, root)
+        if not ok:
+            # One corrective round rather than giving up -- feeding back
+            # git's own error is much more actionable than a generic
+            # "try again" (it names exactly which hunk's line count is
+            # wrong), and the teacher call is the rare/expensive path
+            # already, worth the extra round-trip.
+            fix_prompt = (
+                f"Goal: {goal}\n\nYour diff:\n{teacher_patch}\n\n"
+                f"git apply rejected it as structurally invalid:\n{err}\n\n"
+                "Fix the diff so it applies cleanly -- check every @@ hunk header's line "
+                "count matches the actual number of +/-/context lines that follow it."
+            )
+            retry = await router.route(teacher_model, fix_prompt, system=TEACHER_PROPOSE_SYSTEM_PROMPT, max_tokens=DIFF_MAX_TOKENS)
+            if retry.ok and retry.text.strip():
+                teacher_patch = retry.text
+
+    return teacher_patch, True
+
+
+def _log_teacher_assist(root: str, goal: str, teacher_model: str, patch: str) -> None:
+    """Same learning_log.jsonl schema teacher.py's teach_from_error
+    already uses, so finetune.py's dataset builder picks this up with no
+    special-casing: next time `gremlin finetune` runs on the primary,
+    this goal + the teacher's working solution is real material for
+    teaching gremlin's own model to do this kind of self-edit itself."""
+    from .consult import append_learning_log
+    append_learning_log(root, {
+        "prompt": f"How would you change your own code to: {goal}?",
+        "final_answer": patch,
+        "kind": "teacher_correction",
+        "teacher_model": teacher_model,
+        "consulted_models": [teacher_model],
+        "note": "local model couldn't produce a working diff after retrying; teacher solved it directly",
+    })
 
 
 def _run(cmd: list[str], cwd: str) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+
+
+def check_patch_applies(patch_text: str, root: str) -> tuple[bool, str]:
+    """`git apply --check` only, no actual apply -- lets a caller catch a
+    STRUCTURALLY broken diff (most often a wrong line count in an `@@`
+    hunk header, confirmed by testing: a model can write real, sensible
+    file content and still get that count wrong, which two reviewers
+    reading it conceptually will happily approve since the content
+    itself looks right) before spending a whole review gate on a patch
+    that was always going to fail at apply_patch's own identical check.
+    Git-inits root first if needed, same as apply_patch, since the check
+    itself needs a git context to run at all."""
+    root = str(Path(root).resolve())
+    if not (Path(root) / ".git").exists():
+        _run(["git", "init"], root)
+        _run(["git", "config", "user.email", "gremlin@localhost"], root)
+        _run(["git", "config", "user.name", "Gremlin"], root)
+        _run(["git", "add", "-A"], root)
+        _run(["git", "commit", "-m", "baseline before self-improvement"], root)
+
+    with tempfile.NamedTemporaryFile("w", suffix=".patch", delete=False) as f:
+        f.write(patch_text)
+        patch_path = f.name
+    try:
+        check = _run(["git", "apply", "--check", patch_path], root)
+        return check.returncode == 0, check.stderr
+    finally:
+        os.unlink(patch_path)
 
 
 async def apply_patch(
@@ -266,7 +381,7 @@ async def run_self_edit(
     root: str,
     goal: str,
     model_names: list[str],
-    reviewer_a: str = "gemini",
+    reviewer_a: str = "gpt-oss-20b",
     reviewer_b: str = "deepseek-r1-distill-8b",
     run_tests: bool = True,
     allow_consult_override: bool = False,
@@ -274,6 +389,7 @@ async def run_self_edit(
     teach_on_failure: bool = False,
     teacher_model: str = "gemini",
     patch: Optional[str] = None,
+    used_teacher: bool = False,
 ) -> dict:
     """Non-interactive version of main.py's cmd_improve -- same propose ->
     two-reviewer gate -> apply pipeline, but returns a plain dict instead
@@ -294,7 +410,21 @@ async def run_self_edit(
     try:
         with git_mutation_lock(root):
             if patch is None:
-                patch = await propose_patch(router, model_names, goal, root)
+                patch, used_teacher = await propose_with_retry_and_teacher(
+                    router, model_names, goal, root, teacher_model,
+                )
+
+            # Free the proposer(s)' VRAM before the review gate starts --
+            # otherwise a local reviewer's own load can fail outright if
+            # a local proposer is still resident (see review.py's
+            # _unload_if_local docstring for the confirmed failure mode).
+            for name in model_names:
+                try:
+                    backend = router.registry.get(name)
+                    if backend.info.kind in ("local_gguf", "local_vlm"):
+                        await backend.unload()
+                except Exception:
+                    pass
 
             fixer = model_names[0]
             outcome = await review_mod.review_and_revise(
@@ -344,6 +474,9 @@ async def run_self_edit(
                 teach_on_failure=teach_on_failure, teacher_model=teacher_model,
             )
             result["review_history"] = review_history
+            result["used_teacher"] = used_teacher
+            if result.get("applied") and result.get("committed") and used_teacher:
+                _log_teacher_assist(root, goal, teacher_model, outcome.patch)
             return result
     except AlreadyRunning as e:
         return {"applied": False, "reason": str(e)}

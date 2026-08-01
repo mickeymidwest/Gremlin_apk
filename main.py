@@ -15,7 +15,7 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin broadcast <model1,model2,...> "<prompt>"
   gremlin plan <model1,model2,...> "<task>"
   gremlin improve <model1,model2,...> "<goal>" [--apply] [--test] [--reviewer-a=NAME] [--reviewer-b=NAME] [--allow-consult-override] [--teach-on-failure] [--teacher=NAME]
-    --allow-consult-override: if reviewer-a/reviewer-b (default gemini/deepseek-r1-distill-8b)
+    --allow-consult-override: if reviewer-a/reviewer-b (default gpt-oss-20b/deepseek-r1-distill-8b)
     don't both approve, fall back to checking whether all 4 local consult models
     (config/models.yaml persona.consult_models) unanimously approve instead. Off by default --
     must be requested explicitly per run.
@@ -82,6 +82,17 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     Reports mean scores AND wall time -- a pipeline that wins by 3 points at 4x the time
     is usually a bad trade, and that only shows up if it's measured. Defaults to
     data/bench_cases.jsonl.
+  gremlin build <name> "<what to build>" [--apply] [--test] [--dir=<path>]
+    [--reviewer-a=NAME] [--reviewer-b=NAME]
+    Builds a NEW project from scratch (or extends an existing one) in ~/Downloads/<name>/
+    (or --dir=<path> for somewhere else) -- same propose -> two-reviewer-approve -> commit
+    pipeline as `gremlin improve`, just retargeted at a brand new folder instead of Gremlin's
+    own repo. That folder becomes its own git repo (auto-init'd), so every build is a
+    discrete, revertible commit, same safety guarantee as a self-edit. Without --apply,
+    only previews the proposed diff. A successful build is also logged to Gremlin's own
+    data/learning_log.jsonl as future fine-tuning material, so repeated use is meant to
+    make it better at this over time. Reachable from regular chat too, e.g. "build me a
+    bash script that backs up my Documents folder" -- same reviewer gate either way.
   gremlin checkpoint-eval [--judge=NAME]
     For every promoted sub-model fine-tune (`gremlin finetune --target=<name> --promote`
     has run), replays its own held-out question through both the original base checkpoint
@@ -125,6 +136,7 @@ from gremlin_core import research
 from gremlin_core import specialists
 from gremlin_core import bench
 from gremlin_core import checkpoint_eval
+from gremlin_core import build_project
 from gremlin_core import council
 from gremlin_core import distill
 from gremlin_core.pressure import PressureLevel
@@ -984,7 +996,11 @@ async def cmd_improve(
     teacher_model: str = "gemini",
 ):
     print(f"Asking {', '.join(model_names)} to propose changes for: {goal}\n")
-    patch = await self_improve.propose_patch(router, model_names, goal, PROJECT_ROOT)
+    patch, used_teacher = await self_improve.propose_with_retry_and_teacher(
+        router, model_names, goal, PROJECT_ROOT, teacher_model,
+    )
+    if used_teacher:
+        print(f"(local model couldn't produce a working diff after retrying -- {teacher_model} stepped in; logged as teaching material)")
     print("=== Proposed diff ===")
     print(patch)
 
@@ -998,7 +1014,7 @@ async def cmd_improve(
         reviewer_a=reviewer_a, reviewer_b=reviewer_b, run_tests=run_tests,
         allow_consult_override=allow_consult_override, consult_models=consult_models,
         teach_on_failure=teach_on_failure, teacher_model=teacher_model,
-        patch=patch,
+        patch=patch, used_teacher=used_teacher,
     )
 
     for r in result.get("review_history", []):
@@ -1014,6 +1030,66 @@ async def cmd_improve(
         print(f"Files changed: {result['files_changed']}")
     else:
         print(f"NOT applied: {result['reason']}")
+
+
+async def cmd_build(
+    registry: ModelRegistry,
+    router: Router,
+    name: str,
+    goal: str,
+    do_apply: bool,
+    run_tests: bool,
+    reviewer_a: str,
+    reviewer_b: str,
+    target_dir: Optional[str] = None,
+):
+    safe_name = build_project.sanitize_folder_name(name)
+    if not safe_name:
+        print(f"'{name}' isn't a usable folder name -- letters, numbers, hyphens, underscores only.")
+        return
+    target_root = target_dir or str(Path.home() / "Downloads" / safe_name)
+    Path(target_root).mkdir(parents=True, exist_ok=True)
+    # Just the primary, not every registered model -- see the matching
+    # comment in actions.py's build_project handler.
+    primary_name = registry.primary_model_name()
+    model_names = [primary_name] if primary_name else [
+        n for n in registry.names() if registry.get(n).info.kind != "persona"
+    ]
+
+    bootstrap = build_project._is_bootstrap(target_root)
+    label = "new project (whole files)" if bootstrap else "diff against existing project"
+    print(f"Asking {', '.join(model_names)} to build: {goal}\nTarget: {target_root} ({label})\n")
+    patch, used_teacher = await build_project.propose_with_retry_and_teacher(
+        router, model_names, goal, target_root, "gemini",
+    )
+    if used_teacher:
+        print("(local model couldn't produce a usable result after retrying -- gemini stepped in; logged as teaching material)")
+    print(f"=== Proposed {label} ===")
+    print(patch)
+
+    if not do_apply:
+        print("\n(dry run -- rerun with --apply to actually write this)")
+        return
+
+    print(f"\n=== Review gate: {reviewer_a} then {reviewer_b} must both approve ===")
+    result = await build_project.run_build(
+        router, PROJECT_ROOT, target_root, goal, model_names,
+        reviewer_a=reviewer_a, reviewer_b=reviewer_b, run_tests=run_tests,
+        consult_models=registry.consult_models(), patch=patch, used_teacher=used_teacher,
+    )
+
+    for r in result.get("review_history", []):
+        verdict = "APPROVED" if r["approved"] else "REQUESTED CHANGES"
+        print(f"  [{r['reviewer']}] {verdict}" + (f" -- {r['feedback']}" if r["feedback"] else ""))
+
+    print("\n=== Result ===")
+    if result["applied"] and result.get("committed"):
+        print(f"Built in {target_root} -- {result['commit_message']}")
+        print(f"Files: {result['files_changed']}")
+    elif result["applied"]:
+        print(f"Written but NOT committed -- {result.get('warning')}")
+    else:
+        print(f"NOT built: {result['reason']}")
 
 
 async def cmd_auto_fix(registry: ModelRegistry, router: Router):
@@ -1040,7 +1116,7 @@ async def cmd_auto_fix(registry: ModelRegistry, router: Router):
     # are both opt-in per run, never silent.
     await cmd_improve(
         router, model_names, goal, do_apply=True, run_tests=(run_tests_input == "y"),
-        reviewer_a="gemini", reviewer_b="deepseek-r1-distill-8b",
+        reviewer_a="gpt-oss-20b", reviewer_b="deepseek-r1-distill-8b",
         allow_consult_override=(override_input == "y"),
         teach_on_failure=(teach_input == "y"), teacher_model="gemini",
         consult_models=registry.consult_models(),
@@ -1213,7 +1289,7 @@ async def main():
             run_tests = "--test" in extra_args
             allow_consult_override = "--allow-consult-override" in extra_args
             teach_on_failure = "--teach-on-failure" in extra_args
-            reviewer_a = "gemini"
+            reviewer_a = "gpt-oss-20b"
             reviewer_b = "deepseek-r1-distill-8b"
             teacher_model = "gemini"
             for arg in extra_args:
@@ -1289,6 +1365,23 @@ async def main():
                 if a.startswith("--judge="):
                     judge = a.split("=", 1)[1]
             await cmd_bench(registry, router, cases_path, judge)
+        elif cmd == "build":
+            name = sys.argv[2]
+            goal = sys.argv[3]
+            extra_args = sys.argv[4:]
+            do_apply = "--apply" in extra_args
+            run_tests = "--test" in extra_args
+            reviewer_a = "gpt-oss-20b"
+            reviewer_b = "deepseek-r1-distill-8b"
+            target_dir = None
+            for arg in extra_args:
+                if arg.startswith("--reviewer-a="):
+                    reviewer_a = arg.split("=", 1)[1]
+                elif arg.startswith("--reviewer-b="):
+                    reviewer_b = arg.split("=", 1)[1]
+                elif arg.startswith("--dir="):
+                    target_dir = arg.split("=", 1)[1]
+            await cmd_build(registry, router, name, goal, do_apply, run_tests, reviewer_a, reviewer_b, target_dir)
         elif cmd == "checkpoint-eval":
             extra = sys.argv[2:]
             judge = None

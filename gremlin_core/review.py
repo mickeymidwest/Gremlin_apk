@@ -94,9 +94,35 @@ def _parse_verdict(text: str) -> Optional[dict]:
         return None
 
 
-async def _review_once(router: Router, reviewer: str, patch: str, goal: str) -> ReviewRound:
+async def _unload_if_local(router: Router, name: str) -> None:
+    """Frees a local GGUF's VRAM right after its call completes -- same
+    reason as consult.py's specialist unload: this review/revise loop
+    calls several different local models in sequence (reviewer_a, then
+    reviewer_b, then the fixer, then back to reviewer_a...), and on an
+    8GB card two ~4-5GB models both staying resident means the second
+    one's load fails outright rather than queuing or falling back.
+    Confirmed by testing: `deepseek-r1-distill-8b` failed to load with
+    "Failed to load model from file" whenever the proposer/fixer model
+    was still resident from the step before it -- the file itself was
+    fine (loaded standalone with VRAM free), it was pure contention.
+    A no-op for API-backed reviewers (gemini, claude), which hold no
+    local VRAM to free."""
+    try:
+        backend = router.registry.get(name)
+    except Exception:
+        return
+    if backend.info.kind in ("local_gguf", "local_vlm"):
+        try:
+            await backend.unload()
+        except Exception:
+            pass
+
+
+async def _review_once(
+    router: Router, reviewer: str, patch: str, goal: str, review_system: str = REVIEW_SYSTEM_PROMPT,
+) -> ReviewRound:
     prompt = f"Goal: {goal}\n\nProposed diff:\n{patch}"
-    result = await router.route(reviewer, prompt, system=REVIEW_SYSTEM_PROMPT)
+    result = await router.route(reviewer, prompt, system=review_system)
 
     if not result.ok:
         # A reviewer that's unreachable is not the same as a reviewer that
@@ -117,9 +143,15 @@ async def _review_once(router: Router, reviewer: str, patch: str, goal: str) -> 
     return ReviewRound(reviewer=reviewer, approved=approved, feedback=verdict.get("feedback", ""))
 
 
-async def _revise(router: Router, fixer: str, patch: str, goal: str, feedback: str) -> str:
+async def _revise(
+    router: Router, fixer: str, patch: str, goal: str, feedback: str, revise_system: str = REVISE_SYSTEM_PROMPT,
+) -> str:
     prompt = f"Goal: {goal}\n\nCurrent diff:\n{patch}\n\nReviewer feedback:\n{feedback}"
-    result = await router.route(fixer, prompt, system=REVISE_SYSTEM_PROMPT)
+    # Regenerating a full diff, not a short verdict -- needs the same
+    # generous budget as the original proposal (see self_improve.py's
+    # DIFF_MAX_TOKENS docstring: the 512 default truncates a real diff
+    # mid-hunk-header).
+    result = await router.route(fixer, prompt, system=revise_system, max_tokens=4096)
     return result.text if result.ok else patch  # if the fixer itself fails, keep the old patch; next loop will just fail review again and stop rather than apply something worse
 
 
@@ -131,6 +163,8 @@ async def review_and_revise(
     reviewer_b: str,
     fixer: str,
     max_rounds: int = 4,
+    review_system: str = REVIEW_SYSTEM_PROMPT,
+    revise_system: str = REVISE_SYSTEM_PROMPT,
 ) -> ReviewOutcome:
     """
     Runs the patch through reviewer_a, then reviewer_b, only once both
@@ -138,21 +172,31 @@ async def review_and_revise(
     sends feedback to `fixer`, and review restarts from reviewer_a on the
     revised patch -- so a fix for reviewer_b's concerns is always re-checked
     by reviewer_a too before being re-shown to reviewer_b.
+
+    `review_system`/`revise_system` let a caller reviewing something that
+    isn't a unified diff (see build_project.py's bootstrap mode, which
+    reviews a set of brand-new whole files instead) swap in prompts that
+    describe the right thing -- the gate mechanics are identical either
+    way, only what the reviewer is told it's looking at changes.
     """
     history: list[ReviewRound] = []
     current_patch = patch
 
     for round_num in range(1, max_rounds + 1):
-        review_a = await _review_once(router, reviewer_a, current_patch, goal)
+        review_a = await _review_once(router, reviewer_a, current_patch, goal, review_system)
         history.append(review_a)
+        await _unload_if_local(router, reviewer_a)
         if not review_a.approved:
-            current_patch = await _revise(router, fixer, current_patch, goal, review_a.feedback)
+            current_patch = await _revise(router, fixer, current_patch, goal, review_a.feedback, revise_system)
+            await _unload_if_local(router, fixer)
             continue
 
-        review_b = await _review_once(router, reviewer_b, current_patch, goal)
+        review_b = await _review_once(router, reviewer_b, current_patch, goal, review_system)
         history.append(review_b)
+        await _unload_if_local(router, reviewer_b)
         if not review_b.approved:
-            current_patch = await _revise(router, fixer, current_patch, goal, review_b.feedback)
+            current_patch = await _revise(router, fixer, current_patch, goal, review_b.feedback, revise_system)
+            await _unload_if_local(router, fixer)
             continue
 
         return ReviewOutcome(approved=True, patch=current_patch, rounds_used=round_num, history=history)

@@ -59,7 +59,7 @@ READ_ONLY_ACTIONS = {"update_check", "snapshots", "run_command_read", "find_file
 # _handle_possible_action). That's what lets "check for updates" and
 # "update my computer" both naturally lead to the same real update
 # without the classifier needing to guess which one the user meant.
-MUTATING_ACTIONS = {"self_edit", "script_fix", "run_command", "rollback", "reboot", "apply_updates"}
+MUTATING_ACTIONS = {"self_edit", "script_fix", "build_project", "run_command", "rollback", "reboot", "apply_updates"}
 ALL_ACTIONS = READ_ONLY_ACTIONS | MUTATING_ACTIONS | {"chat"}
 
 # Directly-answerable without any model call at all -- unambiguous
@@ -83,6 +83,7 @@ Actions:
 - reboot: reboot the desktop.
 - self_edit: change Gremlin's OWN code/behavior/capabilities ("add X to yourself", "you should be able to Y"). args: {"goal": "<what to change>"}
 - script_fix: fix a file that is NOT Gremlin's own code (a user script, config, etc). args: {"file_hint": "<name or description of the file>", "problem": "<what's wrong>"}
+- build_project: build/create a NEW app, script, or project from scratch in its own new folder ("build me an app that does X", "make a script that Y", "create a new project called Z"). Distinct from self_edit (Gremlin's own code only) and script_fix (fixing one existing file). args: {"name": "<short folder name: letters/numbers/hyphens/underscores only, no spaces or paths>", "goal": "<what to build>"}
 - run_command: run a shell command on the desktop that actually accomplishes what the user asked. args: {"command": "<the real, complete shell command>"}. The command must be something that would actually work if typed into a terminal -- "restart docker" (the daemon itself) means {"command": "systemctl restart docker"}, NOT {"command": "docker"}; "how much disk space is left" means {"command": "df -h"}, NOT {"command": "disk"}. Never output a bare program/service name by itself as the whole command unless the user's request was literally just that program's name with no verb. These specific names are docker CONTAINERS on this machine, not systemd services -- "restart jellyfin"/"restart bridge"/etc means {"command": "docker restart <name>"}, NOT systemctl: jellyfin, jellyseerr, robofuse, bridge, unarr.
 
 Respond with ONLY a JSON object, no prose, no markdown fence:
@@ -225,6 +226,14 @@ def _confirmation_text(intent: Intent, original_message: str) -> str:
         return (
             f"I'd edit {path}{tail}. I back it up first and revert automatically if the fix "
             "doesn't compile. Want me to go ahead?"
+        )
+    if intent.action == "build_project":
+        name = a.get("name") or "a new folder"
+        goal = a.get("goal") or original_message
+        return (
+            f"I'd build this in ~/Downloads/{name}/: \"{goal}\". Two other models review it "
+            "before anything's written, and it's its own git repo so it's revertible either way. "
+            "Want me to go ahead?"
         )
     if intent.action == "run_command":
         return f"I'd run this on the desktop:\n\n    {a.get('command', '')}\n\nWant me to go ahead?"

@@ -19,6 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from . import build_project
 from . import intent as intent_mod
 from . import root_exec, script_edit, self_improve, snapshots, update_check
 from .intent import Intent
@@ -138,7 +139,7 @@ async def execute(
         model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
         result = await self_improve.run_self_edit(
             router, project_root, goal, model_names,
-            reviewer_a="gemini", reviewer_b="deepseek-r1-distill-8b",
+            reviewer_a="gpt-oss-20b", reviewer_b="deepseek-r1-distill-8b",
             run_tests=True,
             consult_models=registry.consult_models(),
         )
@@ -155,6 +156,47 @@ async def execute(
                 "ok": True,
             }
         return {"answer": f"Didn't apply it: {result.get('reason')}", "action": action, "ok": False}
+
+    if action == "build_project":
+        name = str(args.get("name") or "").strip()
+        goal = str(args.get("goal") or "").strip()
+        if not goal:
+            return {"answer": "What should I build?", "action": action, "ok": False}
+        safe_name = build_project.sanitize_folder_name(name)
+        if not safe_name:
+            return {
+                "answer": "What should I call the project folder? (letters, numbers, hyphens, underscores only)",
+                "action": action,
+                "ok": False,
+            }
+        target_root = str(Path.home() / "Downloads" / safe_name)
+        # Just the primary, not every registered model -- broadcasting a
+        # build proposal to all 21+ would mean loading each one in turn
+        # on this HDD before a single draft comes back, the same "took
+        # hours" problem specialist routing already fixed for consults.
+        primary_name = registry.primary_model_name()
+        model_names = [primary_name] if primary_name else [
+            n for n in registry.names() if registry.get(n).info.kind != "persona"
+        ]
+        result = await build_project.run_build(
+            router, project_root, target_root, goal, model_names,
+            reviewer_a="gpt-oss-20b", reviewer_b="deepseek-r1-distill-8b",
+            consult_models=registry.consult_models(),
+        )
+        if result.get("applied") and result.get("committed"):
+            return {
+                "answer": f"Built it in ~/Downloads/{safe_name}/ -- {result.get('commit_message')}\n"
+                          f"Files: {result.get('files_changed')}",
+                "action": action,
+                "ok": True,
+            }
+        if result.get("applied"):
+            return {
+                "answer": f"Written to ~/Downloads/{safe_name}/ but not committed -- {result.get('warning')}",
+                "action": action,
+                "ok": True,
+            }
+        return {"answer": f"Didn't build it: {result.get('reason')}", "action": action, "ok": False}
 
     if action == "script_fix":
         path = str(args.get("resolved_path") or "").strip()
