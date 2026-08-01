@@ -198,6 +198,10 @@ class SettingsActivity : AppCompatActivity() {
               Run a command on the desktop (sandboxed: confined directory, timeout, no root).
               e.g. /desktop ls -la
                    /desktop find /home -iname "*keyword*"
+              This also works for gremlin's own CLI (checkpoint-eval, distill,
+              finetune, bench, specialists, and anything else `gremlin --help`
+              lists on the desktop) -- none of those have their own slash
+              command, so run them as e.g. /desktop gremlin checkpoint-eval
 
             /root <command>
               Same, but with sudo. Needs a sudo password cached first --
