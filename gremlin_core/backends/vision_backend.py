@@ -131,7 +131,7 @@ class VisionBackend(ModelBackend):
         self,
         prompt: str,
         system: Optional[str] = None,
-        max_tokens: int = 512,
+        max_tokens: int = 1536,
         temperature: float = 0.7,
     ) -> GenerationResult:
         """Text-only path -- a VLM is still a language model, and this
@@ -145,7 +145,7 @@ class VisionBackend(ModelBackend):
         prompt: str,
         images: list[bytes],
         system: Optional[str] = None,
-        max_tokens: int = 512,
+        max_tokens: int = 1536,
         temperature: float = 0.2,
         image_mime: str = "image/png",
     ) -> GenerationResult:

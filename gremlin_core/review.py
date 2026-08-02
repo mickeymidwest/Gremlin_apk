@@ -149,8 +149,8 @@ async def _revise(
     prompt = f"Goal: {goal}\n\nCurrent diff:\n{patch}\n\nReviewer feedback:\n{feedback}"
     # Regenerating a full diff, not a short verdict -- needs the same
     # generous budget as the original proposal (see self_improve.py's
-    # DIFF_MAX_TOKENS docstring: the 512 default truncates a real diff
-    # mid-hunk-header).
+    # DIFF_MAX_TOKENS docstring: the old 512-token default truncates a
+    # real diff mid-hunk-header).
     result = await router.route(fixer, prompt, system=revise_system, max_tokens=4096)
     return result.text if result.ok else patch  # if the fixer itself fails, keep the old patch; next loop will just fail review again and stop rather than apply something worse
 

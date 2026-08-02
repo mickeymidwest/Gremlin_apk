@@ -72,12 +72,13 @@ def _format_source_dump(source: dict[str, str]) -> str:
     return "\n\n".join(chunks)
 
 
-# The 512-token default (backends/base.py's generate()) is tuned for a
-# short chat reply, not a unified diff -- a diff for even a small,
-# multi-file change needs real room for headers, @@ hunks, and every
-# changed line prefixed with +/-. Confirmed by testing: with the
-# default, both a local model AND gemini (as the teacher fallback) came
-# back with diffs truncated mid-hunk-header, with no file content at
+# Even backends/base.py's own default (bumped 512 -> 1536 after this
+# same discovery) is tuned for a chat reply, not a unified diff -- a
+# diff for even a small, multi-file change needs real room for headers,
+# @@ hunks, and every changed line prefixed with +/-. Confirmed by
+# testing: at the old 512-token default, both a local model AND gemini
+# (as the teacher fallback) came back with diffs truncated mid-hunk-
+# header, with no file content at
 # all -- not a model-quality problem, just not enough token budget for
 # what was being asked.
 DIFF_MAX_TOKENS = 4096

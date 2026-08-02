@@ -144,9 +144,10 @@ _SKIP_DIRS = {".git", "__pycache__", "node_modules", "venv", ".venv", "build", "
 _MAX_FILE_CHARS = 20_000
 _MAX_TOTAL_CHARS = 120_000
 
-# See self_improve.py's DIFF_MAX_TOKENS docstring -- the 512-token
-# default is tuned for a short chat reply, not a real unified diff (or a
-# whole file set), and confirmed by testing to truncate output badly.
+# See self_improve.py's DIFF_MAX_TOKENS docstring -- even the (now
+# bumped) chat-reply default is tuned for a short reply, not a real
+# unified diff (or a whole file set), and the old 512-token default was
+# confirmed by testing to truncate output badly.
 DIFF_MAX_TOKENS = 4096
 
 

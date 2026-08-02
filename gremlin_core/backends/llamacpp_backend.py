@@ -81,7 +81,7 @@ class LlamaCppBackend(ModelBackend):
         self,
         prompt: str,
         system: Optional[str] = None,
-        max_tokens: int = 512,
+        max_tokens: int = 1536,
         temperature: float = 0.7,
     ) -> GenerationResult:
         try:

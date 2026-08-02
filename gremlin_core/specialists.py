@@ -77,7 +77,7 @@ class Specialist:
     # Lower runs first when several handle the same task type; the first
     # one that returns something usable wins.
     priority: int = 100
-    max_tokens: int = 512
+    max_tokens: int = 1536
     temperature: float = 0.2
     notes: str = ""
 
@@ -198,7 +198,7 @@ class SpecialistRegistry:
                 mode=mode,
                 system_prompt=entry.get("system_prompt", ""),
                 priority=int(entry.get("priority", 100)),
-                max_tokens=int(entry.get("max_tokens", 512)),
+                max_tokens=int(entry.get("max_tokens", 1536)),
                 temperature=float(entry.get("temperature", 0.2)),
                 notes=entry.get("notes", ""),
             ))
