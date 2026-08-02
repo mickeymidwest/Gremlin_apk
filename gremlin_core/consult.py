@@ -85,11 +85,15 @@ def seems_uncertain(text: str) -> bool:
 
 
 VAGUENESS_CHECK_PROMPT = (
-    "You just answered a question. Judge your own answer honestly: did it actually "
-    "contain real, specific content that addresses the question, or was it vague "
-    "filler/acknowledgment with no real substance (e.g. \"I'm happy to help with that!\" "
-    "with nothing concrete after it, or a reply that clearly lost track of what was "
-    "actually being asked)? Reply with ONLY one word: SUBSTANTIVE or VAGUE."
+    "You just answered a question. Apply ONE test: does the answer contain the actual "
+    "thing that was asked for -- a specific name, number, or recommendation the asker "
+    "could act on -- somewhere in it? If yes, it's SUBSTANTIVE, even if it's short or "
+    "also includes other context/background around that answer. If no such concrete "
+    "answer is present anywhere -- it's pure filler (\"I'm happy to help with that!\"), "
+    "it only restates facts already known without ever naming an actual answer, or it "
+    "lost track of what was asked -- it's VAGUE. When genuinely unsure, prefer "
+    "SUBSTANTIVE -- this check exists to catch answers with NO real content at all, not "
+    "to grade quality. Reply with ONLY one word: SUBSTANTIVE or VAGUE."
 )
 
 
@@ -768,6 +772,25 @@ async def _consult_and_learn_inner(
     synth_system = f"{context_note}\n\n{CONSULT_SYNTHESIS_PROMPT}" if context_note else CONSULT_SYNTHESIS_PROMPT
     synthesis = await router.route(persona_name, synth_prompt, system=synth_system)
     final_answer = synthesis.text if synthesis.ok else next(iter(confident.values())).text
+
+    # The specialist's own answer can be just as vague as the primary's
+    # original one -- confirmed by testing: a consult correctly
+    # triggered and routed to a specialist, but its answer never named
+    # an actual GPU either, and synthesis just carried that vagueness
+    # through in gremlin's own voice. One bounded escalation to
+    # last_resort_model (if configured and not already tried) rather
+    # than an open-ended retry loop -- the primary is already warm from
+    # the synthesis call above, so this check itself costs no extra
+    # VRAM swap.
+    if not escalated and last_resort_model and await seems_vague(router, persona_name, prompt, final_answer):
+        last_resort_result = await router.route(last_resort_model, prompt)
+        if last_resort_result.ok and not seems_uncertain(last_resort_result.text):
+            confident[last_resort_model] = last_resort_result
+            escalated = True
+            research_text = "\n\n".join(f"=== source ===\n{r.text}" for r in confident.values())
+            synth_prompt = f"Original question: {prompt}\n\nGathered research:\n{research_text}"
+            synthesis = await router.route(persona_name, synth_prompt, system=synth_system)
+            final_answer = synthesis.text if synthesis.ok else final_answer
 
     append_learning_log(root, {
         "prompt": prompt,
