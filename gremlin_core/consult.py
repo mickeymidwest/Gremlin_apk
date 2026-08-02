@@ -84,6 +84,35 @@ def seems_uncertain(text: str) -> bool:
     return any(marker in lowered for marker in UNCERTAINTY_MARKERS)
 
 
+VAGUENESS_CHECK_PROMPT = (
+    "You just answered a question. Judge your own answer honestly: did it actually "
+    "contain real, specific content that addresses the question, or was it vague "
+    "filler/acknowledgment with no real substance (e.g. \"I'm happy to help with that!\" "
+    "with nothing concrete after it, or a reply that clearly lost track of what was "
+    "actually being asked)? Reply with ONLY one word: SUBSTANTIVE or VAGUE."
+)
+
+
+async def seems_vague(router: Router, persona_name: str, prompt: str, answer: str) -> bool:
+    """Catches confident-sounding non-answers seems_uncertain's keyword
+    check can't -- confirmed by testing: "I'm happy to help you with
+    that!" (zero actual content) and a reply that answered a totally
+    different question than the one asked both read as "confident" to
+    a keyword scan, so specialist routing never got a chance to help
+    with them. Uses the SAME already-resident primary to judge its own
+    answer -- no extra VRAM swap, just one small extra generation.
+    Fails closed (an unclear or failed check counts as NOT vague) so a
+    broken check never forces every single message into a consult."""
+    check_prompt = f"Question: {prompt}\n\nYour answer: {answer}\n\nWas that SUBSTANTIVE or VAGUE?"
+    try:
+        result = await router.route(persona_name, check_prompt, system=VAGUENESS_CHECK_PROMPT, max_tokens=10)
+    except Exception:
+        return False
+    if not result.ok:
+        return False
+    return "vague" in result.text.strip().lower()
+
+
 def _log_path(root: str) -> str:
     path = os.path.join(root, "data", "learning_log.jsonl")
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -631,7 +660,13 @@ async def _consult_and_learn_inner(
     # off). Sampled consults still only log if a consult model actually
     # came back confident; see the `confident` check below.
     sampled = consult_sample_rate > 0 and random.random() < consult_sample_rate
-    if not seems_uncertain(primary_result.text) and not sampled:
+    uncertain = seems_uncertain(primary_result.text)
+    # Keyword check alone misses a confident-sounding non-answer (see
+    # seems_vague's docstring) -- only worth the extra small call when
+    # the cheap check didn't already decide this needs a consult.
+    if not uncertain and not sampled:
+        uncertain = await seems_vague(router, persona_name, prompt, primary_result.text)
+    if not uncertain and not sampled:
         return {
             "answer": primary_result.text,
             "consulted": False,
