@@ -57,7 +57,19 @@ DEFAULT_MAX_TURNS = 40
 
 # Hard cap on rendered history injected into one prompt, regardless of
 # turn count -- the real limiter, since a small model's context is small.
-_MAX_RENDER_CHARS = 5000
+#
+# 5000 -> 24000: 5000 chars is only ~1250 tokens, which is what made
+# Gremlin lose the thread after a handful of exchanges. That number was
+# sized for the old n_ctx: 4096 window; the primary now runs at 16384
+# (see config/models.yaml -- the model itself reports n_ctx_train =
+# 131072, so 4096 was using 3% of what it can do). 24000 chars is
+# ~6000 tokens, leaving roughly 8000 tokens of headroom in that window
+# for the persona prompt, durable memory notes, the question itself,
+# and the reply -- deliberately not the whole budget, since a prompt
+# that overflows n_ctx gets silently truncated at the FRONT, which
+# would eat the persona and reintroduce the same amnesia by a
+# different route.
+_MAX_RENDER_CHARS = 24000
 
 # Phrases that mean "wipe this conversation and start fresh". Kept tight
 # so ordinary talk about clearing/forgetting *other* things doesn't

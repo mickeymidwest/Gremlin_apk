@@ -46,3 +46,7 @@ data/finetunes/
 # data/*.txt and data/*.json blanket rules above.
 !data/distill_prompts.txt
 !data/submodel_base_repos.json
+
+# Timestamped/one-off config backups from maintenance edits -- the real
+# history is in git, these are just local safety nets during a change.
+config/models.yaml.bak-*
