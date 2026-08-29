@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically check that Gremlin is actually responding
+
+[Timer]
+# Every 2 minutes -- catches a hung-but-not-crashed process (e.g. a CUDA
+# error inside llama-cpp-python that corrupts the model without killing
+# the process) quickly without meaningful overhead.
+OnBootSec=2min
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target

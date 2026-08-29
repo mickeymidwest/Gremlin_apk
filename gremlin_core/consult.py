@@ -667,8 +667,12 @@ async def _consult_and_learn_inner(
     uncertain = seems_uncertain(primary_result.text)
     # Keyword check alone misses a confident-sounding non-answer (see
     # seems_vague's docstring) -- only worth the extra small call when
-    # the cheap check didn't already decide this needs a consult.
-    if not uncertain and not sampled:
+    # the cheap check didn't already decide this needs a consult, AND
+    # only when the persona opts into it (persona.deep_uncertainty_check,
+    # see PersonaBackend -- off on VRAM/HDD-constrained boxes where the
+    # extra call plus a possible specialist load is what makes chat hang).
+    deep_check = getattr(router.registry.get(persona_name), "deep_uncertainty_check", True)
+    if not uncertain and not sampled and deep_check:
         uncertain = await seems_vague(router, persona_name, prompt, primary_result.text)
     if not uncertain and not sampled:
         return {

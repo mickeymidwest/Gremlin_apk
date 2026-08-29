@@ -47,19 +47,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from . import tools as tools_mod
 from .router import Router
 
 # ---------------------------------------------------------------- actions
 
-# Read-only actions run immediately. Mutating ones always confirm first.
-READ_ONLY_ACTIONS = {"update_check", "snapshots", "run_command_read", "find_file"}
-# apply_updates is deliberately NOT something the classifier ever outputs
-# directly -- it only ever gets synthesized by server.py as a chained
-# follow-up once update_check has actually found pending packages (see
+# Derived from tools.py's ToolRegistry -- the single source of truth for
+# which actions exist and whether they're destructive, instead of a
+# second hand-maintained copy of the same list (see tools.py's module
+# docstring for why that duplication used to be a real bug risk).
+#
+# apply_updates is deliberately excluded from the classifier prompt
+# (Tool.classifier_visible=False) but still counts as mutating here --
+# it only ever gets synthesized by server.py as a chained follow-up once
+# update_check has actually found pending packages (see
 # _handle_possible_action). That's what lets "check for updates" and
 # "update my computer" both naturally lead to the same real update
 # without the classifier needing to guess which one the user meant.
-MUTATING_ACTIONS = {"self_edit", "script_fix", "build_project", "run_command", "rollback", "reboot", "apply_updates"}
+MUTATING_ACTIONS = {t.name for t in tools_mod.REGISTRY.all() if t.destructive}
+# run_command_read/find_file are stale classifier outputs from a removed
+# feature -- no Tool registers them; kept here only so ALL_ACTIONS still
+# tolerates them if anything old still emits one.
+READ_ONLY_ACTIONS = {t.name for t in tools_mod.REGISTRY.all() if not t.destructive} | {"run_command_read", "find_file"}
 ALL_ACTIONS = READ_ONLY_ACTIONS | MUTATING_ACTIONS | {"chat"}
 
 # Directly-answerable without any model call at all -- unambiguous
@@ -72,26 +81,37 @@ _FAST_PATHS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^\s*reboot\s*$", re.I), "reboot"),
 ]
 
-_CLASSIFY_PROMPT = """You are an intent classifier for a personal assistant that controls a Linux desktop.
-Classify the user's message into EXACTLY ONE action and extract its arguments.
+def _build_classify_prompt() -> str:
+    """Assembled from tools.py's ToolRegistry so this prompt can never
+    drift out of sync with the actual dispatch table in actions.py --
+    the old failure mode was a new tool registered in actions.py's
+    if/elif chain but forgotten here, so the classifier could never
+    actually select it."""
+    lines = [
+        "You are an intent classifier for a personal assistant that controls a Linux desktop.",
+        "Classify the user's message into EXACTLY ONE action and extract its arguments.",
+        "",
+        "Actions:",
+        "- chat: ordinary conversation, questions, explanations. THE DEFAULT. Use this unless "
+        "the user is clearly asking for something to be DONE to the machine or to your own code.",
+    ]
+    for tool in tools_mod.REGISTRY.all():
+        if tool.classifier_visible:
+            lines.append(f"- {tool.name}: {tool.description}")
+    lines += [
+        "",
+        "Respond with ONLY a JSON object, no prose, no markdown fence:",
+        '{"action": "<action>", "args": {...}, "confidence": <0.0-1.0>}',
+        "",
+        "If you are not confident the user wants a real action performed, answer "
+        '{"action": "chat", "args": {}, "confidence": 1.0}.',
+        "",
+        "User message: ",
+    ]
+    return "\n".join(lines)
 
-Actions:
-- chat: ordinary conversation, questions, explanations. THE DEFAULT. Use this unless the user is clearly asking for something to be DONE to the machine or to your own code.
-- update_check: check whether OS/package updates are pending and whether they're safe.
-- snapshots: list filesystem snapshots.
-- rollback: roll back to a snapshot. args: {"number": "<snapshot number>"}
-- reboot: reboot the desktop.
-- self_edit: change Gremlin's OWN code/behavior/capabilities ("add X to yourself", "you should be able to Y"). args: {"goal": "<what to change>"}
-- script_fix: fix a file that is NOT Gremlin's own code (a user script, config, etc). args: {"file_hint": "<name or description of the file>", "problem": "<what's wrong>"}
-- build_project: build/create a NEW app, script, or project from scratch in its own new folder ("build me an app that does X", "make a script that Y", "create a new project called Z"). Distinct from self_edit (Gremlin's own code only) and script_fix (fixing one existing file). args: {"name": "<short folder name: letters/numbers/hyphens/underscores only, no spaces or paths>", "goal": "<what to build>"}
-- run_command: run a shell command on the desktop that actually accomplishes what the user asked. args: {"command": "<the real, complete shell command>"}. The command must be something that would actually work if typed into a terminal -- "restart docker" (the daemon itself) means {"command": "systemctl restart docker"}, NOT {"command": "docker"}; "how much disk space is left" means {"command": "df -h"}, NOT {"command": "disk"}. Never output a bare program/service name by itself as the whole command unless the user's request was literally just that program's name with no verb. These specific names are docker CONTAINERS on this machine, not systemd services -- "restart jellyfin"/"restart bridge"/etc means {"command": "docker restart <name>"}, NOT systemctl: jellyfin, jellyseerr, robofuse, bridge, unarr.
 
-Respond with ONLY a JSON object, no prose, no markdown fence:
-{"action": "<action>", "args": {...}, "confidence": <0.0-1.0>}
-
-If you are not confident the user wants a real action performed, answer {"action": "chat", "args": {}, "confidence": 1.0}.
-
-User message: """
+_CLASSIFY_PROMPT = _build_classify_prompt()
 
 
 @dataclass

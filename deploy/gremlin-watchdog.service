@@ -1,0 +1,9 @@
+[Unit]
+Description=Health-check Gremlin and restart it if it's hung
+After=gremlin.service
+
+[Service]
+Type=oneshot
+# Filled in by hand, same two lines as gremlin.service/gremlin-update.service.
+WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/deploy/gremlin-watchdog.sh

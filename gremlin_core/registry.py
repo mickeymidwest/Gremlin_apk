@@ -112,6 +112,7 @@ class ModelRegistry:
                 consult_model_names=persona_cfg.get("consult_models", []),
                 last_resort_model_name=last_resort_name,
                 consult_sample_rate=persona_cfg.get("consult_sample_rate", 0.0),
+                deep_uncertainty_check=persona_cfg.get("deep_uncertainty_check", True),
             )
 
         return reg

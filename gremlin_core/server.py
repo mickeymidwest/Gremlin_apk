@@ -33,6 +33,7 @@ from flask import Flask, jsonify, request
 from .registry import ModelRegistry
 from .router import Router
 from . import actions
+from . import agent_state
 from . import consult
 from . import intent as intent_mod
 from . import history as history_mod
@@ -109,6 +110,20 @@ def run_coro(loop: asyncio.AbstractEventLoop, coro, timeout: float = 120.0):
     return future.result(timeout=timeout)
 
 
+def _primary_n_ctx(registry: ModelRegistry) -> Optional[int]:
+    """The primary backend's real context window, if it has one --
+    passed to ConversationHistory so its render budget is derived from
+    the actual live config instead of a hardcoded constant that has to
+    be remembered and kept in sync by hand (see history.py). None for a
+    primary that isn't a local GGUF (e.g. a remote API model with no
+    fixed n_ctx here) -- ConversationHistory falls back to its own
+    default in that case."""
+    name = registry.primary_model_name()
+    if not name:
+        return None
+    return getattr(registry.get(name), "n_ctx", None)
+
+
 def create_app(
     registry: ModelRegistry,
     router: Router,
@@ -127,7 +142,21 @@ def create_app(
 
     # The last few turns of each ongoing conversation, so Gremlin keeps
     # the thread instead of forgetting after a few sentences.
-    conversation_history = history_mod.ConversationHistory(str(project_root))
+    conversation_history = history_mod.ConversationHistory(
+        str(project_root), primary_n_ctx=_primary_n_ctx(registry),
+    )
+
+    # Explicit, observable state for one /chat turn's progress -- see
+    # agent_state.py's module docstring. Wrapping actions.execute() in
+    # this also fixes a real gap: those two call sites below previously
+    # had NO exception handling at all, unlike the consult path just
+    # below them, so a raised exception surfaced as a raw 500 instead of
+    # the same friendly fallback a slow/failed consult already gets.
+    state_machine = agent_state.AgentStateMachine()
+
+    async def _in_phase(state: agent_state.AgentState, coro):
+        async with state_machine.phase(state):
+            return await coro
 
     def _check_auth() -> Optional[tuple]:
         supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
@@ -157,6 +186,11 @@ def create_app(
         # for use when it can't reach this server at all.
         gremlin_backend = registry.get("gremlin")
         data["system_prompt"] = gremlin_backend.system_prompt
+        # Live process state, not config -- what Gremlin is doing right
+        # now (see agent_state.py). get_status_data() stays config-only
+        # on purpose, same reasoning as system_prompt just above.
+        data["agent_state"] = state_machine.state.value
+        data["recent_transitions"] = state_machine.recent()
         return jsonify(data)
 
     @app.route("/chat", methods=["POST"])
@@ -207,12 +241,12 @@ def create_app(
         try:
             result = run_coro(
                 loop,
-                consult.consult_and_learn(
+                _in_phase(agent_state.AgentState.REASONING, consult.consult_and_learn(
                     router, "gremlin", message, str(project_root),
                     last_resort_model=gremlin_backend.last_resort_model_name,
                     consult_sample_rate=gremlin_backend.consult_sample_rate,
                     history=history,
-                ),
+                )),
                 # A consult that has to partially-CPU-offload a second model
                 # alongside the primary (see config/models.yaml's VRAM notes)
                 # can genuinely take longer than the old 120s default on this
@@ -233,7 +267,8 @@ def create_app(
                 "consulted": False, "from_memory": False, "contributors": [],
                 "error": str(e), "synced_count": synced_count,
             }), 200
-        conversation_history.record(conv_key, message, result.get("answer", ""))
+        with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+            conversation_history.record(conv_key, message, result.get("answer", ""))
         result["synced_count"] = synced_count
         return jsonify(result)
 
@@ -265,11 +300,22 @@ def create_app(
                 return _chat_reply("Alright, left it alone.")
             if intent_mod.is_affirmative(message):
                 pending_confirmations.clear(key)
-                result = run_coro(
-                    loop,
-                    actions.execute(pending, router, registry, str(project_root)),
-                    timeout=900.0,
-                )
+                try:
+                    result = run_coro(
+                        loop,
+                        _in_phase(agent_state.AgentState.TOOL_EXECUTION,
+                                  actions.execute(pending, router, registry, str(project_root))),
+                        timeout=900.0,
+                    )
+                except Exception:
+                    # Previously unguarded -- an exception here (e.g. a
+                    # timeout mid self_edit/build_project) surfaced as a
+                    # raw 500 instead of degrading like the consult path
+                    # below already does.
+                    return _chat_reply(
+                        "That took too long or hit an error -- try again in a moment.",
+                        pending.action, ok=False,
+                    )
                 return _chat_reply(result["answer"], result["action"], result["ok"])
             # Neither yes nor no -- treat it as a new message entirely
             # and drop the stale proposal, rather than half-remembering
@@ -288,7 +334,8 @@ def create_app(
         try:
             detected = run_coro(
                 loop,
-                intent_mod.classify(router, "gremlin", message),
+                _in_phase(agent_state.AgentState.REASONING,
+                          intent_mod.classify(router, "gremlin", message)),
                 timeout=90.0,
             )
         except Exception:
@@ -301,11 +348,22 @@ def create_app(
             return _chat_reply(question, prepared.action, ok=False)
 
         if not prepared.needs_confirmation:
-            result = run_coro(
-                loop,
-                actions.execute(prepared, router, registry, str(project_root)),
-                timeout=900.0,
-            )
+            try:
+                result = run_coro(
+                    loop,
+                    _in_phase(agent_state.AgentState.TOOL_EXECUTION,
+                              actions.execute(prepared, router, registry, str(project_root))),
+                    timeout=900.0,
+                )
+            except Exception:
+                # Same gap as the confirmation-path call above -- this is
+                # the read-only-and-simple-mutation path (update_check,
+                # snapshots, reboot, run_command, etc.) and previously had
+                # no exception handling either.
+                return _chat_reply(
+                    "That took too long or hit an error -- try again in a moment.",
+                    prepared.action, ok=False,
+                )
             answer = result["answer"]
 
             # update_check is read-only and runs immediately, but finding

@@ -188,12 +188,17 @@ echo
 read -rp "Install 'gremlin serve' as an auto-starting systemd --user service? (Y/n): " SETUP_SERVICE
 if [[ ! "$SETUP_SERVICE" =~ ^[Nn]$ ]]; then
     mkdir -p ~/.config/systemd/user
+    chmod +x deploy/gremlin-preflight.sh
     # WantedBy=multi-user.target is for the SYSTEM manager -- a --user
     # unit needs default.target instead, or `enable` silently creates a
     # symlink nothing ever activates and it never actually autostarts.
+    # ExecStart points at the preflight script (checks free VRAM, warns
+    # if something else on the GPU has eaten the headroom the primary
+    # model needs, then execs into the real `main.py serve`) rather than
+    # the bare python command directly -- see deploy/gremlin-preflight.sh.
     sed -e "s|^User=.*|User=$USER|" \
         -e "s|^WorkingDirectory=.*|WorkingDirectory=$GREMLIN_DIR|" \
-        -e "s|^ExecStart=.*|ExecStart=$GREMLIN_DIR/venv/bin/python main.py serve|" \
+        -e "s|^ExecStart=.*|ExecStart=$GREMLIN_DIR/deploy/gremlin-preflight.sh|" \
         -e "s|^WantedBy=multi-user.target|WantedBy=default.target|" \
         deploy/gremlin.service > ~/.config/systemd/user/gremlin.service
     systemctl --user daemon-reload
@@ -220,6 +225,24 @@ if [[ ! "$SETUP_AUTOUPDATE" =~ ^[Nn]$ ]]; then
     echo "[+] gremlin-update.timer enabled -- check status with: systemctl --user status gremlin-update.timer"
     echo "    Pulls only fast-forward (git pull --ff-only) -- never overwrites local changes,"
     echo "    fails cleanly instead if the working tree has diverged."
+fi
+
+# --- 9. Watchdog: restarts gremlin.service if it stops answering HTTP ---
+echo
+echo "[*] Restart=on-failure only fires if the process actually exits -- it won't"
+echo "    catch a hung-but-alive process (e.g. a CUDA error that corrupts the"
+echo "    model without killing it). This checks /status every 2 min instead."
+read -rp "Install the Gremlin watchdog timer? (Y/n): " SETUP_WATCHDOG
+if [[ ! "$SETUP_WATCHDOG" =~ ^[Nn]$ ]]; then
+    chmod +x deploy/gremlin-watchdog.sh
+    mkdir -p ~/.config/systemd/user
+    sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$GREMLIN_DIR|" \
+        -e "s|^ExecStart=.*|ExecStart=$GREMLIN_DIR/deploy/gremlin-watchdog.sh|" \
+        deploy/gremlin-watchdog.service > ~/.config/systemd/user/gremlin-watchdog.service
+    cp deploy/gremlin-watchdog.timer ~/.config/systemd/user/gremlin-watchdog.timer
+    systemctl --user daemon-reload
+    systemctl --user enable --now gremlin-watchdog.timer
+    echo "[+] gremlin-watchdog.timer enabled -- check status with: systemctl --user status gremlin-watchdog.timer"
 fi
 
 echo

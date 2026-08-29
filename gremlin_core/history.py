@@ -69,7 +69,23 @@ DEFAULT_MAX_TURNS = 40
 # that overflows n_ctx gets silently truncated at the FRONT, which
 # would eat the persona and reintroduce the same amnesia by a
 # different route.
+#
+# This pair (24000 chars <-> 16384 n_ctx) had to be updated together by
+# hand when n_ctx last changed (4096 -> 16384) -- an easy edit to forget,
+# and forgetting it silently brings the amnesia bug back. ConversationHistory
+# now derives its actual render budget from whatever n_ctx it's constructed
+# with (see primary_n_ctx below), at this same ratio; this constant is now
+# only the fallback for a caller that doesn't pass one.
 _MAX_RENDER_CHARS = 24000
+_DEFAULT_PRIMARY_N_CTX = 16384
+
+
+def _render_budget(primary_n_ctx: Optional[int]) -> int:
+    """Chars-per-token ratio implied by the tuned 24000/16384 pair above,
+    applied to whatever n_ctx is actually configured now."""
+    if not primary_n_ctx or primary_n_ctx <= 0:
+        return _MAX_RENDER_CHARS
+    return int(primary_n_ctx * (_MAX_RENDER_CHARS / _DEFAULT_PRIMARY_N_CTX))
 
 # Phrases that mean "wipe this conversation and start fresh". Kept tight
 # so ordinary talk about clearing/forgetting *other* things doesn't
@@ -116,12 +132,18 @@ class ConversationHistory:
         root: str,
         max_turns: int = DEFAULT_MAX_TURNS,
         ttl_seconds: Optional[float] = None,
+        primary_n_ctx: Optional[int] = None,
     ):
         # ttl_seconds=None => never expire (the "till I tell it to clear"
         # default). A caller can still opt into aging if it wants.
         self._root = root
         self._max_turns = max_turns
         self._ttl = ttl_seconds
+        # See _render_budget()'s docstring -- derived from the primary's
+        # actual n_ctx when the caller has it (server.py/main.py both
+        # do, via their ModelRegistry), falling back to the tuned
+        # default otherwise.
+        self._max_render_chars = _render_budget(primary_n_ctx)
         self._dir = Path(root) / "data" / "conversations"
         # In-memory cache of the loaded tail, so a busy conversation
         # doesn't re-read its file every turn.
@@ -196,7 +218,7 @@ class ConversationHistory:
         total = 0
         for turn in reversed(dq):  # newest first, so trimming drops oldest
             block = f"User: {turn.user}\nGremlin: {turn.assistant}"
-            if total + len(block) > _MAX_RENDER_CHARS and blocks:
+            if total + len(block) > self._max_render_chars and blocks:
                 break
             blocks.append(block)
             total += len(block)

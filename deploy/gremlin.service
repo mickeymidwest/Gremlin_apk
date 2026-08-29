@@ -8,7 +8,7 @@ Wants=network-online.target
 # section of the README for the exact steps.
 User=YOUR_USERNAME
 WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
-ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/venv/bin/python main.py serve
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/deploy/gremlin-preflight.sh
 Restart=on-failure
 RestartSec=5
 

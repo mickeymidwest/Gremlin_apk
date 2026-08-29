@@ -908,7 +908,14 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
     backend = registry.get(model_name)
     is_persona = backend.info.kind == "persona"
     pending_confirmations = intent.PendingConfirmations()
-    conversation_history = history.ConversationHistory(PROJECT_ROOT)
+    # n_ctx of the actual model this CLI session is talking to (not
+    # necessarily the persona's primary -- `gremlin chat <any model>`
+    # works here), so the render budget matches whichever context
+    # window this conversation is really going into. See history.py's
+    # _render_budget().
+    conversation_history = history.ConversationHistory(
+        PROJECT_ROOT, primary_n_ctx=getattr(backend, "n_ctx", None),
+    )
     CONVERSATION_KEY = "cli"
 
     print(f"Chatting with {model_name}. Ctrl+C to quit.\n")

@@ -29,6 +29,7 @@ class PersonaBackend(ModelBackend):
         consult_model_names: Optional[list[str]] = None,
         last_resort_model_name: Optional[str] = None,
         consult_sample_rate: float = 0.0,
+        deep_uncertainty_check: bool = True,
     ):
         super().__init__(info)
         self.primary = primary
@@ -47,6 +48,16 @@ class PersonaBackend(ModelBackend):
         # words even when it's wrong, so without this the finetune pipeline
         # would never get real training data.
         self.consult_sample_rate = consult_sample_rate
+        # When True, an otherwise-confident-looking answer still gets a
+        # second LLM "is this actually vague?" check (consult.py's
+        # seems_vague) on every turn, and a "vague" verdict fires a full
+        # consult. That's one guaranteed extra primary call per message
+        # plus a possible specialist load -- fine on roomy hardware, but
+        # on an 8GB card with models on an HDD it's the main reason chat
+        # stalls for minutes. Set false to keep only the free keyword
+        # check (seems_uncertain); consults then fire rarely, on genuine
+        # hedging or an explicit consult_sample_rate draw.
+        self.deep_uncertainty_check = deep_uncertainty_check
 
     def _combined_system(self, extra: Optional[str]) -> str:
         if self.system_prompt and extra:
