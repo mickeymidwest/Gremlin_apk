@@ -64,6 +64,31 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) handleAttachment(uri)
     }
 
+    // Set just before launching downloadLauncher -- which build's zip the
+    // user is about to pick a save location for.
+    private var pendingBuildName: String? = null
+
+    private val downloadLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        val name = pendingBuildName
+        pendingBuildName = null
+        if (uri == null || name == null) return@registerForActivityResult
+        thinkingStatus.visibility = View.VISIBLE
+        Thread {
+            val err = try {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    gremlinClient.downloadBuild(name, out)
+                } ?: "Couldn't open the file you picked"
+            } catch (e: Exception) {
+                "Save failed: ${e.message}"
+            }
+            runOnUiThread {
+                thinkingStatus.visibility = View.GONE
+                if (err == null) appendSystemTurn("Saved $name.zip", false)
+                else appendSystemTurn("Couldn't get $name: $err", true)
+            }
+        }.start()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -401,8 +426,41 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            "/builds" -> {
+                val sub = parts.getOrNull(1)
+                if (sub == "get") {
+                    val name = parts.drop(2).joinToString(" ").trim()
+                    if (name.isEmpty()) {
+                        appendSystemTurn("Usage: /builds get <name>", true)
+                    } else {
+                        pendingBuildName = name
+                        downloadLauncher.launch("$name.zip")
+                    }
+                } else {
+                    thinkingStatus.visibility = View.VISIBLE
+                    Thread {
+                        val (list, err) = gremlinClient.listBuilds()
+                        runOnUiThread {
+                            thinkingStatus.visibility = View.GONE
+                            when {
+                                err != null -> appendSystemTurn(err, true)
+                                list.isEmpty() -> appendSystemTurn("No builds on the desktop yet.", false)
+                                else -> appendSystemTurn(
+                                    "Builds on the desktop:\n\n" + list.joinToString("\n") { b ->
+                                        val kb = b.sizeBytes / 1024
+                                        val over = if (b.tooBig) "  (too big to download)" else ""
+                                        "• ${b.name} — ${b.goal} (${kb} KB, ${b.fileCount} files)$over"
+                                    } + "\n\nType \"/builds get <name>\" to save one to your phone.",
+                                    false,
+                                )
+                            }
+                        }
+                    }.start()
+                }
+            }
+
             else -> appendSystemTurn(
-                "There's only one command left: /claude <problem>.\n\n" +
+                "Typed commands: /claude <problem>, /builds (list), /builds get <name>.\n\n" +
                     "Everything else, just say it normally -- \"check for updates\", \"list my snapshots\", " +
                     "\"fix my backup script\", \"reboot the desktop\", \"add X to yourself\". " +
                     "I'll work out what you mean and ask before doing anything destructive.",

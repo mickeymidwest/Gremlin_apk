@@ -7,9 +7,11 @@ import android.net.NetworkCapabilities
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 
 /**
  * Full-app behavior: at home, the desktop's whole orchestrator (all
@@ -23,6 +25,16 @@ import java.net.URL
  * network or falls back to a much simpler direct call.
  */
 data class ChatResult(val answer: String, val source: String)
+
+/** One project Gremlin has built on the desktop (build_project ->
+ * ~/Downloads/<name>/), as listed by GET /builds. */
+data class BuildInfo(
+    val name: String,
+    val goal: String,
+    val sizeBytes: Long,
+    val fileCount: Int,
+    val tooBig: Boolean,
+)
 
 /** Result of an admin-token-gated call (slash commands in
  * MainActivity) -- deliberately the same (ok, message) shape for
@@ -308,6 +320,83 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
             }
         } catch (e: Exception) {
             AdminResult(false, "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
+    /** Lists the projects Gremlin has built on the desktop. Regular
+     * token, read-only, home-only (the desktop's ~/Downloads isn't
+     * reachable away from home). Returns (builds, errorOrNull). */
+    fun listBuilds(): Pair<List<BuildInfo>, String?> {
+        val host = prefs.getString("host", null)
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null)
+        if (host == null || port == 0 || token == null) {
+            return Pair(emptyList(), "Not paired with a desktop")
+        }
+        return try {
+            val url = URL("http://$host:$port/builds")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 15_000
+
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val json = JSONObject(stream.bufferedReader().use { it.readText() })
+            if (code !in 200..299) {
+                return Pair(emptyList(), json.optString("error", "HTTP $code"))
+            }
+            val arr = json.optJSONArray("builds") ?: JSONArray()
+            val out = ArrayList<BuildInfo>(arr.length())
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(
+                    BuildInfo(
+                        name = o.optString("name"),
+                        goal = o.optString("goal"),
+                        sizeBytes = o.optLong("size_bytes"),
+                        fileCount = o.optInt("file_count"),
+                        tooBig = o.optBoolean("too_big"),
+                    )
+                )
+            }
+            Pair(out, null)
+        } catch (e: Exception) {
+            Pair(emptyList(), "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
+    /** Downloads one build's .zip and streams it into `dest` (e.g. a
+     * Storage Access Framework OutputStream the user picked). Returns an
+     * error string, or null on success. Caller owns/closes `dest`. */
+    fun downloadBuild(name: String, dest: OutputStream): String? {
+        val host = prefs.getString("host", null)
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null)
+        if (host == null || port == 0 || token == null) return "Not paired with a desktop"
+        return try {
+            val safe = URLEncoder.encode(name, "UTF-8")
+            val url = URL("http://$host:$port/builds/$safe")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Authorization", "Bearer $token")
+            connection.connectTimeout = 8_000
+            connection.readTimeout = 60_000
+
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val err = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                return try {
+                    JSONObject(err).optString("error", "HTTP $code")
+                } catch (_: Exception) {
+                    "HTTP $code"
+                }
+            }
+            connection.inputStream.use { input -> input.copyTo(dest) }
+            null
+        } catch (e: Exception) {
+            "Download failed: ${e.message}"
         }
     }
 
