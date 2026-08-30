@@ -48,6 +48,8 @@ class ModelRegistry:
                     n_ctx=entry.get("n_ctx", 4096),
                     n_gpu_layers=entry.get("n_gpu_layers", -1),
                     chat_format=entry.get("chat_format", "chatml"),
+                    flash_attn=entry.get("flash_attn", False),
+                    kv_cache_type=entry.get("kv_cache_type", "f16"),
                 )
             elif entry["type"] == "local_vlm":
                 # A vision-language model: two files, weights + mmproj

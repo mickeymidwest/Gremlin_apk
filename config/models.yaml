@@ -7,27 +7,40 @@ models:
     type: local_gguf
     display_name: "Llama-3.1-8B (abliterated)"
     model_path: "/home/mickey/Downloads/gremlin/models/meta-llama-3.1-8b-instruct-abliterated.Q4_K_M.gguf"
-    # 4096 -> 16384 -> 12288. This model reports n_ctx_train = 131072, so
-    # 4096 was using 3% of what it can actually hold -- and it was the real
-    # reason Gremlin lost the thread after a few exchanges (see history.py's
-    # _MAX_RENDER_CHARS note). The ceiling here is VRAM, not the model.
+    # 4096 -> 16384 (crashed) -> 12288 -> 32768. n_ctx_train = 131072, so
+    # even 32768 is a quarter of what the model can hold. The ceiling is
+    # VRAM, not the model.
     #
-    # 16384 was too close to the edge: measured 7700/8192 MiB used at load
-    # (87 MiB free), and llama-cpp-python's CUDA pool allocator (ggml-cuda
-    # ggml_cuda_pool_vmm::alloc) then aborts the whole process on the next
-    # allocation spike -- a longer prompt, a compute-graph realloc, or
-    # anything else touching the GPU (kwin, a browser, Jellyfin transcode).
-    # That crash is a SIGABRT core-dump, not a clean OOM, and gremlin.service
-    # Restart=on-failure just brings it back to crash again on the next chat.
-    # 12288 measures 6900/8192 MiB at load (~880 MiB free) and still carries
-    # 3x the old context. Verified by loading + generating at each size, not
-    # estimated -- see the crash loop on 2026-08-28.
+    # History: 16384 with flash_attn OFF and an f16 KV cache measured
+    # 7736/8192 MiB peak (456 MiB free) and llama-cpp-python's CUDA pool
+    # allocator (ggml_cuda_pool_vmm::alloc) SIGABRT-core-dumped on the next
+    # allocation spike; Restart=on-failure just relooped it. Dropped to
+    # 12288 as a stopgap.
     #
-    # Only the PRIMARY gets this -- it's the one that carries conversation
-    # history; specialists get a single question with no thread behind it,
-    # so spending VRAM on their context would buy nothing.
-    n_ctx: 12288
+    # 2026-08-30 sweep (scratchpad/bench_results.jsonl, 12 configs on this
+    # 2070 Super) found the real levers:
+    #   - flash_attn: true       -- strictly better. At 16384/f16 it cut
+    #     peak VRAM 7736 -> 6864 MiB AND raised throughput 56 -> 62 tok/s.
+    #     No downside measured. This alone un-crashes 16384.
+    #   - kv_cache_type: q4_0    -- ~960 MiB more headroom for ~0 tok/s
+    #     (57.7 vs 61.6 at 16384). Needs flash_attn (forced on in the
+    #     backend if a quantized cache is asked for).
+    # With both: 32768 ctx measures 5968/8192 MiB peak, 2224 MiB free,
+    # 57.8 tok/s -- 2.7x the context of the 12288 stopgap with MORE VRAM
+    # headroom than it had, enough to coexist with Jellyfin transcode.
+    # 49152 also passed (6558 peak); 32768 chosen to leave real margin.
+    #
+    # Only the PRIMARY gets a big context -- it carries the conversation
+    # thread; specialists get a single standalone question. (flash_attn is
+    # still worth adding to those too -- free speed -- just less urgent.)
+    #
+    # Partial GPU offload was also re-tested: n_gpu_layers 28 (5 layers on
+    # CPU) dropped throughput 60 -> 15 tok/s. Never partial-offload the
+    # primary; -1 (all on GPU) or nothing.
+    n_ctx: 32768
     n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0
     chat_format: llama-3
 
   # The 4 original curated consult models -- update each model_path once

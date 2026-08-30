@@ -18,6 +18,9 @@ except ImportError:  # library not installed yet
 
 
 class LlamaCppBackend(ModelBackend):
+    # ggml_type enum values llama-cpp-python wants for type_k / type_v.
+    _KV_GGML_TYPE = {"f16": 1, "q8_0": 8, "q5_1": 7, "q5_0": 6, "q4_1": 3, "q4_0": 2}
+
     def __init__(
         self,
         info: ModelInfo,
@@ -26,6 +29,8 @@ class LlamaCppBackend(ModelBackend):
         n_gpu_layers: int = -1,   # -1 = offload as much as possible to GPU
         n_threads: Optional[int] = None,
         chat_format: Optional[str] = "chatml",  # dolphin models use chatml
+        flash_attn: bool = False,
+        kv_cache_type: str = "f16",   # f16 | q8_0 | q4_0 -- quantized needs flash_attn
     ):
         super().__init__(info)
         self.model_path = model_path
@@ -33,6 +38,11 @@ class LlamaCppBackend(ModelBackend):
         self.n_gpu_layers = n_gpu_layers
         self.n_threads = n_threads
         self.chat_format = chat_format
+        self.kv_cache_type = kv_cache_type
+        # A quantized KV cache only works with flash attention on in
+        # llama.cpp (the non-FA path has no quantized-V kernel), so asking
+        # for one implies the other rather than erroring at load time.
+        self.flash_attn = flash_attn or kv_cache_type != "f16"
         self._llm: Optional["Llama"] = None
         self._last_used: float = 0.0
         self._lock = asyncio.Lock()  # llama.cpp isn't safely reentrant per-instance --
@@ -61,14 +71,20 @@ class LlamaCppBackend(ModelBackend):
         loop = asyncio.get_event_loop()
 
         def _load():
-            return Llama(
+            kwargs = dict(
                 model_path=self.model_path,
                 n_ctx=self.n_ctx,
                 n_gpu_layers=self.n_gpu_layers,
                 n_threads=self.n_threads,
                 chat_format=self.chat_format,
+                flash_attn=self.flash_attn,
                 verbose=False,
             )
+            if self.kv_cache_type != "f16":
+                t = self._KV_GGML_TYPE[self.kv_cache_type]
+                kwargs["type_k"] = t
+                kwargs["type_v"] = t
+            return Llama(**kwargs)
 
         self._llm = await loop.run_in_executor(self._executor, _load)
         self._last_used = time.monotonic()
