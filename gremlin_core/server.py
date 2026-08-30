@@ -28,7 +28,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 
 from .registry import ModelRegistry
 from .router import Router
@@ -38,6 +38,7 @@ from . import consult
 from . import intent as intent_mod
 from . import history as history_mod
 from . import away_sync
+from . import builds
 from . import eviction
 from . import model_scan
 from . import mutation_log
@@ -397,6 +398,33 @@ def create_app(
         if auth_error:
             return auth_error
         return jsonify(update_check.run_check())
+
+    @app.route("/builds", methods=["GET"])
+    def builds_list_route():
+        # Regular auth: this lists folders Gremlin built under ~/Downloads
+        # (identified by builds.py's marker file) and their sizes -- no
+        # file contents, nothing outside ~/Downloads, no mutation.
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        return jsonify({"builds": builds.list_builds()})
+
+    @app.route("/builds/<name>", methods=["GET"])
+    def builds_download_route(name: str):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        try:
+            packed = builds.make_zip(name)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 413
+        if packed is None:
+            return jsonify({"error": f"no build named {name!r}"}), 404
+        data, filename = packed
+        return Response(
+            data, mimetype="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.route("/admin/claude-override", methods=["POST"])
     def admin_claude_override():

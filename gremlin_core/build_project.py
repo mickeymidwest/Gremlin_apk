@@ -545,6 +545,14 @@ async def run_build(
 
     if result.get("applied") and result.get("committed"):
         _log_as_learning_material(gremlin_root, goal, Path(target_root).name, model_names, result)
+        # Marker that makes this folder retrievable through the phone app
+        # (GET /builds, GET /builds/<name>) and tells builds.py this is a
+        # Gremlin build and not some unrelated ~/Downloads folder.
+        try:
+            from . import builds as builds_mod
+            builds_mod.write_marker(target_root, goal, model_names, result.get("files_changed") or [])
+        except Exception:
+            pass
         if used_teacher:
             _log_teacher_assist(gremlin_root, goal, teacher_model, outcome.patch)
 
