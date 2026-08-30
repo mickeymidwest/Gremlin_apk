@@ -81,6 +81,38 @@ _FAST_PATHS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^\s*reboot\s*$", re.I), "reboot"),
 ]
 
+# Broad gate in front of the model classification call. Every real action
+# (fix/build/run/reboot/rollback/update/edit a file/self-edit ...) is
+# phrased with a verb or noun from this set, or names a file path -- an
+# action request essentially can't avoid it. A message with none of these
+# is ordinary conversation, so it skips the classifier call entirely and
+# goes straight to chat. This is NOT the old narrow "magic words" filter
+# that missed anything phrased unusually: it errs heavily toward running
+# the classifier (a wasted ~2s at worst), and the classifier's own
+# low-confidence -> chat safety net is still behind it. Its only job is to
+# keep the primary model out of the loop on the plurality of turns that
+# are just talk.
+_ACTION_HINT = re.compile(
+    r"""\b(
+        fix|build|make|create|scaffold|generate|write\s+(me|a|the)|
+        run|exec|execute|launch|start|stop|kill|restart|reboot|boot|
+        install|reinstall|uninstall|update|upgrade|patch|deploy|
+        rollback|roll\s*back|revert|undo|restore|snapshot|snapshots|
+        delete|remove|wipe|clean\s*up|
+        edit|modify|change|rename|refactor|rewrite|tweak|configure|set\s*up|
+        clone|pull|push|commit|checkout|
+        broken|crashing|crashed|failing|erroring|not\s+working|doesn.?t\s+work|
+        stuck|hung|hanging|
+        your\s+(own\s+)?(code|source|repo|config|self)|yourself
+      )\b
+    | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|go|rs|c|cpp|h)\b
+    | \b(pacman|systemd|systemctl|docker|compose|cron|udev|grub)\b
+    | \bpackages?\b | \bservices?\b | \bcontainers?\b
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
 def _build_classify_prompt() -> str:
     """Assembled from tools.py's ToolRegistry so this prompt can never
     drift out of sync with the actual dispatch table in actions.py --
@@ -199,6 +231,13 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
     quick = fast_path(text)
     if quick:
         return _finalize(Intent(action=quick, args={}, confidence=1.0), text)
+
+    # No action-suggestive word or path anywhere -> it's conversation.
+    # Skip the classifier call (keeps the primary model out of the loop
+    # on plain chat); the model would almost always answer "chat" here
+    # anyway. See _ACTION_HINT.
+    if not _ACTION_HINT.search(text):
+        return Intent(action="chat", confidence=1.0)
 
     try:
         result = await router.route(model_name, _CLASSIFY_PROMPT + text)

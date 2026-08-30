@@ -35,7 +35,6 @@ Two things this file is careful about:
    whether that patch is worth proposing and applying.
 """
 from __future__ import annotations
-import dataclasses
 import json
 import os
 import random
@@ -69,11 +68,15 @@ UNCERTAINTY_MARKERS = [
 ]
 
 CONSULT_SYNTHESIS_PROMPT = (
-    "You are answering a question using research gathered from other AI "
-    "models, because your own first answer wasn't confident enough. Read "
-    "the gathered answers below and give ONE clear, direct answer to the "
-    "original question, in your own voice. Don't mention the consultation "
-    "process or name which model said what -- just answer well, as yourself."
+    "The answers below were gathered from other models because your own "
+    "first answer wasn't confident enough -- so they, not you, are the "
+    "authority here. Relay their answer to the original question in your "
+    "own voice: keep every concrete claim they make (names, numbers, "
+    "commands, steps, recommendations) exactly as given, and do not "
+    "substitute your own view or water anything down where they were "
+    "specific. Only where they genuinely disagree with each other, say so "
+    "briefly. Don't mention the consultation or name which model said "
+    "what -- just give the one clear answer, as yourself."
 )
 
 
@@ -413,44 +416,14 @@ def _canonical_topic_prompt(topic: str) -> str:
     return f"What do you know about {topic.strip().rstrip('?').strip()}?"
 
 
-async def _deliberate_candidate(
-    router: Router, persona_name: str, topic: str, candidates: list,
-) -> Optional[str]:
-    """Which of this topic group's own models is actually best suited for
-    `topic` -- a real per-topic pick, asked of gremlin itself (already
-    resident, so this costs no extra model load), instead of always
-    defaulting to the group's static priority order. Returns None (falls
-    back to that static order) if there's only one candidate, or if the
-    reply doesn't clearly name one of them."""
-    if len(candidates) < 2:
-        return candidates[0].name if candidates else None
-
-    listing = "\n".join(f"- {c.name}: {c.notes or 'no notes'}" for c in candidates)
-    system = (
-        "You are picking which of your own sub-models is best suited to research a "
-        "topic. Reply with ONLY the exact model name from the list below, nothing else."
-    )
-    prompt = f"Topic: {topic}\n\nAvailable models:\n{listing}\n\nWhich one is best suited?"
-    try:
-        result = await router.route(persona_name, prompt, system=system, max_tokens=30)
-    except Exception:
-        return None
-    if not result.ok:
-        return None
-    reply = result.text.strip().lower()
-    for c in candidates:
-        if c.name.lower() in reply:
-            return c.name
-    return None
-
-
 async def learn_about(router: Router, persona_name: str, topic: str, root: str) -> dict:
-    """Ask the best-fit specialist for `topic`'s subject (never a
-    broadcast), synthesize what it found in Gremlin's own voice, and log
-    it unconditionally so it's both recallable (see _extract_recall_topic)
-    and available as fine-tuning material next time `gremlin finetune`
-    runs. Which specialist counts as "best-fit" isn't just the group's
-    static priority order -- see _deliberate_candidate."""
+    """Ask the topic group's specialist (never a broadcast), synthesize
+    what it found in Gremlin's own voice, and log it unconditionally so
+    it's both recallable (see _extract_recall_topic) and available as
+    fine-tuning material next time `gremlin finetune` runs. The specialist
+    is picked by the dumb parts only -- classify_task_type (regex) for the
+    group, then static priority order within it; the primary is never
+    asked to pick (see _consult_and_learn_inner's note on why)."""
     specialist_registry = specialists_mod.SpecialistRegistry.from_config(router.registry.raw_config)
     task_type = specialists_mod.classify_task_type(topic)
     candidates = specialist_registry.for_task(task_type)
@@ -470,16 +443,8 @@ async def learn_about(router: Router, persona_name: str, topic: str, root: str) 
         if primary_name:
             await router.registry.get(primary_name).unload()
 
-    # Ask gremlin itself which of this group's models actually fits the
-    # topic, then bump that one to the front by priority so specialists.route
-    # tries it first -- the rest stay as the normal error/empty-response
-    # fallback chain, just re-anchored around the deliberated pick.
-    chosen_name = await _deliberate_candidate(router, persona_name, topic, candidates)
-    if chosen_name:
-        candidates = [
-            dataclasses.replace(c, priority=-1) if c.name == chosen_name else c
-            for c in candidates
-        ]
+    # Static priority order within the topic group -- the primary is not
+    # asked to pick (see the matching note in _consult_and_learn_inner).
     ordered_registry = specialists_mod.SpecialistRegistry(candidates)
 
     routing = await specialists_mod.route(router, router.registry, ordered_registry, task_type, topic)
@@ -697,20 +662,14 @@ async def _consult_and_learn_inner(
     task_type = specialists_mod.classify_task_type(prompt)
     candidates = specialist_registry.for_task(task_type)
 
-    # Ask gremlin itself (still resident -- see _deliberate_candidate's
-    # docstring) which of this group's own models best fits THIS prompt,
-    # before freeing any VRAM for it. Bumps that pick to the front by
-    # priority so specialists.route tries it first; the rest of the
-    # group -- including the big lead -- stays as the normal
-    # error/empty-response fallback chain, just re-anchored around it.
-    if candidates:
-        chosen_name = await _deliberate_candidate(router, persona_name, prompt, candidates)
-        if chosen_name:
-            candidates = [
-                dataclasses.replace(c, priority=-1) if c.name == chosen_name else c
-                for c in candidates
-            ]
-            specialist_registry = specialists_mod.SpecialistRegistry(candidates)
+    # Which specialist researches this is decided by the dumb parts only:
+    # classify_task_type (pure regex) picked the topic group above, and
+    # specialists.route walks that group in static priority order with
+    # fallback. The primary model is deliberately NOT asked to pick --
+    # letting the model that's about to be second-guessed also choose its
+    # own second opinion just re-anchors the whole consult on that one
+    # model's framing (and, here, cost a full ~90s primary reload just to
+    # name a model). The router should not be a thing that also reasons.
 
     # Free the primary's VRAM first if the picked topic's candidates are
     # local GGUF models -- on a card where primary + even one local model
