@@ -1,0 +1,100 @@
+# Magic — Gremlin's harness
+
+**Gremlin** = the model (the pilot). **Magic** = the frame it runs in: memory,
+tools, the skill system, the improvement loop. Think Zoid — Magic is the body and
+hardpoints, Gremlin is the pilot, skills/tools are the loadout.
+
+Status: rebuild in progress (started 2026-09-05). This file is the spec the build
+loop checks itself against.
+
+---
+
+## 1. Primary model
+
+Qwen3-8B **base** (not abliterated). Bench on the RTX 2070S, Q4_K_M, no-think:
+7/8 vs the old llama-3.1-8b-abliterated's 7/8, at **62 tok/s vs 31**. Abliterated
+Qwen3 scored *worse* (6/8) and slower — not used. Uncensored-when-needed is a
+fallback model, not the main brain.
+
+Run config carried over from the 2026-08-30 sweep: `n_ctx 32768`,
+`flash_attn true`, `kv_cache_type q4_0`, `n_gpu_layers -1` (never partial-offload
+the primary). Fallbacks: Claude / Gemini (last-resort only).
+
+## 2. Salvage from the old build
+
+KEEP (port): `backends/`, `registry.py`, `tools.py`, `history.py`, `persona.py`,
+`server.py`, `snapshots.py`, `eviction.py`, `process_lock.py`, `root_exec.py`,
+`sandbox.py`, `hf_hub.py`.
+
+KEEP as tools: `build_project.py`, `builds.py`, `script_edit.py`,
+`update_check.py`, `away_sync.py`, `claude_override.py`.
+
+REBUILD into Magic's loop: `self_improve.py` + `review.py` + `teacher.py` +
+`mutation_log.py` → battle/reckoning/gate. `finetune.py` + `checkpoint_eval.py` +
+`distill.py` → weights-side loop + eval. `agent_state.py` → battle state machine.
+`pressure.py` → prompt assembly.
+
+DROP: `council.py` (old), `specialists.py`, `consult.py`, `bench.py`,
+`router.py` multi-model paths, `intent.py` + `actions.py` (regex NL routing —
+replaced by explicit commands + the model's own tool-calling), most of `main.py`
+and `model_scan.py` (keep `set_primary_model`).
+
+Skeleton from the prototype (`~/Projects/einherjar`, scratch ref): types, store,
+lifecycle, reckoning (+ `revise_skill`), battle, verifier, campaign, toolhost,
+model.
+
+## 3. Skill system
+
+Skill card: `id, name, purpose, trigger_when, procedure[], trigger_matcher?,
+provenance[], supersedes?, status`. Stored as YAML under `data/skills/`.
+
+Lifecycle: `candidate` → `active` after 3 wins on battles it was NOT compiled
+from; `active` → `deprecated` after 3 losses. `revise_skill` retires the old card
+and adds the revision as a fresh candidate (must re-earn active).
+
+RECKONING between battles: one model call proposes (`new_skill` / `revise_skill` /
+`new_fact`), a second independent call gates each. Outcome of a battle comes ONLY
+from the Verifier — model "simulation" is allowed for choosing what to try next,
+never for accepting a change.
+
+## 4. The Council — skill destination decision
+
+After an active skill has enough wins, the Council (a few model voices, incl.
+Claude/Gemini) votes on where it belongs:
+
+- **Hard-code into Gremlin** — added to the QLoRA training set, baked into weights
+  on the next `gremlin finetune`. Permanent, always-on, zero prompt cost. For
+  stable, high-use skills.
+- **Keep in Magic** — stays a skill card, loaded into context on trigger.
+  Editable, revisable, revertible. For niche or still-proving skills.
+
+## 5. Command surface
+
+Explicit slash commands, in the APK and on the desktop. Each has a one-line help
+string; a bare or unknown command prints the list.
+
+| cmd | does |
+|---|---|
+| `/chat` | plain chat mode — no tools, no routing, just talk to Gremlin |
+| `/build` | build an APK, or a Python script / project (`build_project.py`) |
+| `/fix` | improve the harness itself — Magic runs its battle/reckoning loop on its own code |
+| `/model` | pick a new base model — Gremlin downloads it (`hf_hub`), scans it (`model_scan`), runs skill discovery against it |
+| `/claude` | (kept) hand a problem to a full Claude Code session on the desktop, explicit confirm |
+| `/builds`, `/builds get <name>` | (kept) list / fetch desktop builds |
+
+## 6. APK
+
+Pure Kotlin, `com.gremlin.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
+(`.github/workflows/android-build.yml`) — no local Android toolchain. Push to
+`main` touching `android/**` → Actions builds debug APK → artifact.
+
+- **Settings → Builds:** browse everything Gremlin built on the desktop and
+  download any of it to the phone (surface `builds.py` in the Settings UI, not
+  just the typed command).
+
+## 7. Open / needs mickey
+
+- `sudo` for any package installs.
+- Testing on the actual Pixel 9.
+- Push local `main` (5 commits ahead) → origin before starting.
+- Real `ANTHROPIC_API_KEY` still a placeholder in `.env` (Gemini works).

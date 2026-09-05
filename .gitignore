@@ -50,3 +50,6 @@ data/finetunes/
 # Timestamped/one-off config backups from maintenance edits -- the real
 # history is in git, these are just local safety nets during a change.
 config/models.yaml.bak-*
+
+# Magic build: model quality bench runtime output
+bench/quality-*.jsonl
