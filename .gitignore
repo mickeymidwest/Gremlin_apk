@@ -3,6 +3,7 @@
 
 # Generated at runtime, not source
 data/*.jsonl
+data/archive/
 data/*.txt
 data/.gremlin.lock
 data/talking.marker
