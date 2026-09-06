@@ -33,7 +33,15 @@ loop checks itself against.
   `council_reviewed`, round-trips through the YAML store. Wired into the campaign
   loop after `lifecycle.audit` (opt-in via `council_voters=`). `pending_finetune()`
   lists skills sent to weights that a finetune hasn't consumed yet. 28 tests green.
-- [ ] 5. Qwen3-8B primary in models.yaml; drop council/specialists/consult/intent
+- [~] **5a. Qwen3-8B is primary** — `config/models.yaml`: new `qwen3-8b` entry
+  (32k ctx / flash_attn / q4_0 KV), `persona.primary_model: qwen3-8b`, old
+  llama-3.1 kept as a fallback. Verified through Gremlin's *own* `ModelRegistry`
+  + `LlamaCppBackend`: loads, resolves as primary, generates, unloads clean.
+  **TODO:** Qwen3 emits `<think>...</think>` under the plain chatml formatter —
+  needs stripping in the response path (or a `/no_think` persona line).
+- [ ] 5b. drop council.py / specialists.py / consult.py / intent.py — keep the
+  desktop service bootable at every pushed commit (build the Magic request path
+  in server.py first, delete the old path in one green commit)
 - [ ] 6. /chat /build /fix /model commands (desktop + APK)
 - [ ] 7. APK Settings→Builds download
 

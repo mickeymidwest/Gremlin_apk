@@ -1,8 +1,25 @@
 models:
-  # Gremlin's own base/primary voice -- a Qwen3.5-9B fine-tune. Update
-  # model_path to wherever `gremlin models --hf` actually put the file
-  # once you've downloaded it (exact filename depends on which
-  # quantization you pick -- Q4_K_M recommended for an 8GB card).
+  # Gremlin's base/primary voice. Qwen3-8B (base, not abliterated) --
+  # picked 2026-09-05 off bench/quality.py on this 2070 Super:
+  #   qwen3-8b base   7/8   62 tok/s     <- this
+  #   llama-3.1-8b    7/8   31 tok/s     (old primary, below)
+  #   qwen3-8b abl.   6/8   37 tok/s     (abliteration cost a point + speed)
+  # Run config is the 2026-08-30 sweep's answer for this card:
+  # 32768 ctx / flash_attn / q4_0 KV = ~5968 MiB peak, ~2.2 GiB free,
+  # ~58 tok/s -- room to coexist with the Jellyfin transcode.
+  # chat_format chatml: Qwen3 is chatml-based. Non-thinking by default;
+  # <think> stripping / a /no_think system line is a follow-up.
+  - name: qwen3-8b
+    type: local_gguf
+    display_name: "Qwen3-8B"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen_Qwen3-8B-Q4_K_M.gguf"
+    n_ctx: 32768
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0
+    chat_format: chatml
+
+  # Old primary -- kept as a local fallback option, no longer the voice.
   - name: llama-3.1-8b-abliterated
     type: local_gguf
     display_name: "Llama-3.1-8B (abliterated)"
@@ -183,7 +200,7 @@ models:
 persona:
   name: gremlin
   display_name: "Gremlin"
-  primary_model: llama-3.1-8b-abliterated
+  primary_model: qwen3-8b
   fallback_models: [gemini]
   # The 4 curated consult models -- gpt-oss for general reasoning,
   # gemma for Gemini-flavored general+multilingual, qwen3-coder for
