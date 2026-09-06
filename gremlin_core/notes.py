@@ -93,6 +93,40 @@ def remember_fact(root: str, text: str) -> None:
         f.write(f"- [{stamp}] {text}\n")
 
 
+def _note_lines(root: str) -> list[tuple[int, str]]:
+    """(file-line-index, raw-line) for every fact line ('- ...')."""
+    path = memory_file_path(root)
+    if not os.path.exists(path):
+        return []
+    lines = open(path).read().splitlines()
+    return [(i, ln) for i, ln in enumerate(lines) if ln.strip().startswith("-")]
+
+
+def forget_note(root: str, n: int) -> str | None:
+    """Delete the nth fact (1-based). Returns the removed text, or None."""
+    path = memory_file_path(root)
+    facts = _note_lines(root)
+    if n < 1 or n > len(facts):
+        return None
+    idx, raw = facts[n - 1]
+    lines = open(path).read().splitlines()
+    removed = lines.pop(idx)
+    open(path, "w").write("\n".join(lines) + "\n")
+    return raw
+
+
+def clear_notes(root: str) -> int:
+    """Drop every fact line, keep the header. Returns how many were removed."""
+    path = memory_file_path(root)
+    if not os.path.exists(path):
+        return 0
+    lines = open(path).read().splitlines()
+    kept = [ln for ln in lines if not ln.strip().startswith("-")]
+    removed = len(lines) - len(kept)
+    open(path, "w").write("\n".join(kept).rstrip() + "\n")
+    return removed
+
+
 REMEMBER_PREFIXES = ("remember that ", "remember: ", "remember ")
 
 

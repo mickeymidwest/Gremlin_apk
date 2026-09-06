@@ -370,6 +370,35 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
     return {"ok": False, "answer": "Usage: /skill [list | show <name> | new <desc> | improve <name> | <fix>]"}
 
 
+async def _memory(args: str, ctx: CommandContext) -> dict:
+    from .. import notes
+    root = ctx.project_root
+    parts = args.split(None, 1)
+    sub = (parts[0].lower() if parts else "list")
+
+    if sub == "clear":
+        n = notes.clear_notes(root)
+        return {"ok": True, "action": "memory", "answer": f"Forgot all {n} note(s)."}
+
+    if sub == "forget":
+        try:
+            n = int(parts[1].strip())
+        except (IndexError, ValueError):
+            return {"ok": False, "answer": "Usage: /memory forget <number from `/memory list`>"}
+        removed = notes.forget_note(root, n)
+        return {"ok": bool(removed), "action": "memory",
+                "answer": (f"Forgot #{n}: {removed.strip()}" if removed else f"No note #{n}.")}
+
+    from .store import Store
+    facts = Store(root).read_facts()
+    if not facts:
+        return {"ok": True, "action": "memory", "answer": "Nothing in memory yet."}
+    return {"ok": True, "action": "memory",
+            "answer": "Gremlin remembers:\n" +
+                      "\n".join(f"  {i}. {f.text}" for i, f in enumerate(facts, 1)) +
+                      "\n\n/memory forget <n>  ·  /memory clear"}
+
+
 async def _do(args: str, ctx: CommandContext) -> dict:
     """A bounded read-only ReAct loop: Gremlin actually runs df / ps /
     systemctl status / docker ps to answer a question about live state.
@@ -438,6 +467,8 @@ COMMANDS: dict[str, Command] = {
                        "secrets <path> | report. Read-only, defensive.", _defense),
     "do": Command("do", "Ask something that needs live data -- Gremlin runs read-only "
                   "shell commands to answer (\"what's using my disk\", \"is jellyfin up\").", _do),
+    "memory": Command("memory", "What Gremlin remembers about you: list | forget <n> | clear. "
+                      "(The file is ~/Downloads/gremlin_memory.txt -- editable by hand too.)", _memory),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
                      "grab it from the app's Builds screen.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
