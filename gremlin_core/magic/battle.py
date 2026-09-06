@@ -197,6 +197,15 @@ def run_battle(task: Task, repo_path: str, model: Model,
             system, _ = _assemble_system(task, facts, skills, toolhost)
             result_msg += "\n\n(editing tools are now available: write_file, edit_file)"
 
+        # Reflection nudge (#7): after a failing test run, make the model
+        # diagnose before its next edit instead of flailing. Cheap -- a
+        # prompt nudge, not an extra model call.
+        if (call.name == "run_shell" and not result.ok
+                and re.search(r"\b(FAILED|failed|assert|Error)\b", result.output)):
+            result_msg += ("\n\nThe tests are still failing. Before editing again, "
+                           "say in ONE sentence what this specific failure tells you "
+                           "about the bug, then make the smallest fix for it.")
+
         messages.append({"role": "user", "content": result_msg})
     else:
         transcript.final_message = "(gave up: step budget exhausted)"
