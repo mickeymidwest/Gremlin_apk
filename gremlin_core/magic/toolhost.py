@@ -72,7 +72,27 @@ class ShellToolHost:
         "pacman", "yay", "pip", "npm", "apt", "docker rm", "docker stop",
         "docker rmi", "docker kill", "git commit", "git push", "git reset",
         "git checkout", "git clean", "curl", "wget", "nc", "ncat",
+        # general-purpose interpreters -- a one-liner in any of these
+        # sidesteps every verb check above (python -c "os.remove(...)").
+        # sed/awk/find stay allowed (read-only text work is their bread
+        # and butter) but their write forms are caught by _READONLY_EXTRA.
+        "python", "python2", "python3", "perl", "ruby", "node", "php",
     )
+
+    # write paths the plain token scan misses, all blocked in read-only mode:
+    #   $(...) / `...` / <(...) / >(...)  -- substitution hides a write verb
+    #   ls>f   cat x>>y                   -- redirect with no leading space
+    #                                       (a letter/quote/dot before '>',
+    #                                        so 2>&1 and 2>/dev/null pass)
+    #   sed -i / perl -i / -i''           -- in-place edit
+    #   find ... -delete / -exec / -ok / -fprint
+    #   bash -c / sh -c / zsh -c          -- nested shell one-liner
+    _READONLY_EXTRA = re.compile(
+        r"""\$\(|`|<\(|>\("""
+        r"""|['"a-zA-Z.]>>?|&>|>\|"""
+        r"""|(?:sed|perl)\s(?:[^|;&]*\s)?-i\b"""
+        r"""|-delete\b|-exec[a-z]*\s|-ok\s|-fprint\b"""
+        r"""|(?:^|[|;&\s])(?:ba|z)?sh\s+-c\b""")
 
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
                  allowed: "tuple[str, ...] | None" = None, readonly: bool = False):
@@ -131,6 +151,8 @@ class ShellToolHost:
             low = cmd.lower()
             hit = next((v for v in self._WRITE_VERBS
                         if re.search(rf"(^|[|;&\s]){re.escape(v)}([|;&\s]|$)", low)), None)
+            if not hit and self._READONLY_EXTRA.search(low):
+                hit = "a redirect / substitution / in-place edit"
             if hit:
                 return ToolResult(False, f"read-only mode: `{hit}` can change state and is blocked. "
                                          "Use a command that only reads (df, du, ls, ps, cat, ...).")

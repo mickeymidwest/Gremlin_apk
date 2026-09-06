@@ -17,6 +17,25 @@ def test_readonly_blocks_state_changing_shell(tmp_path):
     assert ok.ok and "hello" in ok.output
 
 
+def test_readonly_blocks_substitution_and_interpreter_bypasses(tmp_path):
+    th = ShellToolHost(tmp_path, readonly=True)
+    for bad in ('echo $(rm x)', 'echo `rm x`', 'echo x>f', 'cat a>>b',
+                'df &>out', 'python -c "import os"', 'perl -e "unlink 1"',
+                'find . -delete', 'find . -exec rm {} +', 'sed -i s/a/b/ f',
+                'sh -c "rm x"'):
+        r = th.run(ToolCall("run_shell", {"cmd": bad}))
+        assert not r.ok and "read-only mode" in r.output, bad
+
+
+def test_readonly_still_allows_normal_inspection(tmp_path):
+    th = ShellToolHost(tmp_path, readonly=True)
+    for good in ("df -h", "free -m 2>&1", "ps aux 2>/dev/null | head",
+                 "grep -i error log 2>/dev/null || true", "ls -la && echo done",
+                 "du -sh . | sort -h", "sed -n '1,3p' /etc/hostname"):
+        r = th.run(ToolCall("run_shell", {"cmd": good}))
+        assert "read-only mode" not in r.output, good
+
+
 def test_readonly_drops_edit_tools(tmp_path):
     th = ShellToolHost(tmp_path, readonly=True)
     assert "write_file" not in th.allowed and "edit_file" not in th.allowed
