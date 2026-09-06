@@ -44,9 +44,14 @@ loop checks itself against.
   `split_reasoning()` handles closed blocks, the `<thinking>` variant, an
   unclosed block from a truncated response, and Qwen3's empty `<think></think>`.
   6 unit tests + real check: `17*23` → bare `391`, no `<think>` in the answer.
-- [ ] 5b. drop council.py / specialists.py / consult.py / intent.py — keep the
-  desktop service bootable at every pushed commit (build the Magic request path
-  in server.py first, delete the old path in one green commit)
+- [~] **5b. migrate off the live path** —
+  - 5b-1 DONE: learning log → `gremlin_core/learning_log.py`; consult.py
+    re-exports, teacher/self_improve repointed. 79 green, all imports clean.
+  - 5b-2: memory notes (`remember`/`recall`/autosave) → own module.
+  - 5b-3: rebuild `server.py` `/chat` on `magic.commands._chat` (persona +
+    Magic conversation memory), keep away-mode fallback.
+  - 5b-4: delete consult / intent / council / specialists / actions / bench +
+    router multi-model paths + dead main.py branches, one green commit.
 - [~] **6a. command surface (desktop)** — `gremlin_core/magic/commands.py`: one
   registry (`chat` / `build` / `fix` / `model`) with help strings, used by CLI
   and (next) the app. `chat` → persona backend; `build` → `build_project.run_build`;

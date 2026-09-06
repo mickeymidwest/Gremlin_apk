@@ -124,48 +124,14 @@ async def seems_vague(router: Router, persona_name: str, prompt: str, answer: st
 # existing callers keep working; new code should import from
 # gremlin_core.learning_log directly.
 from .learning_log import append_learning_log, load_learned_answer, log_path as _log_path  # noqa: E402,F401
-
-
-def _talking_marker_path(root: str) -> str:
-    return os.path.join(root, "data", "talking.marker")
-
-
-@contextmanager
-def _talking(root: str):
-    """Marks Gremlin as talking for the duration of the wrapped block --
-    best-effort, same "a missed write/cleanup isn't fatal" spirit as the
-    rest of this file's file-based state (learning log, away-sync)."""
-    path = _talking_marker_path(root)
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(str(time.time()))
-    except OSError:
-        pass
-    try:
-        yield
-    finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-
-
-def is_talking(root: str) -> bool:
-    """Read side of the marker -- used by the desktop hologram window
-    (polled) and, indirectly, documents what the Android app gets
-    pushed directly instead (see MainActivity's evaluateJavascript
-    calls, which don't need this at all). A marker older than 60s reads
-    as False -- guards against a hung "talking" hologram forever if a
-    process ever got killed between writing and removing it."""
-    path = _talking_marker_path(root)
-    if not os.path.exists(path):
-        return False
-    try:
-        age = time.time() - os.path.getmtime(path)
-    except OSError:
-        return False
-    return age < 60
+# The durable-notes + talking-marker machinery moved to gremlin_core.notes.
+from .notes import (  # noqa: E402,F401
+    talking as _talking, is_talking, talking_marker_path as _talking_marker_path,
+    load_memory_notes as _load_memory_notes, memory_file_path as _memory_file_path,
+    remember_fact, note_already_saved, looks_like_personal_fact, parse_autonote,
+    extract_remember_command as _extract_remember_command, REMEMBER_PREFIXES,
+    recent_away_context as _recent_away_context,
+)
 
 
 def _confident_results(results: dict) -> dict:
