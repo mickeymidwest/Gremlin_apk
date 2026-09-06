@@ -7,141 +7,64 @@ hardpoints, Gremlin is the pilot, skills/tools are the loadout.
 Status: rebuild in progress (started 2026-09-05). This file is the spec the build
 loop checks itself against.
 
-### Build log
-- [x] **1. Skeleton** — `gremlin_core/magic/`: types (ported), store (YAML skill
-  cards at `data/skills/<name>.yaml`, JSON for facts/episodes/campaign), model
-  (`BackendModel` sync-wraps `gremlin_core.backends`; `ScriptedModel` for tests),
-  toolhost (shell + file, path jail). 6 tests green. `tests/` + `pytest.ini` added.
-- [x] **2. battle / reckoning / gate** — ported `battle.py` (ReAct text
-  protocol: `ACTION: <tool>` / `DONE`, driven against the real toolhost),
-  `reckoning.py` (propose `new_skill` / `revise_skill` / `new_fact` → independent
-  gate), `lifecycle.py` (candidate→active on 3 non-origin wins, active→deprecated
-  on 3 losses). 19 tests green. Compose smoke verified: battle edits a file →
-  reckon proposes → gate accepts → skill written as a YAML card → reloads clean.
-- [x] **3. verifier + measurement harness** — `verifier.py` (`PytestVerifier`:
-  score = passed/(passed+failed) over the task's `-k` subset, from a real pytest
-  run) + `campaign.py` (baseline → loop{resurrect, battle, verify, reckon, gate,
-  apply, audit; trial every T} → fixed point / budget). Fixture:
-  `tests/magic/fixtures/mathkit` (5 planted bugs). 21 tests green. Real offline
-  campaign verified: baselines clamp .75 / rle .25 / dedupe .33 from actual test
-  runs; a clamp battle drives .75→1.00; unfixable bugs stay at baseline; skill
-  persists as a candidate card. No simulated numbers anywhere.
-- [x] **4. Council** — `council.py`: once an `active` skill has ≥5 wins, a few
-  model voices vote `weights` vs `card` on a dossier (the card + its track
-  record + episode count). Majority wins; **tie → card** (the reversible choice);
-  an unparseable vote counts as card. Sets `Skill.destination` +
-  `council_reviewed`, round-trips through the YAML store. Wired into the campaign
-  loop after `lifecycle.audit` (opt-in via `council_voters=`). `pending_finetune()`
-  lists skills sent to weights that a finetune hasn't consumed yet. 28 tests green.
-- [~] **5a. Qwen3-8B is primary** — `config/models.yaml`: new `qwen3-8b` entry
-  (32k ctx / flash_attn / q4_0 KV), `persona.primary_model: qwen3-8b`, old
-  llama-3.1 kept as a fallback. Verified through Gremlin's *own* `ModelRegistry`
-  + `LlamaCppBackend`: loads, resolves as primary, generates, unloads clean.
-- [x] **5a-fix. Qwen3 thinking** — `no_think: true` on the model entry appends
-  `/no_think` to each turn (Qwen3 skips the think phase instead of burning the
-  token budget); `strip_reasoning` (default on) also scrubs any `<think>` block
-  that slips through, stashing it in `GenerationResult.meta["reasoning"]`.
-  `split_reasoning()` handles closed blocks, the `<thinking>` variant, an
-  unclosed block from a truncated response, and Qwen3's empty `<think></think>`.
-  6 unit tests + real check: `17*23` → bare `391`, no `<think>` in the answer.
-- [x] **5b. migrate off the live path** — DONE.
-  - 5b-1: learning log → `learning_log.py`.
-  - 5b-2: durable notes + talking marker → `notes.py`.
-  - 5b-3: `/chat` answers via `magic/reply.py` (notes + away + history → primary,
-    Gemini fallback only on a local error; log to learning_log only when the
-    fallback answered). server.py + main.py cmd_chat both swapped.
-  - 5b-4: **deleted** `consult.py` `council.py` `specialists.py` `bench.py`
-    `distill.py` (2.7k lines). Judge helpers kept as `judge.py` (checkpoint_eval).
-    `build_project` learning-log import repointed. main.py: dropped
-    `distill/council/enlist/specialists/bench` commands. `intent.py` + `actions.py`
-    kept — the NL-action layer ("reboot the desktop") isn't a Magic command yet.
-  - 83 tests green; `import main` + `import gremlin_core.server` clean;
-    `gremlin list` / `gremlin magic` work.
-- [~] **6a. command surface (desktop)** — `gremlin_core/magic/commands.py`: one
-  registry (`chat` / `build` / `fix` / `model`) with help strings, used by CLI
-  and (next) the app. `chat` → persona backend; `build` → `build_project.run_build`;
-  `fix` → a real Magic battle on a throwaway repo copy scored by the repo's own
-  pytest, returns the diff (apply is a separate confirmed step); `model` →
-  list / search / use. Wired as `gremlin magic <cmd>`. Bare/unknown → help.
-  41 tests green; `main` + `server` still import clean.
-- [x] **a. wider model bench (11 models)** — no-think column:
+### Build log (2026-09-05, one session)
 
-  | model | score | tok/s | |
-  |---|---|---|---|
-  | **Qwen2.5-7B-Instruct** | **8/8** | **65** | ← new primary |
-  | granite-3.1-8b-instruct | 8/8 | 56 | slow cold load (126s) |
-  | Qwen2.5-Coder-7B-Instruct | 8/8 | 50 | best on code → `/build` `/fix` |
-  | Qwen2.5-Coder-7B abliterated | 8/8 | 49 | |
-  | Qwen3-8B base | 7/8 | 62 | missed a code task; needs `/no_think` |
-  | Llama-3.1-8B-Instruct | 7/8 | 49 | |
-  | llama-3.1-8b abliterated (old primary) | 7/8 | 31 | |
-  | Ministral-8B | 6/8 | 49 | |
-  | DeepSeek-R1-Distill-8B abl | 5/8 | 68 | reasoning model, grader-hostile |
-  | dolphin-2.9-llama3-8b | 2/8 | 28 | old |
-  | gemma-2-9b abl | crash | — | llama_context creation failed |
+**The harness — all done, 87 tests green:**
+- **Skeleton** — `gremlin_core/magic/`: types, store (YAML skill cards under
+  `data/skills/`, JSON for the rest), model adapter over `gremlin_core.backends`,
+  toolhost (shell + file, path jail).
+- **Battle → reckoning → gate → lifecycle** — ReAct text protocol; propose
+  `new_skill` / `revise_skill` / `new_fact` → independent gate; candidate→active
+  on 3 non-origin wins, active→deprecated on 3 losses.
+- **Verifier + campaign** — `PytestVerifier` (the only source of a battle
+  outcome) + the resurrect→battle→verify→reckon→audit→trial loop. Converges only
+  when skills AND the held-out score have both plateaued and ≥60% of tasks solve.
+- **Council** — a proven skill (≥5 wins) is voted `weights` (QLoRA training set)
+  vs `card` (stays loadable); tie → card.
+- **Harness patterns adopted** (Aider / SWE-agent / TaskWeaver): parse-before-edit,
+  `edit_file` search/replace, phase-gated tools, repo map, pre-battle plan,
+  post-red-test reflection nudge.
+- **/skill** — mickey describes a skill or a fix, Gremlin drafts it (Gemini
+  fallback), the same gate vets it.
+- **Conversation memory** — `notes.py` (durable `gremlin_memory.txt` + talking
+  marker) + `conversation.py` `Threads` (multi-thread, per-owner).
 
-  Suite is saturated (4× 8/8) — a harder eval (Magic's own campaign on real
-  bugfix tasks) is the real tiebreak. Among the measured, **Qwen2.5-7B wins on
-  score + speed and has no thinking phase to manage.** Primary switched.
-  **Runtime finding:** the 2026-08-30 sweep's `q4_0` KV cache is llama-specific —
-  it makes Qwen2.5 degenerate ("the the the pérdida…"). Qwen2.5 entries use
-  `q8_0` KV; verified clean through the real backend, 5568 MiB @ 32k ctx.
-- [x] **b. harness survey** — spec §8: ranked list of 10 patterns to adopt from
-  Aider / SWE-agent / OpenHands / TaskWeaver, top picks: parse-before-edit,
-  phase-gated tools, repo map, search/replace edits. Implementation = later
-  iterations.
-- [x] **conversation memory** — `gremlin_core/magic/conversation.py` wraps the
-  existing dependency-free `history.py`: one JSONL per thread under
-  `data/conversations/`, no expiry, recalled every `/chat` turn until "clear" /
-  "forget" / "start over". `/chat clear` wipes the current thread. Disk-backed
-  (survives restart); only the recent char-budget slice is injected. Wired into
-  `_chat`. 54 tests green.
-- [x] **/skill command** — `commands._skill` + `reckoning.draft_skill` /
-  `draft_revision`: mickey describes a skill (or a fix for one), Gremlin drafts
-  it, Gemini is the fallback drafter, the same `gate()` as the auto-reckoning
-  vets it, accepted → saved as a `candidate` card. `/skill list|show` too.
-  Store change: deprecated cards move to `data/skills/_deprecated/` so a name can
-  hold both a retired version and its revision. 58 tests green.
-- [x] **6b. command surface** — server: `POST /command` → `magic.commands.dispatch`,
-  same auth as `/chat`, bare `cmd` returns help + machine-readable list. APK:
-  `GremlinClient.command()` / `commandList()`; `handleSlashCommand` runs
-  `/chat /skill /build /fix /model` through `/command`; `setupSlashAutocomplete()`
-  — a `ListPopupWindow` above the input, Claude-style, filtered as you type, tap
-  to insert. 62 tests green (server); APK compiles in CI.
-- [x] **APK polish** — hologram is one Gremlin (single face, no auto-spin, tap →
-  Gremlin settings; `SINGLE` flag in `hologram.html`). Keyboard fix: manifest
-  `adjustResize` + `WindowInsetsCompat` listener padding the root by system-bars
-  + IME; hologram WebView is now a fixed 200dp so the chat + input keep their
-  room when the keyboard is up.
-- [x] **local Android builds** — no GitHub round-trip. No-sudo toolchain:
-  Temurin JDK 17 + Android cmdline-tools (build-tools 35, platform 35,
-  platform-tools) under `~/Android/Sdk/` + **Gradle 9.4.1** under `~/android-build/`
-  (`env.sh`). AGP 9.2.0 needed 9.4.1 (wrapper said 8.13 — fixed); `gradlew` +
-  `gradle-wrapper.jar` committed, CI switched to `./gradlew`. First local
-  `assembleDebug` **BUILD SUCCESSFUL** — all the new Kotlin compiles.
-  `gremlin_core/magic/android_build.py`: `build_apk()` runs `./gradlew
-  assembleDebug` with the toolchain env, copies the .apk to `~/Downloads/<name>/`
-  + a `.gremlin-build.json` marker. `/build android <dir> [as <name>]` wired.
-  **Verified end-to-end:** built `gremlin-apk.apk` (18.6 MB) → shows in
-  `builds.list_builds()` → downloadable from Settings → Builds. 66 tests green.
-- [~] **APK: conversations** (mickey 2026-09-05) — server: `conversation.Threads`
-  (per-owner named threads over the existing per-key history + a small JSON
-  index); `GET/POST /conversations`, `DELETE /conversations/<id>`; `/command`
-  takes a `thread`. APK: `ConversationsActivity` (recent list + "New chat",
-  opened from a "Chats" button), `currentThread` in prefs, `/command` calls ride
-  on it. Hologram kept. 79 tests green; local APK build SUCCESSFUL. TODO: reload
-  a thread's transcript into the view on switch; route non-slash messages through
-  it too (comes with 5b).
-- [ ] 7. APK Settings→Builds download
-- [~] **8. infrastructure-defense** (spec §7) — `gremlin_core/magic/defense.py` +
-  `/defense` command (surface | updates | ssh | secrets <path> | report).
-  Read-only, mickey's own box only. `attack_surface()` parses `ss -tlnp` (v4/v6
-  merged) → what's LAN-reachable vs loopback; `pending_security_updates()` wraps
-  `update_check`; `audit_ssh()` flags password auth / root login / no AllowUsers /
-  X11; `secrets_in_repo()` scans tracked files + recent git history for key
-  shapes. Real run on the box: 9 exposed services, 2 sshd items, 1 advisory
-  update, 0 repo secrets. 13 tests. TODO: log/IDS triage, canaries, container CVEs.
+**The model:**
+- **Qwen2.5-7B-Instruct** is primary (11-model bench: 8/8 @ 65 tok/s, no thinking
+  phase). `qwen2.5-coder-7b` for `/build` `/fix`, `qwen3-8b` alternate,
+  `llama-3.1-8b-abliterated` the one uncensored option, `gemini` fallback.
+  `q8_0` KV for Qwen2.5 (q4_0 makes it degenerate — tested).
+- `config/models.yaml` pruned 15 entries → 5.
 
+**5b — the old machinery is gone:** deleted `consult.py` `council.py`
+`specialists.py` `bench.py` `distill.py` (2.7k lines). `/chat` answers via
+`magic/reply.py` (notes + away + history → primary, Gemini only on a local
+error, learning-log only when the fallback answered). `judge.py` kept for
+`checkpoint_eval`. `intent.py`/`actions.py` kept — the NL-action layer.
+
+**Commands:** `/chat /skill /build /fix /model /defense /do`, on desktop
+(`gremlin magic <cmd>`) and the app (`POST /command`, `/` autocomplete).
+
+**Server:** warmup at boot (first chat ~2s not ~90s), canary watchdog (restarts
+on a wedged model context — `/status` `healthy` field), richer `/status`
+(model_loaded, vram, skill counts).
+
+**APK:** commands + `/` autocomplete, single-Gremlin hologram, keyboard fix,
+Settings → Builds (download desktop builds), Conversations screen. Built locally
+(no-sudo JDK 17 + SDK 35 + Gradle 9.4.1); `gradlew` committed, CI on `./gradlew`.
+`/build android <dir>` builds an APK locally and drops it where the phone can
+pull it.
+
+**Infra defense (§7):** `/defense surface | updates | ssh | secrets | report` —
+read-only, mickey's own box only.
+
+**Open:**
+- Streaming responses (SSE) — deferred, needs care around the sync/async/lock design.
+- First real campaign (Qwen2.5-7B on mathkit): fixed the easy bug, converged too
+  early on the old heuristic (fixed), didn't crack the harder bugs. A
+  clamp-scoring quirk (episode 1.0 vs campaign log 0.75) still to chase.
+- Unify `notes.py` flat memory with Magic `Fact` semantic memory.
+- `gh auth login` (mickey) for CI visibility.
 ---
 
 ## 1. Primary model
