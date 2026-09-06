@@ -52,6 +52,30 @@ def test_no_log_when_local_model_answers(tmp_path):
     assert not (Path(tmp_path) / "data" / "learning_log.jsonl").exists()
 
 
+def test_matching_skill_cards_fold_into_the_chat_prompt(tmp_path):
+    from gremlin_core.magic.seed_skills import seed
+    seed(str(tmp_path))
+    be = Backend(FakeR("checking the logs now"))
+    asyncio.run(reply.answer(be, "the jellyfin container keeps crashing", str(tmp_path)))
+    prompt = be.calls[0]
+    assert "service-status-then-logs" in prompt
+    assert "journalctl" in prompt
+
+    # an unrelated question pulls in no skill guidance
+    be2 = Backend(FakeR("it's sunny"))
+    asyncio.run(reply.answer(be2, "what's the weather like", str(tmp_path)))
+    assert "Approaches that have worked here before" not in be2.calls[0]
+
+
+def test_skills_block_survives_a_broken_store(tmp_path, monkeypatch):
+    from gremlin_core.magic import store as store_mod
+    monkeypatch.setattr(store_mod.Store, "read_skills",
+                        lambda self: (_ for _ in ()).throw(OSError("nope")))
+    be = Backend(FakeR("still fine"))
+    r = asyncio.run(reply.answer(be, "fix the failing build", str(tmp_path)))
+    assert r["answer"] == "still fine"
+
+
 def test_corrupt_memory_file_does_not_break_chat(tmp_path, monkeypatch):
     # a memory file that read_facts() chokes on must not take down the
     # answer path -- _memory_block swallows it and returns no block.

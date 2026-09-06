@@ -36,12 +36,53 @@ def _reply(answer: str, *, action: str = "chat", ok: bool = True,
             "contributors": [], "action": action, "action_ok": ok, "source": source}
 
 
+def _skills_block(root: str, message: str, limit: int = 3) -> str:
+    """Magic skill cards whose trigger matches this message, folded into
+    the chat prompt as guidance. Until now skills only ever loaded into
+    /fix battles -- so a skill mickey wrote (or a seed like
+    "service-status-then-logs") never touched a plain answer. This closes
+    that loop: /skill new <x> now shapes how Gremlin answers, right away.
+    Non-deprecated skills only; on this box nothing runs battles to
+    promote candidates, so candidate + active both count here."""
+    import re
+    from .store import Store
+    try:
+        skills = [s for s in Store(root).read_skills() if s.status != "deprecated"]
+    except Exception:
+        return ""
+    if not skills:
+        return ""
+    hay = (message or "").lower()
+    hay_words = set(re.findall(r"[a-z]{4,}", hay))
+
+    def matches(s) -> bool:
+        if s.trigger_matcher:
+            try:
+                if re.search(s.trigger_matcher, hay, re.IGNORECASE):
+                    return True
+            except re.error:
+                pass
+        trig = set(re.findall(r"[a-z]{4,}", (s.trigger_when or "").lower()))
+        return len(trig & hay_words) >= 2
+
+    hits = [s for s in skills if matches(s)][:limit]
+    if not hits:
+        return ""
+    lines = ["Approaches that have worked here before (use the ones that fit):"]
+    for s in hits:
+        lines.append(f"- {s.name}: {s.purpose}")
+        for step in s.procedure[:4]:
+            lines.append(f"    * {step}")
+    return "\n".join(lines)
+
+
 def _build_prompt(message: str, root: str, history: str) -> str:
-    """The context Gremlin answers against -- durable memory, recent
-    away-mode turns, this thread's history -- folded in ahead of the
-    user's line. Shared by answer() and answer_stream()."""
+    """The context Gremlin answers against -- durable memory, matching
+    skill cards, recent away-mode turns, this thread's history -- folded
+    in ahead of the user's line. Shared by answer() and answer_stream()."""
     context = "\n\n".join(p for p in (
         _memory_block(root),
+        _skills_block(root, message),
         notes.recent_away_context(root),
         history,
     ) if p)
