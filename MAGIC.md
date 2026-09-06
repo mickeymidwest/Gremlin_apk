@@ -92,17 +92,22 @@ loop checks itself against.
   vets it, accepted → saved as a `candidate` card. `/skill list|show` too.
   Store change: deprecated cards move to `data/skills/_deprecated/` so a name can
   hold both a retired version and its revision. 58 tests green.
-- [~] **6b. command surface (server side)** — `POST /command` on `server.py`:
-  `{cmd, args}` → `magic.commands.dispatch`, same auth as `/chat`, runs on the
-  server's event loop. A bare `cmd` returns `help_text()` + a machine-readable
-  `commands` list (for the app's `/` autocomplete). 62 tests green; server
-  imports clean. APK-side `handleSlashCommand` + autocomplete popup: next.
-- [ ] APK polish (mickey 2026-09-05):
-  - hologram shows **one Gremlin**, not a model carousel
-  - keyboard covers the chat input — fix IME insets (`adjustResize` /
-    WindowInsets), anchor input to the bottom, keep the caret visible
-  - `/` autocomplete popup above the input (Claude-style), filtered as you type,
-    tap to insert
+- [x] **6b. command surface** — server: `POST /command` → `magic.commands.dispatch`,
+  same auth as `/chat`, bare `cmd` returns help + machine-readable list. APK:
+  `GremlinClient.command()` / `commandList()`; `handleSlashCommand` runs
+  `/chat /skill /build /fix /model` through `/command`; `setupSlashAutocomplete()`
+  — a `ListPopupWindow` above the input, Claude-style, filtered as you type, tap
+  to insert. 62 tests green (server); APK compiles in CI.
+- [x] **APK polish** — hologram is one Gremlin (single face, no auto-spin, tap →
+  Gremlin settings; `SINGLE` flag in `hologram.html`). Keyboard fix: manifest
+  `adjustResize` + `WindowInsetsCompat` listener padding the root by system-bars
+  + IME; hologram WebView is now a fixed 200dp so the chat + input keep their
+  room when the keyboard is up.
+- [ ] **local Android builds** (mickey 2026-09-05) — desktop builds APKs itself,
+  no GitHub round-trip. No-sudo path: portable Temurin JDK 17 + Android
+  cmdline-tools + Gradle, all under `~/android-build/` / `~/Android/Sdk/`; then
+  `gremlin build` produces an APK that flows through Settings→Builds like any
+  other desktop build. Queued after the APK download works.
 - [ ] 7. APK Settings→Builds download
 - [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
   surface / harden / canaries / own-code review. Defensive only, mickey's own

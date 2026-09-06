@@ -326,6 +326,73 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     /** Lists the projects Gremlin has built on the desktop. Regular
      * token, read-only, home-only (the desktop's ~/Downloads isn't
      * reachable away from home). Returns (builds, errorOrNull). */
+    /** POST /command -- runs a Magic command (/chat /skill /build /fix
+     *  /model) on the desktop and returns its answer text. The desktop
+     *  does the work; this is just the messenger. */
+    fun command(cmd: String, args: String): String {
+        val host = prefs.getString("host", null)
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null)
+        if (host == null || port == 0 || token == null) return "Not paired with a desktop."
+        return try {
+            val url = URL("http://$host:$port/command")
+            val c = url.openConnection() as HttpURLConnection
+            c.requestMethod = "POST"
+            c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Content-Type", "application/json")
+            c.connectTimeout = 8_000
+            c.readTimeout = 480_000
+            val body = JSONObject().put("cmd", cmd.trim().removePrefix("/")).put("args", args.trim())
+            c.outputStream.use { it.write(body.toString().toByteArray()) }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val json = JSONObject(stream.bufferedReader().use { it.readText() })
+            json.optString("answer", json.optString("error", "no response"))
+        } catch (e: Exception) {
+            "Couldn't reach desktop: ${e.message}"
+        }
+    }
+
+    /** GET the command list (name + help) for the "/" autocomplete.
+     *  Best-effort -- returns the built-in list if the desktop is
+     *  unreachable so autocomplete still works offline. */
+    fun commandList(): List<Pair<String, String>> {
+        val builtin = listOf(
+            "chat" to "Talk to Gremlin",
+            "skill" to "Add or improve a Magic skill",
+            "build" to "Build a script / project / app on the desktop",
+            "fix" to "Gremlin improves its own harness",
+            "model" to "Pick / inspect the base model",
+            "builds" to "List / fetch desktop builds",
+            "claude" to "Hand a problem to a Claude Code session",
+        )
+        val host = prefs.getString("host", null) ?: return builtin
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return builtin
+        return try {
+            val url = URL("http://$host:$port/command")
+            val c = url.openConnection() as HttpURLConnection
+            c.requestMethod = "POST"
+            c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Content-Type", "application/json")
+            c.connectTimeout = 5_000
+            c.readTimeout = 5_000
+            c.outputStream.use { it.write(JSONObject().put("cmd", "").toString().toByteArray()) }
+            val json = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            val arr = json.optJSONArray("commands") ?: return builtin
+            val out = ArrayList<Pair<String, String>>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(o.optString("name") to o.optString("help"))
+            }
+            (out + builtin.filter { b -> out.none { it.first == b.first } })
+        } catch (e: Exception) {
+            builtin
+        }
+    }
+
     fun listBuilds(): Pair<List<BuildInfo>, String?> {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)

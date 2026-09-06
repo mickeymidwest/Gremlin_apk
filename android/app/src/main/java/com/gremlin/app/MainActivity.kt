@@ -8,16 +8,22 @@ import android.text.Spanned
 import android.text.method.ScrollingMovementMethod
 import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ListPopupWindow
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.integration.android.IntentResult
 import com.gremlin.app.attach.Attachments
@@ -129,6 +135,61 @@ class MainActivity : AppCompatActivity() {
             // filter is how "why can't I select my own file" bugs happen.
             attachLauncher.launch(arrayOf("*/*"))
         }
+
+        // Keyboard was covering the input on API 35 edge-to-edge: pad the
+        // root by the system bars + IME so the text box (and caret) stays
+        // above the keyboard. Pairs with adjustResize in the manifest.
+        val root = findViewById<View>(R.id.root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
+            v.setPadding(v.paddingLeft, bars.top, v.paddingRight, bars.bottom)
+            insets
+        }
+
+        setupSlashAutocomplete()
+    }
+
+    // "/" autocomplete, Claude-style: type "/" and a list of commands
+    // pops above the input; tap one to insert it.
+    private var commandHints: List<Pair<String, String>> = emptyList()
+    private var slashPopup: ListPopupWindow? = null
+
+    private fun setupSlashAutocomplete() {
+        Thread { commandHints = gremlinClient.commandList() }.start()
+        messageInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(e: Editable?) {
+                val t = e?.toString() ?: ""
+                if (!Regex("^/\\S*$").matches(t)) { slashPopup?.dismiss(); return }
+                val q = t.removePrefix("/").lowercase()
+                val hits = commandHints.filter { it.first.startsWith(q) }
+                if (hits.isEmpty()) { slashPopup?.dismiss(); return }
+                val pop = slashPopup ?: ListPopupWindow(this@MainActivity).also {
+                    it.anchorView = messageInput
+                    it.isModal = false
+                    slashPopup = it
+                }
+                val adapter = object : ArrayAdapter<Pair<String, String>>(
+                    this@MainActivity, android.R.layout.simple_list_item_2,
+                    android.R.id.text1, hits) {
+                    override fun getView(pos: Int, cv: View?, parent: android.view.ViewGroup): View {
+                        val row = super.getView(pos, cv, parent)
+                        row.findViewById<TextView>(android.R.id.text1).text = "/${hits[pos].first}"
+                        row.findViewById<TextView>(android.R.id.text2).text = hits[pos].second
+                        return row
+                    }
+                }
+                pop.setAdapter(adapter)
+                pop.setOnItemClickListener { _, _, pos, _ ->
+                    messageInput.setText("/${hits[pos].first} ")
+                    messageInput.setSelection(messageInput.text.length)
+                    pop.dismiss()
+                }
+                pop.show()
+            }
+        })
     }
 
     /** Reads a picked file/PDF/image into text and sends it to Gremlin
@@ -459,11 +520,24 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            "/chat", "/skill", "/build", "/fix", "/model" -> {
+                val args = message.removePrefix(cmd).trim()
+                thinkingStatus.visibility = View.VISIBLE
+                hologramView.evaluateJavascript("setTalking(true)", null)
+                Thread {
+                    val answer = gremlinClient.command(cmd, args)
+                    runOnUiThread {
+                        thinkingStatus.visibility = View.GONE
+                        hologramView.evaluateJavascript("setTalking(false)", null)
+                        appendAssistantTurn(answer, null)
+                        voiceOutput.speak(answer)
+                    }
+                }.start()
+            }
+
             else -> appendSystemTurn(
-                "Typed commands: /claude <problem>, /builds (list), /builds get <name>.\n\n" +
-                    "Everything else, just say it normally -- \"check for updates\", \"list my snapshots\", " +
-                    "\"fix my backup script\", \"reboot the desktop\", \"add X to yourself\". " +
-                    "I'll work out what you mean and ask before doing anything destructive.",
+                "Commands: /chat /skill /build /fix /model  ·  /claude <problem>  ·  /builds, /builds get <name>\n\n" +
+                    "Or just say it normally — the desktop works out what you mean and asks before anything destructive.",
                 true,
             )
         }

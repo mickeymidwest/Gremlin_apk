@@ -97,6 +97,11 @@
 // spin it. The prism itself (as a whole) is Gremlin's own hologram --
 // tapping any face edits that slot's model; tapping below it (not part
 // of the head at all) edits Gremlin's own primary settings.
+// Single-Gremlin mode: Gremlin is the one model now (no consult council),
+// so the turntable is just Gremlin facing forward -- no other faces, no
+// auto-spin, tapping the head opens Gremlin's own settings.
+const SINGLE = true;
+
 const FACES = Array.from(document.querySelectorAll('.face')).map((el, i) => ({
   el,
   canvas: el.querySelector('canvas'),
@@ -104,6 +109,10 @@ const FACES = Array.from(document.querySelectorAll('.face')).map((el, i) => ({
   angle: i * 90,          // fixed geometry, faces 90deg apart
   modelName: null,        // filled in once /status loads
 }));
+if (SINGLE) {
+  FACES.slice(1).forEach(f => { f.el.style.display = 'none'; });
+  FACES[0].label.textContent = 'Gremlin';
+}
 FACES.forEach(f => {
   f.ctx = f.canvas.getContext('2d');
   f.el.style.transform = `rotateY(${f.angle}deg) translateZ(90px)`;
@@ -319,6 +328,7 @@ function stopIdle() {
   if (idleTimeout) { clearTimeout(idleTimeout); idleTimeout = null; }
 }
 function scheduleIdle() {
+  if (SINGLE) return;   // one face -> nothing to spin to
   stopIdle();
   idleTimeout = setTimeout(() => {
     function spin() {
@@ -422,6 +432,7 @@ function fetchStatus() {
 }
 
 function applyStatus(status) {
+  if (SINGLE) { FACES[0].label.textContent = 'Gremlin'; return; }
   if (!status || !Array.isArray(status.consult_models) || status.consult_models.length === 0) return;
   const byName = {};
   (status.models || []).forEach(m => { byName[m.name] = m; });
@@ -492,6 +503,7 @@ function openPrimary() {
 }
 
 function handleTap() {
+  if (SINGLE) { openPrimary(); return; }   // the head is Gremlin -> Gremlin's settings
   // Whichever face is currently closest to facing the viewer (rotY is
   // always a multiple of 90 at rest) is the one being "picked."
   const normalized = ((Math.round(rotY / 90) % 4) + 4) % 4;
