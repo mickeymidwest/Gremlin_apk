@@ -155,6 +155,18 @@ def create_app(
     # the same friendly fallback a slow/failed consult already gets.
     state_machine = agent_state.AgentStateMachine()
 
+    # Health: consecutive answer failures. The wedge failure mode (CUDA
+    # context corrupted, process still up, every generate() returns an
+    # error) isn't caught by an HTTP-liveness check -- the watchdog reads
+    # `healthy` from /status and restarts when it goes false.
+    health = {"consec_fail": 0}
+
+    def _note_answer(result: dict) -> dict:
+        ok = bool(result.get("answer")) and not str(result.get("answer", "")).startswith(
+            ("That took too long", "I couldn't get an answer"))
+        health["consec_fail"] = 0 if ok else health["consec_fail"] + 1
+        return result
+
     async def _in_phase(state: agent_state.AgentState, coro):
         async with state_machine.phase(state):
             return await coro
@@ -192,6 +204,10 @@ def create_app(
         # on purpose, same reasoning as system_prompt just above.
         data["agent_state"] = state_machine.state.value
         data["recent_transitions"] = state_machine.recent()
+        # 3+ answers in a row failed -> almost certainly a wedged model
+        # context; the watchdog restarts on this.
+        data["healthy"] = health["consec_fail"] < 3
+        data["consec_answer_failures"] = health["consec_fail"]
         return jsonify(data)
 
     @app.route("/conversations", methods=["GET", "POST"])
@@ -242,9 +258,10 @@ def create_app(
         try:
             result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=480.0)
         except Exception as e:
+            health["consec_fail"] += 1
             return jsonify({"ok": False, "answer": "That errored or timed out -- try again.",
                             "error": str(e)}), 200
-        return jsonify(result)
+        return jsonify(_note_answer(result) if (result.get("action") == "chat") else result)
 
     @app.route("/chat", methods=["POST"])
     def chat():
@@ -307,14 +324,16 @@ def create_app(
             )
         except Exception as e:
             # A raw 500 here was confirmed to look like a broken app on
-            # the phone with zero explanation -- a slow consult (or one
+            # the phone with zero explanation -- a slow answer (or one
             # that errors outright) should read as "try again," not "the
             # server is down."
+            health["consec_fail"] += 1
             return jsonify({
                 "answer": "That took too long or hit an error -- try again in a moment.",
                 "consulted": False, "from_memory": False, "contributors": [],
                 "error": str(e), "synced_count": synced_count,
             }), 200
+        _note_answer(result)
         with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
             conversation_history.record(conv_key, message, result.get("answer", ""))
         result["synced_count"] = synced_count
@@ -773,6 +792,20 @@ def serve(registry: ModelRegistry, router: Router, project_root: str, port: int 
     # background loop everything else already runs on, not a separate
     # thread -- nothing here needs its own.
     asyncio.run_coroutine_threadsafe(eviction.evict_idle_models(registry), loop)
+
+    # Warm the primary at boot so the first /chat after a restart isn't a
+    # ~90s cold read of a 5GB GGUF off the disk. Best-effort, on the
+    # background loop -- a failed warmup just means the old cold-start
+    # behaviour, not a broken server.
+    async def _warm():
+        be = registry.get("gremlin")
+        primary = getattr(be, "primary", be)
+        try:
+            await primary.warmup()
+            print("[warmup] primary model loaded and ready.", flush=True)
+        except Exception as e:  # noqa
+            print(f"[warmup] skipped ({e}) -- first chat will cold-load.", flush=True)
+    asyncio.run_coroutine_threadsafe(_warm(), loop)
 
     lan_ip = get_lan_ip()
     url = pairing_url(lan_ip, port, token)

@@ -1,15 +1,11 @@
 models:
-  # Gremlin's base/primary voice. Picked 2026-09-05 off bench/quality.py
-  # (8-task suite) on this 2070 Super, no-think column:
-  #   qwen2.5-7b-instruct    8/8   65 tok/s   <- this: top score AND fastest
-  #   granite-3.1-8b         8/8   56 tok/s
-  #   qwen2.5-coder-7b       8/8   50 tok/s   (best at code -> /build, /fix)
-  #   qwen3-8b base          7/8   62 tok/s   (missed a code task; needs /no_think)
-  #   llama-3.1-8b abl.      7/8   31 tok/s   (old primary)
-  # Suite is saturated at the top (4 models 8/8) -- a harder eval (Magic's
-  # own campaign on real bugfix tasks) is the tiebreak, tracked in MAGIC.md.
-  # Qwen2.5-7B wins on score+speed AND has no thinking phase to manage.
-  # Run config = the 2026-08-30 sweep's answer for this card.
+  # Gremlin's base/primary voice. Picked 2026-09-05 off an 11-model
+  # bench/quality.py run on this 2070 Super (no-think column):
+  #   qwen2.5-7b-instruct   8/8   65 tok/s   <- this: top score AND fastest
+  #   granite-3.1-8b        8/8   56 tok/s
+  #   qwen2.5-coder-7b      8/8   50 tok/s   (best on code -> /build, /fix)
+  #   qwen3-8b base         7/8   62 tok/s   (needs /no_think)
+  # Qwen2.5-7B wins on score+speed and has no thinking phase to manage.
   - name: qwen2.5-7b
     type: local_gguf
     display_name: "Qwen2.5-7B-Instruct"
@@ -20,9 +16,8 @@ models:
     kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
     chat_format: chatml
 
-  # Coding specialist -- 8/8, best on the code tasks. Candidate for the
-  # model behind /build and /fix (wire once Magic's request path is on
-  # Magic, iter 5b).
+  # Coding specialist -- 8/8, best on the code tasks. The model behind
+  # /build and /fix once those route to a specialist (see MAGIC.md).
   - name: qwen2.5-coder-7b
     type: local_gguf
     display_name: "Qwen2.5-Coder-7B-Instruct"
@@ -30,11 +25,11 @@ models:
     n_ctx: 32768
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
+    kv_cache_type: q8_0
     chat_format: chatml
 
-  # Qwen3-8B -- kept as an alternate (hybrid thinking; toggle no_think off
-  # for hard problems). 7/8 on the suite, needs the /no_think handling.
+  # Alternate -- Qwen3's hybrid thinking (toggle no_think off for hard
+  # problems). 7/8 on the suite.
   - name: qwen3-8b
     type: local_gguf
     display_name: "Qwen3-8B"
@@ -46,225 +41,40 @@ models:
     chat_format: chatml
     no_think: true
 
-  # Old primary -- kept as a local fallback option, no longer the voice.
+  # The one uncensored option, for the rare case a base model balks at
+  # something legitimate. Not the voice -- addressable by name only.
   - name: llama-3.1-8b-abliterated
     type: local_gguf
     display_name: "Llama-3.1-8B (abliterated)"
     model_path: "/home/mickey/Downloads/gremlin/models/meta-llama-3.1-8b-instruct-abliterated.Q4_K_M.gguf"
-    # 4096 -> 16384 (crashed) -> 12288 -> 32768. n_ctx_train = 131072, so
-    # even 32768 is a quarter of what the model can hold. The ceiling is
-    # VRAM, not the model.
-    #
-    # History: 16384 with flash_attn OFF and an f16 KV cache measured
-    # 7736/8192 MiB peak (456 MiB free) and llama-cpp-python's CUDA pool
-    # allocator (ggml_cuda_pool_vmm::alloc) SIGABRT-core-dumped on the next
-    # allocation spike; Restart=on-failure just relooped it. Dropped to
-    # 12288 as a stopgap.
-    #
-    # 2026-08-30 sweep (scratchpad/bench_results.jsonl, 12 configs on this
-    # 2070 Super) found the real levers:
-    #   - flash_attn: true       -- strictly better. At 16384/f16 it cut
-    #     peak VRAM 7736 -> 6864 MiB AND raised throughput 56 -> 62 tok/s.
-    #     No downside measured. This alone un-crashes 16384.
-    #   - kv_cache_type: q4_0    -- ~960 MiB more headroom for ~0 tok/s
-    #     (57.7 vs 61.6 at 16384). Needs flash_attn (forced on in the
-    #     backend if a quantized cache is asked for).
-    # With both: 32768 ctx measures 5968/8192 MiB peak, 2224 MiB free,
-    # 57.8 tok/s -- 2.7x the context of the 12288 stopgap with MORE VRAM
-    # headroom than it had, enough to coexist with Jellyfin transcode.
-    # 49152 also passed (6558 peak); 32768 chosen to leave real margin.
-    #
-    # Only the PRIMARY gets a big context -- it carries the conversation
-    # thread; specialists get a single standalone question. (flash_attn is
-    # still worth adding to those too -- free speed -- just less urgent.)
-    #
-    # Partial GPU offload was also re-tested: n_gpu_layers 28 (5 layers on
-    # CPU) dropped throughput 60 -> 15 tok/s. Never partial-offload the
-    # primary; -1 (all on GPU) or nothing.
-    n_ctx: 32768
+    n_ctx: 16384
     n_gpu_layers: -1
     flash_attn: true
     kv_cache_type: q4_0
     chat_format: llama-3
 
-  # The 4 original curated consult models -- update each model_path once
-  # downloaded. Only contacted when gremlin's own answer looks uncertain,
-  # never on every message; each stays unloaded until that actually
-  # happens.
-  #
-  # n_gpu_layers bumped from 10 (partial CPU offload) to -1 (full GPU) --
-  # that partial setting was written back when this file worried about
-  # more than one of these being loaded at once and competing for VRAM.
-  # That's no longer how any of this runs: gremlin_core/consult.py routes
-  # to exactly ONE specialist at a time by topic (see specialists.py),
-  # never a broadcast, and always frees the primary's VRAM first. Partial
-  # offload just meant these 4 ran mostly on CPU while the other 17
-  # enlisted sub-models (already n_gpu_layers: -1) ran mostly on GPU --
-  # confirmed by testing to be the actual cause of a real CPU/RAM
-  # contention incident that stalled the Jellyfin server running
-  # alongside it, independent of the nice/ionice throttling main.py's
-  # heavy commands apply on top of this.
-
-  - name: gpt-oss-20b
-    type: local_gguf
-    # Swapped for dolphin-2.9-llama3-8b -- gpt-oss-20b's smallest GGUF
-    # quant is 11.8GB, too big for an 8GB card even alone. Dolphin is
-    # the official Cognitive Computations "uncensored" 8B, same llama-3
-    # chat template as the primary model.
-    display_name: "Dolphin 2.9 Llama3 8B (uncensored) -- general/closest to ChatGPT"
-    model_path: "/home/mickey/Downloads/gremlin/models/dolphin-2.9-llama3-8b-q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: llama-3
-
-  - name: gemma-3-12b
-    type: local_gguf
-    # Swapped for gemma-2-9b-it-abliterated -- gemma-3-12b's smallest
-    # usable quant (7.3GB) left too little VRAM headroom alongside the
-    # primary model.
-    display_name: "Gemma 2 9B (abliterated) -- closest to Gemini"
-    model_path: "/home/mickey/Downloads/gremlin/models/gemma-2-9b-it-abliterated-Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: gemma
-
-  - name: qwen3-coder
-    type: local_gguf
-    # Swapped for Qwen2.5-Coder-7B-Instruct-abliterated -- no abliterated
-    # Qwen3-Coder GGUF at a reasonable size was available; 2.5-Coder-7B
-    # is the well-established, reputably-quantized equivalent.
-    display_name: "Qwen2.5-Coder 7B (abliterated) -- best for code"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: qwen
-
-  - name: deepseek-r1-distill-8b
-    type: local_gguf
-    display_name: "DeepSeek-R1-Distill-Qwen-8B (abliterated) -- deep reasoning/math"
-    model_path: "/home/mickey/Downloads/gremlin/models/DeepSeek-R1-Distill-Qwen-8B-Abliterated.i1-Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: qwen
-
-  # Claude and Gemini -- kept as fallback/last-resort, not as consult
-  # group members. The 4 local models above are what Gremlin actually
-  # "learns from" day to day; these two exist for when the local setup
-  # genuinely comes up short (primary errors out, or nothing local had
-  # a confident answer) -- a stronger check to fall back on, still
-  # contributing to what gets learned and logged.
-  #
-  # Claude -- disabled for now, .env still has the unfilled placeholder
-  # key (sk-ant-your-key-here). Re-enable by uncommenting this block and
-  # adding claude back to fallback_models/last_resort_model below once a
-  # real ANTHROPIC_API_KEY is set.
-  # - name: claude
-  #   type: anthropic
-  #   display_name: "Claude"
-  #   model_id: "claude-sonnet-5"
-  #   api_key_env: ANTHROPIC_API_KEY
-
-  # Gemini -- set your key: export GEMINI_API_KEY=...
+  # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   - name: gemini
     type: gemini
     display_name: "Gemini"
     model_id: "gemini-2.5-flash"
     api_key_env: GEMINI_API_KEY
 
-# Gremlin is its own identity, not just an alias for whichever model
-# answers. Every model above is still addressable directly by name
-# ("chat qwen3-coder", "chat qwythos-9b", etc.) -- but "gremlin" is
-# always the same name/character talking to you, backed by qwythos-9b
-# as its own local base.
-#
-# Local-first, not fully local: qwythos-9b answers directly, the 4
-# local models are what it consults when uncertain, and Claude/Gemini
-# sit behind both of those as a stronger safety net -- fallback_models
-# if the primary itself errors out, last_resort_model if the whole
-# local consult group came up empty-handed. Either way, whatever comes
-# back still gets folded into Gremlin's own voice and logged the same
-# as a local consult would be, not just handed back raw.
-#
-# system_prompt is empty by default: Gremlin doesn't get a scripted
-# personality unless you write one. It applies in exactly two places --
-# nowhere else, and never to a model you address directly by name:
-#   1. gremlin's own direct answers (via primary_model / fallback_models)
-#   2. the final answer after a consult -- other models only ever supply
-#      raw research; the actual reply is always generated by gremlin
-#      itself, in this voice, never forwarded verbatim from another model
-  - name: qwen2-5-coder-3b-instruct-abliterated-q4-k-m
-    type: local_gguf
-    display_name: "Qwen2.5-Coder-3B-Instruct-abliterated-Q4_K_M.gguf"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-3B-Instruct-abliterated-Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: chatml   # check this matches the model's actual prompt template
+  # Claude -- re-enable once a real ANTHROPIC_API_KEY is set.
+  # - name: claude
+  #   type: anthropic
+  #   model_id: "claude-sonnet-5"
+  #   api_key_env: ANTHROPIC_API_KEY
 
-  - name: deepseek-r1-distill-qwen-1-5b-abliterated-q4-k-m
-    type: local_gguf
-    display_name: "DeepSeek-R1-Distill-Qwen-1.5B-abliterated.Q4_K_M.gguf"
-    model_path: "/home/mickey/Downloads/gremlin/models/DeepSeek-R1-Distill-Qwen-1.5B-abliterated.Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: chatml   # check this matches the model's actual prompt template
-
-  - name: llama-3-2-3b-instruct-abliterated-q4-k-m
-    type: local_gguf
-    display_name: "Llama-3.2-3B-Instruct-abliterated.Q4_K_M.gguf"
-    model_path: "/home/mickey/Downloads/gremlin/models/Llama-3.2-3B-Instruct-abliterated.Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: chatml   # check this matches the model's actual prompt template
-
-  - name: gemma-2-2b-it-abliterated-q4-k-m
-    type: local_gguf
-    display_name: "gemma-2-2b-it-abliterated.Q4_K_M.gguf"
-    model_path: "/home/mickey/Downloads/gremlin/models/gemma-2-2b-it-abliterated.Q4_K_M.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: chatml   # check this matches the model's actual prompt template
-
+# Gremlin is its own identity, backed by primary_model, with fallback_models
+# behind it only for when the local model errors. No consult council -- that
+# machinery (consult.py / specialists.py / council.py) was removed 2026-09-05;
+# Gremlin is one model now, and Magic is the harness around it.
 persona:
   name: gremlin
   display_name: "Gremlin"
   primary_model: qwen2.5-7b
   fallback_models: [gemini]
-  # The 4 curated consult models -- gpt-oss for general reasoning,
-  # gemma for Gemini-flavored general+multilingual, qwen3-coder for
-  # code, deepseek-r1-distill for deep reasoning/math and genuine lab
-  # diversity from the other three.
-  consult_models: [gpt-oss-20b, gemma-3-12b, qwen3-coder, deepseek-r1-distill-8b, qwen2-5-coder-3b-instruct-abliterated-q4-k-m, deepseek-r1-distill-qwen-1-5b-abliterated-q4-k-m, llama-3-2-3b-instruct-abliterated-q4-k-m, gemma-2-2b-it-abliterated-q4-k-m]
-  # Only tried if NOTHING in consult_models came back with a confident
-  # answer -- a dedicated final check, not just another name in the
-  # list above.
-  last_resort_model: gemini
-  # Since the abliterated primary rarely hedges in words even when it's
-  # wrong (see gremlin_core/consult.py's seems_uncertain), the keyword
-  # trigger alone almost never fires a real consult -- which means
-  # data/learning_log.jsonl (what `gremlin finetune` trains on) never
-  # gets populated by normal use. A nonzero rate here consults a
-  # fraction of otherwise-confident replies anyway, to keep data
-  # flowing. But on THIS box (8GB VRAM, 7.5GB RAM, models on an HDD) a
-  # single consult = unload the primary, load a specialist from spinning
-  # disk, run it, reload the primary from disk -- 3-5 min of swap thrash
-  # during which the phone just shows "thinking" and usually times out.
-  # Set to 0: no random consults. `gremlin distill` still forces
-  # consults on its own batch (consult_sample_rate=1.0 there), so the
-  # finetune pipeline can still be fed deliberately, off the hot path.
-  consult_sample_rate: 0
-  # Off: skip the per-message second "is this answer actually vague?"
-  # LLM check (consult.py seems_vague). That check costs one guaranteed
-  # extra primary call on EVERY message and, on a "vague" verdict, a
-  # full specialist consult -- the other half of why chat stalls here.
-  # With it off, consults fire only on genuine verbal hedging
-  # (seems_uncertain's keyword list) or an explicit sample draw above.
-  # Flip back to true if this box ever gets more RAM / an SSD.
-  deep_uncertainty_check: false
-  # A personality is entirely optional -- left as "" here for a plain,
-  # unstyled voice: Gremlin answers as itself, no scripted character
-  # flavor layered on top. If you want one, write it as multi-line text
-  # (system_prompt: | followed by indented lines) -- it's applied in
-  # exactly the two places described above, nowhere else.
   system_prompt: |
     Your name is Gremlin. You're a personal AI assistant running locally
     on the user's own desktop. If asked your name or who you are, answer
@@ -280,109 +90,4 @@ persona:
     The desktop you're running on: Manjaro Linux, Dell G5 5000, Intel
     Core i3-10100 CPU, NVIDIA RTX 2070 Super (8GB VRAM). If asked what OS
     or hardware you're running on, answer with these real facts directly
-    -- don't guess, deflect, or make something up. (Update this block by
-    hand if the hardware or OS ever actually changes.)
-
-# ---------------------------------------------------------------------
-# Specialists -- narrow models that handle one kind of work, so the
-# primary keeps its whole context and attention for actual reasoning.
-# See gremlin_core/specialists.py for where this bet holds (perception,
-# extraction) and where it doesn't (open-ended reasoning).
-#
-# mode: enrich   -> the specialist's findings are handed to the primary,
-#                   which still writes the answer. Default, and the one
-#                   that actually "frees up the big model".
-# mode: delegate -> the specialist's output IS the answer. Only when the
-#                   task is wholly inside its scope and no synthesis is
-#                   wanted.
-#
-# Commented out until the model files are downloaded -- an entry naming
-# a model that isn't in `models:` above is skipped at runtime and shown
-# as MISSING by `gremlin specialists`.
-#
-# The code/math/general/extraction groups below are also what
-# gremlin_core/consult.py routes to when Gremlin's own answer is
-# uncertain: consult classifies the question's topic (see
-# specialists.classify_task_type), then asks gremlin itself (still
-# resident, so this costs no extra model load/swap) which specific
-# model in that one group best fits THIS question (see
-# _deliberate_candidate) -- never a broadcast to all of them. That pick
-# is tried first regardless of its priority number below; priority only
-# decides the fallback order if deliberation is inconclusive or the
-# picked model's own call errors or comes back empty (see
-# specialists.route), not merely because its answer seemed weak.
-#
-# Within a group, the small already-fine-tuned sub-models (0.5B-3B) are
-# given lower priority numbers than the ~7-9B "lead"/alternate models on
-# purpose: models/ lives on a spinning HDD here, not an SSD, so every
-# model swap costs a real multi-second-to-tens-of-seconds disk read
-# proportional to file size (380MB-2.1GB for a sub-model vs.
-# 4.4-5.6GB for a lead). Falling back to a small sub-model is cheap;
-# falling back to a lead is the expensive path, so it's reserved for
-# when nothing smaller in the group could answer at all.
-# ---------------------------------------------------------------------
-# specialists:
-#   - name: qwen25-vl-3b
-#     task_types: [vision]
-#     mode: enrich
-#     priority: 10
-#     notes: "Sees screenshots/attachments so the primary doesn't have to."
-
-specialists:
-  # --- code ---
-  - name: qwen2-5-coder-3b-instruct-abliterated-q4-k-m
-    task_types: [code]
-    mode: enrich
-    priority: 20
-  - name: qwen3-coder
-    task_types: [code]
-    mode: enrich
-    priority: 30
-    notes: "Qwen2.5-Coder-7B -- code lead."
-
-  # --- math / reasoning ---
-  - name: deepseek-r1-distill-qwen-1-5b-abliterated-q4-k-m
-    task_types: [math]
-    mode: enrich
-    priority: 10
-  - name: deepseek-r1-distill-8b
-    task_types: [math]
-    mode: enrich
-    priority: 20
-    notes: "DeepSeek-R1-Distill-Qwen-8B -- math/reasoning lead."
-  - name: llama-3-2-3b-instruct-abliterated-q4-k-m
-    task_types: [general]
-    mode: enrich
-    priority: 15
-  - name: gpt-oss-20b
-    task_types: [general]
-    mode: enrich
-    priority: 20
-    notes: "Dolphin 2.9 Llama3 8B -- general lead, closest to ChatGPT."
-  - name: gemma-3-12b
-    task_types: [general]
-    mode: enrich
-    priority: 20
-    notes: "Gemma 2 9B -- general co-lead, closest to Gemini."
-  - name: gemma-2-2b-it-abliterated-q4-k-m
-    task_types: [extraction]
-    mode: enrich
-    priority: 10
-
-# To register the vision model itself, add this to `models:` above once
-# BOTH files are downloaded (a VLM is weights + an mmproj projector --
-# with only the weights it loads fine and then silently can't see):
-#
-#   - name: qwen25-vl-3b
-#     type: local_vlm
-#     display_name: "Qwen2.5-VL 3B (vision specialist)"
-#     model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
-#     mmproj_path: "/home/mickey/Downloads/gremlin/models/mmproj-Qwen2.5-VL-3B-Instruct-Q8_0.gguf"
-#     handler: qwen25vl
-#     n_ctx: 4096
-#     n_gpu_layers: -1
-#
-# Both from ggml-org/Qwen2.5-VL-3B-Instruct-GGUF -- 1930MB + 845MB =
-# ~2.8GB total, verified by real HEAD request. On an 8GB card that does
-# NOT fit alongside the 5.4GB primary, so the primary gets unloaded for
-# the duration of a vision call (same swap consult already does).
+    -- don't guess, deflect, or make something up.
