@@ -100,12 +100,27 @@ def remember_fact(root: str, text: str) -> None:
 
 
 def _note_lines(root: str) -> list[tuple[int, str]]:
-    """(file-line-index, raw-line) for every fact line ('- ...')."""
+    """(file-line-index, raw-line) for every fact line ('- ...').
+
+    Must stay in step with Store.read_facts(): a bare '- ' with no
+    content is skipped there, so skip it here too or `/memory forget N`
+    deletes a different line than `/memory list` numbered.
+    """
     path = memory_file_path(root)
     if not os.path.exists(path):
         return []
     lines = open(path).read().splitlines()
-    return [(i, ln) for i, ln in enumerate(lines) if ln.strip().startswith("-")]
+    out = []
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if not s.startswith("-"):
+            continue
+        # drop the dash, any [tag] prefixes, a trailing <!--id-->
+        body = re.sub(r"<!--.*?-->\s*$", "", s[1:]).strip()
+        body = re.sub(r"^(?:\[[^\]]*\]\s*)+", "", body).strip()
+        if body:
+            out.append((i, ln))
+    return out
 
 
 def forget_note(root: str, n: int) -> str | None:
