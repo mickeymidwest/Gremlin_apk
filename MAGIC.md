@@ -173,13 +173,16 @@ Same commands on both sides; on desktop they're real CLI subcommands, in the app
 they're messages. Each has a one-line help string; a bare/unknown command prints
 the list.
 
-| cmd | does (always executed on the desktop) |
+| cmd | does |
 |---|---|
-| `/chat` | plain chat — no tools, no routing, just talk to Gremlin. The app's default. |
-| `/build` | Gremlin builds an APK / Python script / project on the desktop (`build_project.py`); result is then downloadable from the app |
-| `/fix` | Gremlin runs Magic's battle/reckoning loop on its own harness code |
-| `/skill` | add or improve a Magic skill: `list` / `show <name>` / `new <desc>` / `improve <name> \| <fix>`. Drafts with Gremlin, falls back to Gemini; every draft goes through the same gate as the auto-reckoning. New skills start `candidate` and earn `active` by winning battles. |
-| `/model` | Gremlin downloads a new base model (`hf_hub`), scans it (`model_scan`), runs skill discovery |
+| `/chat` | plain chat — folds in the memory file + recent away turns + this thread's history. The app's default. |
+| `/do` | answer a question that needs live data — Gremlin runs read-only shell (`df`, `ps`, `systemctl status`, `docker ps`) and shows the commands it ran |
+| `/memory` | what Gremlin remembers about you: `list` / `forget <n>` / `clear`. Same `~/Downloads/gremlin_memory.txt` you can edit by hand. |
+| `/skill` | `list` / `show <name>` / `new <desc>` / `improve <name> \| <fix>` / `seed` (8 starter cards) / `suggest` (recurring asks → skill candidates). Drafts with Gremlin → Gemini fallback → the same gate as the auto-reckoning. |
+| `/defense` | check your own box: `surface` / `updates` / `ssh` / `secrets <path>` / `report`. Read-only, defensive. |
+| `/build` | `build android <dir> [as <name>]` builds an APK on the desktop → Settings → Builds. Freeform `/build <goal>` is desktop-CLI only (too heavy for the server). |
+| `/fix` | Magic battle-loop on the harness code. Desktop-CLI only on this box. |
+| `/model` | pick / inspect the base model: `list` / `search <q>` / `use <name>` |
 | `/claude` | (kept) hand a problem to a full Claude Code session on the desktop, explicit confirm |
 | `/builds`, `/builds get <name>` | (kept) list / fetch desktop builds |
 
