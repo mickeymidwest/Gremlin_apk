@@ -22,6 +22,7 @@ serialized on that one loop, exactly how asyncio is meant to be used.
 from __future__ import annotations
 import asyncio
 import secrets
+from concurrent.futures import TimeoutError as FuturesTimeout
 import socket
 import subprocess
 import threading
@@ -108,7 +109,15 @@ def start_background_loop() -> asyncio.AbstractEventLoop:
 
 def run_coro(loop: asyncio.AbstractEventLoop, coro, timeout: float = 120.0):
     future = asyncio.run_coroutine_threadsafe(coro, loop)
-    return future.result(timeout=timeout)
+    try:
+        return future.result(timeout=timeout)
+    except FuturesTimeout:
+        # stop a not-yet-started coroutine from running later with no one
+        # waiting on it (and piling up behind a backend lock). A coroutine
+        # already executing can't be cancelled this way -- the watchdog
+        # covers a genuinely wedged loop.
+        future.cancel()
+        raise
 
 
 _STATUS_CACHE = {"at": 0.0, "data": {}}
@@ -438,7 +447,9 @@ def create_app(
                         "That took too long or hit an error -- try again in a moment.",
                         pending.action, ok=False,
                     )
-                return _chat_reply(result["answer"], result["action"], result["ok"])
+                return _chat_reply(result.get("answer", "Done."),
+                                   result.get("action", pending.action),
+                                   result.get("ok", True))
             # Neither yes nor no -- treat it as a new message entirely
             # and drop the stale proposal, rather than half-remembering
             # something the user has clearly moved on from.
@@ -486,7 +497,7 @@ def create_app(
                     "That took too long or hit an error -- try again in a moment.",
                     prepared.action, ok=False,
                 )
-            answer = result["answer"]
+            answer = result.get("answer", "")
 
             # update_check is read-only and runs immediately, but finding
             # real pending updates is exactly the point where "check for
@@ -504,7 +515,8 @@ def create_app(
                 pending_confirmations.put(key, apply_intent)
                 answer = f"{answer}\n\n{apply_intent.confirmation_prompt}"
 
-            return _chat_reply(answer, result["action"], result["ok"])
+            return _chat_reply(answer, result.get("action", prepared.action),
+                               result.get("ok", True))
 
         pending_confirmations.put(key, prepared)
         return _chat_reply(prepared.confirmation_prompt, prepared.action)
