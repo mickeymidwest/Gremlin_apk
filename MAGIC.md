@@ -54,6 +54,15 @@ loop checks itself against.
   pytest, returns the diff (apply is a separate confirmed step); `model` →
   list / search / use. Wired as `gremlin magic <cmd>`. Bare/unknown → help.
   41 tests green; `main` + `server` still import clean.
+- [~] **a. wider model bench** — bench/quality.py extended to the on-disk 7-9B
+  models + 5 non-abliterated candidates downloading (Qwen2.5-Coder-7B-Instruct,
+  Qwen2.5-7B-Instruct, Llama-3.1-8B-Instruct, Ministral-8B, granite-3.1-8b).
+  Early: dolphin-2.9-llama3-8b 2/8 @ 28 tok/s (poor, as expected). Full table +
+  verdict next checkpoint.
+- [x] **b. harness survey** — spec §8: ranked list of 10 patterns to adopt from
+  Aider / SWE-agent / OpenHands / TaskWeaver, top picks: parse-before-edit,
+  phase-gated tools, repo map, search/replace edits. Implementation = later
+  iterations.
 - [ ] 6b. command surface (APK) — `/command` server endpoint + `handleSlashCommand`
   in MainActivity for `/chat /build /fix /model` + refreshed help text
 - [ ] 7. APK Settings→Builds download
@@ -206,7 +215,47 @@ The grey middle (fire a known exploit at your *own* box to confirm a patch, fuzz
 your *own* app) stays **interactive, mickey-driven, case by case** — never a
 baked-in autonomous skill.
 
-## 8. Open / needs mickey
+## 8. Patterns to adopt from other harnesses
+
+Survey of open agent harnesses (Aider, SWE-agent, OpenHands, TaskWeaver, +
+the 2026 harness-engineering write-ups). Ranked by value/effort for Magic's
+actual shape (ReAct text protocol, `ShellToolHost`, battle→verify→reckon,
+skill cards). "Extract skills from model weights" is not one of these — that
+isn't a thing; skills come from the loop and from here.
+
+1. **Parse/lint before an edit lands** (SWE-agent ACI) — `write_file` /
+   `edit_file` reject a Python file that won't `compile()`, feed the
+   SyntaxError back as the tool result. Kills a whole class of wasted battle
+   steps. *high value / low effort.* → done? see build log.
+2. **State-machine tool gating** (SWE-agent; "statewright") — gate tools by
+   battle phase: explore = read/list/repo_map; edit = + write/edit; verify =
+   + run_shell. A local 8B "went 2/10→10/10 by shrinking the tool space" —
+   Gremlin *is* a local 8B. *high / medium.*
+3. **Repo map** (Aider) — a `repo_map` tool: tree-sitter symbol index →
+   task-ranked summary, so a battle stops blind-reading files. Big token +
+   quality win for `/fix`. *high / medium.*
+4. **Search/replace edits with retry** (Aider) — `edit_file(path, search,
+   replace)` with fuzzy match; whole-file `write_file` is where an 8B fails on
+   big files. *high / medium.*
+5. **Plan-then-execute** (TaskWeaver, Aider architect) — one planning call
+   before the battle → short step list; executor works it, replans only on
+   failure. Complements the post-hoc reckoning. *medium / low.*
+6. **Auto-run the check after each edit** (Aider) — toolhost runs the task's
+   test command after write/edit and appends the result, so the model never
+   spends a turn re-checking state. *medium / low.*
+7. **Reasoning sandwich** (harness-engineering write-ups) — concentrate model
+   effort at plan + verify; between a red test run and the next edit, a
+   dedicated "diagnose the failure" call. *medium / low.*
+8. **always-on vs triggered skills** (OpenHands microagents — validates the
+   card design) — add an `always: true` flag alongside `trigger_matcher` for a
+   small core set. *low.*
+9. **Agent-triggered context compression** (Active Context Compression) — a
+   "summarize progress" tool the agent calls, beats mechanical truncation of
+   battle messages. *defer.*
+10. **code-as-action** (smolagents CodeAgent) — agent writes Python instead of
+    ACTION/JSON. A rethink of the protocol, not now — noted as a future option.
+
+## 9. Open / needs mickey
 
 - `sudo` for any package installs.
 - Testing on the actual Pixel 9.
