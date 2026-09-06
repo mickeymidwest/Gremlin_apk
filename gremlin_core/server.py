@@ -111,6 +111,28 @@ def run_coro(loop: asyncio.AbstractEventLoop, coro, timeout: float = 120.0):
     return future.result(timeout=timeout)
 
 
+_STATUS_CACHE = {"at": 0.0, "data": {}}
+
+
+def _status_extras() -> dict:
+    """vram + skill counts for /status, cached 5s so the watchdog's polls
+    don't each shell out to nvidia-smi under GPU load."""
+    import time as _t
+    if _t.time() - _STATUS_CACHE["at"] < 5.0:
+        return _STATUS_CACHE["data"]
+    out: dict = {}
+    try:
+        import subprocess as _sp
+        free, used = _sp.check_output(
+            ["nvidia-smi", "--query-gpu=memory.free,memory.used",
+             "--format=csv,noheader,nounits"], timeout=2).decode().split("\n")[0].split(", ")
+        out["vram_free_mb"], out["vram_used_mb"] = int(free), int(used)
+    except Exception:  # noqa
+        pass
+    _STATUS_CACHE.update(at=_t.time(), data=out)
+    return out
+
+
 def _primary_n_ctx(registry: ModelRegistry) -> Optional[int]:
     """The primary backend's real context window, if it has one --
     passed to ConversationHistory so its render budget is derived from
@@ -205,30 +227,21 @@ def create_app(
         data["agent_state"] = state_machine.state.value
         data["recent_transitions"] = state_machine.recent()
 
-        # Live health the app's Settings screen can show.
+        # /status must stay fast -- the watchdog polls it and a slow
+        # response reads as "hung". nvidia-smi + skill file reads are
+        # cached (5s) so a burst of polls during a /fix battle doesn't
+        # pile up shelling out.
         primary = getattr(gremlin_backend, "primary", gremlin_backend)
         data["model_loaded"] = getattr(primary, "_llm", None) is not None
         data["primary_model"] = registry.primary_model_name()
-        try:
-            import subprocess as _sp
-            free, used = _sp.check_output(
-                ["nvidia-smi", "--query-gpu=memory.free,memory.used",
-                 "--format=csv,noheader,nounits"], timeout=3).decode().split("\n")[0].split(", ")
-            data["vram_free_mb"], data["vram_used_mb"] = int(free), int(used)
-        except Exception:  # noqa
-            pass
-        try:
-            from .magic.store import Store
-            skills = Store(str(project_root)).read_skills()
-            data["skills"] = {"active": sum(s.status == "active" for s in skills),
-                              "candidate": sum(s.status == "candidate" for s in skills)}
-        except Exception:  # noqa
-            pass
+        data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
-        # context; the watchdog restarts on this.
+        # context; the watchdog restarts on this. `busy` tells the
+        # watchdog a slow /status right now is legit work, not a hang.
         data["healthy"] = health["consec_fail"] < 3
         data["consec_answer_failures"] = health["consec_fail"]
+        data["busy"] = state_machine.state.value != "idle"
         return jsonify(data)
 
     @app.route("/conversations", methods=["GET", "POST"])
