@@ -43,3 +43,32 @@ def test_build_apk_bad_name(tmp_path, monkeypatch):
     (tmp_path / "build.gradle").write_text("")
     r = android_build.build_apk(str(tmp_path), "bad name!")
     assert not r["ok"] and "[A-Za-z0-9_-]+" in r["answer"]
+
+
+def test_build_apk_picks_universal_debug_apk(tmp_path, monkeypatch):
+    """With ABI splits present, pick app-debug.apk (universal), not a
+    per-ABI split or the release apk."""
+    home = tmp_path / "home"; home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    proj = tmp_path / "proj"; proj.mkdir()
+    monkeypatch.setattr(android_build, "toolchain_ready", lambda: True)
+    (proj / "build.gradle").write_text("")
+    outdir = proj / "app" / "build" / "outputs" / "apk" / "debug"
+    outdir.mkdir(parents=True)
+    (outdir / "app-arm64-v8a-debug.apk").write_bytes(b"SPLIT")
+    (outdir / "app-debug.apk").write_bytes(b"UNIVERSAL")
+    (outdir / "app-x86_64-debug.apk").write_bytes(b"SPLIT")
+    rel = proj / "app" / "build" / "outputs" / "apk" / "release"
+    rel.mkdir(parents=True)
+    (rel / "app-release-unsigned.apk").write_bytes(b"RELEASE")
+
+    class P:
+        returncode = 0
+        stdout = "BUILD SUCCESSFUL"
+        stderr = ""
+    monkeypatch.setattr(android_build.subprocess, "run", lambda *a, **k: P())
+    monkeypatch.setattr(android_build, "_toolchain_env", lambda: {})
+
+    r = android_build.build_apk(str(proj), "myapp")
+    assert r["ok"], r
+    assert (home / "Downloads" / "myapp" / "myapp.apk").read_bytes() == b"UNIVERSAL"

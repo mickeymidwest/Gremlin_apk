@@ -33,6 +33,8 @@ def test_audit_ssh_flags_weak_settings(monkeypatch, tmp_path):
 
 def test_secrets_in_repo(tmp_path, monkeypatch):
     def fake_run(cmd, *a, **k):
+        if "rev-parse" in cmd:
+            return "true\n"
         if "ls-files" in cmd:
             return "config.py\nreadme.md\n"
         return ""   # empty git log
@@ -42,6 +44,13 @@ def test_secrets_in_repo(tmp_path, monkeypatch):
     r = defense.secrets_in_repo(str(tmp_path))
     assert len(r["hits"]) == 1 and r["hits"][0]["kind"] == "Anthropic API key"
     assert r["hits"][0]["where"] == "config.py"
+
+
+def test_secrets_in_repo_non_repo_is_not_a_false_all_clear(tmp_path, monkeypatch):
+    monkeypatch.setattr(defense, "_run", lambda *a, **k: "")   # git says nothing
+    r = defense.secrets_in_repo(str(tmp_path))
+    assert r["hits"] == [] and "not a git repo" in r["summary"]
+    assert "no obvious secrets" not in r["summary"]
 
 
 def test_defense_command_dispatches(tmp_path, monkeypatch):

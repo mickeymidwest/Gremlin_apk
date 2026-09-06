@@ -122,6 +122,12 @@ def audit_ssh() -> dict:
 
 def secrets_in_repo(path: str, history_commits: int = 50) -> dict:
     root = Path(path).expanduser().resolve()
+    if not root.is_dir():
+        return {"hits": [], "summary": f"no directory at {root}"}
+    inside = _run(["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"]).strip()
+    if inside != "true":
+        # don't return a misleading "no secrets" all-clear for a non-repo
+        return {"hits": [], "summary": f"{root} is not a git repo -- nothing to scan"}
     hits = []
     files = _run(["git", "-C", str(root), "ls-files"]).splitlines()
     for rel in files:
@@ -149,12 +155,13 @@ def secrets_in_repo(path: str, history_commits: int = 50) -> dict:
 
 
 def report(repo_for_secrets: str | None = None) -> str:
+    ssh = audit_ssh()
     parts = [
         "ATTACK SURFACE\n  " + attack_surface()["summary"],
         "UPDATES\n  " + pending_security_updates()["summary"],
-        "SSH\n  " + audit_ssh()["summary"],
+        "SSH\n  " + ssh["summary"],
     ]
-    for f in audit_ssh()["findings"]:
+    for f in ssh["findings"]:
         parts.append("    - " + f)
     if repo_for_secrets:
         parts.append("SECRETS\n  " + secrets_in_repo(repo_for_secrets)["summary"])

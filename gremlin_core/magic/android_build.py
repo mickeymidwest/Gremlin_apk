@@ -91,7 +91,11 @@ def build_apk(project_hint: str, out_name: str, timeout: int = 1800) -> dict:
     apks = sorted(proj.rglob("build/outputs/apk/**/*.apk"))
     if not apks:
         return {"ok": False, "answer": f"build reported success but no .apk found\n{log_tail}"}
-    apk = apks[0]
+    # assembleDebug -> want the debug artifact, and the universal one over
+    # a per-ABI split (shortest filename: app-debug.apk beats
+    # app-arm64-v8a-debug.apk). Fall back to whatever exists.
+    debug = [a for a in apks if "debug" in a.name.lower()]
+    apk = min(debug or apks, key=lambda a: len(a.name))
 
     dest = Path.home() / "Downloads" / out_name
     dest.mkdir(parents=True, exist_ok=True)
