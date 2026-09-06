@@ -34,7 +34,12 @@ data class BuildInfo(
     val sizeBytes: Long,
     val fileCount: Int,
     val tooBig: Boolean,
-)
+    /** if the build is exactly one file, its name (e.g. "gremlin.apk") --
+     *  the app pulls it raw so an .apk installs with no unzip. "" otherwise. */
+    val singleFile: String = "",
+) {
+    val isApk: Boolean get() = singleFile.endsWith(".apk", ignoreCase = true)
+}
 
 /** Result of an admin-token-gated call (slash commands in
  * MainActivity) -- deliberately the same (ok, message) shape for
@@ -567,6 +572,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
                         sizeBytes = o.optLong("size_bytes"),
                         fileCount = o.optInt("file_count"),
                         tooBig = o.optBoolean("too_big"),
+                        singleFile = o.optString("single_file", ""),
                     )
                 )
             }
@@ -576,22 +582,23 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
     }
 
-    /** Downloads one build's .zip and streams it into `dest` (e.g. a
-     * Storage Access Framework OutputStream the user picked). Returns an
-     * error string, or null on success. Caller owns/closes `dest`. */
-    fun downloadBuild(name: String, dest: OutputStream): String? {
+    /** Downloads a build and streams it into `dest` (e.g. a Storage
+     * Access Framework OutputStream the user picked). `raw=true` asks
+     * for the single file itself instead of a zip. Returns an error
+     * string, or null on success. Caller owns/closes `dest`. */
+    fun downloadBuild(name: String, dest: OutputStream, raw: Boolean = false): String? {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
         val token = prefs.getString("token", null)
         if (host == null || port == 0 || token == null) return "Not paired with a desktop"
         return try {
             val safe = URLEncoder.encode(name, "UTF-8")
-            val url = URL("http://$host:$port/builds/$safe")
+            val url = URL("http://$host:$port/builds/$safe" + if (raw) "?raw=1" else "")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.connectTimeout = 8_000
-            connection.readTimeout = 60_000
+            connection.readTimeout = 120_000
 
             val code = connection.responseCode
             if (code !in 200..299) {
@@ -607,6 +614,19 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         } catch (e: Exception) {
             "Download failed: ${e.message}"
         }
+    }
+
+    /** Downloads a single-file build (an .apk) straight into the app's
+     * cache so it can be handed to the system installer. Returns the
+     * File on success or null on failure. `filename` is the server's
+     * single_file name. */
+    fun downloadBuildToCache(name: String, filename: String): File? {
+        val dir = File(appContext.cacheDir, "builds").apply { mkdirs() }
+        // clear old staged builds so the cache dir doesn't grow
+        dir.listFiles()?.forEach { it.delete() }
+        val out = File(dir, filename.ifBlank { "$name.bin" })
+        val err = out.outputStream().use { downloadBuild(name, it, raw = true) }
+        return if (err == null && out.length() > 0) out else { out.delete(); null }
     }
 
     /** Backs the `/claude <problem> confirm` slash command -- runs the

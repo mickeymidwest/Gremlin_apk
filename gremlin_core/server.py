@@ -216,6 +216,11 @@ def create_app(
         supplied = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         if not supplied:
             supplied = (request.get_json(silent=True) or {}).get("token", "")
+        if not supplied:
+            # ?token=... -- lets the phone's browser download a build
+            # straight from /builds/<name>?raw=1&token=... (a browser
+            # can't set an Authorization header). LAN-only personal setup.
+            supplied = request.args.get("token", "")
         if not secrets.compare_digest(supplied, token):
             return jsonify({"error": "invalid or missing token"}), 401
         return None
@@ -659,7 +664,16 @@ def create_app(
         auth_error = _check_auth()
         if auth_error:
             return auth_error
+        # ?raw=1 -> the single file itself (an .apk installs straight off,
+        # no unzip). Falls back to the zip if the build has several files.
+        want_raw = request.args.get("raw") in ("1", "true", "yes")
         try:
+            if want_raw:
+                single = builds.read_single_file(name)
+                if single is not None:
+                    data, filename, mime = single
+                    return Response(data, mimetype=mime, headers={
+                        "Content-Disposition": f'attachment; filename="{filename}"'})
             packed = builds.make_zip(name)
         except ValueError as e:
             return jsonify({"error": str(e)}), 413

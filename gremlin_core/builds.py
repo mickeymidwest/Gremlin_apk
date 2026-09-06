@@ -94,6 +94,7 @@ def list_builds() -> list[dict]:
         except (OSError, ValueError):
             meta = {}
         size, files = _dir_stats(child)
+        single = _single_payload_file(child)
         out.append({
             "name": child.name,
             "goal": meta.get("goal", ""),
@@ -102,9 +103,57 @@ def list_builds() -> list[dict]:
             "size_bytes": size,
             "file_count": files,
             "too_big": size > MAX_ZIP_BYTES,
+            # if the build is exactly one real file (an .apk, a script),
+            # the phone can pull it raw and skip the unzip -- name it so
+            # the app knows to offer "install" / save it with the right
+            # extension instead of a .zip.
+            "single_file": single.name if single else "",
         })
     out.sort(key=lambda b: b.get("created") or 0, reverse=True)
     return out
+
+
+def _single_payload_file(root: Path) -> Optional[Path]:
+    """The one real file in a build folder (ignoring the marker and any
+    _SKIP_DIRS), or None if there are zero or several."""
+    hits = []
+    for p in root.rglob("*"):
+        rel = p.relative_to(root)
+        if p.name == MARKER or any(part in _SKIP_DIRS for part in rel.parts):
+            continue
+        if p.is_file():
+            hits.append(p)
+            if len(hits) > 1:
+                return None
+    return hits[0] if hits else None
+
+
+_MIME = {
+    ".apk": "application/vnd.android.package-archive",
+    ".zip": "application/zip",
+    ".py": "text/x-python",
+    ".txt": "text/plain",
+    ".json": "application/json",
+    ".sh": "text/x-shellscript",
+}
+
+
+def read_single_file(name: str) -> Optional[tuple[bytes, str, str]]:
+    """(bytes, download_filename, mimetype) for a build that is exactly
+    one file -- the phone pulls this raw so an .apk is installable
+    straight off, no unzip. None if `name` doesn't resolve or isn't a
+    single-file build. Raises ValueError if that file is over the cap."""
+    root = _resolve(name)
+    if root is None:
+        return None
+    f = _single_payload_file(root)
+    if f is None:
+        return None
+    size = f.stat().st_size
+    if size > MAX_ZIP_BYTES:
+        raise ValueError(f"{f.name} is {size // 1024 // 1024} MB, over the {MAX_ZIP_BYTES // 1024 // 1024} MB limit")
+    mime = _MIME.get(f.suffix.lower(), "application/octet-stream")
+    return f.read_bytes(), f.name, mime
 
 
 def make_zip(name: str) -> Optional[tuple[bytes, str]]:
