@@ -82,7 +82,7 @@ class BackendModel:
             prompt, system=system, max_tokens=max_tokens, temperature=self.temperature,
         )
         if self._loop is not None:
-            result = asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=300)
+            result = asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=600)
         else:
             result = _run_coro(coro)
         if getattr(result, "error", None):

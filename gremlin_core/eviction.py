@@ -38,11 +38,18 @@ async def evict_idle_models(
     best-effort -- an error unloading one backend is logged to stdout
     and never stops the sweep loop or affects any other backend."""
     primary_name = registry.primary_model_name()
+    try:
+        from .magic import vram
+    except Exception:  # noqa
+        vram = None
 
     while True:
         await asyncio.sleep(sweep_interval)
         for name, backend in registry.backends.items():
             if name == primary_name:
+                continue
+            # never evict a model Magic is actively holding for a battle
+            if vram is not None and vram.is_active(name):
                 continue
             try:
                 if backend.idle_seconds() > idle_seconds:

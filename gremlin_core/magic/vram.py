@@ -17,6 +17,25 @@ import subprocess
 # load will not fit and must not be attempted.
 MODEL_FOOTPRINT_MB = 5800
 
+# The model Magic is deliberately keeping resident right now (the chat
+# primary normally; the coder while a /fix or /build battle runs). The
+# idle-eviction sweep must not unload this one mid-battle.
+_active: set[str] = set()
+
+
+def active() -> set[str]:
+    return set(_active)
+
+
+def is_active(name: str) -> bool:
+    return name in _active
+
+
+def set_active(name: str | None) -> None:
+    _active.clear()
+    if name:
+        _active.add(name)
+
 
 def free_mb() -> int | None:
     try:
@@ -43,8 +62,10 @@ def _local_gguf_backends(registry):
 
 
 async def ensure_only(registry, keep: str | None) -> None:
-    """Unload every resident local model except `keep`. Call this right
-    before loading a model -- it's what stops two from co-residing."""
+    """Unload every resident local model except `keep`, and mark `keep`
+    as the one Magic is holding so idle-eviction leaves it alone. Call
+    this right before loading a model."""
+    set_active(keep)
     for name, be in _local_gguf_backends(registry).items():
         if name == keep:
             continue

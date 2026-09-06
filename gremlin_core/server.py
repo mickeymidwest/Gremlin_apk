@@ -289,18 +289,11 @@ def create_app(
             conversation_key=request.headers.get("Authorization", "") or "default",
             thread_id=body.get("thread"), loop=loop,
         )
-        try:
-            result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=480.0)
-        except Exception as e:
-            health["consec_fail"] += 1
-            return jsonify({"ok": False, "answer": "That errored or timed out -- try again.",
-                            "error": str(e)}), 200
-
-        # A command that loads the coder model (fix / build) evicts the
-        # warm chat model to stay under 8GB -- re-warm chat in the
-        # background so the next message isn't a ~90s cold load.
-        if result.get("action") in ("fix", "build"):
-            async def _rewarm():
+        def _rewarm_chat():
+            """After a battle command: give the coder's VRAM back, mark the
+            chat model as the one to protect, and reload it in the
+            background so the next message isn't a cold start."""
+            async def _w():
                 be = getattr(registry.get("gremlin"), "primary", registry.get("gremlin"))
                 try:
                     from .magic import vram
@@ -308,7 +301,20 @@ def create_app(
                     await be.warmup()
                 except Exception:  # noqa
                     pass
-            asyncio.run_coroutine_threadsafe(_rewarm(), loop)
+            asyncio.run_coroutine_threadsafe(_w(), loop)
+
+        heavy = cmd in ("fix", "build")
+        try:
+            result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=900.0)
+        except Exception as e:
+            health["consec_fail"] += 1
+            if heavy:
+                _rewarm_chat()
+            return jsonify({"ok": False, "answer": "That errored or timed out -- try again.",
+                            "error": str(e) or type(e).__name__}), 200
+
+        if heavy or result.get("action") in ("fix", "build"):
+            _rewarm_chat()
 
         return jsonify(_note_answer(result) if (result.get("action") == "chat") else result)
 
