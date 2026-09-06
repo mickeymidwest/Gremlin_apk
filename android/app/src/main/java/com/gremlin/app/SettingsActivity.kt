@@ -61,6 +61,9 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.show_commands_button).setOnClickListener { showCommandsReference() }
+        findViewById<Button>(R.id.open_builds_button).setOnClickListener {
+            startActivity(android.content.Intent(this, BuildsActivity::class.java))
+        }
 
         // Away-mode API key fields, pre-filled with whatever's already saved
         val anthropicInput = findViewById<EditText>(R.id.anthropic_key_input)

@@ -29,7 +29,13 @@
             android:id="@+id/show_commands_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Gremlin commands"
+            android:text="Gremlin commands" />
+
+        <Button
+            android:id="@+id/open_builds_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Desktop Builds — download to phone"
             android:layout_marginBottom="20dp" />
 
         <TextView
