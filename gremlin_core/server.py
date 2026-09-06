@@ -194,6 +194,34 @@ def create_app(
         data["recent_transitions"] = state_machine.recent()
         return jsonify(data)
 
+    @app.route("/command", methods=["POST"])
+    def command():
+        """The Magic command surface for the app: {cmd, args} -> the same
+        /chat /skill /build /fix /model the desktop CLI runs. The work
+        happens here; the phone is the messenger (MAGIC.md section 5)."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from .magic.commands import dispatch, CommandContext, help_text, COMMANDS
+        body = request.get_json(silent=True) or {}
+        cmd = (body.get("cmd") or "").strip().lstrip("/")
+        args = (body.get("args") or "").strip()
+        if not cmd:
+            return jsonify({"ok": True, "answer": help_text(),
+                            "commands": [{"name": c.name, "help": c.help}
+                                         for c in COMMANDS.values()]})
+        ctx = CommandContext(
+            registry=registry, project_root=str(project_root),
+            config_path=str(config_path), router=router,
+            conversation_key=request.headers.get("Authorization", "") or "default",
+        )
+        try:
+            result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=480.0)
+        except Exception as e:
+            return jsonify({"ok": False, "answer": "That errored or timed out -- try again.",
+                            "error": str(e)}), 200
+        return jsonify(result)
+
     @app.route("/chat", methods=["POST"])
     def chat():
         auth_error = _check_auth()

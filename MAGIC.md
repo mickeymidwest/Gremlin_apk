@@ -92,8 +92,11 @@ loop checks itself against.
   vets it, accepted → saved as a `candidate` card. `/skill list|show` too.
   Store change: deprecated cards move to `data/skills/_deprecated/` so a name can
   hold both a retired version and its revision. 58 tests green.
-- [ ] 6b. command surface (APK) — `/command` server endpoint + `handleSlashCommand`
-  in MainActivity for `/chat /skill /build /fix /model` + refreshed help text
+- [~] **6b. command surface (server side)** — `POST /command` on `server.py`:
+  `{cmd, args}` → `magic.commands.dispatch`, same auth as `/chat`, runs on the
+  server's event loop. A bare `cmd` returns `help_text()` + a machine-readable
+  `commands` list (for the app's `/` autocomplete). 62 tests green; server
+  imports clean. APK-side `handleSlashCommand` + autocomplete popup: next.
 - [ ] APK polish (mickey 2026-09-05):
   - hologram shows **one Gremlin**, not a model carousel
   - keyboard covers the chat input — fix IME insets (`adjustResize` /
