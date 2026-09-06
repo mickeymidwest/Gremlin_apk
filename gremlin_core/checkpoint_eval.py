@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 import yaml
 
-from . import bench, research
+from . import judge as bench, research
 from .backends.base import ModelInfo
 from .backends.llamacpp_backend import LlamaCppBackend
 from .registry import ModelRegistry

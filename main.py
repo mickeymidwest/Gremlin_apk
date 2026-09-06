@@ -54,34 +54,6 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     in place (every specialists:/consult_models:
     reference to it keeps working, and the old file is left alone so reverting is a
     one-line config edit).
-  gremlin enlist [--yes]
-    Download the 20 verified uncensored sub-models and link every one into
-    persona.consult_models -- making them part of Gremlin the same way the
-    original consult models are. Each repo is re-verified against the live
-    Hugging Face API before anything downloads (models invent repo names,
-    so nothing is trusted). Large one-time download, resumable, idempotent.
-    Only ADDS -- never changes your existing models.
-  gremlin distill [prompts.txt]   (default: data/distill_prompts.txt)
-    Batch data-generation for `gremlin finetune`: forces every prompt in the
-    file through the same consult_and_learn path real chat uses (sampling
-    forced on, one line = one prompt), against whatever persona.consult_models
-    is currently set to. Populates data/learning_log.jsonl without waiting on
-    real conversations or consult_sample_rate's random trickle. Resumable --
-    a prompt already logged is skipped via the normal exact-match cache.
-  gremlin council [--target=20] [--rounds=3]
-    Gremlin's own primary + 4 consult models propose the specialist network themselves,
-    all required to be uncensored. Every proposed repo is verified against the real
-    Hugging Face API before it counts -- models invent plausible repo names constantly,
-    so proposals are checked, not trusted. Writes a proposal to data/council_roster.json;
-    never edits config/models.yaml or your existing models.
-  gremlin specialists              -- list registered specialists (narrow models that
-    handle one kind of work, e.g. vision, so the primary keeps its context for reasoning)
-  gremlin bench [cases.jsonl] [--judge=NAME]
-    Measures whether specialist routing actually beats the primary alone, on the same
-    tasks, judged blind by a model that isn't competing, with the order swapped per case.
-    Reports mean scores AND wall time -- a pipeline that wins by 3 points at 4x the time
-    is usually a bad trade, and that only shows up if it's measured. Defaults to
-    data/bench_cases.jsonl.
   gremlin build <name> "<what to build>" [--apply] [--test] [--dir=<path>]
     [--reviewer-a=NAME] [--reviewer-b=NAME]
     Builds a NEW project from scratch (or extends an existing one) in ~/Downloads/<name>/
@@ -123,7 +95,7 @@ from gremlin_core import actions
 from gremlin_core import intent
 from gremlin_core import history
 from gremlin_core import self_improve
-from gremlin_core import consult
+from gremlin_core.magic import reply as magic_reply
 from gremlin_core import model_scan
 from gremlin_core import script_edit
 from gremlin_core import server
@@ -133,12 +105,8 @@ from gremlin_core import snapshots as snapshots_mod
 from gremlin_core import finetune
 from gremlin_core import update_check
 from gremlin_core import research
-from gremlin_core import specialists
-from gremlin_core import bench
 from gremlin_core import checkpoint_eval
 from gremlin_core import build_project
-from gremlin_core import council
-from gremlin_core import distill
 from gremlin_core.pressure import PressureLevel
 from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
 
@@ -452,56 +420,6 @@ def cmd_build_training_set():
         )
 
 
-async def cmd_distill(registry: ModelRegistry, router: Router, prompts_path: str):
-    _throttle_background_work()
-    prompts = distill.load_prompts(prompts_path)
-    if not prompts:
-        print(f"No prompts found in {prompts_path} (blank lines and lines starting with # are skipped).")
-        return
-
-    print(f"Running {len(prompts)} prompt(s) from {prompts_path} through consult_and_learn...\n")
-
-    def show(i, total, prompt, outcome):
-        short = prompt if len(prompt) <= 70 else prompt[:67] + "..."
-        # flush=True: stdout is block-buffered (not line-buffered) once it's
-        # redirected to a file rather than a TTY, and the self-restart below
-        # uses os.execv, which replaces the process image WITHOUT flushing
-        # Python's buffers first -- without this, whole runs' worth of
-        # progress output was silently vanishing on every restart even
-        # though the actual work (and logging) was happening fine.
-        print(f"[{i}/{total}] {short}\n    -> {outcome}", flush=True)
-
-    result = await distill.run_distillation(
-        registry, router, PROJECT_ROOT, prompts, progress=show, restart_after=DISTILL_RESTART_AFTER,
-    )
-
-    if result.get("stopped_early"):
-        restart_count = int(os.environ.get("GREMLIN_DISTILL_RESTARTS", "0"))
-        if restart_count >= DISTILL_MAX_RESTARTS:
-            print(
-                f"\nHit the restart safety cap ({DISTILL_MAX_RESTARTS}) -- stopping here. "
-                "Some prompts may still be unresolved; re-run `gremlin distill` to keep going "
-                "(already-learned ones are cache-skipped, so this is cheap)."
-            )
-            return
-        print(
-            f"\n{DISTILL_RESTART_AFTER} real attempt(s) done in this process -- restarting into a "
-            f"fresh one to clear whatever accumulates over many sequential model loads on this "
-            f"hardware (restart {restart_count + 1}/{DISTILL_MAX_RESTARTS})...\n",
-            flush=True,
-        )
-        os.environ["GREMLIN_DISTILL_RESTARTS"] = str(restart_count + 1)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-
-    print(
-        f"\nDone. {result['learned']} newly learned, {result['from_cache']} already learned, "
-        f"{result['failed']} failed, out of {result['total']} total."
-    )
-    print("Run `gremlin finetune --promote` next to fold this into the primary model.")
-
-
 def cmd_finetune(promote: bool):
     _throttle_background_work()
     print("Building training set from data/learning_log.jsonl...")
@@ -604,135 +522,6 @@ async def cmd_list(registry: ModelRegistry):
         b = registry.get(name)
         tag = " <- talk to this one" if b.info.kind == "persona" else ""
         print(f"  - {name} ({b.info.kind}) {b.info.notes}{tag}")
-
-
-async def cmd_council(registry: ModelRegistry, router: Router, target: int, rounds: int):
-    """Gremlin's own five models pick the specialist network themselves."""
-    print(f"Convening the council: primary + {len(registry.consult_models())} consult models.")
-    print(f"Target {target} specialists, up to {rounds} rounds, all must be uncensored.")
-    print("Every proposal is checked against the real Hugging Face API -- models invent")
-    print("repo names confidently, so a proposal is not a selection.\n")
-
-    def show(cand):
-        if cand.accepted:
-            mb = cand.smallest_gguf_bytes / 1_000_000
-            print(f"  ACCEPTED  {cand.repo}  ({cand.task_type}, {mb:.0f}MB)")
-        else:
-            print(f"  rejected  {cand.repo}: {cand.rejected_reason}")
-
-    result = await council.convene(router, registry, target=target, rounds=rounds, progress=show)
-    if result.get("error"):
-        print(result["error"])
-        return
-
-    print("\n" + council.roster_summary(result))
-    path = council.write_roster(PROJECT_ROOT, result)
-    print(f"\n(full roster written to {path})")
-
-
-def cmd_enlist(assume_yes: bool):
-    """Download the verified 20 and link them into consult_models -- the
-    step that makes them part of Gremlin."""
-    _throttle_background_work()
-    roster = council.DEFAULT_ROSTER
-    print(f"This downloads {len(roster)} uncensored models and links each into")
-    print("persona.consult_models -- the same list the 4 existing consult models")
-    print("already use to feed Gremlin's answers. Nothing existing is changed.\n")
-    print("Two things to know before you say yes:")
-    print("  - It's a large one-time download (tens of GB). It resumes if interrupted.")
-    print("  - On an 8GB card these load ONE AT A TIME, not all at once. Adding all 20")
-    print("    to consult_models means an uncertain answer could try many of them in")
-    print("    sequence, which is slow. The task-based `gremlin specialists` router is")
-    print("    the efficient way to actually use them; consult is the blunt way.\n")
-
-    if not assume_yes:
-        confirm = input("Download and link all of them now? (y/N): ").strip().lower()
-        if confirm != "y":
-            print("Cancelled -- nothing downloaded, config untouched.")
-            return
-
-    def show(repo, stage, detail):
-        if stage == "downloading":
-            print(f"  {repo}: downloading {detail}")
-        elif stage == "linked":
-            print(f"  {repo}: linked as '{detail}'")
-        elif stage in ("rejected", "failed"):
-            print(f"  {repo}: SKIPPED -- {detail}")
-
-    result = council.enlist(PROJECT_ROOT, CONFIG_PATH, progress=show)
-    print(f"\nLinked {len(result['added'])} of {result['roster_size']} into consult_models.")
-    if result["skipped"]:
-        print(f"Already present: {len(result['skipped'])}")
-    if result["failed"]:
-        print(f"Couldn't add {len(result['failed'])}:")
-        for repo, why in result["failed"]:
-            print(f"  {repo}: {why}")
-    print("\nRun `gremlin list` to see them. They're part of Gremlin now -- reached")
-    print("when its own answer is uncertain, same as the original consult models.")
-
-
-def cmd_specialists(registry: ModelRegistry):
-    sr = specialists.SpecialistRegistry.from_config(registry.raw_config)
-    entries = sr.all()
-    if not entries:
-        print("No specialists registered.")
-        print("Add a `specialists:` block to config/models.yaml -- see the commented example there.")
-        return
-
-    print("Registered specialists (lower priority number runs first):\n")
-    for s in sorted(entries, key=lambda x: (x.task_types[0].value, x.priority)):
-        try:
-            registry.get(s.name)
-            status = "ok"
-        except Exception:
-            status = "MISSING from models: -- this specialist will be skipped"
-        types = ", ".join(t.value for t in s.task_types)
-        print(f"  {s.name:24} [{types}]  mode={s.mode.value}  priority={s.priority}  {status}")
-        if s.notes:
-            print(f"    {s.notes}")
-
-    print("\nTask types with no specialist go straight to the primary, as before.")
-
-
-async def cmd_bench(registry: ModelRegistry, router: Router, cases_path: str, judge: Optional[str]):
-    sr = specialists.SpecialistRegistry.from_config(registry.raw_config)
-    if not sr.all():
-        print("No specialists registered -- there's nothing to compare against the primary.")
-        return
-
-    cases = bench.load_cases(cases_path)
-    if not cases:
-        print(f"No usable cases in {cases_path}.")
-        print('Format: one JSON object per line, e.g.')
-        print('  {"prompt": "explain this diagram", "task_type": "vision", "images": ["/path/shot.png"]}')
-        return
-
-    print(f"Benchmarking {len(cases)} case(s): specialist routing vs the primary alone.")
-    print("Answers are judged blind, by a model that isn't competing, with the order swapped per case.\n")
-
-    def show(cr: bench.CaseResult):
-        if cr.error:
-            print(f"  {cr.prompt[:48]:50} ERROR: {cr.error}")
-            return
-        arrow = "routed" if cr.delta > 2 else ("primary" if cr.delta < -2 else "tie")
-        via = f" via {cr.specialist_used}" if cr.specialist_used else " (no specialist)"
-        print(
-            f"  {cr.prompt[:48]:50} routed {cr.routed_score:5.1f} vs primary {cr.primary_score:5.1f}"
-            f"  -> {arrow}{via}"
-        )
-
-    try:
-        report = await bench.run_bench(router, registry, sr, cases, judge_name=judge, progress=show)
-    except ValueError as e:
-        print(f"Can't run: {e}")
-        return
-
-    print(f"\nJudge: {report.judge}   Primary: {report.primary}")
-    print(f"Mean score -- routed {report.routed_mean:.1f} / primary {report.primary_mean:.1f}")
-    print(f"Wall time  -- routed {report.routed_total_seconds:.0f}s / primary {report.primary_total_seconds:.0f}s")
-    print(f"\n{report.verdict()}")
-    path = bench.record_report(PROJECT_ROOT, report)
-    print(f"(saved to {path})")
 
 
 async def cmd_checkpoint_eval(registry: ModelRegistry, router: Router, judge: Optional[str]):
@@ -944,24 +733,15 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
                 continue
 
         if is_persona:
-            result = await consult.consult_and_learn(
-                router, model_name, user_input, PROJECT_ROOT,
-                last_resort_model=backend.last_resort_model_name,
-                consult_sample_rate=backend.consult_sample_rate,
-                history=conversation_history.render(CONVERSATION_KEY),
+            fb = next(iter(getattr(backend, "fallbacks", []) or []), None) or registry.get("gemini")
+            result = await magic_reply.answer(
+                backend, user_input, str(PROJECT_ROOT),
+                history=conversation_history.render(CONVERSATION_KEY), fallback=fb,
             )
             conversation_history.record(CONVERSATION_KEY, user_input, result.get("answer", ""))
             print(f"{model_name}> {result['answer']}")
-            if result.get("autosaved_note"):
-                print(f"   (noted for later: {result['autosaved_note']})")
-            if result["from_memory"]:
-                print("   (answered from something learned earlier -- no model call needed)")
-            elif result["consulted"]:
-                if result["contributors"]:
-                    via = "last-resort check" if result.get("escalated") else "consulted"
-                    print(f"   (wasn't sure on its own -- {via}: {', '.join(result['contributors'])})")
-                else:
-                    print(f"   ({result.get('note', 'consulted but nothing came back')})")
+            if result.get("source") and result["source"] not in ("gremlin", model_name):
+                print(f"   (local model came up short -- answered via {result['source']})")
             print()
         else:
             result = await router.route(model_name, user_input)
@@ -1292,9 +1072,6 @@ async def main():
         elif cmd == "broadcast":
             models = sys.argv[2].split(",")
             await cmd_broadcast(router, models, sys.argv[3])
-        elif cmd == "distill":
-            prompts_path = sys.argv[2] if len(sys.argv) > 2 else "data/distill_prompts.txt"
-            await cmd_distill(registry, router, prompts_path)
         elif cmd == "plan":
             models = sys.argv[2].split(",")
             await cmd_plan(router, models, sys.argv[3])
@@ -1359,29 +1136,6 @@ async def main():
                     print(f"Queued. Run `gremlin research --daemon` to work through it.")
                 else:
                     await cmd_research(registry, router, goal, max_rounds, target, level, constraints)
-        elif cmd == "enlist":
-            cmd_enlist(assume_yes="--yes" in sys.argv[2:] or "-y" in sys.argv[2:])
-        elif cmd == "council":
-            extra = sys.argv[2:]
-            target = council.DEFAULT_TARGET
-            rounds = council.DEFAULT_ROUNDS
-            for a in extra:
-                if a.startswith("--target="):
-                    target = int(a.split("=", 1)[1])
-                elif a.startswith("--rounds="):
-                    rounds = int(a.split("=", 1)[1])
-            await cmd_council(registry, router, target, rounds)
-        elif cmd == "specialists":
-            cmd_specialists(registry)
-        elif cmd == "bench":
-            extra = sys.argv[2:]
-            positional = [a for a in extra if not a.startswith("--")]
-            cases_path = positional[0] if positional else "data/bench_cases.jsonl"
-            judge = None
-            for a in extra:
-                if a.startswith("--judge="):
-                    judge = a.split("=", 1)[1]
-            await cmd_bench(registry, router, cases_path, judge)
         elif cmd == "build":
             name = sys.argv[2]
             goal = sys.argv[3]

@@ -43,7 +43,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from . import consult as consult_mod
+from . import learning_log as consult_mod
 from . import review as review_mod
 from .router import Router
 from .sandbox import SecureExecutionSandbox
