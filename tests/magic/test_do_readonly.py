@@ -45,3 +45,32 @@ def test_do_command_runs_readonly_battle(tmp_path, monkeypatch):
     r = asyncio.run(dispatch("/do what is my disk usage", ctx))
     assert r["ok"] and r["action"] == "do"
     assert "Disk looks fine." in r["answer"] and "echo disk-check" in r["answer"]
+
+
+def test_do_battle_root_is_home_not_slash(tmp_path, monkeypatch):
+    """read_file / list_dir in a /do battle stay jailed to the user's
+    home -- never "/", which would let a prompt-injected /do dump
+    arbitrary system files through the structured tools."""
+    from pathlib import Path
+    import gremlin_core.magic.battle as battle_mod
+    from gremlin_core.magic.types import Transcript
+
+    seen = {}
+
+    class BE:
+        async def generate(self, *a, **k):
+            return None  # never reached -- run_battle is stubbed
+
+    def fake_run_battle(task, root, model, **kw):
+        seen["root"] = root
+        return Transcript(task_id="do", final_message="ok", steps=[])
+
+    monkeypatch.setattr(battle_mod, "run_battle", fake_run_battle)
+    reg = FakeRegistry()
+    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("gremlin", "qwen2.5-7b") else None)
+    cfg = tmp_path / "m.yaml"; cfg.write_text("models: []\npersona:\n  primary_model: qwen2.5-7b\n")
+    ctx = CommandContext(registry=reg, project_root=str(tmp_path), config_path=str(cfg))
+
+    asyncio.run(dispatch("/do check something", ctx))
+    assert seen["root"] == str(Path.home())
+    assert seen["root"] != "/"

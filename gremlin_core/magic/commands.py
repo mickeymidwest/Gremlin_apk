@@ -417,8 +417,14 @@ async def _do(args: str, ctx: CommandContext) -> dict:
     task = Task(id="do", prompt=(
         f"Answer this by checking the live system, then say DONE with the answer: {args}"))
 
+    # read_file / list_dir in the battle are jailed to this root; keep it
+    # at the user's home, not "/", so a prompt-injected /do can't dump
+    # arbitrary system files through the structured tools. run_shell still
+    # reaches the whole box but readonly mode blocks every write verb.
+    do_root = str(Path.home())
+
     def run():
-        tr = run_battle(task, "/", model, skills=[], facts=[],
+        tr = run_battle(task, do_root, model, skills=[], facts=[],
                         step_budget=8, plan=False, readonly=True)
         cmds = [f"$ {s.tool_args.get('cmd', '')}" for s in tr.steps
                 if s.kind == "tool" and s.tool_name == "run_shell"]
