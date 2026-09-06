@@ -7,6 +7,18 @@ hardpoints, Gremlin is the pilot, skills/tools are the loadout.
 Status: rebuild in progress (started 2026-09-05). This file is the spec the build
 loop checks itself against.
 
+### Build log
+- [x] **1. Skeleton** — `gremlin_core/magic/`: types (ported), store (YAML skill
+  cards at `data/skills/<name>.yaml`, JSON for facts/episodes/campaign), model
+  (`BackendModel` sync-wraps `gremlin_core.backends`; `ScriptedModel` for tests),
+  toolhost (shell + file, path jail). 6 tests green. `tests/` + `pytest.ini` added.
+- [ ] 2. battle / reckoning / gate (+ revise_skill)
+- [ ] 3. verifier + measurement harness
+- [ ] 4. Council (skill destination)
+- [ ] 5. Qwen3-8B primary in models.yaml; drop council/specialists/consult/intent
+- [ ] 6. /chat /build /fix /model commands (desktop + APK)
+- [ ] 7. APK Settings→Builds download
+
 ---
 
 ## 1. Primary model
