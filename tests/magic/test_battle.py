@@ -56,6 +56,37 @@ def test_run_battle_step_budget_gives_up(tmp_path):
     assert "step budget exhausted" in tr.final_message
 
 
+def test_run_battle_returns_transcript_on_model_error(tmp_path):
+    from gremlin_core.magic.model import QuotaExhausted
+
+    class Boom:
+        name = "boom"
+        def complete(self, *a, **k):
+            raise RuntimeError("backend fell over")
+
+    tr = run_battle(Task(id="t4", prompt="x"), str(tmp_path), Boom(),
+                    skills=[], facts=[], step_budget=3, plan=False)
+    assert "model error" in tr.final_message and "backend fell over" in tr.final_message
+
+    class Quota:
+        name = "q"
+        def complete(self, *a, **k):
+            raise QuotaExhausted("per-day cap")
+
+    # QuotaExhausted still propagates -- campaign.py needs it to stop cleanly
+    try:
+        run_battle(Task(id="t5", prompt="x"), str(tmp_path), Quota(),
+                   skills=[], facts=[], step_budget=3, plan=False)
+        assert False, "should have raised"
+    except QuotaExhausted:
+        pass
+
+
+def test_parse_turn_recovers_args_without_a_fence():
+    kind, call, _ = _parse_turn('ACTION: read_file\nthe args are {"path": "x.py"} ok')
+    assert kind == "action" and call.args == {"path": "x.py"}
+
+
 def test_skill_marked_invoked_when_named(tmp_path):
     skill = Skill(id="skill_flush", name="flush-final-run", purpose="p",
                   trigger_when="loop forever budget", procedure=["do it"],

@@ -23,13 +23,13 @@ import time
 import re
 from typing import Optional, Sequence
 
-from .model import Model
+from ._jsonx import extract_json
+from .model import Model, QuotaExhausted
 from .toolhost import ShellToolHost, ToolCall
 from .types import Fact, Skill, StepRecord, Task, Transcript
 
 _ACTION_RE = re.compile(r"ACTION:\s*([a-z_]+)", re.IGNORECASE)
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
-_BARE_OBJ_RE = re.compile(r"(\{.*\})", re.DOTALL)
 _DONE_RE = re.compile(r"^\s*DONE\b[:.]?\s*(.*)$", re.IGNORECASE | re.DOTALL | re.MULTILINE)
 
 _PROTOCOL = """\
@@ -107,13 +107,15 @@ def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
     if action:
         name = action.group(1).lower()
         after = text[action.end():]
-        m = _JSON_FENCE_RE.search(after) or _BARE_OBJ_RE.search(after)
+        m = _JSON_FENCE_RE.search(after)
         args = {}
         if m:
             try:
                 args = json.loads(m.group(1))
             except (ValueError, TypeError):
                 args = {}
+        if not isinstance(args, dict) or not args:
+            args = extract_json(after)   # fence missing/garbled -- scan raw
         return "action", ToolCall(name=name, args=args if isinstance(args, dict) else {}), ""
     return "unclear", None, ""
 
@@ -170,7 +172,13 @@ def run_battle(task: Task, repo_path: str, model: Model,
         if time.monotonic() - _start > time_budget_s:
             transcript.final_message = "(gave up: time budget exhausted)"
             break
-        reply = model.complete(messages, system=system, max_tokens=max_tokens)
+        try:
+            reply = model.complete(messages, system=system, max_tokens=max_tokens)
+        except QuotaExhausted:
+            raise                       # campaign.py stops the run cleanly on this
+        except Exception as e:          # a transient backend error ends this battle, doesn't crash the caller
+            transcript.final_message = f"(gave up: model error: {type(e).__name__}: {e})"
+            break
         transcript.steps.append(StepRecord(kind="model", content=reply.text))
         messages.append({"role": "assistant", "content": reply.text})
 
