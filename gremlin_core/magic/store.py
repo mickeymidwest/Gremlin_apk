@@ -91,9 +91,9 @@ class Store:
         d = to_dict(s)
         # order the mapping so the card reads well when opened by hand
         ordered = {k: d[k] for k in (
-            "id", "name", "status", "purpose", "trigger_when",
-            "trigger_matcher", "procedure", "supersedes", "provenance",
-            "created", "record",
+            "id", "name", "status", "destination", "council_reviewed",
+            "purpose", "trigger_when", "trigger_matcher", "procedure",
+            "supersedes", "provenance", "created", "record",
         ) if k in d}
         tmp = path.with_suffix(".yaml.tmp")
         tmp.write_text(yaml.safe_dump(ordered, sort_keys=False, width=88))

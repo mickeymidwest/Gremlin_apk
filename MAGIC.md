@@ -26,7 +26,13 @@ loop checks itself against.
   campaign verified: baselines clamp .75 / rle .25 / dedupe .33 from actual test
   runs; a clamp battle drives .75→1.00; unfixable bugs stay at baseline; skill
   persists as a candidate card. No simulated numbers anywhere.
-- [ ] 4. Council (skill destination)
+- [x] **4. Council** — `council.py`: once an `active` skill has ≥5 wins, a few
+  model voices vote `weights` vs `card` on a dossier (the card + its track
+  record + episode count). Majority wins; **tie → card** (the reversible choice);
+  an unparseable vote counts as card. Sets `Skill.destination` +
+  `council_reviewed`, round-trips through the YAML store. Wired into the campaign
+  loop after `lifecycle.audit` (opt-in via `council_voters=`). `pending_finetune()`
+  lists skills sent to weights that a finetune hasn't consumed yet. 28 tests green.
 - [ ] 5. Qwen3-8B primary in models.yaml; drop council/specialists/consult/intent
 - [ ] 6. /chat /build /fix /model commands (desktop + APK)
 - [ ] 7. APK Settings→Builds download
