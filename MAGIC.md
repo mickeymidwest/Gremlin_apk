@@ -121,10 +121,19 @@ Pure Kotlin, `com.gremlin.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
 `main` touching `android/**` → Actions builds debug APK → artifact (pull with
 `gh run download` once `gh` is authed).
 
-- **Settings → Builds:** a proper screen — list everything Gremlin built on the
-  desktop, tap any entry to download it to the phone. Backed by the existing
-  `builds.py` / `/builds` endpoints; this promotes it from a typed command to
+- **Settings → Builds:** a proper screen — list **everything Gremlin built on the
+  desktop** (Python scripts, whole projects, Android app source/project folders),
+  tap any entry to download it to the phone as a zip. Backed by the existing
+  `builds.py` / `/builds` endpoints; promotes it from a typed command to
   first-class UI. This is the *only* app feature beyond chat.
+  - Scope: **desktop-built artifacts only.** APKs compiled by GitHub Actions are
+    already reachable from the phone (GitHub app / Actions artifacts / `gh run
+    download`) — not this screen's job. The gap this closes is the stuff that
+    only exists on the desktop: a script Gremlin just wrote, an app project
+    before it's pushed.
+  - `build_project` already drops a `.gremlin-build.json` marker that makes a
+    `~/Downloads/<name>/` folder listable; confirm every build path (script,
+    project, android) writes that marker.
 
 ## 7. Open / needs mickey
 
