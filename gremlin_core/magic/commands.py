@@ -40,6 +40,15 @@ class Command:
 
 # --------------------------------------------------------------- handlers
 
+def _coding_backend(ctx: CommandContext):
+    """/build and /fix are agentic coding work -- prefer the coding
+    specialist (qwen2.5-coder-7b, 8/8 on the bench) over the general
+    chat model, falling back to the persona if it isn't registered."""
+    return (ctx.registry.get("qwen2.5-coder-7b")
+            or ctx.registry.get("gremlin")
+            or ctx.registry.get(ctx.registry.raw_config.get("persona", {}).get("primary_model", "")))
+
+
 async def _chat(args: str, ctx: CommandContext) -> dict:
     from .conversation import Conversation, Threads, wants_clear
 
@@ -101,14 +110,27 @@ async def _build(args: str, ctx: CommandContext) -> dict:
             None, lambda: android_build.build_apk(hint, name))
 
     from .. import build_project
-    router = ctx.router
-    if router is None:
-        from ..router import Router
-        router = Router(ctx.registry)
-    result = await build_project.run_build(ctx.registry, router, args, ctx.project_root)
-    return {"ok": bool(result.get("ok", True)),
-            "answer": result.get("answer") or result.get("summary") or "build finished",
-            "build": result.get("folder_name"), "action": "build"}
+    from ..router import Router
+    router = ctx.router or Router(ctx.registry)
+
+    # "/build <name>: <goal>"  or  "/build <goal>"  (name derived from the goal)
+    if ":" in args:
+        name, goal = (p.strip() for p in args.split(":", 1))
+    else:
+        name, goal = build_project.sanitize_folder_name(args[:40]) or "gremlin-build", args
+    target = str(Path(ctx.project_root).parent / (build_project.sanitize_folder_name(name) or "gremlin-build"))
+
+    coder = "qwen2.5-coder-7b" if ctx.registry.get("qwen2.5-coder-7b") else "gremlin"
+    reviewer = "gemini" if ctx.registry.get("gemini") else coder
+    result = await build_project.run_build(
+        router, str(ctx.project_root), target, goal,
+        model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
+        teacher_model=reviewer,
+    )
+    return {"ok": bool(result.get("applied") or result.get("ok", True)),
+            "answer": (result.get("answer") or result.get("summary")
+                       or (f"Built at {target}" if result.get("applied") else result.get("reason", "build finished"))),
+            "build": Path(target).name, "action": "build"}
 
 
 async def _fix(args: str, ctx: CommandContext) -> dict:
@@ -133,10 +155,8 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     store = Store(root)
     skills = store.read_skills()
     facts = store.read_facts()
-    backend = ctx.registry.get("gremlin") or ctx.registry.get(
-        ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
     from .model import BackendModel
-    model = BackendModel(backend)
+    model = BackendModel(_coding_backend(ctx))
 
     task = Task(id="fix", prompt=args, test_filter="")
     tr = run_battle(task, str(work), model, skills, facts, step_budget=14)
