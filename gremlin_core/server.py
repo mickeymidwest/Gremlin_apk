@@ -204,6 +204,27 @@ def create_app(
         # on purpose, same reasoning as system_prompt just above.
         data["agent_state"] = state_machine.state.value
         data["recent_transitions"] = state_machine.recent()
+
+        # Live health the app's Settings screen can show.
+        primary = getattr(gremlin_backend, "primary", gremlin_backend)
+        data["model_loaded"] = getattr(primary, "_llm", None) is not None
+        data["primary_model"] = registry.primary_model_name()
+        try:
+            import subprocess as _sp
+            free, used = _sp.check_output(
+                ["nvidia-smi", "--query-gpu=memory.free,memory.used",
+                 "--format=csv,noheader,nounits"], timeout=3).decode().split("\n")[0].split(", ")
+            data["vram_free_mb"], data["vram_used_mb"] = int(free), int(used)
+        except Exception:  # noqa
+            pass
+        try:
+            from .magic.store import Store
+            skills = Store(str(project_root)).read_skills()
+            data["skills"] = {"active": sum(s.status == "active" for s in skills),
+                              "candidate": sum(s.status == "candidate" for s in skills)}
+        except Exception:  # noqa
+            pass
+
         # 3+ answers in a row failed -> almost certainly a wedged model
         # context; the watchdog restarts on this.
         data["healthy"] = health["consec_fail"] < 3

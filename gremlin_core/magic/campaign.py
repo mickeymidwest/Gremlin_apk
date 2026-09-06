@@ -64,7 +64,7 @@ class Campaign:
         self.converge_run = converge_run
         self.step_budget = step_budget
         self.rng = random.Random(seed)
-        self.log = log
+        self.log = log if log is not print else (lambda *a: print(*a, flush=True))
 
     # -- one battle -------------------------------------------------
 
@@ -169,10 +169,21 @@ class Campaign:
                 self.store.set_state(state)
                 self.log(f"[trial @ {state.battle_count}] holdout={tr:.3f}  {_overfit_note(state)}")
 
+            # Converge only when BOTH: nothing new is being learned AND the
+            # held-out score has actually plateaued. "No new skills" alone
+            # is not convergence when most tasks are still failing -- that
+            # is being stuck, and the loop should keep trying to the budget.
             tail = state.accepted_history[-self.converge_run:]
-            if len(tail) == self.converge_run and sum(tail) == 0:
-                self.log(f"converged: {self.converge_run} reckonings with nothing accepted")
+            stalled_skills = len(tail) == self.converge_run and sum(tail) == 0
+            curve = [c["score"] for c in state.trial_curve]
+            plateaued = len(curve) >= 2 and abs(curve[-1] - curve[-2]) < 0.02
+            solved = sum(1 for v in state.best_by_task.values() if v >= 0.999)
+            if stalled_skills and plateaued and solved >= len(self.tasks) * 0.6:
+                self.log(f"converged: {solved}/{len(self.tasks)} tasks solved, "
+                         f"skills + holdout both flat")
                 break
+            if stalled_skills and not plateaued:
+                self.log(f"  (no new skills, but holdout still moving -- continuing)")
 
         # final full-holdout trial
         final = self._trial(holdout, skills, facts, tag=f"final{state.battle_count}")
