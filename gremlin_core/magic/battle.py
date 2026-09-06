@@ -117,15 +117,45 @@ def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
     return "unclear", None, ""
 
 
+_PLAN_SYSTEM = """\
+You are about to attempt a coding task. Before touching anything, write a
+short plan: 3-6 numbered steps, concrete, in order. Name the file(s) you
+expect to change. Do NOT solve it here -- just the plan. No prose around it.
+"""
+
+
+def _plan(task: Task, model: Model, skills: Sequence[Skill]) -> str:
+    """Pre-battle planning pass (MAGIC.md section 8, #5 + #7): one call
+    that turns into the opening move list, so the small model spends the
+    ReAct loop executing rather than figuring out where to start."""
+    ctx = f"TASK: {task.prompt}"
+    matched = [s for s in skills if _skill_matches(s, task)][:4]
+    if matched:
+        ctx += "\n\nRelevant procedures from past runs:\n" + "\n".join(s.render() for s in matched)
+    try:
+        reply = model.complete([{"role": "user", "content": ctx}],
+                               system=_PLAN_SYSTEM, max_tokens=600)
+        return (reply.text or "").strip()
+    except Exception:
+        return ""
+
+
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
-               step_budget: int = 12, max_tokens: int = 4096) -> Transcript:
+               step_budget: int = 12, max_tokens: int = 4096,
+               plan: bool = True) -> Transcript:
     toolhost = ShellToolHost(repo_path)
     system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)
-    messages = [{"role": "user", "content":
-                 f"TASK: {task.prompt}\n\nThe repository is your working directory. Begin."}]
+    opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
+    if plan:
+        p = _plan(task, model, skills)
+        if p:
+            transcript.steps.append(StepRecord(kind="note", content=f"PLAN\n{p}"))
+            opening += f"\n\nYour plan:\n{p}\n\nFollow it. Adjust only if a step turns out wrong."
+    opening += "\n\nBegin."
+    messages = [{"role": "user", "content": opening}]
 
     unclear_strikes = 0
     for _ in range(step_budget):

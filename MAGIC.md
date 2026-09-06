@@ -236,9 +236,10 @@ isn't a thing; skills come from the loop and from here.
 4. **Search/replace edits** (Aider) — DONE. `edit_file(path, search, replace)`:
    exact match then whitespace-flexible fallback, precheck before write. The
    battle protocol now steers the model to it over whole-file `write_file`.
-5. **Plan-then-execute** (TaskWeaver, Aider architect) — one planning call
-   before the battle → short step list; executor works it, replans only on
-   failure. Complements the post-hoc reckoning. *medium / low.*
+5. **Plan-then-execute** (TaskWeaver, Aider architect) — DONE. `_plan()` runs one
+   call before the ReAct loop → a 3-6 step plan (with relevant skill procedures
+   in its context) → prepended to the opening move as "Your plan: … Follow it."
+   Recorded as a `note` step. `plan=True` default.
 6. **Auto-run the check after each edit** (Aider) — toolhost runs the task's
    test command after write/edit and appends the result, so the model never
    spends a turn re-checking state. *medium / low.*
