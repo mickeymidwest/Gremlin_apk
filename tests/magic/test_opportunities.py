@@ -29,7 +29,20 @@ def test_finds_a_recurring_cluster(tmp_path):
 
 
 def test_nothing_when_no_repetition(tmp_path):
-    _seed(tmp_path, ["one thing", "totally different", "a third unrelated ask"])
+    _seed(tmp_path, ["one thing here now", "totally different question please",
+                     "a third unrelated ask about cats"])
+    assert opportunities.find(str(tmp_path), min_cluster=3) == []
+
+
+def test_test_prompt_noise_is_filtered(tmp_path):
+    _seed(tmp_path, [
+        "reply with just the word pong",
+        "reply with only the word pong please",
+        "hi, reply with pong now",
+        "name one planet one word",
+        "say only the word ready",
+    ])
+    # all of these are bench/ping noise -> no clusters
     assert opportunities.find(str(tmp_path), min_cluster=3) == []
 
 

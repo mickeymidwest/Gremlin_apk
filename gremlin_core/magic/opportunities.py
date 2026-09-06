@@ -39,7 +39,21 @@ def _user_prompts(project_root: str, limit: int = 400) -> list[str]:
                 out.append(json.loads(line).get("prompt", ""))
             except ValueError:
                 pass
-    return [p for p in out if p and len(p) > 8]
+    return [p for p in out if p and len(p) > 8 and not _is_noise(p)]
+
+
+# canned prompts from benchmarks / distill runs / connectivity pings --
+# real recurring asks, but nothing a skill would ever help with.
+_NOISE_RE = re.compile(
+    r"reply with|respond with|one word|single word|just the (word|number|answer)"
+    r"|say (only|just|the word)|answer with (just|only)|\bpong\b|\bping\b"
+    r"|name one (planet|color|animal|number)|test prompt|ignore this",
+    re.IGNORECASE,
+)
+
+
+def _is_noise(p: str) -> bool:
+    return bool(_NOISE_RE.search(p)) or len(p.split()) < 3
 
 
 def find(project_root: str, min_cluster: int = 3) -> list[dict]:
