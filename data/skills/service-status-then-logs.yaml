@@ -1,0 +1,22 @@
+id: seed_07
+name: service-status-then-logs
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the fix for a broken service is in its logs, not in guessing
+trigger_when: a systemd service or container is misbehaving
+trigger_matcher: service|systemd|jellyfin|docker|container|daemon|not running|crashed
+procedure:
+- systemctl --user status <service>  (or docker ps -a) for the state
+- journalctl --user -u <service> -n 50  (or docker logs) for the real error
+- act on what the log says, not on a guess
+supersedes: null
+provenance:
+- seed
+created: 1788664611.49488
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

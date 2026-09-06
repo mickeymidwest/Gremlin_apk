@@ -1,0 +1,22 @@
+id: seed_00
+name: read-the-error-first
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a failing command tells you what's wrong -- read it before touching code
+trigger_when: a build, test, or command has just failed
+trigger_matcher: fail|error|exception|traceback|exit [1-9]
+procedure:
+- read the actual error message and the file:line it names, not the surrounding output
+- form a one-sentence hypothesis about the cause
+- only then look at the code that hypothesis points to
+supersedes: null
+provenance:
+- seed
+created: 1788664611.4948602
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

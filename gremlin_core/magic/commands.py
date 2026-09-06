@@ -40,13 +40,20 @@ class Command:
 
 # --------------------------------------------------------------- handlers
 
+def _coding_model_name(ctx: CommandContext) -> str:
+    return ("qwen2.5-coder-7b" if ctx.registry.get("qwen2.5-coder-7b")
+            else ctx.registry.raw_config.get("persona", {}).get("primary_model", "gremlin"))
+
+
 def _coding_backend(ctx: CommandContext):
     """/build and /fix are agentic coding work -- prefer the coding
     specialist (qwen2.5-coder-7b, 8/8 on the bench) over the general
-    chat model, falling back to the persona if it isn't registered."""
-    return (ctx.registry.get("qwen2.5-coder-7b")
-            or ctx.registry.get("gremlin")
-            or ctx.registry.get(ctx.registry.raw_config.get("persona", {}).get("primary_model", "")))
+    chat model. VRAM: unload everything else first -- two local models
+    do not fit on the 8GB card (see magic/vram.py)."""
+    from . import vram
+    name = _coding_model_name(ctx)
+    vram.ensure_only_sync(ctx.registry, keep=name)
+    return ctx.registry.get(name) or ctx.registry.get("gremlin")
 
 
 async def _chat(args: str, ctx: CommandContext) -> dict:
@@ -120,7 +127,9 @@ async def _build(args: str, ctx: CommandContext) -> dict:
         name, goal = build_project.sanitize_folder_name(args[:40]) or "gremlin-build", args
     target = str(Path(ctx.project_root).parent / (build_project.sanitize_folder_name(name) or "gremlin-build"))
 
-    coder = "qwen2.5-coder-7b" if ctx.registry.get("qwen2.5-coder-7b") else "gremlin"
+    coder = _coding_model_name(ctx)
+    from . import vram
+    await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
     reviewer = "gemini" if ctx.registry.get("gemini") else coder
     result = await build_project.run_build(
         router, str(ctx.project_root), target, goal,
@@ -238,6 +247,13 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
                 "/skill improve <name> | <what's wrong>\n"
                 "/skill suggest                  skills worth adding, from what you ask a lot\n"
                 "/skill show <name>"}
+
+    if sub == "seed":
+        from . import seed_skills
+        added = seed_skills.seed(ctx.project_root)
+        return {"ok": True, "action": "skill",
+                "answer": (f"Added {len(added)} starter skill(s): " + ", ".join(added)
+                           if added else "All starter skills are already present.")}
 
     if sub == "suggest":
         from . import opportunities

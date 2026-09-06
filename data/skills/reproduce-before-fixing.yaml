@@ -1,0 +1,22 @@
+id: seed_01
+name: reproduce-before-fixing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: confirm you can see the bug before you try to fix it
+trigger_when: asked to fix a bug or a failing test
+trigger_matcher: fix|bug|failing|broken|doesn't work|not working
+procedure:
+- run the failing test or the exact case that shows the bug
+- confirm you see the failure and note what it actually says
+- make the fix, then re-run the same case -- it must now pass
+supersedes: null
+provenance:
+- seed
+created: 1788664611.4948676
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

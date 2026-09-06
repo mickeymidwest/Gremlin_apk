@@ -1,0 +1,22 @@
+id: seed_06
+name: snapshot-before-risky-change
+status: candidate
+destination: card
+council_reviewed: false
+purpose: anything hard to undo gets a rollback point first
+trigger_when: about to change a system config, run a package op, or edit outside a git repo
+trigger_matcher: config|/etc|pacman|systemctl|install|upgrade|sysctl|firewall
+procedure:
+- take a BTRFS snapshot (snapper) or a git commit of the current state
+- make the change
+- note how to roll back if it goes wrong
+supersedes: null
+provenance:
+- seed
+created: 1788664611.4948788
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

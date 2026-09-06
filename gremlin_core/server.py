@@ -282,6 +282,21 @@ def create_app(
             health["consec_fail"] += 1
             return jsonify({"ok": False, "answer": "That errored or timed out -- try again.",
                             "error": str(e)}), 200
+
+        # A command that loads the coder model (fix / build) evicts the
+        # warm chat model to stay under 8GB -- re-warm chat in the
+        # background so the next message isn't a ~90s cold load.
+        if result.get("action") in ("fix", "build"):
+            async def _rewarm():
+                be = getattr(registry.get("gremlin"), "primary", registry.get("gremlin"))
+                try:
+                    from .magic import vram
+                    await vram.ensure_only(registry, keep=registry.primary_model_name())
+                    await be.warmup()
+                except Exception:  # noqa
+                    pass
+            asyncio.run_coroutine_threadsafe(_rewarm(), loop)
+
         return jsonify(_note_answer(result) if (result.get("action") == "chat") else result)
 
     @app.route("/chat", methods=["POST"])

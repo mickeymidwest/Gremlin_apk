@@ -1,0 +1,21 @@
+id: seed_03
+name: search-before-you-guess
+status: candidate
+destination: card
+council_reviewed: false
+purpose: don't assume where a symbol lives or how it's used -- look
+trigger_when: you need to change or call something defined elsewhere
+trigger_matcher: import|call|use|where is|defined|function|class|method
+procedure:
+- grep / repo_map for the name to find every definition and use
+- read the definition and one real call site before editing
+supersedes: null
+provenance:
+- seed
+created: 1788664611.494873
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

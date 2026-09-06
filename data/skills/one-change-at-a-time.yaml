@@ -1,0 +1,22 @@
+id: seed_02
+name: one-change-at-a-time
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a small model loses the thread on multi-file edits -- go one step at a time
+trigger_when: a task needs more than one edit
+trigger_matcher: null
+procedure:
+- make the single smallest edit that could move things forward
+- run the check (tests / compile / lint) to see if it helped
+- only make the next edit once you know the last one's effect
+supersedes: null
+provenance:
+- seed
+created: 1788664611.494871
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
