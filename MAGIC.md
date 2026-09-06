@@ -47,7 +47,15 @@ loop checks itself against.
 - [ ] 5b. drop council.py / specialists.py / consult.py / intent.py — keep the
   desktop service bootable at every pushed commit (build the Magic request path
   in server.py first, delete the old path in one green commit)
-- [ ] 6. /chat /build /fix /model commands (desktop + APK)
+- [~] **6a. command surface (desktop)** — `gremlin_core/magic/commands.py`: one
+  registry (`chat` / `build` / `fix` / `model`) with help strings, used by CLI
+  and (next) the app. `chat` → persona backend; `build` → `build_project.run_build`;
+  `fix` → a real Magic battle on a throwaway repo copy scored by the repo's own
+  pytest, returns the diff (apply is a separate confirmed step); `model` →
+  list / search / use. Wired as `gremlin magic <cmd>`. Bare/unknown → help.
+  41 tests green; `main` + `server` still import clean.
+- [ ] 6b. command surface (APK) — `/command` server endpoint + `handleSlashCommand`
+  in MainActivity for `/chat /build /fix /model` + refreshed help text
 - [ ] 7. APK Settings→Builds download
 - [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
   surface / harden / canaries / own-code review. Defensive only, mickey's own

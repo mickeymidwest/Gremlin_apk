@@ -1277,6 +1277,16 @@ async def main():
     try:
         if cmd == "list":
             await cmd_list(registry)
+        elif cmd == "magic":
+            # The unified command surface (MAGIC.md section 5): the same
+            # /chat /build /fix /model the phone app sends as messages.
+            from gremlin_core.magic.commands import dispatch, CommandContext, help_text
+            if len(sys.argv) < 3:
+                print(help_text()); return
+            ctx = CommandContext(registry=registry, project_root=str(PROJECT_ROOT),
+                                 config_path=CONFIG_PATH, router=router)
+            res = await dispatch(" ".join(sys.argv[2:]), ctx)
+            print(res.get("answer", ""))
         elif cmd == "chat":
             await cmd_chat(registry, router, sys.argv[2])
         elif cmd == "broadcast":
