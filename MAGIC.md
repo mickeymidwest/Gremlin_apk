@@ -80,17 +80,32 @@ Claude/Gemini) votes on where it belongs:
 - **Keep in Magic** — stays a skill card, loaded into context on trigger.
   Editable, revisable, revertible. For niche or still-proving skills.
 
-## 5. Command surface
+## 5. Where Gremlin runs — and what the app is for
 
-Explicit slash commands, in the APK and on the desktop. Each has a one-line help
-string; a bare or unknown command prints the list.
+**Gremlin lives on the desktop.** It's an autonomous agent that acts *as mickey*
+on his machine: runs commands, builds projects, edits and improves its own code.
+That is the whole point — the desktop is where the work happens.
 
-| cmd | does |
+**The phone app is a thin client. Two jobs only:**
+1. **Communicate** with desktop-Gremlin (chat).
+2. **Download** things Gremlin built on the desktop, to the phone.
+
+The app never runs a model, never builds anything, never runs the harness loop.
+A slash command typed in the app is just a structured *message* to
+desktop-Gremlin — the desktop does the work and sends back the result.
+
+### Command surface
+
+Same commands on both sides; on desktop they're real CLI subcommands, in the app
+they're messages. Each has a one-line help string; a bare/unknown command prints
+the list.
+
+| cmd | does (always executed on the desktop) |
 |---|---|
-| `/chat` | plain chat mode — no tools, no routing, just talk to Gremlin |
-| `/build` | build an APK, or a Python script / project (`build_project.py`) |
-| `/fix` | improve the harness itself — Magic runs its battle/reckoning loop on its own code |
-| `/model` | pick a new base model — Gremlin downloads it (`hf_hub`), scans it (`model_scan`), runs skill discovery against it |
+| `/chat` | plain chat — no tools, no routing, just talk to Gremlin. The app's default. |
+| `/build` | Gremlin builds an APK / Python script / project on the desktop (`build_project.py`); result is then downloadable from the app |
+| `/fix` | Gremlin runs Magic's battle/reckoning loop on its own harness code |
+| `/model` | Gremlin downloads a new base model (`hf_hub`), scans it (`model_scan`), runs skill discovery |
 | `/claude` | (kept) hand a problem to a full Claude Code session on the desktop, explicit confirm |
 | `/builds`, `/builds get <name>` | (kept) list / fetch desktop builds |
 
@@ -98,15 +113,19 @@ string; a bare or unknown command prints the list.
 
 Pure Kotlin, `com.gremlin.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
 (`.github/workflows/android-build.yml`) — no local Android toolchain. Push to
-`main` touching `android/**` → Actions builds debug APK → artifact.
+`main` touching `android/**` → Actions builds debug APK → artifact (pull with
+`gh run download` once `gh` is authed).
 
-- **Settings → Builds:** browse everything Gremlin built on the desktop and
-  download any of it to the phone (surface `builds.py` in the Settings UI, not
-  just the typed command).
+- **Settings → Builds:** a proper screen — list everything Gremlin built on the
+  desktop, tap any entry to download it to the phone. Backed by the existing
+  `builds.py` / `/builds` endpoints; this promotes it from a typed command to
+  first-class UI. This is the *only* app feature beyond chat.
 
 ## 7. Open / needs mickey
 
 - `sudo` for any package installs.
 - Testing on the actual Pixel 9.
-- Push local `main` (5 commits ahead) → origin before starting.
+- `gh auth login` — github-cli is installed but not authed; needed to check
+  Actions runs and pull the built APK artifact.
 - Real `ANTHROPIC_API_KEY` still a placeholder in `.env` (Gemini works).
+- ~~Push local `main` → origin~~ done — origin at `15d1c4c`.
