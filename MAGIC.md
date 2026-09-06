@@ -75,6 +75,17 @@ pull it.
 **Infra defense (§7):** `/defense surface | updates | ssh | secrets | report` —
 read-only, mickey's own box only.
 
+**Correctness pass** (read every `magic/` module + `server.py` + `eviction.py`):
+`/do` battle jailed to `$HOME` not `/`; `/do` read-only shell now blocks the
+paths the token scan missed (interpreter one-liners, `$(...)`/backticks, no-space
+redirects, `sed -i`, `find -delete`); `run_battle` always returns a transcript
+(a transient model error ends the battle, doesn't crash `/do` or a campaign);
+`store.read_skills()` skips a broken hand-edited card instead of failing whole;
+shared `_jsonx` for model-reply JSON (fences / trailing prose); a corrupt
+`gremlin_memory.txt` can't take down chat; eviction re-reads the primary each
+sweep; `/memory forget N` matches `/memory list`'s numbering; thread-index and
+store writes use unique temp files. ~130 tests.
+
 **Open:**
 - Streaming responses (SSE) — deferred, needs care around the sync/async/lock design.
 - **/fix + /build are desktop-CLI only.** A multi-step battle needs the model
