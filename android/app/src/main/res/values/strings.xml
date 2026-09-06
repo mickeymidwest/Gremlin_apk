@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Gremlin</string>
+    <string name="thinking">● gremlin is thinking…</string>
+    <string name="waking_gremlin">● waking Gremlin — first reply after a restart takes ~90s…</string>
 </resources>

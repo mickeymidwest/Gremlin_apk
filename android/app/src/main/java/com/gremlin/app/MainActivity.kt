@@ -451,6 +451,7 @@ class MainActivity : AppCompatActivity() {
         // chat call itself, so there's no need for the file-based
         // signal gremlin_core.consult uses for the desktop case.
         hologramView.evaluateJavascript("setTalking(true)", null)
+        thinkingStatus.text = getString(R.string.thinking)
         thinkingStatus.visibility = View.VISIBLE
 
         fun subStatusFor(source: String): String? = when (source) {
@@ -458,6 +459,19 @@ class MainActivity : AppCompatActivity() {
             "gemini" -> "(standalone, via Gemini)"
             else -> null
         }
+
+        // First message after a service restart: the model is a ~90s cold
+        // read off the desktop's HDD. Probe /status in parallel and, if
+        // it's still warming, say so instead of leaving a bare spinner.
+        Thread {
+            if (gremlinClient.desktopReadiness() == GremlinClient.DesktopReadiness.WARMING) {
+                runOnUiThread {
+                    if (thinkingStatus.visibility == View.VISIBLE) {
+                        thinkingStatus.text = getString(R.string.waking_gremlin)
+                    }
+                }
+            }
+        }.start()
 
         Thread {
             val started = java.util.concurrent.atomic.AtomicBoolean(false)

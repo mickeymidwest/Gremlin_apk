@@ -284,6 +284,35 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
     }
 
+    /** Quick liveness probe for the "waking Gremlin" hint. Returns:
+     *  READY   -- desktop reachable and the model is resident
+     *  WARMING -- desktop reachable but the model isn't loaded yet
+     *             (first message after a service restart -- a ~90s cold
+     *             read of the GGUF off the HDD)
+     *  UNKNOWN -- not paired, or the desktop didn't answer in time
+     *             (don't show the hint; the normal path handles it) */
+    enum class DesktopReadiness { READY, WARMING, UNKNOWN }
+
+    fun desktopReadiness(): DesktopReadiness {
+        val host = prefs.getString("host", null)
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null)
+        if (host == null || port == 0 || token == null) return DesktopReadiness.UNKNOWN
+        return try {
+            val url = URL("http://$host:$port/status")
+            val c = url.openConnection() as HttpURLConnection
+            c.requestMethod = "GET"
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.connectTimeout = 3_000
+            c.readTimeout = 6_000
+            val json = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            if (json.optBoolean("model_loaded", true)) DesktopReadiness.READY
+            else DesktopReadiness.WARMING
+        } catch (e: Exception) {
+            DesktopReadiness.UNKNOWN
+        }
+    }
+
     private fun refreshCachedPersonaVoice(host: String, port: Int, token: String) {
         try {
             val url = URL("http://$host:$port/status")

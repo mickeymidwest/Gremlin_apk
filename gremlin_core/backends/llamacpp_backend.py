@@ -25,6 +25,11 @@ except ImportError:  # library not installed yet
 _THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
 _OPEN_THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>", re.IGNORECASE)
 
+# How long to wait on the instance lock when nothing is loaded yet -- a
+# cold GGUF read off a spinning disk is ~90s on this box, occasionally
+# ~150s right after other disk churn. Past that, treat it as stuck.
+_COLD_LOAD_WAIT = 200.0
+
 
 def split_reasoning(text: str) -> tuple[str, str]:
     """-> (visible_answer, reasoning). Handles a think block that never
@@ -155,8 +160,17 @@ class LlamaCppBackend(ModelBackend):
             # request from silently hanging behind it for the same amount of
             # time again -- fail fast with a clear "busy" error instead of
             # queuing indefinitely.
+            #
+            # Exception: if nothing is loaded yet, the wait we're about to
+            # do is a legit ~90s cold read of the GGUF off the HDD (the
+            # first message after a restart), not a stuck peer request --
+            # wait it out rather than failing over to a fallback model and
+            # answering the user in the wrong voice.
             try:
-                await asyncio.wait_for(self._lock.acquire(), timeout=5.0)
+                await asyncio.wait_for(
+                    self._lock.acquire(),
+                    timeout=(_COLD_LOAD_WAIT if self._llm is None else 5.0),
+                )
             except asyncio.TimeoutError:
                 return GenerationResult(
                     model=self.info.name, text="",
@@ -215,7 +229,10 @@ class LlamaCppBackend(ModelBackend):
 
         loop = asyncio.get_event_loop()
         try:
-            await asyncio.wait_for(self._lock.acquire(), timeout=5.0)
+            await asyncio.wait_for(
+                self._lock.acquire(),
+                timeout=(_COLD_LOAD_WAIT if self._llm is None else 5.0),
+            )
         except asyncio.TimeoutError:
             raise RuntimeError(
                 f"{self.info.name} is still busy with a previous request -- try again shortly")
