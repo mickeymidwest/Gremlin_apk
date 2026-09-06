@@ -50,3 +50,17 @@ def test_no_log_when_local_model_answers(tmp_path):
     be = Backend(FakeR("local answer"))
     asyncio.run(reply.answer(be, "easy question", str(tmp_path)))
     assert not (Path(tmp_path) / "data" / "learning_log.jsonl").exists()
+
+
+def test_corrupt_memory_file_does_not_break_chat(tmp_path, monkeypatch):
+    # a memory file that read_facts() chokes on must not take down the
+    # answer path -- _memory_block swallows it and returns no block.
+    from gremlin_core.magic import store as store_mod
+
+    def boom(self):
+        raise OSError("disk gremlin ate it")
+
+    monkeypatch.setattr(store_mod.Store, "read_facts", boom)
+    be = Backend(FakeR("still here"))
+    r = asyncio.run(reply.answer(be, "you ok?", str(tmp_path)))
+    assert r["answer"] == "still here"

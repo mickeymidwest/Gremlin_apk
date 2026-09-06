@@ -19,7 +19,11 @@ def _memory_block(root: str) -> str:
     told Gremlin AND what Magic learned in battles -- parsed clean of
     tags/ids by the store."""
     from .store import Store
-    facts = Store(root).read_facts()
+    try:
+        facts = Store(root).read_facts()
+    except Exception:
+        # a corrupt / unreadable memory file must never take down chat
+        return ""
     if not facts:
         return ""
     return ("Things you (Gremlin) know about the user and this setup, kept "
