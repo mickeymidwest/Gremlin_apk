@@ -27,12 +27,31 @@ class ToolResult:
     output: str
 
 
+def _precheck(path: str, text: str) -> str:
+    """Return a rejection message if `text` is obviously broken for its
+    file type, else "". Cheap static checks only -- syntax, not logic."""
+    if path.endswith(".py"):
+        try:
+            compile(text, path, "exec")
+        except SyntaxError as e:
+            return f"SyntaxError: {e.msg} (line {e.lineno})"
+    elif path.endswith(".json"):
+        import json
+        try:
+            json.loads(text)
+        except ValueError as e:
+            return f"invalid JSON: {e}"
+    return ""
+
+
 class ShellToolHost:
     TOOLS = {
-        "run_shell":  "run_shell(cmd)          -- run a shell command in the repo root",
-        "read_file":  "read_file(path)          -- print a file's contents",
-        "write_file": "write_file(path, text)   -- overwrite a file with text",
-        "list_dir":   "list_dir(path)           -- list a directory (path optional, defaults to '.')",
+        "run_shell":  "run_shell(cmd)                  -- run a shell command in the repo root",
+        "read_file":  "read_file(path)                 -- print a file's contents",
+        "edit_file":  "edit_file(path, search, replace) -- replace the first exact match of `search` "
+                      "(prefer this over write_file for an existing file)",
+        "write_file": "write_file(path, text)          -- overwrite a whole file with text",
+        "list_dir":   "list_dir(path)                  -- list a directory (defaults to '.')",
     }
 
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000):
@@ -99,9 +118,53 @@ class ShellToolHost:
         if p is None:
             return ToolResult(False, "path escapes the repo root")
         text = args.get("text", args.get("content", ""))
+        # Parse-before-apply (MAGIC.md section 8, from SWE-agent's ACI): a
+        # Python file that won't compile never lands -- the model gets the
+        # SyntaxError back and fixes it instead of wasting the next few
+        # turns discovering the break by running the tests.
+        rej = _precheck(str(p), text)
+        if rej:
+            return ToolResult(False, f"NOT WRITTEN -- {rej}\nFix the syntax and send write_file again.")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text)
         return ToolResult(True, f"wrote {len(text)} chars to {args.get('path')}")
+
+    def _t_edit_file(self, args: dict) -> ToolResult:
+        p = self._resolve(args.get("path", ""))
+        if p is None:
+            return ToolResult(False, "path escapes the repo root")
+        if not p.is_file():
+            return ToolResult(False, f"no such file: {args.get('path')} (use write_file to create it)")
+        search = args.get("search", args.get("old", ""))
+        replace = args.get("replace", args.get("new", ""))
+        if not search:
+            return ToolResult(False, "edit_file needs a non-empty 'search'")
+        original = p.read_text()
+        if search in original:
+            updated = original.replace(search, replace, 1)
+        else:
+            # whitespace-flexible fallback: match ignoring leading indent
+            norm = lambda s: "\n".join(line.strip() for line in s.splitlines())
+            lines = original.splitlines(keepends=True)
+            target = norm(search)
+            hit = None
+            for i in range(len(lines)):
+                for j in range(i + 1, len(lines) + 1):
+                    if norm("".join(lines[i:j])) == target:
+                        hit = (i, j)
+                        break
+                if hit:
+                    break
+            if not hit:
+                return ToolResult(False, "search text not found (exact or whitespace-insensitive). "
+                                         "read_file first and copy the block verbatim.")
+            i, j = hit
+            updated = "".join(lines[:i]) + replace + ("" if replace.endswith("\n") else "\n") + "".join(lines[j:])
+        rej = _precheck(str(p), updated)
+        if rej:
+            return ToolResult(False, f"NOT WRITTEN -- edit would break the file: {rej}")
+        p.write_text(updated)
+        return ToolResult(True, f"edited {args.get('path')} ({len(original)} -> {len(updated)} chars)")
 
     def _t_list_dir(self, args: dict) -> ToolResult:
         p = self._resolve(args.get("path", "."))

@@ -223,10 +223,9 @@ actual shape (ReAct text protocol, `ShellToolHost`, battle→verify→reckon,
 skill cards). "Extract skills from model weights" is not one of these — that
 isn't a thing; skills come from the loop and from here.
 
-1. **Parse/lint before an edit lands** (SWE-agent ACI) — `write_file` /
-   `edit_file` reject a Python file that won't `compile()`, feed the
-   SyntaxError back as the tool result. Kills a whole class of wasted battle
-   steps. *high value / low effort.* → done? see build log.
+1. **Parse/lint before an edit lands** (SWE-agent ACI) — DONE. `write_file` and
+   `edit_file` run `_precheck` (`compile()` for `.py`, `json.loads` for `.json`);
+   a broken edit never lands, the model gets the SyntaxError back.
 2. **State-machine tool gating** (SWE-agent; "statewright") — gate tools by
    battle phase: explore = read/list/repo_map; edit = + write/edit; verify =
    + run_shell. A local 8B "went 2/10→10/10 by shrinking the tool space" —
@@ -234,9 +233,9 @@ isn't a thing; skills come from the loop and from here.
 3. **Repo map** (Aider) — a `repo_map` tool: tree-sitter symbol index →
    task-ranked summary, so a battle stops blind-reading files. Big token +
    quality win for `/fix`. *high / medium.*
-4. **Search/replace edits with retry** (Aider) — `edit_file(path, search,
-   replace)` with fuzzy match; whole-file `write_file` is where an 8B fails on
-   big files. *high / medium.*
+4. **Search/replace edits** (Aider) — DONE. `edit_file(path, search, replace)`:
+   exact match then whitespace-flexible fallback, precheck before write. The
+   battle protocol now steers the model to it over whole-file `write_file`.
 5. **Plan-then-execute** (TaskWeaver, Aider architect) — one planning call
    before the battle → short step list; executor works it, replans only on
    failure. Complements the post-hoc reckoning. *medium / low.*
