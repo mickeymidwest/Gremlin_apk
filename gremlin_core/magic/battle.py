@@ -143,11 +143,14 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill]) -> str:
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
-               plan: bool = True, phase_gate: bool = True) -> Transcript:
+               plan: bool = True, phase_gate: bool = True,
+               readonly: bool = False) -> Transcript:
     toolhost = ShellToolHost(
-        repo_path,
-        allowed=ShellToolHost.EXPLORE_TOOLS if phase_gate else None,
+        repo_path, readonly=readonly,
+        allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
     )
+    if readonly:
+        phase_gate = False
     system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)

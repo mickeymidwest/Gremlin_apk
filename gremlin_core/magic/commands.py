@@ -277,6 +277,36 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
     return {"ok": False, "answer": "Usage: /skill [list | show <name> | new <desc> | improve <name> | <fix>]"}
 
 
+async def _do(args: str, ctx: CommandContext) -> dict:
+    """A bounded read-only ReAct loop: Gremlin actually runs df / ps /
+    systemctl status / docker ps to answer a question about live state.
+    Nothing that changes state can run (toolhost readonly mode)."""
+    if not args.strip():
+        return {"ok": False, "answer": "Usage: /do <question needing live system data>"}
+    import asyncio
+    from .battle import run_battle
+    from .model import BackendModel
+    from .types import Task
+    backend = ctx.registry.get("gremlin") or ctx.registry.get(
+        ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
+    if backend is None:
+        return {"ok": False, "answer": "no model available"}
+    model = BackendModel(backend)
+    task = Task(id="do", prompt=(
+        f"Answer this by checking the live system, then say DONE with the answer: {args}"))
+
+    def run():
+        tr = run_battle(task, "/", model, skills=[], facts=[],
+                        step_budget=8, plan=False, readonly=True)
+        cmds = [f"$ {s.tool_args.get('cmd', '')}" for s in tr.steps
+                if s.kind == "tool" and s.tool_name == "run_shell"]
+        ans = tr.final_message or "(no answer)"
+        return ans + ("\n\n" + "\n".join(cmds) if cmds else "")
+
+    return {"ok": True, "action": "do",
+            "answer": await asyncio.get_event_loop().run_in_executor(None, run)}
+
+
 async def _defense(args: str, ctx: CommandContext) -> dict:
     """Defensive checks on mickey's own box (MAGIC.md section 7).
     surface | updates | ssh | secrets <path> | report (default)."""
@@ -313,6 +343,8 @@ COMMANDS: dict[str, Command] = {
                      "new <desc> | improve <name> | <fix>. Falls back to Gemini to draft.", _skill),
     "defense": Command("defense", "Check your own box: surface | updates | ssh | "
                        "secrets <path> | report. Read-only, defensive.", _defense),
+    "do": Command("do", "Ask something that needs live data -- Gremlin runs read-only "
+                  "shell commands to answer (\"what's using my disk\", \"is jellyfin up\").", _do),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
                      "grab it from the app's Builds screen.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "

@@ -62,12 +62,27 @@ class ShellToolHost:
     # much better when it can't edit before it has looked.
     EXPLORE_TOOLS = ("repo_map", "read_file", "list_dir", "run_shell")
 
+    # Shell verbs that can change state -- blocked in read-only mode so
+    # /do can answer "what's using my disk" by actually checking, without
+    # any risk of it running something destructive.
+    _WRITE_VERBS = (
+        "rm", "mv", "cp", "dd", "mkfs", "shred", "truncate", ">", ">>", "tee",
+        "chmod", "chown", "chattr", "ln", "install", "rsync", "kill", "pkill",
+        "systemctl", "reboot", "shutdown", "poweroff", "mount", "umount",
+        "pacman", "yay", "pip", "npm", "apt", "docker rm", "docker stop",
+        "docker rmi", "docker kill", "git commit", "git push", "git reset",
+        "git checkout", "git clean", "curl", "wget", "nc", "ncat",
+    )
+
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
-                 allowed: "tuple[str, ...] | None" = None):
+                 allowed: "tuple[str, ...] | None" = None, readonly: bool = False):
         self.root = Path(root).resolve()
         self.shell_timeout = shell_timeout
         self.max_output = max_output
         self.allowed = tuple(allowed) if allowed is not None else tuple(self.TOOLS)
+        self.readonly = readonly
+        if readonly:
+            self.allowed = tuple(t for t in self.allowed if t not in ("write_file", "edit_file"))
         # Put the interpreter running Einherjar first on PATH so the agent's
         # `pytest` / `python` resolve to the env that actually has the test
         # deps -- otherwise a bare shell has neither and the agent can't
@@ -112,6 +127,13 @@ class ShellToolHost:
         cmd = args.get("cmd") or args.get("command") or ""
         if not cmd:
             return ToolResult(False, "run_shell needs a 'cmd'")
+        if self.readonly:
+            low = cmd.lower()
+            hit = next((v for v in self._WRITE_VERBS
+                        if re.search(rf"(^|[|;&\s]){re.escape(v)}([|;&\s]|$)", low)), None)
+            if hit:
+                return ToolResult(False, f"read-only mode: `{hit}` can change state and is blocked. "
+                                         "Use a command that only reads (df, du, ls, ps, cat, ...).")
         proc = subprocess.run(
             cmd, shell=True, cwd=self.root, capture_output=True, text=True,
             timeout=self.shell_timeout, env=self._env,
