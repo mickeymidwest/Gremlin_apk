@@ -61,6 +61,12 @@ def is_talking(root: str) -> bool:
 # -- durable memory notes -----------------------------------------
 
 def memory_file_path(root: str) -> str:
+    # $GREMLIN_MEMORY_FILE wins -- an explicit override, and how the test
+    # suite keeps each test's memory isolated (the default is one level
+    # up from the repo, which is shared under a pytest tmp dir).
+    override = os.environ.get("GREMLIN_MEMORY_FILE")
+    if override:
+        return override
     return os.path.join(os.path.dirname(root.rstrip(os.sep)), "gremlin_memory.txt")
 
 
