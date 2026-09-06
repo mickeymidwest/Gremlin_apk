@@ -5,6 +5,7 @@ via llama-cpp-python. Runs fully offline, no network calls.
 
 from __future__ import annotations
 import asyncio
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -15,6 +16,33 @@ try:
     from llama_cpp import Llama
 except ImportError:  # library not installed yet
     Llama = None
+
+# Reasoning models (Qwen3, DeepSeek-R1 distills) wrap their scratch work
+# in <think>...</think>. Under a plain chat_format that block is handed
+# back verbatim as part of the answer. Strip it so Gremlin's own voice
+# isn't polluted with the model thinking out loud.
+_THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
+_OPEN_THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>", re.IGNORECASE)
+
+
+def split_reasoning(text: str) -> tuple[str, str]:
+    """-> (visible_answer, reasoning). Handles a think block that never
+    closed (model hit the token limit mid-thought): everything from the
+    open tag on is reasoning; if that leaves no answer, fall back to the
+    post-tag text so the caller still gets something."""
+    if not text:
+        return text, ""
+    # keep only think blocks with real content (Qwen3 emits an empty
+    # <think></think> even under /no_think)
+    reasoning_parts = [m.group(0) for m in _THINK_RE.finditer(text) if m.group(2).strip()]
+    visible = _THINK_RE.sub("", text)
+    m = _OPEN_THINK_RE.search(visible)
+    if m:  # an unclosed <think> (model hit the token limit mid-thought)
+        tail = visible[m.end():]
+        reasoning_parts.append(visible[m.start():])
+        visible = visible[:m.start()].strip() or tail
+    visible = visible.strip()
+    return visible, "\n".join(reasoning_parts).strip()
 
 
 class LlamaCppBackend(ModelBackend):
@@ -31,6 +59,8 @@ class LlamaCppBackend(ModelBackend):
         chat_format: Optional[str] = "chatml",  # dolphin models use chatml
         flash_attn: bool = False,
         kv_cache_type: str = "f16",   # f16 | q8_0 | q4_0 -- quantized needs flash_attn
+        strip_reasoning: bool = True,  # drop <think>...</think> from the answer
+        no_think: bool = False,  # Qwen3: append "/no_think" to suppress the think phase
     ):
         super().__init__(info)
         self.model_path = model_path
@@ -39,6 +69,8 @@ class LlamaCppBackend(ModelBackend):
         self.n_threads = n_threads
         self.chat_format = chat_format
         self.kv_cache_type = kv_cache_type
+        self.strip_reasoning = strip_reasoning
+        self.no_think = no_think
         # A quantized KV cache only works with flash attention on in
         # llama.cpp (the non-FA path has no quantized-V kernel), so asking
         # for one implies the other rather than erroring at load time.
@@ -105,6 +137,11 @@ class LlamaCppBackend(ModelBackend):
             if system:
                 messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
+            if self.no_think:
+                # Qwen3 reads "/no_think" in the latest turn as "skip the
+                # <think> phase". Cheaper and more reliable than letting it
+                # burn the token budget reasoning and then stripping it.
+                messages[-1]["content"] += " /no_think"
 
             loop = asyncio.get_event_loop()
 
@@ -141,6 +178,11 @@ class LlamaCppBackend(ModelBackend):
                 self._lock.release()
 
             text = result["choices"][0]["message"]["content"]
+            if self.strip_reasoning:
+                text, reasoning = split_reasoning(text)
+                if reasoning:
+                    return GenerationResult(model=self.info.name, text=text,
+                                            meta={"reasoning": reasoning})
             return GenerationResult(model=self.info.name, text=text)
         except Exception as e:
             return GenerationResult(model=self.info.name, text="", error=str(e))

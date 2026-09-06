@@ -37,8 +37,13 @@ loop checks itself against.
   (32k ctx / flash_attn / q4_0 KV), `persona.primary_model: qwen3-8b`, old
   llama-3.1 kept as a fallback. Verified through Gremlin's *own* `ModelRegistry`
   + `LlamaCppBackend`: loads, resolves as primary, generates, unloads clean.
-  **TODO:** Qwen3 emits `<think>...</think>` under the plain chatml formatter —
-  needs stripping in the response path (or a `/no_think` persona line).
+- [x] **5a-fix. Qwen3 thinking** — `no_think: true` on the model entry appends
+  `/no_think` to each turn (Qwen3 skips the think phase instead of burning the
+  token budget); `strip_reasoning` (default on) also scrubs any `<think>` block
+  that slips through, stashing it in `GenerationResult.meta["reasoning"]`.
+  `split_reasoning()` handles closed blocks, the `<thinking>` variant, an
+  unclosed block from a truncated response, and Qwen3's empty `<think></think>`.
+  6 unit tests + real check: `17*23` → bare `391`, no `<think>` in the answer.
 - [ ] 5b. drop council.py / specialists.py / consult.py / intent.py — keep the
   desktop service bootable at every pushed commit (build the Magic request path
   in server.py first, delete the old path in one green commit)

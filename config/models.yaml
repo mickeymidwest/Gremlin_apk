@@ -7,8 +7,10 @@ models:
   # Run config is the 2026-08-30 sweep's answer for this card:
   # 32768 ctx / flash_attn / q4_0 KV = ~5968 MiB peak, ~2.2 GiB free,
   # ~58 tok/s -- room to coexist with the Jellyfin transcode.
-  # chat_format chatml: Qwen3 is chatml-based. Non-thinking by default;
-  # <think> stripping / a /no_think system line is a follow-up.
+  # chat_format chatml: Qwen3 is chatml-based. no_think appends "/no_think"
+  # to each turn so it skips the <think> phase (otherwise it burns the
+  # token budget reasoning out loud); strip_reasoning (default) also
+  # scrubs any <think> block that slips through.
   - name: qwen3-8b
     type: local_gguf
     display_name: "Qwen3-8B"
@@ -18,6 +20,7 @@ models:
     flash_attn: true
     kv_cache_type: q4_0
     chat_format: chatml
+    no_think: true
 
   # Old primary -- kept as a local fallback option, no longer the voice.
   - name: llama-3.1-8b-abliterated

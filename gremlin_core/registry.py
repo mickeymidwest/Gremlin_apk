@@ -50,6 +50,8 @@ class ModelRegistry:
                     chat_format=entry.get("chat_format", "chatml"),
                     flash_attn=entry.get("flash_attn", False),
                     kv_cache_type=entry.get("kv_cache_type", "f16"),
+                    strip_reasoning=entry.get("strip_reasoning", True),
+                    no_think=entry.get("no_think", False),
                 )
             elif entry["type"] == "local_vlm":
                 # A vision-language model: two files, weights + mmproj
