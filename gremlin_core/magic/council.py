@@ -16,18 +16,15 @@ A tie -> card, because a card is the reversible choice.
 """
 from __future__ import annotations
 
-import json
-import re
 from dataclasses import dataclass, field
 from typing import Sequence
 
+from ._jsonx import extract_json as _extract
 from .model import Model
 from .types import BattleResult, Skill
 
 REVIEW_MIN_WINS = 5          # an active skill isn't reviewed until this many wins
 REVISED_RECENTLY_BATTLES = 8  # a procedure changed within N battles isn't "stable"
-
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 _SYSTEM = """\
 You are one member of a small council deciding where a learned skill
@@ -67,16 +64,6 @@ class Decision:
             if v.choice in out:
                 out[v.choice] += 1
         return out
-
-
-def _extract(text: str) -> dict:
-    m = _JSON_RE.search(text or "")
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(0))
-    except (ValueError, TypeError):
-        return {}
 
 
 def _skill_dossier(skill: Skill, episodes: Sequence[BattleResult]) -> str:

@@ -13,6 +13,7 @@ import re
 import uuid
 from typing import Sequence
 
+from ._jsonx import extract_json as _extract_json
 from .model import Model
 from .types import BattleResult, Fact, Proposal, Skill
 
@@ -52,19 +53,6 @@ fact; a skill's procedure is not actionable; it contradicts an existing
 fact without explaining why. When in doubt, reject -- a missed skill is
 cheaper than a bad one.
 """
-
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
-def _extract_json(text: str) -> dict:
-    m = _JSON_RE.search(text or "")
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(0))
-    except (ValueError, TypeError):
-        return {}
-
 
 def _render_context(skills: Sequence[Skill], facts: Sequence[Fact]) -> str:
     lines = ["EXISTING SKILLS:"]
