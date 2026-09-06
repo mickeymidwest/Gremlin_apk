@@ -86,8 +86,19 @@ shared `_jsonx` for model-reply JSON (fences / trailing prose); a corrupt
 sweep; `/memory forget N` matches `/memory list`'s numbering; thread-index and
 store writes use unique temp files. ~130 tests.
 
+**Streaming (SSE) — shipped.** `POST /chat/stream`: `{"type":"delta","text":…}`
+per token, then one `{"type":"done", …same body /chat returns}`. `LlamaCppBackend
+.generate_stream()` runs llama.cpp's token iterator in the model's executor lane,
+crossing each piece to the one event loop via a thread-safe queue; the instance
+lock is held for the whole generation so `unload()` can't race it. Persona streams
+the primary and falls through to a fallback only if it produced nothing.
+`reply.answer_stream()` shares context + fallback + bookkeeping with `answer()`.
+Server bridges the loop-side async gen to Flask's sync response through a bounded
+queue (a client that stops draining stops the generation). APK
+`GremlinClient.chatStream()` renders tokens live, auto-falls-back to the blocking
+path for an old server / no network / pending away-sync. 141 tests.
+
 **Open:**
-- Streaming responses (SSE) — deferred, needs care around the sync/async/lock design.
 - **/fix + /build are desktop-CLI only.** A multi-step battle needs the model
   resident AND pytest/gradle running beside it; on this box (7.5GB RAM, HDD swap)
   that pushes RAM past ~5GB, the box swap-thrashes, the server stops answering
