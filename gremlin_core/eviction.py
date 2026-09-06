@@ -37,7 +37,6 @@ async def evict_idle_models(
     background event loop, see server.py's serve()). Each sweep is
     best-effort -- an error unloading one backend is logged to stdout
     and never stops the sweep loop or affects any other backend."""
-    primary_name = registry.primary_model_name()
     try:
         from .magic import vram
     except Exception:  # noqa
@@ -45,6 +44,9 @@ async def evict_idle_models(
 
     while True:
         await asyncio.sleep(sweep_interval)
+        # re-read each sweep -- /model can switch the primary at runtime,
+        # and the new primary must never be the one we evict.
+        primary_name = registry.primary_model_name()
         for name, backend in registry.backends.items():
             if name == primary_name:
                 continue
