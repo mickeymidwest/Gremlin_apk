@@ -3,7 +3,7 @@
     <root>/
       data/skills/<name>.yaml       one skill card each -- human-editable,
                                     the portable unit (MAGIC.md section 3)
-      data/magic/memory.json        [Fact, ...]        semantic memory
+      gremlin_memory.txt (repo parent)  semantic memory -- hand-editable
       data/magic/campaign.json      CampaignState
       data/magic/episodes/<id>.json one BattleResult each   episodic memory
       data/magic/work/              per-battle working copies of a target repo
@@ -13,6 +13,7 @@ them. Everything else is machine-written churn, so it stays JSON.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -27,6 +28,10 @@ from .types import (
 )
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _hashid(text: str) -> str:
+    return hashlib.sha1(text.encode()).hexdigest()[:8]
 
 
 def slug(s: str) -> str:
@@ -124,15 +129,48 @@ class Store:
         tmp.write_text(yaml.safe_dump(ordered, sort_keys=False, width=88))
         tmp.replace(path)
 
-    # -- facts (semantic memory) -------------------------------------
+    # -- facts (semantic memory) -----------------------------------
+    #
+    # One store, hand-editable: gremlin_memory.txt (the same file "remember
+    # that X" writes and reply.py folds into every chat prompt). A fact
+    # learned in a battle and a fact mickey told Gremlin now live in the
+    # same place. Lines look like:  - [learned] the fact  <!--fact_ab12-->
+    # and a plain "- text" line (hand-added) parses fine too.
+
+    # strip a leading "- ", any number of "[tag]" prefixes (timestamp,
+    # [user], [learned]...), and a trailing "<!--id-->"
+    _FACT_RE = re.compile(r"^\s*-\s*(?:\[[^\]]*\]\s*)*(.*?)\s*(?:<!--\s*(\S+)\s*-->)?\s*$")
+
+    def _memory_path(self) -> Path:
+        from ..notes import memory_file_path
+        return Path(memory_file_path(str(self.root)))
 
     def read_facts(self) -> list[Fact]:
-        return [from_dict(Fact, f) for f in
-                self._read_json(self.magic_dir / "memory.json", [])]
+        p = self._memory_path()
+        if not p.exists():
+            return []
+        out: list[Fact] = []
+        for line in p.read_text().splitlines():
+            s = line.strip()
+            if not s or s.startswith("#") or not s.startswith("-"):
+                continue
+            m = self._FACT_RE.match(s)
+            text = (m.group(1) if m else s.lstrip("- ")).strip()
+            if not text:
+                continue
+            fid = (m.group(2) if m and m.group(2) else "fact_" + _hashid(text))
+            out.append(Fact(id=fid, text=text))
+        return out
 
     def write_facts(self, facts: list[Fact]) -> None:
-        self.magic_dir.mkdir(parents=True, exist_ok=True)
-        self._write_json(self.magic_dir / "memory.json", [to_dict(f) for f in facts])
+        """Append any fact not already recorded. Leaves the user's header
+        and hand-written notes untouched."""
+        from ..notes import remember_fact
+        have = {f.text for f in self.read_facts()}
+        for f in facts:
+            if f.text not in have:
+                remember_fact(str(self.root), f"[learned] {f.text}  <!--{f.id}-->")
+                have.add(f.text)
 
     # -- episodes (episodic memory) --------------------------------
 

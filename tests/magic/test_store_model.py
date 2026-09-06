@@ -46,9 +46,10 @@ def test_write_skills_deletes_orphan_files(tmp_path):
 
 
 def test_facts_episodes_campaign_roundtrip(tmp_path):
-    st = Store(tmp_path)
+    # nested root so gremlin_memory.txt (one level up) is unique to this test
+    st = Store(tmp_path / "repo")
     st.write_facts([Fact(id="fact_1", text="pytest.ini is load-bearing", provenance=["b1"])])
-    assert st.read_facts()[0].text == "pytest.ini is load-bearing"
+    assert "pytest.ini is load-bearing" in [f.text for f in st.read_facts()]
 
     br = BattleResult(battle_id="b1", task_id="t1",
                       transcript=Transcript(task_id="t1", skills_invoked=["skill_abc"]),

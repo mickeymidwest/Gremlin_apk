@@ -14,6 +14,18 @@ from ..learning_log import append_learning_log
 _SYSTEM = None  # persona backend already carries the system prompt
 
 
+def _memory_block(root: str) -> str:
+    """One memory surface: everything in gremlin_memory.txt -- what mickey
+    told Gremlin AND what Magic learned in battles -- parsed clean of
+    tags/ids by the store."""
+    from .store import Store
+    facts = Store(root).read_facts()
+    if not facts:
+        return ""
+    return ("Things you (Gremlin) know about the user and this setup, kept "
+            "across sessions:\n" + "\n".join(f"- {f.text}" for f in facts[-30:]))
+
+
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,
            from_memory: bool = False, source: str = "") -> dict:
     return {"answer": answer, "consulted": False, "from_memory": from_memory,
@@ -27,11 +39,11 @@ async def answer(primary, message: str, root: str,
     # "remember that X" -> straight to the notes file, no model call.
     fact = notes.extract_remember_command(message)
     if fact:
-        notes.remember_fact(root, fact)
+        notes.remember_fact(root, f"[user] {fact}")
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
     context = "\n\n".join(p for p in (
-        notes.load_memory_notes(root),
+        _memory_block(root),
         notes.recent_away_context(root),
         history,
     ) if p)
