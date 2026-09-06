@@ -12,7 +12,12 @@ loop checks itself against.
   cards at `data/skills/<name>.yaml`, JSON for facts/episodes/campaign), model
   (`BackendModel` sync-wraps `gremlin_core.backends`; `ScriptedModel` for tests),
   toolhost (shell + file, path jail). 6 tests green. `tests/` + `pytest.ini` added.
-- [ ] 2. battle / reckoning / gate (+ revise_skill)
+- [x] **2. battle / reckoning / gate** — ported `battle.py` (ReAct text
+  protocol: `ACTION: <tool>` / `DONE`, driven against the real toolhost),
+  `reckoning.py` (propose `new_skill` / `revise_skill` / `new_fact` → independent
+  gate), `lifecycle.py` (candidate→active on 3 non-origin wins, active→deprecated
+  on 3 losses). 19 tests green. Compose smoke verified: battle edits a file →
+  reckon proposes → gate accepts → skill written as a YAML card → reloads clean.
 - [ ] 3. verifier + measurement harness
 - [ ] 4. Council (skill destination)
 - [ ] 5. Qwen3-8B primary in models.yaml; drop council/specialists/consult/intent
