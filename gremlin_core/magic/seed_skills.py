@@ -96,6 +96,53 @@ _SEED = [
             "act on what the log says, not on a guess",
         ],
     ),
+
+    # --- this box specifically: Manjaro, RTX 2070 Super 8GB, 7.5GB RAM,
+    #     one 7200rpm HDD, models on that HDD, Jellyfin in docker ---
+    dict(
+        name="manjaro-full-upgrade-only",
+        purpose="a partial upgrade breaks Arch/Manjaro -- never sync the db without upgrading",
+        trigger_when="installing a package or updating the system on Manjaro/Arch",
+        trigger_matcher=r"pacman|-Sy\b|install .* package|update (the )?(system|box|desktop)|upgrade",
+        procedure=[
+            "use `pacman -Syu` (or `pacman -S <pkg>` on an already-current system) -- never a bare `pacman -Sy`",
+            "a lone `-Sy` leaves the db newer than installed packages; the next install pulls mismatched deps and breaks the box",
+            "if updates are large, snapshot first (see snapshot-before-risky-change)",
+        ],
+    ),
+    dict(
+        name="vram-budget-8gb",
+        purpose="this card holds ~5.6GB for the primary model -- a second 7B won't load",
+        trigger_when="loading, swapping, or benchmarking a local model",
+        trigger_matcher=r"model|gguf|vram|nvidia-smi|load .* model|swap .* model|n_gpu_layers|benchmark",
+        procedure=[
+            "nvidia-smi first -- the primary alone is ~5556 MiB of the 8192",
+            "unload the current local model before loading another (Magic's vram.ensure_only); two full 7B GGUFs do not co-exist here",
+            "never partial-offload the primary (n_gpu_layers < -1) -- benched at 15 tok/s vs 60",
+        ],
+    ),
+    dict(
+        name="gremlin-not-answering",
+        purpose="Gremlin silent on the phone = the service, not the network",
+        trigger_when="Gremlin/the desktop stops responding to the app",
+        trigger_matcher=r"not answer|no response|not connect|gremlin.*(down|stuck|silent|hung)|desktop.*(down|stuck)",
+        procedure=[
+            "systemctl --user status gremlin.service  and  journalctl --user -u gremlin.service -n 40",
+            "check nvidia-smi for stale VRAM held by a crashed CUDA context (agent idle but ~6GB still used)",
+            "systemctl --user restart gremlin.service -- first /chat after is a ~90s cold read off the HDD, that's normal",
+        ],
+    ),
+    dict(
+        name="hdd-cold-start-patience",
+        purpose="slow first response after a restart is the spinning disk, not a hang",
+        trigger_when="the model or a build seems stuck for the first ~90s after a service start",
+        trigger_matcher=r"cold start|slow (first|to load)|stuck loading|90s|warmup|took forever to (start|load)",
+        procedure=[
+            "the model GGUF is ~5GB read off a 7200rpm HDD -- 60-150s cold, ~2s warm in page cache",
+            "check /status model_loaded before assuming a wedge; the watchdog already tolerates this window",
+            "don't restart again mid-load -- that just restarts the 90s clock",
+        ],
+    ),
 ]
 
 

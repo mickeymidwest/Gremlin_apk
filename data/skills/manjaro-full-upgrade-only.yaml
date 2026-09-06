@@ -1,0 +1,24 @@
+id: seed_08
+name: manjaro-full-upgrade-only
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a partial upgrade breaks Arch/Manjaro -- never sync the db without upgrading
+trigger_when: installing a package or updating the system on Manjaro/Arch
+trigger_matcher: pacman|-Sy\b|install .* package|update (the )?(system|box|desktop)|upgrade
+procedure:
+- use `pacman -Syu` (or `pacman -S <pkg>` on an already-current system) -- never a bare `pacman
+  -Sy`
+- a lone `-Sy` leaves the db newer than installed packages; the next install pulls mismatched
+  deps and breaks the box
+- if updates are large, snapshot first (see snapshot-before-risky-change)
+supersedes: null
+provenance:
+- seed
+created: 1788738843.5470216
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

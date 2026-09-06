@@ -1,0 +1,24 @@
+id: seed_10
+name: gremlin-not-answering
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Gremlin silent on the phone = the service, not the network
+trigger_when: Gremlin/the desktop stops responding to the app
+trigger_matcher: not answer|no response|not connect|gremlin.*(down|stuck|silent|hung)|desktop.*(down|stuck)
+procedure:
+- systemctl --user status gremlin.service  and  journalctl --user -u gremlin.service -n 40
+- check nvidia-smi for stale VRAM held by a crashed CUDA context (agent idle but ~6GB still
+  used)
+- systemctl --user restart gremlin.service -- first /chat after is a ~90s cold read off the
+  HDD, that's normal
+supersedes: null
+provenance:
+- seed
+created: 1788738843.547025
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

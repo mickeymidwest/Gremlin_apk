@@ -1,0 +1,23 @@
+id: seed_09
+name: vram-budget-8gb
+status: candidate
+destination: card
+council_reviewed: false
+purpose: this card holds ~5.6GB for the primary model -- a second 7B won't load
+trigger_when: loading, swapping, or benchmarking a local model
+trigger_matcher: model|gguf|vram|nvidia-smi|load .* model|swap .* model|n_gpu_layers|benchmark
+procedure:
+- nvidia-smi first -- the primary alone is ~5556 MiB of the 8192
+- unload the current local model before loading another (Magic's vram.ensure_only); two full
+  7B GGUFs do not co-exist here
+- never partial-offload the primary (n_gpu_layers < -1) -- benched at 15 tok/s vs 60
+supersedes: null
+provenance:
+- seed
+created: 1788738843.547023
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

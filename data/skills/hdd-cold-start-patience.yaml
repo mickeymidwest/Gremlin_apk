@@ -1,0 +1,24 @@
+id: seed_11
+name: hdd-cold-start-patience
+status: candidate
+destination: card
+council_reviewed: false
+purpose: slow first response after a restart is the spinning disk, not a hang
+trigger_when: the model or a build seems stuck for the first ~90s after a service start
+trigger_matcher: cold start|slow (first|to load)|stuck loading|90s|warmup|took forever to
+  (start|load)
+procedure:
+- the model GGUF is ~5GB read off a 7200rpm HDD -- 60-150s cold, ~2s warm in page cache
+- check /status model_loaded before assuming a wedge; the watchdog already tolerates this
+  window
+- don't restart again mid-load -- that just restarts the 90s clock
+supersedes: null
+provenance:
+- seed
+created: 1788738843.5470264
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
