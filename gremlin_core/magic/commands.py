@@ -41,6 +41,21 @@ class Command:
 
 # --------------------------------------------------------------- handlers
 
+# A multi-step battle (/fix) or the propose->review build pipeline (/build)
+# needs the model resident AND pytest / gradle running alongside it. On
+# this box (7.5GB RAM, HDD swap) that pushes RAM past ~5GB and the whole
+# box swap-thrashes -- the server stops answering /status and the watchdog
+# restarts it mid-run. So under the SERVER these are desktop-CLI only; the
+# app gets told where to run them. On the desktop (ctx.loop is None) they
+# run normally.
+_HEAVY_ON_DESKTOP = (
+    "That's a heavy job — a multi-step battle with the model resident and "
+    "tests running alongside it. This box can't do that while also serving "
+    "chat, so run it on the desktop:\n\n    gremlin magic {cmd} {args}\n\n"
+    "It'll land in ~/Downloads and show up in Settings → Builds when it's done."
+)
+
+
 def _coding_model_name(ctx: CommandContext) -> str:
     """/build and /fix are agentic coding work. On the desktop CLI
     (ctx.loop is None) we can afford to swap in the coding specialist
@@ -106,8 +121,10 @@ async def _build(args: str, ctx: CommandContext) -> dict:
         return {"ok": False, "answer": "Usage: /build <what to build>  ·  "
                 "/build android <project-dir> [as <name>]"}
 
-    # Local APK build -- no GitHub round-trip. "/build android <dir> [as <name>]"
     parts = args.split()
+
+    # Android APK build is a subprocess (gradle), not a model battle --
+    # fine to run under the server. "/build android <dir> [as <name>]"
     if parts[0].lower() == "android":
         from . import android_build
         rest = parts[1:]
@@ -120,6 +137,10 @@ async def _build(args: str, ctx: CommandContext) -> dict:
         import asyncio
         return await asyncio.get_event_loop().run_in_executor(
             None, lambda: android_build.build_apk(hint, name))
+
+    if ctx.loop is not None:      # under the server -- too heavy, point to the desktop
+        return {"ok": False, "action": "build",
+                "answer": _HEAVY_ON_DESKTOP.format(cmd="build", args=args)}
 
     from .. import build_project
     from ..router import Router
@@ -153,6 +174,9 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     separate, confirmed step (snapshot first)."""
     if not args.strip():
         return {"ok": False, "answer": "Usage: /fix <what to improve in the harness>"}
+    if ctx.loop is not None:      # under the server -- too heavy for this box
+        return {"ok": False, "action": "fix",
+                "answer": _HEAVY_ON_DESKTOP.format(cmd="fix", args=args)}
     import shutil
     import tempfile
     from .battle import run_battle

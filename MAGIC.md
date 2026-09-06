@@ -62,9 +62,17 @@ read-only, mickey's own box only.
 
 **Open:**
 - Streaming responses (SSE) — deferred, needs care around the sync/async/lock design.
+- **/fix + /build are desktop-CLI only.** A multi-step battle needs the model
+  resident AND pytest/gradle running beside it; on this box (7.5GB RAM, HDD swap)
+  that pushes RAM past ~5GB, the box swap-thrashes, the server stops answering
+  /status, and the watchdog restarts it mid-run. Through the app they now return
+  "run  on the desktop". The battle loop itself is sound
+  (verified offline + the campaign regression test); it is the hardware that
+  can't host it alongside live chat.  (a gradle subprocess, no
+  model) still runs fine under the server.
 - First real campaign (Qwen2.5-7B on mathkit): fixed the easy bug, converged too
-  early on the old heuristic (fixed), didn't crack the harder bugs. A
-  clamp-scoring quirk (episode 1.0 vs campaign log 0.75) still to chase.
+  early on the old heuristic (fixed). Clamp-scoring quirk chased -- scoring is
+  sound (regression test added), it was model nondeterminism.
 - Unify `notes.py` flat memory with Magic `Fact` semantic memory.
 - `gh auth login` (mickey) for CI visibility.
 ---
