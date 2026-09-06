@@ -26,6 +26,7 @@ class CommandContext:
     project_root: str
     config_path: str
     router: object = None
+    conversation_key: str = "desktop"   # one ongoing thread per key
 
 
 @dataclass
@@ -38,14 +39,28 @@ class Command:
 # --------------------------------------------------------------- handlers
 
 async def _chat(args: str, ctx: CommandContext) -> dict:
+    from .conversation import Conversation, wants_clear
+    convo = Conversation(ctx.project_root)
+    key = ctx.conversation_key
+
+    if wants_clear(args):
+        convo.clear(key)
+        return {"ok": True, "answer": "Conversation cleared.", "action": "chat"}
     if not args.strip():
-        return {"ok": False, "answer": "Usage: /chat <message>"}
+        return {"ok": False, "answer": "Usage: /chat <message>   (/chat clear to wipe the thread)"}
+
     backend = ctx.registry.get("gremlin") or ctx.registry.get(
         ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
     if backend is None:
         return {"ok": False, "answer": "no chat backend configured"}
-    r = await backend.generate(args, max_tokens=1024, temperature=0.6)
-    return {"ok": r.ok, "answer": r.text or (r.error or ""), "source": getattr(r, "model", "")}
+
+    history = convo.recall(key)
+    prompt = f"{history}\n\nUser: {args}" if history else f"User: {args}"
+    r = await backend.generate(prompt, max_tokens=1024, temperature=0.6)
+    answer = r.text or (r.error or "")
+    if r.ok:
+        convo.remember(args, answer, key)
+    return {"ok": r.ok, "answer": answer, "source": getattr(r, "model", ""), "action": "chat"}
 
 
 async def _build(args: str, ctx: CommandContext) -> dict:

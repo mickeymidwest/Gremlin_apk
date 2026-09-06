@@ -63,8 +63,18 @@ loop checks itself against.
   Aider / SWE-agent / OpenHands / TaskWeaver, top picks: parse-before-edit,
   phase-gated tools, repo map, search/replace edits. Implementation = later
   iterations.
+- [x] **conversation memory** — `gremlin_core/magic/conversation.py` wraps the
+  existing dependency-free `history.py`: one JSONL per thread under
+  `data/conversations/`, no expiry, recalled every `/chat` turn until "clear" /
+  "forget" / "start over". `/chat clear` wipes the current thread. Disk-backed
+  (survives restart); only the recent char-budget slice is injected. Wired into
+  `_chat`. 54 tests green.
 - [ ] 6b. command surface (APK) — `/command` server endpoint + `handleSlashCommand`
   in MainActivity for `/chat /build /fix /model` + refreshed help text
+- [ ] APK polish (mickey 2026-09-05):
+  - hologram shows **one Gremlin**, not a model carousel
+  - keyboard covers the chat input — fix IME insets (`adjustResize` /
+    WindowInsets), anchor input to the bottom, keep the caret visible
 - [ ] 7. APK Settings→Builds download
 - [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
   surface / harden / canaries / own-code review. Defensive only, mickey's own

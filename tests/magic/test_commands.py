@@ -56,7 +56,7 @@ def test_unknown_command_returns_help(tmp_path):
 
 def test_chat_routes_to_backend(tmp_path):
     r = asyncio.run(dispatch("/chat how are you", _ctx(tmp_path)))
-    assert r["ok"] and r["answer"] == "gremlin says: how are you"
+    assert r["ok"] and "how are you" in r["answer"]
 
 
 def test_chat_needs_an_argument(tmp_path):
