@@ -13,6 +13,7 @@ A bare or unknown command returns help_text().
 """
 from __future__ import annotations
 
+import json
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -154,8 +155,99 @@ async def _model(args: str, ctx: CommandContext) -> dict:
     return {"ok": False, "answer": "Usage: /model [list | search <q> | use <name>]"}
 
 
+def _model_for(ctx: CommandContext, name: str = "gremlin"):
+    from .model import BackendModel
+    be = ctx.registry.get(name) or ctx.registry.get(
+        ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
+    return BackendModel(be) if be is not None else None
+
+
+async def _skill(args: str, ctx: CommandContext) -> dict:
+    from . import reckoning
+    from .store import Store
+    store = Store(ctx.project_root)
+    skills = store.read_skills()
+    facts = store.read_facts()
+
+    parts = args.split(None, 1)
+    sub = (parts[0].lower() if parts else "list")
+    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    def _cards(status=None):
+        rows = [s for s in skills if status is None or s.status == status]
+        return "\n".join(f"  [{s.status}/{s.destination}] {s.name} — {s.purpose}"
+                         for s in rows) or "  (none yet)"
+
+    if sub in ("", "list"):
+        return {"ok": True, "action": "skill", "answer":
+                "Magic skills:\n" + _cards() +
+                "\n\n/skill new <description>        draft a new one\n"
+                "/skill improve <name> | <what's wrong>\n"
+                "/skill show <name>"}
+
+    if sub == "show":
+        s = next((x for x in skills if x.name == reckoning._slug(rest)), None)
+        return {"ok": bool(s), "action": "skill",
+                "answer": s.render() if s else f"no skill '{rest}'"}
+
+    model = _model_for(ctx)
+    gemini = _model_for(ctx, "gemini")
+    if model is None:
+        return {"ok": False, "answer": "no model available to draft with"}
+
+    if sub == "new":
+        if not rest:
+            return {"ok": False, "answer": "Usage: /skill new <what the skill should do>"}
+        prop = reckoning.draft_skill(model, rest, skills)
+        drafter = "gremlin"
+        if prop is None and gemini is not None:
+            prop, drafter = reckoning.draft_skill(gemini, rest, skills), "gemini"
+        if prop is None:
+            return {"ok": False, "answer": "couldn't turn that into a skill — try describing the steps"}
+        kept = reckoning.gate(model, [prop], skills, facts)
+        if not kept and gemini is not None:
+            kept = reckoning.gate(gemini, [prop], skills, facts)
+        if not kept:
+            return {"ok": False, "action": "skill",
+                    "answer": "draft was rejected by the gate (vague, or duplicates an existing "
+                              f"skill). draft:\n{json.dumps(prop.payload, indent=2)}"}
+        reckoning.apply_proposals(kept, "authored", skills, facts)
+        store.write_skills(skills)
+        new = next(s for s in skills if s.name == prop.payload["name"])
+        return {"ok": True, "action": "skill",
+                "answer": f"added (drafted by {drafter}, status candidate — it earns 'active' by "
+                          f"winning battles):\n\n{new.render()}"}
+
+    if sub == "improve":
+        if "|" not in rest:
+            return {"ok": False, "answer": "Usage: /skill improve <name> | <what's wrong with it>"}
+        name, _, whats_wrong = rest.partition("|")
+        s = next((x for x in skills if x.name == reckoning._slug(name.strip())
+                  and x.status != "deprecated"), None)
+        if s is None:
+            return {"ok": False, "answer": f"no active skill '{name.strip()}'"}
+        prop = reckoning.draft_revision(model, s, whats_wrong.strip())
+        if prop is None and gemini is not None:
+            prop = reckoning.draft_revision(gemini, s, whats_wrong.strip())
+        if prop is None:
+            return {"ok": False, "answer": "couldn't draft a revision"}
+        kept = reckoning.gate(model, [prop], skills, facts) or (
+            reckoning.gate(gemini, [prop], skills, facts) if gemini else [])
+        if not kept:
+            return {"ok": False, "action": "skill", "answer": "revision rejected by the gate"}
+        reckoning.apply_proposals(kept, "authored", skills, facts)
+        store.write_skills(skills)
+        new = next(x for x in skills if x.name == s.name and x.status != "deprecated")
+        return {"ok": True, "action": "skill",
+                "answer": f"revised (old version retired, this one re-earns 'active'):\n\n{new.render()}"}
+
+    return {"ok": False, "answer": "Usage: /skill [list | show <name> | new <desc> | improve <name> | <fix>]"}
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Gremlin. No tools, no routing.", _chat),
+    "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
+                     "new <desc> | improve <name> | <fix>. Falls back to Gemini to draft.", _skill),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
                      "grab it from the app's Builds screen.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "

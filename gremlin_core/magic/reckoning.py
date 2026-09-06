@@ -198,3 +198,58 @@ def apply_proposals(proposals: Sequence[Proposal], battle_id: str,
 def _slug(s: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
     return s or "unnamed-skill"
+
+
+# --- human-driven authoring (the /skill command) ---------------------
+
+_DRAFT_SYSTEM = """\
+Turn the user's description into ONE skill card -- a reusable procedure
+for a coding agent. Output STRICT JSON, no prose:
+
+{"name": "kebab-case-name", "purpose": "one line",
+ "trigger_when": "the class of situation this applies to",
+ "trigger_matcher": "optional regex over the task text, or \\"\\"",
+ "procedure": ["concrete step", "concrete step", "..."]}
+
+A skill is a THING TO DO, in order. 2-6 steps. Concrete, not vague.
+"""
+
+
+def draft_skill(model: Model, description: str,
+                skills: Sequence[Skill] = ()) -> Proposal | None:
+    """A person described a skill they want. Turn it into a Proposal
+    (then gate() it and apply_proposals() as usual)."""
+    ctx = f"DESCRIPTION:\n{description}"
+    if skills:
+        ctx += "\n\nEXISTING SKILLS (don't duplicate):\n" + "\n".join(
+            f"- {s.name}: {s.purpose}" for s in skills)
+    data = _extract_json(model.complete(
+        [{"role": "user", "content": ctx}], system=_DRAFT_SYSTEM, max_tokens=800).text)
+    if not data.get("name") or not data.get("procedure"):
+        return None
+    return Proposal(kind="new_skill", payload={
+        "name": _slug(data["name"]),
+        "purpose": data.get("purpose", ""),
+        "trigger_when": data.get("trigger_when", ""),
+        "trigger_matcher": data.get("trigger_matcher") or None,
+        "procedure": [str(s) for s in data["procedure"] if str(s).strip()],
+    }, rationale="authored via /skill")
+
+
+def draft_revision(model: Model, skill: Skill, whats_wrong: str) -> Proposal | None:
+    """A person wants an existing skill improved. -> a revise_skill Proposal."""
+    ctx = (f"CURRENT SKILL:\n{skill.render()}\n\n"
+           f"WHAT SHOULD CHANGE:\n{whats_wrong}\n\n"
+           "Rewrite the procedure. Same JSON shape as a new skill "
+           '(name stays the same, give the improved "procedure").')
+    data = _extract_json(model.complete(
+        [{"role": "user", "content": ctx}], system=_DRAFT_SYSTEM, max_tokens=800).text)
+    if not data.get("procedure"):
+        return None
+    return Proposal(kind="revise_skill", payload={
+        "target": skill.name,
+        "purpose": data.get("purpose", ""),
+        "trigger_when": data.get("trigger_when", ""),
+        "trigger_matcher": data.get("trigger_matcher") or None,
+        "procedure": [str(s) for s in data["procedure"] if str(s).strip()],
+    }, rationale="revised via /skill")

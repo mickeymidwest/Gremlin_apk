@@ -60,32 +60,57 @@ class Store:
     def _skill_path(self, name: str) -> Path:
         return self.skills_dir / f"{slug(name)}.yaml"
 
+    @property
+    def _deprecated_dir(self):
+        d = self.skills_dir / "_deprecated"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _load_card(self, p: Path) -> Skill | None:
+        raw = yaml.safe_load(p.read_text()) or {}
+        rec = raw.pop("record", None) or {}
+        skill = from_dict(Skill, raw)
+        if skill is None:
+            return None
+        skill.record = from_dict(SkillRecord, rec) or SkillRecord()
+        return skill
+
     def read_skills(self) -> list[Skill]:
         out: list[Skill] = []
         for p in sorted(self.skills_dir.glob("*.yaml")):
-            raw = yaml.safe_load(p.read_text()) or {}
-            rec = raw.pop("record", None) or {}
-            skill = from_dict(Skill, raw)
-            if skill is None:
-                continue
-            skill.record = from_dict(SkillRecord, rec) or SkillRecord()
-            out.append(skill)
+            s = self._load_card(p)
+            if s:
+                out.append(s)
+        dep = self.skills_dir / "_deprecated"
+        if dep.is_dir():
+            for p in sorted(dep.glob("*.yaml")):
+                s = self._load_card(p)
+                if s:
+                    out.append(s)
         return out
 
     def write_skills(self, skills: list[Skill]) -> None:
-        """Full sync: write every skill, delete YAML files with no
-        matching skill left (e.g. a rename)."""
-        keep = set()
+        """Full sync. Live cards (candidate/active) sit in data/skills/ one
+        per name, hand-editable. Deprecated cards move to
+        data/skills/_deprecated/<name>__<id8>.yaml so a name can hold both
+        an old (retired) version and its revision."""
+        live_keep, dep_keep = set(), set()
         for s in skills:
-            path = self._skill_path(s.name)
-            # if two skills share a name (an old + its supersessor) keep
-            # the newest -- lifecycle deprecates the old one, but on disk
-            # one file per name; the deprecated copy lives in its history.
-            keep.add(path.name)
+            if s.status == "deprecated":
+                path = self._deprecated_dir / f"{slug(s.name)}__{s.id[-8:]}.yaml"
+                dep_keep.add(path.name)
+            else:
+                path = self._skill_path(s.name)
+                live_keep.add(path.name)
             self._write_skill_file(path, s)
         for p in self.skills_dir.glob("*.yaml"):
-            if p.name not in keep:
+            if p.name not in live_keep:
                 p.unlink()
+        dep = self.skills_dir / "_deprecated"
+        if dep.is_dir():
+            for p in dep.glob("*.yaml"):
+                if p.name not in dep_keep:
+                    p.unlink()
 
     def _write_skill_file(self, path: Path, s: Skill) -> None:
         d = to_dict(s)

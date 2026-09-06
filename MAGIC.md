@@ -86,12 +86,20 @@ loop checks itself against.
   "forget" / "start over". `/chat clear` wipes the current thread. Disk-backed
   (survives restart); only the recent char-budget slice is injected. Wired into
   `_chat`. 54 tests green.
+- [x] **/skill command** — `commands._skill` + `reckoning.draft_skill` /
+  `draft_revision`: mickey describes a skill (or a fix for one), Gremlin drafts
+  it, Gemini is the fallback drafter, the same `gate()` as the auto-reckoning
+  vets it, accepted → saved as a `candidate` card. `/skill list|show` too.
+  Store change: deprecated cards move to `data/skills/_deprecated/` so a name can
+  hold both a retired version and its revision. 58 tests green.
 - [ ] 6b. command surface (APK) — `/command` server endpoint + `handleSlashCommand`
-  in MainActivity for `/chat /build /fix /model` + refreshed help text
+  in MainActivity for `/chat /skill /build /fix /model` + refreshed help text
 - [ ] APK polish (mickey 2026-09-05):
   - hologram shows **one Gremlin**, not a model carousel
   - keyboard covers the chat input — fix IME insets (`adjustResize` /
     WindowInsets), anchor input to the bottom, keep the caret visible
+  - `/` autocomplete popup above the input (Claude-style), filtered as you type,
+    tap to insert
 - [ ] 7. APK Settings→Builds download
 - [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
   surface / harden / canaries / own-code review. Defensive only, mickey's own
@@ -185,6 +193,7 @@ the list.
 | `/chat` | plain chat — no tools, no routing, just talk to Gremlin. The app's default. |
 | `/build` | Gremlin builds an APK / Python script / project on the desktop (`build_project.py`); result is then downloadable from the app |
 | `/fix` | Gremlin runs Magic's battle/reckoning loop on its own harness code |
+| `/skill` | add or improve a Magic skill: `list` / `show <name>` / `new <desc>` / `improve <name> \| <fix>`. Drafts with Gremlin, falls back to Gemini; every draft goes through the same gate as the auto-reckoning. New skills start `candidate` and earn `active` by winning battles. |
 | `/model` | Gremlin downloads a new base model (`hf_hub`), scans it (`model_scan`), runs skill discovery |
 | `/claude` | (kept) hand a problem to a full Claude Code session on the desktop, explicit confirm |
 | `/builds`, `/builds get <name>` | (kept) list / fetch desktop builds |
