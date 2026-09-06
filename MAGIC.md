@@ -120,9 +120,14 @@ loop checks itself against.
   (`GET /conversations`, thread-keyed history — `history.py` already keys by an
   opaque id) + a modern message layout in the app.
 - [ ] 7. APK Settings→Builds download
-- [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
-  surface / harden / canaries / own-code review. Defensive only, mickey's own
-  infra only.
+- [~] **8. infrastructure-defense** (spec §7) — `gremlin_core/magic/defense.py` +
+  `/defense` command (surface | updates | ssh | secrets <path> | report).
+  Read-only, mickey's own box only. `attack_surface()` parses `ss -tlnp` (v4/v6
+  merged) → what's LAN-reachable vs loopback; `pending_security_updates()` wraps
+  `update_check`; `audit_ssh()` flags password auth / root login / no AllowUsers /
+  X11; `secrets_in_repo()` scans tracked files + recent git history for key
+  shapes. Real run on the box: 9 exposed services, 2 sshd items, 1 advisory
+  update, 0 repo secrets. 13 tests. TODO: log/IDS triage, canaries, container CVEs.
 
 ---
 

@@ -261,10 +261,42 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
     return {"ok": False, "answer": "Usage: /skill [list | show <name> | new <desc> | improve <name> | <fix>]"}
 
 
+async def _defense(args: str, ctx: CommandContext) -> dict:
+    """Defensive checks on mickey's own box (MAGIC.md section 7).
+    surface | updates | ssh | secrets <path> | report (default)."""
+    from . import defense
+    import asyncio
+    parts = args.split(None, 1)
+    sub = (parts[0].lower() if parts else "report")
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    loop = asyncio.get_event_loop()
+
+    def run():
+        if sub == "surface":
+            s = defense.attack_surface()
+            lines = [s["summary"], ""]
+            lines += [f"  exposed  {e['port']:>6}  {e['process'] or '(unknown / container)'}"
+                      for e in s["exposed"]]
+            lines += [f"  local    {e['port']:>6}  {e['process'] or '?'}" for e in s["loopback_only"]]
+            return "\n".join(lines)
+        if sub == "updates":
+            return defense.pending_security_updates()["summary"]
+        if sub == "ssh":
+            a = defense.audit_ssh()
+            return a["summary"] + "".join(f"\n  - {f}" for f in a["findings"])
+        if sub == "secrets":
+            return defense.secrets_in_repo(rest or ctx.project_root)["summary"]
+        return defense.report(repo_for_secrets=rest or ctx.project_root)
+
+    return {"ok": True, "action": "defense", "answer": await loop.run_in_executor(None, run)}
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Gremlin. No tools, no routing.", _chat),
     "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
                      "new <desc> | improve <name> | <fix>. Falls back to Gemini to draft.", _skill),
+    "defense": Command("defense", "Check your own box: surface | updates | ssh | "
+                       "secrets <path> | report. Read-only, defensive.", _defense),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
                      "grab it from the app's Builds screen.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
