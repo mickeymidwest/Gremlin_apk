@@ -44,6 +44,9 @@ loop checks itself against.
   in server.py first, delete the old path in one green commit)
 - [ ] 6. /chat /build /fix /model commands (desktop + APK)
 - [ ] 7. APK Settings→Builds download
+- [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
+  surface / harden / canaries / own-code review. Defensive only, mickey's own
+  infra only.
 
 ---
 
@@ -156,7 +159,41 @@ Pure Kotlin, `com.gremlin.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
     `~/Downloads/<name>/` folder listable; confirm every build path (script,
     project, android) writes that marker.
 
-## 7. Open / needs mickey
+## 7. Infrastructure defense — "harden and watch my own stuff"
+
+A Magic capability (skills + tools) for keeping mickey's own homelab and network
+safe. **Defensive only, mickey's own infrastructure only.** Magic may run these
+on its own loop.
+
+In scope:
+- **Watch:** ingest Suricata / Zeek / journald / service logs; Gremlin triages
+  the alerts, flags anomalies, summarises "what changed / what's noisy".
+- **Scan (own hosts):** open ports, service versions vs known CVEs, TLS/cert
+  state, weak or default configs, world-readable secrets, exposed admin panels.
+- **Attack surface:** what's actually reachable from outside vs what should be;
+  diff against a known-good baseline; catch a service that got exposed by
+  accident.
+- **Harden:** audit the box against a baseline (CIS-style, `lynis`, sshd/kernel
+  sysctl/firewall), propose and — with a snapshot first — apply fixes.
+- **Canaries & honeypots:** bespoke tripwires (a fake credential file, a
+  decoy port, a canary token) that aren't in any public playbook, so an
+  automated intruder can't look up how to avoid them. This is the "not in the
+  manuals" point — novelty is the value, and it only cuts one way (detection).
+- **Review own code / containers:** dependency CVEs, Dockerfile and compose
+  misconfig, secrets in git history.
+
+Out of scope (the boundary, unchanged): building exploits, C2, payloads,
+credential theft, lateral-movement or worming tooling, or detection-evasion
+tooling — regardless of stated purpose. "Android pentesting" as a general skill.
+Anything aimed at a system that isn't mickey's. Direction is the test: custom
+**defense** attackers can't look up — yes; custom **offense** built to slip past
+defenders — no.
+
+The grey middle (fire a known exploit at your *own* box to confirm a patch, fuzz
+your *own* app) stays **interactive, mickey-driven, case by case** — never a
+baked-in autonomous skill.
+
+## 8. Open / needs mickey
 
 - `sudo` for any package installs.
 - Testing on the actual Pixel 9.
