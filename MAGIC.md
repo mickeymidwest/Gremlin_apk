@@ -49,7 +49,21 @@ error, learning-log only when the fallback answered). `judge.py` kept for
 
 **Server:** warmup at boot (first chat ~2s not ~90s), canary watchdog (restarts
 on a wedged model context — `/status` `healthy` field), richer `/status`
-(model_loaded, vram, skill counts).
+(model_loaded, vram, `busy`).
+
+**GPU/RAM grip** (mickey asked Magic to keep Gremlin from killing the GPU):
+- `magic/vram.py` — never two local GGUFs resident. `ensure_only(keep=)` unloads
+  the rest before a CLI `/fix` loads the coder, and marks the kept model so the
+  idle-eviction sweep can't unload it mid-battle.
+- Battles run in a worker thread that submits back to the server's one event loop
+  (the async/lock deadlock — fixed).
+- Watchdog: ~2 min slowness tolerance, leaves the service alone while `busy`,
+  `/status` caches `nvidia-smi` (was restarting the service mid-`/fix`).
+- `run_battle` has a wall-clock cap.
+
+**Extra commands:** `/do` (read-only live-data — df / ps / systemctl status),
+`/skill seed` (8 starter cards), `/skill suggest` (mine recurring asks into skill
+candidates).
 
 **APK:** commands + `/` autocomplete, single-Gremlin hologram, keyboard fix,
 Settings → Builds (download desktop builds), Conversations screen. Built locally
