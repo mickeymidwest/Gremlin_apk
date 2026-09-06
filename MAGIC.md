@@ -114,11 +114,14 @@ loop checks itself against.
   + a `.gremlin-build.json` marker. `/build android <dir> [as <name>]` wired.
   **Verified end-to-end:** built `gremlin-apk.apk` (18.6 MB) → shows in
   `builds.list_builds()` → downloadable from Settings → Builds. 66 tests green.
-- [ ] **APK: conversations + slicker chat** (mickey 2026-09-05) — keep the
-  hologram Gremlin; add a "recent conversations" area (list of past threads, tap
-  to reopen, "new chat"). Needs multi-thread conversation support server-side
-  (`GET /conversations`, thread-keyed history — `history.py` already keys by an
-  opaque id) + a modern message layout in the app.
+- [~] **APK: conversations** (mickey 2026-09-05) — server: `conversation.Threads`
+  (per-owner named threads over the existing per-key history + a small JSON
+  index); `GET/POST /conversations`, `DELETE /conversations/<id>`; `/command`
+  takes a `thread`. APK: `ConversationsActivity` (recent list + "New chat",
+  opened from a "Chats" button), `currentThread` in prefs, `/command` calls ride
+  on it. Hologram kept. 79 tests green; local APK build SUCCESSFUL. TODO: reload
+  a thread's transcript into the view on switch; route non-slash messages through
+  it too (comes with 5b).
 - [ ] 7. APK Settings→Builds download
 - [~] **8. infrastructure-defense** (spec §7) — `gremlin_core/magic/defense.py` +
   `/defense` command (surface | updates | ssh | secrets <path> | report).

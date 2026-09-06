@@ -74,6 +74,24 @@ class MainActivity : AppCompatActivity() {
     // user is about to pick a save location for.
     private var pendingBuildName: String? = null
 
+    // The conversation thread /command calls ride on. Null = the default
+    // single thread; picked/created via ConversationsActivity.
+    private var currentThread: String?
+        get() = prefs.getString("current_thread", null)
+        set(v) { prefs.edit().putString("current_thread", v).apply() }
+
+    private val conversationsLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+            if (res.resultCode != android.app.Activity.RESULT_OK) return@registerForActivityResult
+            val tid = res.data?.getStringExtra(ConversationsActivity.EXTRA_THREAD)
+                ?: return@registerForActivityResult
+            val ttl = res.data?.getStringExtra(ConversationsActivity.EXTRA_TITLE) ?: "chat"
+            currentThread = tid
+            chatLog.text = ""
+            historyFile.writeText("")
+            appendSystemTurn("— $ttl —", false)
+        }
+
     private val downloadLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         val name = pendingBuildName
         pendingBuildName = null
@@ -118,6 +136,9 @@ class MainActivity : AppCompatActivity() {
         hologramView.loadUrl("file:///android_asset/hologram.html")
 
         findViewById<Button>(R.id.scan_button).setOnClickListener { startQrScan() }
+        findViewById<Button>(R.id.chats_button).setOnClickListener {
+            conversationsLauncher.launch(Intent(this, ConversationsActivity::class.java))
+        }
         findViewById<Button>(R.id.send_button).setOnClickListener { sendMessage() }
         findViewById<Button>(R.id.export_button).setOnClickListener {
             exportLauncher.launch("gremlin-chat-${System.currentTimeMillis()}.txt")
@@ -525,7 +546,7 @@ class MainActivity : AppCompatActivity() {
                 thinkingStatus.visibility = View.VISIBLE
                 hologramView.evaluateJavascript("setTalking(true)", null)
                 Thread {
-                    val answer = gremlinClient.command(cmd, args)
+                    val answer = gremlinClient.command(cmd, args, currentThread)
                     runOnUiThread {
                         thinkingStatus.visibility = View.GONE
                         hologramView.evaluateJavascript("setTalking(false)", null)

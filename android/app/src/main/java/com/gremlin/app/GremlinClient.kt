@@ -328,8 +328,9 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
      * reachable away from home). Returns (builds, errorOrNull). */
     /** POST /command -- runs a Magic command (/chat /skill /build /fix
      *  /model) on the desktop and returns its answer text. The desktop
-     *  does the work; this is just the messenger. */
-    fun command(cmd: String, args: String): String {
+     *  does the work; this is just the messenger. `thread` (optional)
+     *  keeps this in one named conversation. */
+    fun command(cmd: String, args: String, thread: String? = null): String {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
         val token = prefs.getString("token", null)
@@ -344,6 +345,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
             c.connectTimeout = 8_000
             c.readTimeout = 480_000
             val body = JSONObject().put("cmd", cmd.trim().removePrefix("/")).put("args", args.trim())
+            if (thread != null) body.put("thread", thread)
             c.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = c.responseCode
             val stream = if (code in 200..299) c.inputStream else c.errorStream
@@ -352,6 +354,41 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         } catch (e: Exception) {
             "Couldn't reach desktop: ${e.message}"
         }
+    }
+
+    data class ConversationInfo(val id: String, val title: String, val updated: Double)
+
+    /** GET /conversations -- the recent-conversations list. */
+    fun listConversations(): List<ConversationInfo> {
+        val host = prefs.getString("host", null) ?: return emptyList()
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return emptyList()
+        return try {
+            val c = (URL("http://$host:$port/conversations").openConnection() as HttpURLConnection)
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.connectTimeout = 5_000; c.readTimeout = 8_000
+            val arr = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+                .optJSONArray("conversations") ?: JSONArray()
+            (0 until arr.length()).map {
+                val o = arr.getJSONObject(it)
+                ConversationInfo(o.optString("id"), o.optString("title", "chat"), o.optDouble("updated"))
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    /** POST /conversations -- start a fresh thread, returns its id. */
+    fun newConversation(): String? {
+        val host = prefs.getString("host", null) ?: return null
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null
+        return try {
+            val c = (URL("http://$host:$port/conversations").openConnection() as HttpURLConnection)
+            c.requestMethod = "POST"; c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Content-Type", "application/json")
+            c.outputStream.use { it.write("{}".toByteArray()) }
+            JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("thread").ifEmpty { null }
+        } catch (e: Exception) { null }
     }
 
     /** GET the command list (name + help) for the "/" autocomplete.

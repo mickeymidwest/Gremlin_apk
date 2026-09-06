@@ -194,6 +194,29 @@ def create_app(
         data["recent_transitions"] = state_machine.recent()
         return jsonify(data)
 
+    @app.route("/conversations", methods=["GET", "POST"])
+    def conversations():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from .magic.conversation import Threads
+        owner = request.headers.get("Authorization", "") or "default"
+        th = Threads(str(project_root), owner=owner)
+        if request.method == "POST":
+            first = (request.get_json(silent=True) or {}).get("first_message", "")
+            return jsonify({"thread": th.create(first)})
+        return jsonify({"conversations": th.list()})
+
+    @app.route("/conversations/<thread_id>", methods=["DELETE"])
+    def delete_conversation(thread_id):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from .magic.conversation import Threads
+        owner = request.headers.get("Authorization", "") or "default"
+        Threads(str(project_root), owner=owner).clear(thread_id)
+        return jsonify({"ok": True})
+
     @app.route("/command", methods=["POST"])
     def command():
         """The Magic command surface for the app: {cmd, args} -> the same
@@ -214,6 +237,7 @@ def create_app(
             registry=registry, project_root=str(project_root),
             config_path=str(config_path), router=router,
             conversation_key=request.headers.get("Authorization", "") or "default",
+            thread_id=body.get("thread"),
         )
         try:
             result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=480.0)

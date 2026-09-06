@@ -68,6 +68,11 @@
             android:exported="false"
             android:label="Desktop Builds" />
 
+        <activity
+            android:name=".ConversationsActivity"
+            android:exported="false"
+            android:label="Conversations" />
+
         <!-- foregroundServiceType must be declared here as well as passed
              to startForeground(). On API 34+ a mismatch between the two
              is a hard crash, not a warning. -->

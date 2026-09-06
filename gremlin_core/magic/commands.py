@@ -27,7 +27,8 @@ class CommandContext:
     project_root: str
     config_path: str
     router: object = None
-    conversation_key: str = "desktop"   # one ongoing thread per key
+    conversation_key: str = "desktop"   # scopes threads to a client
+    thread_id: str | None = None        # None -> the single desktop thread
 
 
 @dataclass
@@ -40,13 +41,28 @@ class Command:
 # --------------------------------------------------------------- handlers
 
 async def _chat(args: str, ctx: CommandContext) -> dict:
-    from .conversation import Conversation, wants_clear
-    convo = Conversation(ctx.project_root)
-    key = ctx.conversation_key
+    from .conversation import Conversation, Threads, wants_clear
+
+    # Multi-thread when the client passes a thread id (the phone), single
+    # ongoing thread otherwise (the desktop CLI).
+    if ctx.thread_id is not None:
+        threads = Threads(ctx.project_root, owner=ctx.conversation_key)
+        tid = threads.ensure(ctx.thread_id, args)
+        recall = lambda: threads.recall(tid)
+        record = lambda u, a: threads.record(tid, u, a)
+        wipe = lambda: threads.clear(tid)
+        extra = {"thread": tid}
+    else:
+        convo = Conversation(ctx.project_root)
+        key = ctx.conversation_key
+        recall = lambda: convo.recall(key)
+        record = lambda u, a: convo.remember(u, a, key)
+        wipe = lambda: convo.clear(key)
+        extra = {}
 
     if wants_clear(args):
-        convo.clear(key)
-        return {"ok": True, "answer": "Conversation cleared.", "action": "chat"}
+        wipe()
+        return {"ok": True, "answer": "Conversation cleared.", "action": "chat", **extra}
     if not args.strip():
         return {"ok": False, "answer": "Usage: /chat <message>   (/chat clear to wipe the thread)"}
 
@@ -55,13 +71,13 @@ async def _chat(args: str, ctx: CommandContext) -> dict:
     if backend is None:
         return {"ok": False, "answer": "no chat backend configured"}
 
-    history = convo.recall(key)
+    history = recall()
     prompt = f"{history}\n\nUser: {args}" if history else f"User: {args}"
     r = await backend.generate(prompt, max_tokens=1024, temperature=0.6)
     answer = r.text or (r.error or "")
     if r.ok:
-        convo.remember(args, answer, key)
-    return {"ok": r.ok, "answer": answer, "source": getattr(r, "model", ""), "action": "chat"}
+        record(args, answer)
+    return {"ok": r.ok, "answer": answer, "source": getattr(r, "model", ""), "action": "chat", **extra}
 
 
 async def _build(args: str, ctx: CommandContext) -> dict:
