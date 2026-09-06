@@ -36,6 +36,79 @@ def _reply(answer: str, *, action: str = "chat", ok: bool = True,
             "contributors": [], "action": action, "action_ok": ok, "source": source}
 
 
+def _build_prompt(message: str, root: str, history: str) -> str:
+    """The context Gremlin answers against -- durable memory, recent
+    away-mode turns, this thread's history -- folded in ahead of the
+    user's line. Shared by answer() and answer_stream()."""
+    context = "\n\n".join(p for p in (
+        _memory_block(root),
+        notes.recent_away_context(root),
+        history,
+    ) if p)
+    return f"{context}\n\nUser: {message}" if context else f"User: {message}"
+
+
+async def _post_answer_bookkeeping(primary, message: str, root: str,
+                                   text: str, used_fallback: bool, used: str) -> None:
+    """autosave a durable fact + log finetune material -- only when the
+    fallback answered (training on Gremlin's own outputs just reinforces
+    them). Best-effort, never raises."""
+    try:
+        await notes.maybe_autosave_note(primary, message, root)
+    except Exception:
+        pass
+    if used_fallback:
+        try:
+            append_learning_log(root, {"prompt": message, "final_answer": text,
+                                       "consulted_models": [used], "source": used})
+        except Exception:
+            pass
+
+
+async def answer_stream(primary, message: str, root: str,
+                        history: str = "", fallback=None):
+    """Streaming twin of answer(). Async generator: yields ('delta', str)
+    as tokens arrive, then exactly one ('done', reply_dict) at the end.
+    Same short-circuits (remember-that), same context, same fallback +
+    bookkeeping as answer()."""
+    fact = notes.extract_remember_command(message)
+    if fact:
+        notes.remember_fact(root, f"[user] {fact}")
+        msg = f"Got it — I'll remember that: {fact}"
+        yield "delta", msg
+        yield "done", _reply(msg, action="remember")
+        return
+
+    prompt = _build_prompt(message, root, history)
+
+    acc = ""
+    try:
+        async for delta in primary.generate_stream(prompt, max_tokens=1024, temperature=0.6):
+            acc += delta
+            yield "delta", delta
+    except Exception:
+        acc = ""  # nothing usable came out -- fall back below
+
+    if acc.strip():
+        text = acc.strip()
+        await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin")
+        yield "done", _reply(text, source="gremlin")
+        return
+
+    if fallback is not None:
+        r = await fallback.generate(prompt, max_tokens=1024, temperature=0.6)
+        text = (r.text or "").strip() or "I couldn't get an answer just now — try again."
+        used = getattr(r, "model", "fallback")
+        yield "delta", text
+        await _post_answer_bookkeeping(primary, message, root, text, True, used)
+        yield "done", _reply(text, source=used)
+        return
+
+    text = "I couldn't get an answer just now — try again."
+    yield "delta", text
+    yield "done", _reply(text, source="gremlin", ok=False)
+
+
 async def answer(primary, message: str, root: str,
                  history: str = "", fallback=None) -> dict:
     """primary / fallback: backends with async generate(prompt, system=,
@@ -46,12 +119,7 @@ async def answer(primary, message: str, root: str,
         notes.remember_fact(root, f"[user] {fact}")
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
-    context = "\n\n".join(p for p in (
-        _memory_block(root),
-        notes.recent_away_context(root),
-        history,
-    ) if p)
-    prompt = (f"{context}\n\nUser: {message}" if context else f"User: {message}")
+    prompt = _build_prompt(message, root, history)
 
     r = await primary.generate(prompt, max_tokens=1024, temperature=0.6)
     used, used_fallback = getattr(r, "model", "gremlin"), False
@@ -60,20 +128,5 @@ async def answer(primary, message: str, root: str,
         used, used_fallback = getattr(r, "model", "fallback"), True
 
     text = (r.text or "").strip() or "I couldn't get an answer just now — try again."
-
-    # best-effort: notice a durable fact worth keeping across sessions
-    try:
-        await notes.maybe_autosave_note(primary, message, root)
-    except Exception:
-        pass
-    # only log as finetune material when the LOCAL model came up short and a
-    # stronger model answered -- a real "Gremlin didn't know this" signal.
-    # Training on Gremlin's own outputs would just reinforce them.
-    if used_fallback:
-        try:
-            append_learning_log(root, {"prompt": message, "final_answer": text,
-                                       "consulted_models": [used], "source": used})
-        except Exception:
-            pass
-
+    await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used)
     return _reply(text, source=used, from_memory=False)

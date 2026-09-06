@@ -95,6 +95,38 @@ class PersonaBackend(ModelBackend):
             error=f"all backends failed -- {'; '.join(errors)}",
         )
 
+    async def generate_stream(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        max_tokens: int = 1536,
+        temperature: float = 0.7,
+    ):
+        """Stream deltas from the primary; if it produces nothing before
+        failing, fall through to each fallback in turn (their default
+        one-chunk stream). Once any text has been yielded a mid-stream
+        failure just stops -- we don't re-answer with a second backend on
+        top of a partial reply."""
+        combined_system = self._combined_system(system)
+        last_err: Optional[BaseException] = None
+        for backend in [self.primary] + self.fallbacks:
+            produced = False
+            try:
+                async for delta in backend.generate_stream(
+                    prompt, system=combined_system,
+                    max_tokens=max_tokens, temperature=temperature,
+                ):
+                    produced = True
+                    yield delta
+                if produced:
+                    return
+            except BaseException as e:  # noqa
+                last_err = e
+                if produced:
+                    return
+        if last_err is not None:
+            raise last_err
+
     async def warmup(self) -> None:
         # Only warm the primary eagerly; fallbacks load lazily on first
         # actual use so a healthy primary doesn't pay the cost of loading

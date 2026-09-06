@@ -50,6 +50,28 @@ class ModelBackend(ABC):
         model doesn't crash a group call involving several others."""
         raise NotImplementedError
 
+    async def generate_stream(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        max_tokens: int = 1536,
+        temperature: float = 0.7,
+    ):
+        """Async generator of text deltas (str). Default: run generate()
+        and hand back its whole text as a single delta -- so an API
+        backend with no token stream, or one used as a fallback, still
+        works through the same interface. A backend with a real token
+        stream (see LlamaCppBackend) overrides this.
+
+        Contract: yields str pieces. Raises only if nothing was yielded
+        (caller can then fall back); a mid-stream failure just stops."""
+        result = await self.generate(
+            prompt, system=system, max_tokens=max_tokens, temperature=temperature)
+        if not result.ok:
+            raise RuntimeError(result.error or "generation failed")
+        if result.text:
+            yield result.text
+
     async def warmup(self) -> None:
         """Optional: load weights / open connection ahead of first use."""
         return None

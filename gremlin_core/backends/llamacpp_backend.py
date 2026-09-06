@@ -6,6 +6,7 @@ via llama-cpp-python. Runs fully offline, no network calls.
 from __future__ import annotations
 import asyncio
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
@@ -186,6 +187,88 @@ class LlamaCppBackend(ModelBackend):
             return GenerationResult(model=self.info.name, text=text)
         except Exception as e:
             return GenerationResult(model=self.info.name, text="", error=str(e))
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system: Optional[str] = None,
+        max_tokens: int = 1536,
+        temperature: float = 0.7,
+    ):
+        """Async generator of text deltas as llama.cpp produces them.
+
+        The blocking token iterator runs in this backend's executor lane;
+        each piece is handed to the event loop through a thread-safe
+        asyncio.Queue. The instance lock is held for the whole generation
+        (same as generate()) and only released once the worker thread has
+        actually stopped -- so unload() can never null out self._llm
+        while a token loop is still reading it. If the consumer stops
+        early (GeneratorExit), a threading.Event tells the worker to
+        stop between tokens.
+        """
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        if self.no_think:
+            messages[-1]["content"] += " /no_think"
+
+        loop = asyncio.get_event_loop()
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=5.0)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"{self.info.name} is still busy with a previous request -- try again shortly")
+
+        q: asyncio.Queue = asyncio.Queue()
+        stop = threading.Event()
+        _DONE = object()
+
+        def _run():
+            try:
+                for chunk in self._llm.create_chat_completion(
+                        messages=messages, max_tokens=max_tokens,
+                        temperature=temperature, stream=True):
+                    if stop.is_set():
+                        break
+                    choices = chunk.get("choices") or [{}]
+                    delta = (choices[0].get("delta") or {}).get("content")
+                    if delta:
+                        loop.call_soon_threadsafe(q.put_nowait, delta)
+            except Exception as e:  # noqa
+                loop.call_soon_threadsafe(q.put_nowait, e)
+            finally:
+                loop.call_soon_threadsafe(q.put_nowait, _DONE)
+
+        fut = None
+        try:
+            await self._ensure_loaded()
+            fut = loop.run_in_executor(self._executor, _run)
+            full = ""
+            emitted = 0
+            while True:
+                item = await q.get()
+                if item is _DONE:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                full += item
+                if self.strip_reasoning:
+                    visible, _ = split_reasoning(full)
+                else:
+                    visible = full
+                if len(visible) > emitted:
+                    yield visible[emitted:]
+                    emitted = len(visible)
+            self._last_used = time.monotonic()
+        finally:
+            stop.set()
+            if fut is not None:
+                try:
+                    await fut          # worker thread must be done before we let go of the lock
+                except Exception:  # noqa
+                    pass
+            self._lock.release()
 
     async def unload(self) -> None:
         """Frees this model's VRAM/RAM (drops the loaded llama.cpp

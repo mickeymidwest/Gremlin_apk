@@ -21,6 +21,8 @@ serialized on that one loop, exactly how asyncio is meant to be used.
 """
 from __future__ import annotations
 import asyncio
+import json
+import queue as _queue
 import secrets
 from concurrent.futures import TimeoutError as FuturesTimeout
 import socket
@@ -55,6 +57,14 @@ from .status import get_status_data
 TOKEN_PATH_NAME = "server_token.txt"
 ADMIN_TOKEN_PATH_NAME = "admin_token.txt"
 DEFAULT_PORT = 8765
+
+# SSE responses must not be buffered anywhere between here and the phone,
+# or the whole point (tokens as they land) is lost.
+_SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "X-Accel-Buffering": "no",
+    "Connection": "keep-alive",
+}
 
 
 def get_or_create_token(data_dir: Path) -> str:
@@ -520,6 +530,108 @@ def create_app(
 
         pending_confirmations.put(key, prepared)
         return _chat_reply(prepared.confirmation_prompt, prepared.action)
+
+    def _sse(obj: dict) -> str:
+        return f"data: {json.dumps(obj)}\n\n"
+
+    @app.route("/chat/stream", methods=["POST"])
+    def chat_stream():
+        """Server-Sent-Events twin of /chat for the ordinary answer path.
+
+        Frames: {"type":"delta","text":...} repeatedly, then one
+        {"type":"done", ...same body /chat returns...}. "clear" and
+        natural-language actions still resolve in one non-streamed done
+        frame (they don't produce a token stream). The Magic answer path,
+        its fallback, history recording and note bookkeeping are all
+        shared with /chat -- see magic/reply.answer_stream.
+        """
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        body = request.get_json(silent=True) or {}
+        message = body.get("message", "").strip()
+        if not message:
+            return jsonify({"error": "empty message"}), 400
+
+        conv_key = request.headers.get("Authorization", "") or "default"
+        gremlin_backend = registry.get("gremlin")
+
+        if history_mod.is_clear_command(message):
+            conversation_history.clear(conv_key)
+            done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
+            return Response(_sse({"type": "done", **done}),
+                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+
+        action_result = _handle_possible_action(message)
+        if action_result is not None:
+            return Response(_sse({"type": "done", **action_result}),
+                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+
+        history = conversation_history.render(conv_key)
+        fallback = next(iter(getattr(gremlin_backend, "fallbacks", []) or []), None) \
+            or registry.get("gemini")
+
+        # Bridge: the async generator (and every backend lock it touches)
+        # lives on the one event loop; this bounded thread-safe queue is
+        # the only thing that crosses into the Flask worker thread. A
+        # queue that fills up means the client isn't draining -- stop
+        # generating rather than blocking the loop.
+        bridge: _queue.Queue = _queue.Queue(maxsize=512)
+        _STOP = object()
+
+        async def _pump():
+            final = None
+            try:
+                async with state_machine.phase(agent_state.AgentState.REASONING):
+                    async for kind, payload in magic_reply.answer_stream(
+                        gremlin_backend, message, str(project_root),
+                        history=history, fallback=fallback,
+                    ):
+                        if kind == "done":
+                            final = payload
+                        try:
+                            bridge.put_nowait((kind, payload))
+                        except _queue.Full:
+                            return  # consumer gone/stalled -- abandon the stream
+            except Exception as e:  # noqa
+                try:
+                    bridge.put_nowait(("done", _chat_reply(
+                        "That hit an error -- try again in a moment.", ok=False)))
+                except _queue.Full:
+                    pass
+            finally:
+                if final is not None:
+                    _note_answer(final)
+                    with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+                        conversation_history.record(conv_key, message, final.get("answer", ""))
+                # make room for the stop marker if we have to
+                while True:
+                    try:
+                        bridge.put_nowait(_STOP)
+                        break
+                    except _queue.Full:
+                        try:
+                            bridge.get_nowait()
+                        except _queue.Empty:
+                            break
+
+        asyncio.run_coroutine_threadsafe(_pump(), loop)
+
+        def _emit():
+            while True:
+                try:
+                    item = bridge.get(timeout=180)
+                except _queue.Empty:
+                    break  # backstop: nothing for 3 min, treat as done
+                if item is _STOP:
+                    break
+                kind, payload = item
+                if kind == "delta":
+                    yield _sse({"type": "delta", "text": payload})
+                else:
+                    yield _sse({"type": "done", **payload})
+
+        return Response(_emit(), mimetype="text/event-stream", headers=_SSE_HEADERS)
 
     @app.route("/update-check", methods=["GET"])
     def update_check_route():

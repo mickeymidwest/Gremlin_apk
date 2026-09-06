@@ -1,5 +1,6 @@
 """The /command server route: {cmd,args} -> Magic command dispatch."""
 import asyncio
+import json
 import threading
 
 import pytest
@@ -19,6 +20,10 @@ class FakeBackend:
             model = "qwen2.5-7b"
             ok = True
         return R()
+
+    async def generate_stream(self, prompt, system=None, max_tokens=1024, temperature=0.6):
+        for piece in ("echo", ":", prompt):
+            yield piece
 
 
 class FakeRegistry:
@@ -73,3 +78,21 @@ def test_chat_command_runs(client):
 def test_unknown_command_returns_help(client):
     r = client.post("/command", json={"cmd": "frobnicate"}, headers=_hdr()).get_json()
     assert r["action"] == "help"
+
+
+def test_chat_stream_emits_sse_deltas_then_done(client):
+    r = client.post("/chat/stream", json={"message": "hello"}, headers=_hdr())
+    assert r.status_code == 200
+    assert r.mimetype == "text/event-stream"
+    frames = [json.loads(line[len("data: "):])
+              for line in r.get_data(as_text=True).splitlines()
+              if line.startswith("data: ")]
+    assert frames, r.get_data(as_text=True)
+    assert frames[-1]["type"] == "done"
+    deltas = "".join(f["text"] for f in frames if f["type"] == "delta")
+    assert "hello" in deltas
+    assert "hello" in frames[-1]["answer"]
+
+
+def test_chat_stream_requires_auth(client):
+    assert client.post("/chat/stream", json={"message": "hi"}).status_code == 401
