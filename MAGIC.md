@@ -4,12 +4,13 @@
 tools, the skill system, the improvement loop. Think Zoid — Magic is the body and
 hardpoints, Gremlin is the pilot, skills/tools are the loadout.
 
-Status: rebuild in progress (started 2026-09-05). This file is the spec the build
-loop checks itself against.
+Status: **rebuild done** (2026-09-05→06). Gremlin runs on Magic — the old
+consult/council/specialists machinery is deleted, the service is live. This file
+is the spec; the sections below are the current state, not a plan.
 
-### Build log (2026-09-05, one session)
+### Build log
 
-**The harness — all done, 87 tests green:**
+**The harness — done, 98 tests green:**
 - **Skeleton** — `gremlin_core/magic/`: types, store (YAML skill cards under
   `data/skills/`, JSON for the rest), model adapter over `gremlin_core.backends`,
   toolhost (shell + file, path jail).
@@ -79,13 +80,13 @@ read-only, mickey's own box only.
 - **/fix + /build are desktop-CLI only.** A multi-step battle needs the model
   resident AND pytest/gradle running beside it; on this box (7.5GB RAM, HDD swap)
   that pushes RAM past ~5GB, the box swap-thrashes, the server stops answering
-  /status, and the watchdog restarts it mid-run. Through the app they now return
-  "run  on the desktop". The battle loop itself is sound
-  (verified offline + the campaign regression test); it is the hardware that
-  can't host it alongside live chat.  (a gradle subprocess, no
-  model) still runs fine under the server.
+  `/status`, and the watchdog restarts it mid-run. Through the app they now return
+  "run `gremlin magic fix …` on the desktop". The battle loop itself is sound
+  (offline tests + the campaign regression test prove it) — it's the hardware
+  that can't host it alongside live chat. `/build android` (a gradle subprocess,
+  no model) still runs under the server fine.
 - First real campaign (Qwen2.5-7B on mathkit): fixed the easy bug, converged too
-  early on the old heuristic (fixed). Clamp-scoring quirk chased -- scoring is
+  early on the old heuristic (fixed). Clamp-scoring quirk chased — scoring is
   sound (regression test added), it was model nondeterminism.
 - Unify `notes.py` flat memory with Magic `Fact` semantic memory.
 - `gh auth login` (mickey) for CI visibility.
