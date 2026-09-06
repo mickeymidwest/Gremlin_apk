@@ -59,20 +59,32 @@ def _run_coro(coro):
 
 
 class BackendModel:
-    """Adapts a gremlin_core.backends.ModelBackend to Magic's Model."""
+    """Adapts a gremlin_core.backends.ModelBackend to Magic's Model.
+
+    `loop`: when Magic runs inside server.py (a battle from /fix, /do),
+    every backend call MUST go to the server's one persistent event loop
+    -- the backends' asyncio.Locks live there, and spinning up fresh
+    loops in worker threads is the documented deadlock (see server.py's
+    module docstring). Pass it and calls are submitted via
+    run_coroutine_threadsafe. Omit it for the offline/CLI path.
+    """
 
     def __init__(self, backend, name: str | None = None,
-                 temperature: float = 0.3):
+                 temperature: float = 0.3, loop=None):
         self._backend = backend
         self.name = name or getattr(getattr(backend, "info", None), "name", "backend")
         self.temperature = temperature
+        self._loop = loop
 
     def complete(self, messages, system=None, max_tokens=4096):
         prompt = _flatten(messages)
-        result = _run_coro(self._backend.generate(
-            prompt, system=system, max_tokens=max_tokens,
-            temperature=self.temperature,
-        ))
+        coro = self._backend.generate(
+            prompt, system=system, max_tokens=max_tokens, temperature=self.temperature,
+        )
+        if self._loop is not None:
+            result = asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=300)
+        else:
+            result = _run_coro(coro)
         if getattr(result, "error", None):
             err = str(result.error)
             if any(w in err.lower() for w in ("quota", "rate limit", "429", "resource_exhausted")):

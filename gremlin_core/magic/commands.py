@@ -29,6 +29,7 @@ class CommandContext:
     router: object = None
     conversation_key: str = "desktop"   # scopes threads to a client
     thread_id: str | None = None        # None -> the single desktop thread
+    loop: object = None                 # server's event loop when running under server.py
 
 
 @dataclass
@@ -52,7 +53,7 @@ def _coding_backend(ctx: CommandContext):
     do not fit on the 8GB card (see magic/vram.py)."""
     from . import vram
     name = _coding_model_name(ctx)
-    vram.ensure_only_sync(ctx.registry, keep=name)
+    vram.ensure_only_sync(ctx.registry, keep=name, loop=ctx.loop)
     return ctx.registry.get(name) or ctx.registry.get("gremlin")
 
 
@@ -165,16 +166,25 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     skills = store.read_skills()
     facts = store.read_facts()
     from .model import BackendModel
-    model = BackendModel(_coding_backend(ctx))
+    from . import vram
+    coder = _coding_model_name(ctx)
+    await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
+    model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("gremlin"), loop=ctx.loop)
 
     task = Task(id="fix", prompt=args, test_filter="")
-    tr = run_battle(task, str(work), model, skills, facts, step_budget=14)
-    score = PytestVerifier().score(task, str(work), tr)
 
-    diff = subprocess.run(
-        ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",
-         str(root), str(work)],
-        capture_output=True, text=True).stdout
+    def _run():
+        # run_battle is blocking + its model.complete() submits back to
+        # the server loop -- so this MUST be off the loop, in a thread.
+        t = run_battle(task, str(work), model, skills, facts, step_budget=14)
+        s = PytestVerifier().score(task, str(work), t)
+        d = subprocess.run(
+            ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",
+             str(root), str(work)], capture_output=True, text=True).stdout
+        return t, s, d
+
+    import asyncio
+    tr, score, diff = await asyncio.get_event_loop().run_in_executor(None, _run)
     shutil.rmtree(work.parent, ignore_errors=True)
 
     return {
@@ -221,7 +231,7 @@ def _model_for(ctx: CommandContext, name: str = "gremlin"):
     from .model import BackendModel
     be = ctx.registry.get(name) or ctx.registry.get(
         ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
-    return BackendModel(be) if be is not None else None
+    return BackendModel(be, loop=ctx.loop) if be is not None else None
 
 
 async def _skill(args: str, ctx: CommandContext) -> dict:
@@ -278,18 +288,23 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
     if model is None:
         return {"ok": False, "answer": "no model available to draft with"}
 
+    # model.complete() blocks and (under the server) submits to the event
+    # loop -- so all the drafting/gating runs off the loop in a thread.
+    import asyncio
+    _ex = lambda fn: asyncio.get_event_loop().run_in_executor(None, fn)
+
     if sub == "new":
         if not rest:
             return {"ok": False, "answer": "Usage: /skill new <what the skill should do>"}
-        prop = reckoning.draft_skill(model, rest, skills)
+        prop = await _ex(lambda: reckoning.draft_skill(model, rest, skills))
         drafter = "gremlin"
         if prop is None and gemini is not None:
-            prop, drafter = reckoning.draft_skill(gemini, rest, skills), "gemini"
+            prop, drafter = await _ex(lambda: reckoning.draft_skill(gemini, rest, skills)), "gemini"
         if prop is None:
             return {"ok": False, "answer": "couldn't turn that into a skill — try describing the steps"}
-        kept = reckoning.gate(model, [prop], skills, facts)
+        kept = await _ex(lambda: reckoning.gate(model, [prop], skills, facts))
         if not kept and gemini is not None:
-            kept = reckoning.gate(gemini, [prop], skills, facts)
+            kept = await _ex(lambda: reckoning.gate(gemini, [prop], skills, facts))
         if not kept:
             return {"ok": False, "action": "skill",
                     "answer": "draft was rejected by the gate (vague, or duplicates an existing "
@@ -309,13 +324,13 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
                   and x.status != "deprecated"), None)
         if s is None:
             return {"ok": False, "answer": f"no active skill '{name.strip()}'"}
-        prop = reckoning.draft_revision(model, s, whats_wrong.strip())
+        prop = await _ex(lambda: reckoning.draft_revision(model, s, whats_wrong.strip()))
         if prop is None and gemini is not None:
-            prop = reckoning.draft_revision(gemini, s, whats_wrong.strip())
+            prop = await _ex(lambda: reckoning.draft_revision(gemini, s, whats_wrong.strip()))
         if prop is None:
             return {"ok": False, "answer": "couldn't draft a revision"}
-        kept = reckoning.gate(model, [prop], skills, facts) or (
-            reckoning.gate(gemini, [prop], skills, facts) if gemini else [])
+        kept = await _ex(lambda: reckoning.gate(model, [prop], skills, facts)) or (
+            await _ex(lambda: reckoning.gate(gemini, [prop], skills, facts)) if gemini else [])
         if not kept:
             return {"ok": False, "action": "skill", "answer": "revision rejected by the gate"}
         reckoning.apply_proposals(kept, "authored", skills, facts)
@@ -341,7 +356,7 @@ async def _do(args: str, ctx: CommandContext) -> dict:
         ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
     if backend is None:
         return {"ok": False, "answer": "no model available"}
-    model = BackendModel(backend)
+    model = BackendModel(backend, loop=ctx.loop)
     task = Task(id="do", prompt=(
         f"Answer this by checking the live system, then say DONE with the answer: {args}"))
 

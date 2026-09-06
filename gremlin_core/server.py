@@ -274,7 +274,7 @@ def create_app(
             registry=registry, project_root=str(project_root),
             config_path=str(config_path), router=router,
             conversation_key=request.headers.get("Authorization", "") or "default",
-            thread_id=body.get("thread"),
+            thread_id=body.get("thread"), loop=loop,
         )
         try:
             result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=480.0)
