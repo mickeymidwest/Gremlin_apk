@@ -76,9 +76,16 @@ class Threads:
 
     def _save(self, idx: dict) -> None:
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._index_path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(idx, indent=2))
-        tmp.replace(self._index_path)
+        # unique temp name: the server is multi-threaded and two phone
+        # requests can hit _save at once -- a shared .tmp path means one
+        # writer's partial file can be .replace()'d into place and the
+        # whole thread index reads back empty next load.
+        tmp = self._index_path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        try:
+            tmp.write_text(json.dumps(idx, indent=2))
+            tmp.replace(self._index_path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     def _key(self, thread_id: str) -> str:
         return f"{self.owner}:{thread_id}"

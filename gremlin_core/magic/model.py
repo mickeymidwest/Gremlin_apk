@@ -40,8 +40,8 @@ class Model(Protocol):
 
 def _flatten(messages: Sequence[Message]) -> str:
     if len(messages) == 1 and messages[0].get("role") == "user":
-        return messages[0]["content"]
-    return "\n\n".join(f'{m["role"]}: {m["content"]}' for m in messages)
+        return messages[0].get("content", "")
+    return "\n\n".join(f'{m.get("role", "user")}: {m.get("content", "")}' for m in messages)
 
 
 def _run_coro(coro):

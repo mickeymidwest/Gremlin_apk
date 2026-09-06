@@ -46,6 +46,19 @@ def test_test_prompt_noise_is_filtered(tmp_path):
     assert opportunities.find(str(tmp_path), min_cluster=3) == []
 
 
+def test_survives_malformed_jsonl_lines(tmp_path):
+    conv = tmp_path / "data" / "conversations"
+    conv.mkdir(parents=True)
+    (conv / "t.jsonl").write_text(
+        "not json at all\n"
+        "[1, 2, 3]\n"                       # valid json, wrong shape
+        '{"user": "restart the jellyfin container"}\n'
+        '{"user": "jellyfin container restart again"}\n'
+        '{"user": "please restart jellyfin container"}\n')
+    clusters = opportunities.find(str(tmp_path), min_cluster=3)
+    assert len(clusters) == 1 and clusters[0]["size"] == 3
+
+
 def test_skill_suggest_command(tmp_path):
     _seed(tmp_path, ["back up my documents folder to the nas",
                      "backup documents to nas now",

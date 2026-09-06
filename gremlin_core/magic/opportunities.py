@@ -26,19 +26,23 @@ def _keywords(text: str) -> frozenset:
 def _user_prompts(project_root: str, limit: int = 400) -> list[str]:
     root = Path(project_root)
     out: list[str] = []
+
+    def _field(line: str, key: str) -> str:
+        try:
+            rec = json.loads(line)
+            return rec.get(key, "") if isinstance(rec, dict) else ""
+        except ValueError:
+            return ""
+
+    def _lines(path: Path) -> list[str]:
+        try:
+            return path.read_text(errors="ignore").splitlines()[-limit:]
+        except OSError:
+            return []
+
     for p in sorted((root / "data" / "conversations").glob("*.jsonl")):
-        for line in p.read_text(errors="ignore").splitlines()[-limit:]:
-            try:
-                out.append(json.loads(line).get("user", ""))
-            except ValueError:
-                pass
-    log = root / "data" / "learning_log.jsonl"
-    if log.exists():
-        for line in log.read_text(errors="ignore").splitlines()[-limit:]:
-            try:
-                out.append(json.loads(line).get("prompt", ""))
-            except ValueError:
-                pass
+        out += [_field(ln, "user") for ln in _lines(p)]
+    out += [_field(ln, "prompt") for ln in _lines(root / "data" / "learning_log.jsonl")]
     return [p for p in out if p and len(p) > 8 and not _is_noise(p)]
 
 
