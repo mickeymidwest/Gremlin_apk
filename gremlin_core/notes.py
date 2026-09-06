@@ -189,12 +189,24 @@ def note_already_saved(root: str, note: str) -> bool:
     return _normalize_note(note) in _normalize_note(existing)
 
 
+# a weak model sometimes "extracts" its own reply or a paraphrase of the
+# ask instead of a durable third-person fact -- reject those shapes.
+_BAD_AUTONOTE = re.compile(
+    r"^(i'?m |i'?ll |i will |i can |i'?ve |let me |sure|okay|got it|on it|"
+    r"you'?re (trying|looking|asking|working)|you want|the user (wants|is|asked)|"
+    r"here'?s |this is a )",
+    re.IGNORECASE,
+)
+
+
 def parse_autonote(raw: str) -> Optional[str]:
     if not raw:
         return None
     text = raw.strip().strip('"').strip()
     text = text.splitlines()[0].strip() if text else ""
     if not text or text.upper().startswith("NONE") or len(text) < 4:
+        return None
+    if _BAD_AUTONOTE.match(text):
         return None
     return text
 
