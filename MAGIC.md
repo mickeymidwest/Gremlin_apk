@@ -54,11 +54,28 @@ loop checks itself against.
   pytest, returns the diff (apply is a separate confirmed step); `model` →
   list / search / use. Wired as `gremlin magic <cmd>`. Bare/unknown → help.
   41 tests green; `main` + `server` still import clean.
-- [~] **a. wider model bench** — bench/quality.py extended to the on-disk 7-9B
-  models + 5 non-abliterated candidates downloading (Qwen2.5-Coder-7B-Instruct,
-  Qwen2.5-7B-Instruct, Llama-3.1-8B-Instruct, Ministral-8B, granite-3.1-8b).
-  Early: dolphin-2.9-llama3-8b 2/8 @ 28 tok/s (poor, as expected). Full table +
-  verdict next checkpoint.
+- [x] **a. wider model bench (11 models)** — no-think column:
+
+  | model | score | tok/s | |
+  |---|---|---|---|
+  | **Qwen2.5-7B-Instruct** | **8/8** | **65** | ← new primary |
+  | granite-3.1-8b-instruct | 8/8 | 56 | slow cold load (126s) |
+  | Qwen2.5-Coder-7B-Instruct | 8/8 | 50 | best on code → `/build` `/fix` |
+  | Qwen2.5-Coder-7B abliterated | 8/8 | 49 | |
+  | Qwen3-8B base | 7/8 | 62 | missed a code task; needs `/no_think` |
+  | Llama-3.1-8B-Instruct | 7/8 | 49 | |
+  | llama-3.1-8b abliterated (old primary) | 7/8 | 31 | |
+  | Ministral-8B | 6/8 | 49 | |
+  | DeepSeek-R1-Distill-8B abl | 5/8 | 68 | reasoning model, grader-hostile |
+  | dolphin-2.9-llama3-8b | 2/8 | 28 | old |
+  | gemma-2-9b abl | crash | — | llama_context creation failed |
+
+  Suite is saturated (4× 8/8) — a harder eval (Magic's own campaign on real
+  bugfix tasks) is the real tiebreak. Among the measured, **Qwen2.5-7B wins on
+  score + speed and has no thinking phase to manage.** Primary switched.
+  **Runtime finding:** the 2026-08-30 sweep's `q4_0` KV cache is llama-specific —
+  it makes Qwen2.5 degenerate ("the the the pérdida…"). Qwen2.5 entries use
+  `q8_0` KV; verified clean through the real backend, 5568 MiB @ 32k ctx.
 - [x] **b. harness survey** — spec §8: ranked list of 10 patterns to adopt from
   Aider / SWE-agent / OpenHands / TaskWeaver, top picks: parse-before-edit,
   phase-gated tools, repo map, search/replace edits. Implementation = later
@@ -84,14 +101,16 @@ loop checks itself against.
 
 ## 1. Primary model
 
-Qwen3-8B **base** (not abliterated). Bench on the RTX 2070S, Q4_K_M, no-think:
-7/8 vs the old llama-3.1-8b-abliterated's 7/8, at **62 tok/s vs 31**. Abliterated
-Qwen3 scored *worse* (6/8) and slower — not used. Uncensored-when-needed is a
-fallback model, not the main brain.
+**Qwen2.5-7B-Instruct** (not abliterated). Won an 11-model bench on the RTX 2070S
+(Q4_K_M): 8/8 at ~65 tok/s — top score *and* fastest, and no thinking phase to
+manage. Full table in the build log. Alternates registered: `qwen2.5-coder-7b`
+(coding specialist for `/build` `/fix`), `qwen3-8b` (hybrid thinking, toggle
+`no_think` off for hard problems), `llama-3.1-8b-abliterated` (fallback).
 
-Run config carried over from the 2026-08-30 sweep: `n_ctx 32768`,
-`flash_attn true`, `kv_cache_type q4_0`, `n_gpu_layers -1` (never partial-offload
-the primary). Fallbacks: Claude / Gemini (last-resort only).
+Run config: `n_ctx 32768`, `flash_attn true`, `n_gpu_layers -1` (never
+partial-offload the primary), **`kv_cache_type q8_0`** — the sweep's `q4_0` is
+llama-specific and breaks Qwen2.5. ~5.6 GiB VRAM at 32k, room for the Jellyfin
+transcode. Fallbacks: Gemini (Claude once the key is real).
 
 ## 2. Salvage from the old build
 

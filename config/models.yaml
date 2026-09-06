@@ -1,16 +1,40 @@
 models:
-  # Gremlin's base/primary voice. Qwen3-8B (base, not abliterated) --
-  # picked 2026-09-05 off bench/quality.py on this 2070 Super:
-  #   qwen3-8b base   7/8   62 tok/s     <- this
-  #   llama-3.1-8b    7/8   31 tok/s     (old primary, below)
-  #   qwen3-8b abl.   6/8   37 tok/s     (abliteration cost a point + speed)
-  # Run config is the 2026-08-30 sweep's answer for this card:
-  # 32768 ctx / flash_attn / q4_0 KV = ~5968 MiB peak, ~2.2 GiB free,
-  # ~58 tok/s -- room to coexist with the Jellyfin transcode.
-  # chat_format chatml: Qwen3 is chatml-based. no_think appends "/no_think"
-  # to each turn so it skips the <think> phase (otherwise it burns the
-  # token budget reasoning out loud); strip_reasoning (default) also
-  # scrubs any <think> block that slips through.
+  # Gremlin's base/primary voice. Picked 2026-09-05 off bench/quality.py
+  # (8-task suite) on this 2070 Super, no-think column:
+  #   qwen2.5-7b-instruct    8/8   65 tok/s   <- this: top score AND fastest
+  #   granite-3.1-8b         8/8   56 tok/s
+  #   qwen2.5-coder-7b       8/8   50 tok/s   (best at code -> /build, /fix)
+  #   qwen3-8b base          7/8   62 tok/s   (missed a code task; needs /no_think)
+  #   llama-3.1-8b abl.      7/8   31 tok/s   (old primary)
+  # Suite is saturated at the top (4 models 8/8) -- a harder eval (Magic's
+  # own campaign on real bugfix tasks) is the tiebreak, tracked in MAGIC.md.
+  # Qwen2.5-7B wins on score+speed AND has no thinking phase to manage.
+  # Run config = the 2026-08-30 sweep's answer for this card.
+  - name: qwen2.5-7b
+    type: local_gguf
+    display_name: "Qwen2.5-7B-Instruct"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+    n_ctx: 32768
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
+    chat_format: chatml
+
+  # Coding specialist -- 8/8, best on the code tasks. Candidate for the
+  # model behind /build and /fix (wire once Magic's request path is on
+  # Magic, iter 5b).
+  - name: qwen2.5-coder-7b
+    type: local_gguf
+    display_name: "Qwen2.5-Coder-7B-Instruct"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+    n_ctx: 32768
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
+    chat_format: chatml
+
+  # Qwen3-8B -- kept as an alternate (hybrid thinking; toggle no_think off
+  # for hard problems). 7/8 on the suite, needs the /no_think handling.
   - name: qwen3-8b
     type: local_gguf
     display_name: "Qwen3-8B"
@@ -203,7 +227,7 @@ models:
 persona:
   name: gremlin
   display_name: "Gremlin"
-  primary_model: qwen3-8b
+  primary_model: qwen2.5-7b
   fallback_models: [gemini]
   # The 4 curated consult models -- gpt-oss for general reasoning,
   # gemma for Gemini-flavored general+multilingual, qwen3-coder for
