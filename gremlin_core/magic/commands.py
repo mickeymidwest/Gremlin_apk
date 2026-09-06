@@ -42,15 +42,19 @@ class Command:
 # --------------------------------------------------------------- handlers
 
 def _coding_model_name(ctx: CommandContext) -> str:
-    return ("qwen2.5-coder-7b" if ctx.registry.get("qwen2.5-coder-7b")
-            else ctx.registry.raw_config.get("persona", {}).get("primary_model", "gremlin"))
+    """/build and /fix are agentic coding work. On the desktop CLI
+    (ctx.loop is None) we can afford to swap in the coding specialist
+    (qwen2.5-coder-7b, 8/8 on the bench). Under the SERVER (ctx.loop set),
+    the box can't -- loading a second 7B off the HDD while the chat model
+    is resident is minutes of swap thrash on 7.5GB RAM. So there, use the
+    already-warm primary; it also scored 8/8."""
+    primary = ctx.registry.raw_config.get("persona", {}).get("primary_model", "gremlin")
+    if ctx.loop is not None:
+        return primary
+    return "qwen2.5-coder-7b" if ctx.registry.get("qwen2.5-coder-7b") else primary
 
 
 def _coding_backend(ctx: CommandContext):
-    """/build and /fix are agentic coding work -- prefer the coding
-    specialist (qwen2.5-coder-7b, 8/8 on the bench) over the general
-    chat model. VRAM: unload everything else first -- two local models
-    do not fit on the 8GB card (see magic/vram.py)."""
     from . import vram
     name = _coding_model_name(ctx)
     vram.ensure_only_sync(ctx.registry, keep=name, loop=ctx.loop)
@@ -176,7 +180,7 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     def _run():
         # run_battle is blocking + its model.complete() submits back to
         # the server loop -- so this MUST be off the loop, in a thread.
-        t = run_battle(task, str(work), model, skills, facts, step_budget=14)
+        t = run_battle(task, str(work), model, skills, facts, step_budget=10, time_budget_s=420)
         s = PytestVerifier().score(task, str(work), t)
         d = subprocess.run(
             ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",

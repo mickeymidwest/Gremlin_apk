@@ -19,6 +19,7 @@ until DONE or the step budget runs out. Model-agnostic by construction.
 from __future__ import annotations
 
 import json
+import time
 import re
 from typing import Optional, Sequence
 
@@ -144,7 +145,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
                plan: bool = True, phase_gate: bool = True,
-               readonly: bool = False) -> Transcript:
+               readonly: bool = False, time_budget_s: float = 600.0) -> Transcript:
     toolhost = ShellToolHost(
         repo_path, readonly=readonly,
         allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
@@ -164,7 +165,11 @@ def run_battle(task: Task, repo_path: str, model: Model,
     messages = [{"role": "user", "content": opening}]
 
     unclear_strikes = 0
+    _start = time.monotonic()
     for _ in range(step_budget):
+        if time.monotonic() - _start > time_budget_s:
+            transcript.final_message = "(gave up: time budget exhausted)"
+            break
         reply = model.complete(messages, system=system, max_tokens=max_tokens)
         transcript.steps.append(StepRecord(kind="model", content=reply.text))
         messages.append({"role": "assistant", "content": reply.text})
