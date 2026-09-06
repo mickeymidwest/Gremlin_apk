@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .router import Router
-from .consult import append_learning_log
+from .learning_log import append_learning_log
 
 TEACHER_SYSTEM_PROMPT = (
     "You are an external logic and code correction teacher for a local AI "

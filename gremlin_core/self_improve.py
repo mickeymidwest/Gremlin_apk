@@ -175,7 +175,7 @@ def _log_teacher_assist(root: str, goal: str, teacher_model: str, patch: str) ->
     special-casing: next time `gremlin finetune` runs on the primary,
     this goal + the teacher's working solution is real material for
     teaching gremlin's own model to do this kind of self-edit itself."""
-    from .consult import append_learning_log
+    from .learning_log import append_learning_log
     append_learning_log(root, {
         "prompt": f"How would you change your own code to: {goal}?",
         "final_answer": patch,

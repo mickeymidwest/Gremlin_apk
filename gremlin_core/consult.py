@@ -120,34 +120,10 @@ async def seems_vague(router: Router, persona_name: str, prompt: str, answer: st
     return "vague" in result.text.strip().lower()
 
 
-def _log_path(root: str) -> str:
-    path = os.path.join(root, "data", "learning_log.jsonl")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    return path
-
-
-def load_learned_answer(root: str, prompt: str) -> Optional[str]:
-    """Exact-match lookup against past consultations. Intentionally
-    simple -- no embeddings or fuzzy matching -- this is a starting
-    point, not a full memory system."""
-    path = _log_path(root)
-    if not os.path.exists(path):
-        return None
-    with open(path, "r") as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if entry.get("prompt") == prompt:
-                return entry.get("final_answer")
-    return None
-
-
-def append_learning_log(root: str, entry: dict) -> None:
-    entry["timestamp"] = time.time()
-    with open(_log_path(root), "a") as f:
-        f.write(json.dumps(entry) + "\n")
+# The learning log now lives in its own module. Re-exported here so
+# existing callers keep working; new code should import from
+# gremlin_core.learning_log directly.
+from .learning_log import append_learning_log, load_learned_answer, log_path as _log_path  # noqa: E402,F401
 
 
 def _talking_marker_path(root: str) -> str:
