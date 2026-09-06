@@ -34,8 +34,8 @@ from .registry import ModelRegistry
 from .router import Router
 from . import actions
 from . import agent_state
-from . import consult
 from . import intent as intent_mod
+from .magic import reply as magic_reply
 from . import history as history_mod
 from . import away_sync
 from . import builds
@@ -291,23 +291,18 @@ def create_app(
         # continues the thread instead of reintroducing itself every few
         # sentences. See gremlin_core/history.py.
         history = conversation_history.render(conv_key)
+        fallback = next(iter(getattr(gremlin_backend, "fallbacks", []) or []), None) \
+            or registry.get("gemini")
         try:
             result = run_coro(
                 loop,
-                _in_phase(agent_state.AgentState.REASONING, consult.consult_and_learn(
-                    router, "gremlin", message, str(project_root),
-                    last_resort_model=gremlin_backend.last_resort_model_name,
-                    consult_sample_rate=gremlin_backend.consult_sample_rate,
-                    history=history,
+                _in_phase(agent_state.AgentState.REASONING, magic_reply.answer(
+                    gremlin_backend, message, str(project_root),
+                    history=history, fallback=fallback,
                 )),
-                # A consult that has to partially-CPU-offload a second model
-                # alongside the primary (see config/models.yaml's VRAM notes)
-                # can genuinely take longer than the old 120s default on this
-                # 8GB card -- was surfacing as "can't connect" on the phone.
-                # Bumped again, 300s -> 480s, once `gremlin serve` itself
-                # started running throttled (nice/ionice, see main.py's
-                # cmd_serve) -- correct for not stepping on Jellyfin, but
-                # it means any real contention now costs real wall time too.
+                # `gremlin serve` runs throttled (nice/ionice, see main.py's
+                # cmd_serve) so it doesn't step on Jellyfin -- a real answer
+                # under contention can still take real wall time.
                 timeout=480.0,
             )
         except Exception as e:
