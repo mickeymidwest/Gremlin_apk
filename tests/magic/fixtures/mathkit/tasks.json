@@ -1,0 +1,32 @@
+[
+  {
+    "id": "clamp",
+    "prompt": "The function `clamp` in mathkit.py is buggy. Fix it so all its tests in tests/test_mathkit.py pass. Only change what is needed.",
+    "test_filter": "clamp",
+    "tags": ["bugfix", "numeric"]
+  },
+  {
+    "id": "dedupe",
+    "prompt": "The function `dedupe` in mathkit.py does not preserve order. Fix it so all its tests pass.",
+    "test_filter": "dedupe",
+    "tags": ["bugfix", "sequence"]
+  },
+  {
+    "id": "rle",
+    "prompt": "The function `run_length_encode` in mathkit.py drops the final run. Fix it so all its tests pass.",
+    "test_filter": "rle",
+    "tags": ["bugfix", "string", "parsing"]
+  },
+  {
+    "id": "roman",
+    "prompt": "The function `roman_to_int` in mathkit.py ignores subtractive pairs like IV and IX. Fix it so all its tests pass.",
+    "test_filter": "roman",
+    "tags": ["bugfix", "parsing"]
+  },
+  {
+    "id": "balanced",
+    "prompt": "The function `is_balanced` in mathkit.py does not check that a closing bracket matches the right opener kind. Fix it so all its tests pass.",
+    "test_filter": "balanced",
+    "tags": ["bugfix", "parsing", "stack"]
+  }
+]

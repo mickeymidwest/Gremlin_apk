@@ -18,7 +18,14 @@ loop checks itself against.
   gate), `lifecycle.py` (candidate→active on 3 non-origin wins, active→deprecated
   on 3 losses). 19 tests green. Compose smoke verified: battle edits a file →
   reckon proposes → gate accepts → skill written as a YAML card → reloads clean.
-- [ ] 3. verifier + measurement harness
+- [x] **3. verifier + measurement harness** — `verifier.py` (`PytestVerifier`:
+  score = passed/(passed+failed) over the task's `-k` subset, from a real pytest
+  run) + `campaign.py` (baseline → loop{resurrect, battle, verify, reckon, gate,
+  apply, audit; trial every T} → fixed point / budget). Fixture:
+  `tests/magic/fixtures/mathkit` (5 planted bugs). 21 tests green. Real offline
+  campaign verified: baselines clamp .75 / rle .25 / dedupe .33 from actual test
+  runs; a clamp battle drives .75→1.00; unfixable bugs stay at baseline; skill
+  persists as a candidate card. No simulated numbers anywhere.
 - [ ] 4. Council (skill destination)
 - [ ] 5. Qwen3-8B primary in models.yaml; drop council/specialists/consult/intent
 - [ ] 6. /chat /build /fix /model commands (desktop + APK)
