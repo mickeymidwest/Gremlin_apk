@@ -170,4 +170,9 @@ def from_dict(cls, data: dict):
             kwargs[key] = from_dict(SkillRecord, val)
         else:
             kwargs[key] = val
-    return cls(**kwargs)
+    try:
+        return cls(**kwargs)
+    except TypeError:
+        # a required field is missing (e.g. a hand-edited skill card with
+        # no `procedure:`) -- caller treats None as "skip this one"
+        return None

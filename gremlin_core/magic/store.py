@@ -56,9 +56,14 @@ class Store:
         return json.loads(path.read_text())
 
     def _write_json(self, path: Path, data) -> None:
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2))
-        tmp.replace(path)  # atomic on POSIX
+        # unique tmp: a shared ".tmp" sibling can be half-written by one
+        # writer and .replace()'d into place by another (server threads).
+        tmp = path.with_suffix(path.suffix + f".{os.getpid()}-{_hashid(str(id(data)))}.tmp")
+        try:
+            tmp.write_text(json.dumps(data, indent=2))
+            tmp.replace(path)  # atomic on POSIX
+        finally:
+            tmp.unlink(missing_ok=True)
 
     # -- skills (procedural memory, YAML) -----------------------------
 
@@ -72,7 +77,16 @@ class Store:
         return d
 
     def _load_card(self, p: Path) -> Skill | None:
-        raw = yaml.safe_load(p.read_text()) or {}
+        # these cards are hand-edited on purpose -- a YAML typo in one
+        # must not blind Magic to every other skill.
+        try:
+            raw = yaml.safe_load(p.read_text()) or {}
+        except (yaml.YAMLError, OSError) as e:
+            print(f"[store] skipping unreadable skill card {p.name}: {e}")
+            return None
+        if not isinstance(raw, dict):
+            print(f"[store] skipping skill card {p.name}: not a mapping")
+            return None
         rec = raw.pop("record", None) or {}
         skill = from_dict(Skill, raw)
         if skill is None:
@@ -125,9 +139,12 @@ class Store:
             "purpose", "trigger_when", "trigger_matcher", "procedure",
             "supersedes", "provenance", "created", "record",
         ) if k in d}
-        tmp = path.with_suffix(".yaml.tmp")
-        tmp.write_text(yaml.safe_dump(ordered, sort_keys=False, width=88))
-        tmp.replace(path)
+        tmp = path.with_suffix(f".{os.getpid()}.yaml.tmp")
+        try:
+            tmp.write_text(yaml.safe_dump(ordered, sort_keys=False, width=88))
+            tmp.replace(path)
+        finally:
+            tmp.unlink(missing_ok=True)
 
     # -- facts (semantic memory) -----------------------------------
     #

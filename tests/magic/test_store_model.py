@@ -45,6 +45,19 @@ def test_write_skills_deletes_orphan_files(tmp_path):
     assert remaining == ["one"]
 
 
+def test_read_skills_skips_broken_cards(tmp_path):
+    """A hand-edited card with a YAML typo / missing field / wrong shape
+    must not blind Magic to every other skill."""
+    st = Store(tmp_path)
+    st.write_skills([_skill("good")])
+    sk = tmp_path / "data" / "skills"
+    (sk / "bad-syntax.yaml").write_text("name: [unclosed\n")
+    (sk / "missing-fields.yaml").write_text("name: incomplete\n")
+    (sk / "not-a-map.yaml").write_text("- just a list\n")
+    got = st.read_skills()
+    assert [s.name for s in got] == ["good"]
+
+
 def test_facts_episodes_campaign_roundtrip(tmp_path):
     st = Store(tmp_path)   # conftest isolates gremlin_memory.txt per test
     st.write_facts([Fact(id="fact_1", text="pytest.ini is load-bearing", provenance=["b1"])])
