@@ -135,6 +135,82 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         return result
     }
 
+    /**
+     * Streams the desktop's POST /chat/stream (Server-Sent Events).
+     * `onDelta` fires on this background thread for each token chunk;
+     * `onDone` fires once with the final (answer, source). Anything that
+     * isn't a reachable desktop with a clean stream -- no network, not
+     * paired, pending away-mode sync to flush, a non-2xx response, a
+     * parse error, an old server with no /chat/stream -- falls back to
+     * the ordinary blocking chat() and delivers the whole answer through
+     * onDone with no deltas. So the caller can always rely on exactly one
+     * onDone; onDelta is best-effort progress.
+     */
+    fun chatStream(message: String, onDelta: (String) -> Unit, onDone: (ChatResult) -> Unit) {
+        val host = prefs.getString("host", null)
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null)
+
+        if (!hasAnyNetwork() || host == null || port == 0 || token == null) {
+            onDone(chat(message)); return
+        }
+        // A queued away-mode exchange needs the pending_sync ride-along
+        // that only the plain /chat path does -- take it this turn.
+        if (readPendingSync().length() > 0) {
+            onDone(chat(message)); return
+        }
+
+        var connection: HttpURLConnection? = null
+        try {
+            val url = URL("http://$host:$port/chat/stream")
+            connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Accept", "text/event-stream")
+                doOutput = true
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = desktopReadTimeoutMs
+            }
+            OutputStreamWriter(connection.outputStream).use {
+                it.write(JSONObject().put("message", message).put("token", token).toString())
+            }
+            if (connection.responseCode !in 200..299) {
+                connection.disconnect(); connection = null
+                onDone(chat(message)); return
+            }
+
+            var answer = StringBuilder()
+            var source = "desktop"
+            connection.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines) {
+                    if (!line.startsWith("data:")) continue
+                    val payload = line.substring(5).trim()
+                    if (payload.isEmpty()) continue
+                    val obj = try { JSONObject(payload) } catch (e: Exception) { continue }
+                    when (obj.optString("type")) {
+                        "delta" -> {
+                            val t = obj.optString("text")
+                            if (t.isNotEmpty()) { answer.append(t); onDelta(t) }
+                        }
+                        "done" -> {
+                            val full = obj.optString("answer", answer.toString())
+                            answer = StringBuilder(full)
+                            val s = obj.optString("source", "")
+                            if (s.isNotEmpty() && s != "gremlin") source = s
+                        }
+                    }
+                }
+            }
+            connection.disconnect(); connection = null
+            refreshCachedPersonaVoice(host, port, token) // keep away-mode voice current, same as chat()
+            onDone(ChatResult(answer.toString(), source))
+        } catch (e: Exception) {
+            try { connection?.disconnect() } catch (_: Exception) {}
+            onDone(chat(message)) // any streaming trouble -> the reliable path
+        }
+    }
+
     private fun chatAway(message: String): ChatResult {
         val personaPrompt = prefs.getString("cached_persona_prompt", "") ?: ""
 

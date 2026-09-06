@@ -453,20 +453,83 @@ class MainActivity : AppCompatActivity() {
         hologramView.evaluateJavascript("setTalking(true)", null)
         thinkingStatus.visibility = View.VISIBLE
 
+        fun subStatusFor(source: String): String? = when (source) {
+            "claude" -> "(standalone, via Claude)"
+            "gemini" -> "(standalone, via Gemini)"
+            else -> null
+        }
+
         Thread {
-            val result = gremlinClient.chat(message)
-            runOnUiThread {
-                val subStatus = when (result.source) {
-                    "claude" -> "(standalone, via Claude)"
-                    "gemini" -> "(standalone, via Gemini)"
-                    else -> null
-                }
-                appendAssistantTurn(result.answer, subStatus)
-                voiceOutput.speak(result.answer)
-                hologramView.evaluateJavascript("setTalking(false)", null)
-                thinkingStatus.visibility = View.GONE
-            }
+            val started = java.util.concurrent.atomic.AtomicBoolean(false)
+            gremlinClient.chatStream(
+                message,
+                onDelta = { delta ->
+                    runOnUiThread {
+                        if (started.compareAndSet(false, true)) {
+                            beginAssistantStreamTurn()
+                            thinkingStatus.visibility = View.GONE
+                        }
+                        appendAssistantDelta(delta)
+                    }
+                },
+                onDone = { result ->
+                    runOnUiThread {
+                        val sub = subStatusFor(result.source)
+                        if (started.get()) {
+                            finishAssistantStreamTurn(result.answer, sub)
+                        } else {
+                            // no deltas arrived (fallback path / action / clear)
+                            appendAssistantTurn(result.answer, sub)
+                        }
+                        voiceOutput.speak(result.answer)
+                        hologramView.evaluateJavascript("setTalking(false)", null)
+                        thinkingStatus.visibility = View.GONE
+                    }
+                },
+            )
         }.start()
+    }
+
+    // --- streaming assistant turn: append tokens straight onto the log
+    //     as they arrive, persist + add the sub-status line once at the
+    //     end (a disk write per token would be silly). ---
+    private var streamTurnMark = 0
+
+    private fun beginAssistantStreamTurn() {
+        if (chatLog.text.isNotEmpty()) chatLog.append("\n\n")
+        streamTurnMark = chatLog.text.length
+    }
+
+    private fun appendAssistantDelta(delta: String) {
+        chatLog.append(delta)
+        val layout = chatLog.layout ?: return
+        val bottom = layout.getLineBottom(chatLog.lineCount - 1)
+        val visible = chatLog.height - chatLog.paddingTop - chatLog.paddingBottom
+        if (bottom > visible) chatLog.scrollTo(0, bottom - visible)
+    }
+
+    private fun finishAssistantStreamTurn(finalAnswer: String, subStatus: String?) {
+        // reconcile with the authoritative final answer from the done
+        // frame (it may differ from the concatenated deltas -- reasoning
+        // strip, a fallback that replaced everything)
+        val streamed = chatLog.text.subSequence(streamTurnMark, chatLog.text.length).toString()
+        if (streamed != finalAnswer) {
+            val kept = chatLog.text.subSequence(0, streamTurnMark)
+            chatLog.text = SpannableStringBuilder(kept).append(finalAnswer)
+        }
+        if (!subStatus.isNullOrEmpty()) {
+            val secondary = ContextCompat.getColor(this, R.color.gremlin_text_secondary)
+            val b = SpannableStringBuilder(chatLog.text).append("\n")
+            val s = b.length
+            b.append(subStatus)
+            b.setSpan(ForegroundColorSpan(secondary), s, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            b.setSpan(RelativeSizeSpan(0.85f), s, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            chatLog.text = b
+        }
+        try {
+            historyFile.writeText(chatLog.text.toString())
+        } catch (e: Exception) {
+        }
     }
 
     /** `/claude` is the ONE remaining typed command, on purpose.
