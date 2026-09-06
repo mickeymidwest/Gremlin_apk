@@ -24,8 +24,10 @@ loop checks itself against.
 - **Harness patterns adopted** (Aider / SWE-agent / TaskWeaver): parse-before-edit,
   `edit_file` search/replace, phase-gated tools, repo map, pre-battle plan,
   post-red-test reflection nudge.
-- **/skill** — mickey describes a skill or a fix, Gremlin drafts it (Gemini
-  fallback), the same gate vets it.
+- **/skill** — describe a skill or a fix, Gremlin drafts it (Gemini fallback),
+  the same gate vets it. **/skill suggest** clusters what mickey actually asks
+  (conversations + learning log) and surfaces the recurring ones as skill
+  candidates (`opportunities.py`, no model call for the clustering).
 - **Conversation memory** — `notes.py` (durable `gremlin_memory.txt` + talking
   marker) + `conversation.py` `Threads` (multi-thread, per-owner).
 

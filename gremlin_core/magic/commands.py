@@ -236,7 +236,21 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
                 "Magic skills:\n" + _cards() +
                 "\n\n/skill new <description>        draft a new one\n"
                 "/skill improve <name> | <what's wrong>\n"
+                "/skill suggest                  skills worth adding, from what you ask a lot\n"
                 "/skill show <name>"}
+
+    if sub == "suggest":
+        from . import opportunities
+        clusters = opportunities.find(ctx.project_root)
+        if not clusters:
+            return {"ok": True, "action": "skill",
+                    "answer": "Nothing recurring enough yet — ask Gremlin more and check back."}
+        lines = ["You keep asking about these — each could be a skill:"]
+        for c in clusters[:6]:
+            lines.append(f"  ×{c['size']}  {', '.join(c['keywords'])}")
+            lines.append(f"        e.g. \"{c['sample']}\"")
+        lines.append("\n/skill new <describe one of these> to turn it into a skill.")
+        return {"ok": True, "action": "skill", "answer": "\n".join(lines)}
 
     if sub == "show":
         s = next((x for x in skills if x.name == reckoning._slug(rest)), None)
