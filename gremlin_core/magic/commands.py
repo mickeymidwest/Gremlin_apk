@@ -66,7 +66,24 @@ async def _chat(args: str, ctx: CommandContext) -> dict:
 
 async def _build(args: str, ctx: CommandContext) -> dict:
     if not args.strip():
-        return {"ok": False, "answer": "Usage: /build <what to build>  (a script, a project, an app)"}
+        return {"ok": False, "answer": "Usage: /build <what to build>  ·  "
+                "/build android <project-dir> [as <name>]"}
+
+    # Local APK build -- no GitHub round-trip. "/build android <dir> [as <name>]"
+    parts = args.split()
+    if parts[0].lower() == "android":
+        from . import android_build
+        rest = parts[1:]
+        name = "gremlin-apk"
+        if "as" in rest:
+            i = rest.index("as")
+            name = rest[i + 1] if i + 1 < len(rest) else name
+            rest = rest[:i]
+        hint = " ".join(rest) or str(Path(ctx.project_root) / "android")
+        import asyncio
+        return await asyncio.get_event_loop().run_in_executor(
+            None, lambda: android_build.build_apk(hint, name))
+
     from .. import build_project
     router = ctx.router
     if router is None:

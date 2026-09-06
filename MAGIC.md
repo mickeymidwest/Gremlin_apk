@@ -103,11 +103,22 @@ loop checks itself against.
   `adjustResize` + `WindowInsetsCompat` listener padding the root by system-bars
   + IME; hologram WebView is now a fixed 200dp so the chat + input keep their
   room when the keyboard is up.
-- [ ] **local Android builds** (mickey 2026-09-05) — desktop builds APKs itself,
-  no GitHub round-trip. No-sudo path: portable Temurin JDK 17 + Android
-  cmdline-tools + Gradle, all under `~/android-build/` / `~/Android/Sdk/`; then
-  `gremlin build` produces an APK that flows through Settings→Builds like any
-  other desktop build. Queued after the APK download works.
+- [x] **local Android builds** — no GitHub round-trip. No-sudo toolchain:
+  Temurin JDK 17 + Android cmdline-tools (build-tools 35, platform 35,
+  platform-tools) under `~/Android/Sdk/` + **Gradle 9.4.1** under `~/android-build/`
+  (`env.sh`). AGP 9.2.0 needed 9.4.1 (wrapper said 8.13 — fixed); `gradlew` +
+  `gradle-wrapper.jar` committed, CI switched to `./gradlew`. First local
+  `assembleDebug` **BUILD SUCCESSFUL** — all the new Kotlin compiles.
+  `gremlin_core/magic/android_build.py`: `build_apk()` runs `./gradlew
+  assembleDebug` with the toolchain env, copies the .apk to `~/Downloads/<name>/`
+  + a `.gremlin-build.json` marker. `/build android <dir> [as <name>]` wired.
+  **Verified end-to-end:** built `gremlin-apk.apk` (18.6 MB) → shows in
+  `builds.list_builds()` → downloadable from Settings → Builds. 66 tests green.
+- [ ] **APK: conversations + slicker chat** (mickey 2026-09-05) — keep the
+  hologram Gremlin; add a "recent conversations" area (list of past threads, tap
+  to reopen, "new chat"). Needs multi-thread conversation support server-side
+  (`GET /conversations`, thread-keyed history — `history.py` already keys by an
+  opaque id) + a modern message layout in the app.
 - [ ] 7. APK Settings→Builds download
 - [ ] 8. infrastructure-defense capability (spec §7) — watch / scan-own / attack
   surface / harden / canaries / own-code review. Defensive only, mickey's own
