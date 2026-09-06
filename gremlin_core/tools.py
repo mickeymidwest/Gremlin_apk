@@ -82,6 +82,20 @@ class ToolRegistry:
         ]
 
 
+def _review_model(ctx: "ExecContext") -> str:
+    """Which model reviews a proposed build / self-edit patch. The old
+    hardcoded reviewers (gpt-oss-20b, deepseek-r1-distill-8b) were pruned
+    in the 5-model migration -- routing to a name the registry no longer
+    knows hard-errors the whole action (this is what wedged a solitaire
+    build). Prefer gemini: it's the API model, so a review costs no VRAM
+    and never fights the primary for the card. Fall back to the coder,
+    then the primary."""
+    for name in ("gemini", "qwen2.5-coder-7b"):
+        if ctx.registry.get(name) is not None:
+            return name
+    return ctx.registry.primary_model_name() or "gemini"
+
+
 def _fmt_exec(result: SandboxResult) -> str:
     """One shape for both sandboxed and root command output -- mirrors
     what the /admin/execute route already returns to the phone."""
@@ -183,9 +197,10 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     if not goal:
         return {"answer": "What do you want me to change about myself?", "action": "self_edit", "ok": False}
     model_names = [n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"]
+    reviewer = _review_model(ctx)
     result = await self_improve.run_self_edit(
         ctx.router, ctx.project_root, goal, model_names,
-        reviewer_a="gpt-oss-20b", reviewer_b="deepseek-r1-distill-8b",
+        reviewer_a=reviewer, reviewer_b=reviewer,
         run_tests=True,
         consult_models=ctx.registry.consult_models(),
     )
@@ -225,9 +240,10 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
     model_names = [primary_name] if primary_name else [
         n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"
     ]
+    reviewer = _review_model(ctx)
     result = await build_project.run_build(
         ctx.router, ctx.project_root, target_root, goal, model_names,
-        reviewer_a="gpt-oss-20b", reviewer_b="deepseek-r1-distill-8b",
+        reviewer_a=reviewer, reviewer_b=reviewer, teacher_model=reviewer,
         consult_models=ctx.registry.consult_models(),
     )
     if result.get("applied") and result.get("committed"):

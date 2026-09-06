@@ -862,7 +862,7 @@ def create_app(
             loop,
             self_improve.run_self_edit(
                 router, str(project_root), goal, model_names,
-                reviewer_a="gemini", reviewer_b="deepseek-r1-distill-8b", run_tests=run_tests,
+                reviewer_a="gemini", reviewer_b="gemini", run_tests=run_tests,
                 allow_consult_override=allow_consult_override,
                 consult_models=registry.consult_models(),
             ),
