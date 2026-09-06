@@ -283,13 +283,15 @@ isn't a thing; skills come from the loop and from here.
 1. **Parse/lint before an edit lands** (SWE-agent ACI) — DONE. `write_file` and
    `edit_file` run `_precheck` (`compile()` for `.py`, `json.loads` for `.json`);
    a broken edit never lands, the model gets the SyntaxError back.
-2. **State-machine tool gating** (SWE-agent; "statewright") — gate tools by
-   battle phase: explore = read/list/repo_map; edit = + write/edit; verify =
-   + run_shell. A local 8B "went 2/10→10/10 by shrinking the tool space" —
-   Gremlin *is* a local 8B. *high / medium.*
-3. **Repo map** (Aider) — a `repo_map` tool: tree-sitter symbol index →
-   task-ranked summary, so a battle stops blind-reading files. Big token +
-   quality win for `/fix`. *high / medium.*
+2. **Phase-gated tool space** (SWE-agent; "statewright") — DONE. A battle starts
+   with only `repo_map / read_file / list_dir / run_shell`; `write_file` /
+   `edit_file` unlock after the agent's first `repo_map` or `read_file`. The
+   toolhost refuses a locked tool with "look at the code first". `phase_gate=True`
+   default.
+3. **Repo map** (Aider) — DONE. `repo_map(query)` tool: `ast`-based symbol index
+   over the repo's `.py` files (module docstring line + top-level defs/classes +
+   class methods), ranked by keyword overlap with the query, top 40. Survives
+   unparseable files. No tree-sitter dep.
 4. **Search/replace edits** (Aider) — DONE. `edit_file(path, search, replace)`:
    exact match then whitespace-flexible fallback, precheck before write. The
    battle protocol now steers the model to it over whole-file `write_file`.

@@ -38,11 +38,12 @@ def test_plan_pass_prepends_a_plan_note(tmp_path):
     (tmp_path / "greet.py").write_text("def greet():\n    return 'TODO'\n")
     model = ScriptedModel([
         "1. read greet.py\n2. edit the return\n3. run tests",   # consumed as the plan
+        'ACTION: read_file\n```json\n{"path": "greet.py"}\n```',   # unlocks editing
         'ACTION: edit_file\n```json\n{"path": "greet.py", "search": "TODO", "replace": "hi"}\n```',
         "DONE\ndone",
     ])
     tr = run_battle(Task(id="p1", prompt="fix greet"), str(tmp_path), model,
-                    skills=[], facts=[], step_budget=5, plan=True)
+                    skills=[], facts=[], step_budget=6, plan=True)
     notes = [s for s in tr.steps if s.kind == "note"]
     assert notes and notes[0].content.startswith("PLAN")
     assert "hi" in (tmp_path / "greet.py").read_text()

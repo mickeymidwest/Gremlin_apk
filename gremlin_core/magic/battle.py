@@ -143,8 +143,11 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill]) -> str:
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
-               plan: bool = True) -> Transcript:
-    toolhost = ShellToolHost(repo_path)
+               plan: bool = True, phase_gate: bool = True) -> Transcript:
+    toolhost = ShellToolHost(
+        repo_path,
+        allowed=ShellToolHost.EXPLORE_TOOLS if phase_gate else None,
+    )
     system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)
@@ -184,8 +187,17 @@ def run_battle(task: Task, repo_path: str, model: Model,
             kind="tool", tool_name=call.name, tool_args=call.args,
             tool_result=result.output, content=("ok" if result.ok else "error"),
         ))
-        messages.append({"role": "user", "content":
-                         f"RESULT ({'ok' if result.ok else 'error'}):\n{result.output}"})
+        result_msg = f"RESULT ({'ok' if result.ok else 'error'}):\n{result.output}"
+
+        # Phase gate (#2): the editing tools open once the agent has
+        # actually looked at the code.
+        if (phase_gate and result.ok and "write_file" not in toolhost.allowed
+                and call.name in ("repo_map", "read_file")):
+            toolhost.unlock_all()
+            system, _ = _assemble_system(task, facts, skills, toolhost)
+            result_msg += "\n\n(editing tools are now available: write_file, edit_file)"
+
+        messages.append({"role": "user", "content": result_msg})
     else:
         transcript.final_message = "(gave up: step budget exhausted)"
 

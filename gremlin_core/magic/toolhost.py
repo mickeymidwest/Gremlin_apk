@@ -8,7 +8,9 @@ concern the design doc leaves to whoever deploys Magic.
 """
 from __future__ import annotations
 
+import ast
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -46,6 +48,8 @@ def _precheck(path: str, text: str) -> str:
 
 class ShellToolHost:
     TOOLS = {
+        "repo_map":   "repo_map(query)                 -- symbol-level map of the repo, "
+                      "ranked toward `query`; read this before opening files",
         "run_shell":  "run_shell(cmd)                  -- run a shell command in the repo root",
         "read_file":  "read_file(path)                 -- print a file's contents",
         "edit_file":  "edit_file(path, search, replace) -- replace the first exact match of `search` "
@@ -54,10 +58,16 @@ class ShellToolHost:
         "list_dir":   "list_dir(path)                  -- list a directory (defaults to '.')",
     }
 
-    def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000):
+    # Phase-gated tool space (MAGIC.md section 8, #2): a small model does
+    # much better when it can't edit before it has looked.
+    EXPLORE_TOOLS = ("repo_map", "read_file", "list_dir", "run_shell")
+
+    def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
+                 allowed: "tuple[str, ...] | None" = None):
         self.root = Path(root).resolve()
         self.shell_timeout = shell_timeout
         self.max_output = max_output
+        self.allowed = tuple(allowed) if allowed is not None else tuple(self.TOOLS)
         # Put the interpreter running Einherjar first on PATH so the agent's
         # `pytest` / `python` resolve to the env that actually has the test
         # deps -- otherwise a bare shell has neither and the agent can't
@@ -66,7 +76,7 @@ class ShellToolHost:
         self._env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + self._env.get("PATH", "")
 
     def tool_help(self) -> str:
-        return "\n".join(f"  {v}" for v in self.TOOLS.values())
+        return "\n".join(f"  {self.TOOLS[n]}" for n in self.TOOLS if n in self.allowed)
 
     # -- path jail ---------------------------------------------------
 
@@ -88,7 +98,11 @@ class ShellToolHost:
     def run(self, call: ToolCall) -> ToolResult:
         fn = getattr(self, f"_t_{call.name}", None)
         if fn is None:
-            return ToolResult(False, f"unknown tool {call.name!r}. available: {', '.join(self.TOOLS)}")
+            return ToolResult(False, f"unknown tool {call.name!r}. available: {', '.join(self.allowed)}")
+        if call.name not in self.allowed:
+            return ToolResult(False, f"{call.name} isn't available yet. "
+                              f"Right now you can use: {', '.join(self.allowed)}. "
+                              "Look at the code first.")
         try:
             return fn(call.args)
         except Exception as e:  # a tool blowing up is a battle event, not a crash
@@ -165,6 +179,44 @@ class ShellToolHost:
             return ToolResult(False, f"NOT WRITTEN -- edit would break the file: {rej}")
         p.write_text(updated)
         return ToolResult(True, f"edited {args.get('path')} ({len(original)} -> {len(updated)} chars)")
+
+    def unlock_all(self) -> None:
+        """Called by battle.py once the agent has actually looked at the
+        code -- opens the editing tools."""
+        self.allowed = tuple(self.TOOLS)
+
+    def _t_repo_map(self, args: dict) -> ToolResult:
+        query = (args.get("query") or args.get("q") or "").lower()
+        qwords = set(re.findall(r"[a-z_]{3,}", query))
+        rows: list[tuple[int, str]] = []
+        for p in sorted(self.root.rglob("*.py")):
+            rel = p.relative_to(self.root)
+            if any(part in {".git", "venv", ".venv", "__pycache__", "node_modules",
+                            "build", "dist", ".pytest_cache"} for part in rel.parts):
+                continue
+            try:
+                tree = ast.parse(p.read_text())
+            except (SyntaxError, UnicodeDecodeError, OSError):
+                continue
+            doc = (ast.get_docstring(tree) or "").splitlines()
+            syms: list[str] = []
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    a = ", ".join(ar.arg for ar in node.args.args)
+                    syms.append(f"def {node.name}({a})")
+                elif isinstance(node, ast.ClassDef):
+                    meths = [n.name for n in node.body
+                             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+                    syms.append(f"class {node.name}" + (f"  {{{', '.join(meths[:8])}}}" if meths else ""))
+            block = [f"{rel}" + (f"  — {doc[0]}" if doc else "")]
+            block += [f"    {s}" for s in syms]
+            text = "\n".join(block)
+            hay = set(re.findall(r"[a-z_]{3,}", text.lower()))
+            score = len(qwords & hay) if qwords else 0
+            rows.append((score, text))
+        rows.sort(key=lambda r: -r[0])
+        top = [t for _, t in rows[:40]]
+        return ToolResult(True, self._clip("\n".join(top) or "(no python files)"))
 
     def _t_list_dir(self, args: dict) -> ToolResult:
         p = self._resolve(args.get("path", "."))
