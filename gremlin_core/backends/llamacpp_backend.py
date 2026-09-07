@@ -67,6 +67,8 @@ class LlamaCppBackend(ModelBackend):
         kv_cache_type: str = "f16",   # f16 | q8_0 | q4_0 -- quantized needs flash_attn
         strip_reasoning: bool = True,  # drop <think>...</think> from the answer
         no_think: bool = False,  # Qwen3: append "/no_think" to suppress the think phase
+        lora_path: Optional[str] = None,   # a GGUF LoRA adapter applied on top of the base
+        lora_scale: float = 1.0,
     ):
         super().__init__(info)
         self.model_path = model_path
@@ -77,6 +79,8 @@ class LlamaCppBackend(ModelBackend):
         self.kv_cache_type = kv_cache_type
         self.strip_reasoning = strip_reasoning
         self.no_think = no_think
+        self.lora_path = lora_path
+        self.lora_scale = lora_scale
         # A quantized KV cache only works with flash attention on in
         # llama.cpp (the non-FA path has no quantized-V kernel), so asking
         # for one implies the other rather than erroring at load time.
@@ -118,6 +122,11 @@ class LlamaCppBackend(ModelBackend):
                 flash_attn=self.flash_attn,
                 verbose=False,
             )
+            if self.lora_path:
+                # a fine-tuned LoRA adapter riding on the base GGUF -- no
+                # merge needed (the merge step wants ~2x this box's RAM).
+                kwargs["lora_path"] = self.lora_path
+                kwargs["lora_scale"] = self.lora_scale
             if self.kv_cache_type != "f16":
                 t = self._KV_GGML_TYPE[self.kv_cache_type]
                 kwargs["type_k"] = t

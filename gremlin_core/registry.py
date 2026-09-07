@@ -52,6 +52,8 @@ class ModelRegistry:
                     kv_cache_type=entry.get("kv_cache_type", "f16"),
                     strip_reasoning=entry.get("strip_reasoning", True),
                     no_think=entry.get("no_think", False),
+                    lora_path=entry.get("lora_path"),
+                    lora_scale=entry.get("lora_scale", 1.0),
                 )
             elif entry["type"] == "local_vlm":
                 # A vision-language model: two files, weights + mmproj
