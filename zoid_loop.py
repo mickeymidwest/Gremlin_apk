@@ -80,9 +80,13 @@ def targets() -> list[dict]:
             task=Task(id=tid, prompt=(
                 f"{mod}.py has bugs -- each failing test in test_{mod}.py pins one down. "
                 f"Read {mod}.py and test_{mod}.py, fix the function/method BODIES only "
-                "(keep signatures, don't edit the tests), get `python -m pytest -q` fully "
-                "green. Loop: read -> edit one fix -> run pytest -> read the next failure. "
-                "Do NOT re-run pytest without editing between runs.")))
+                "(keep the exact signatures, don't edit the tests), get `python -m pytest -q` "
+                "fully green.\n"
+                f"{mod}.py is small -- the reliable move is to write_file the WHOLE corrected "
+                "file at once: copy every function, fix the broken bodies, leave the "
+                "already-passing ones exactly as they are. Then run pytest. If one test still "
+                "fails, one more small write_file. Don't do many tiny edit_file calls on a "
+                "class -- they get fragile.")))
 
     def _cfuzz(path, tid):
         return dict(name=tid, repo=path, verifier=FuzzVerifier(run_seconds=40),

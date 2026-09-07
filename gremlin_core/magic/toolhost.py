@@ -112,14 +112,22 @@ def _edit_locate(original: str, search: str, replace: str):
         exact = [k for k, ln in enumerate(lines) if ln.strip() == one]
         if len(exact) == 1:
             anchor = (exact[0], exact[0] + 1)
-        elif exact:
-            anchor = (exact[0], exact[0] + 1)   # first occurrence
+        elif len(exact) > 1:
+            ns = ", ".join(str(k + 1) for k in exact)
+            return (f"'{one}' appears on {len(exact)} lines ({ns}) -- ambiguous. Give a "
+                    "multi-line 'search' with a unique line above/below it, or use write_file "
+                    "to rewrite the whole file.")
         if anchor is None:                       # signature-name match
             m = re.search(r"\b([A-Za-z_]\w*)\s*\(", one)
             if m:
                 nm = m.group(1)
                 decl = [k for k, ln in enumerate(lines)
                         if _DECL_RE.search(ln) and re.search(rf"\b{re.escape(nm)}\s*\(", ln)]
+                if len(decl) > 1:
+                    ns = ", ".join(str(k + 1) for k in decl)
+                    return (f"more than one definition names '{nm}' (lines {ns}) -- your search "
+                            "matches all of them. Rewrite the whole file with write_file, or "
+                            "give a multi-line search unique to the one you mean.")
                 if len(decl) == 1:
                     anchor = (decl[0], decl[0] + 1)
         if anchor is None and len(one) >= 12:    # fuzzy single line
