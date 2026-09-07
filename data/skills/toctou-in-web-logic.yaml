@@ -1,0 +1,24 @@
+id: seed_57
+name: toctou-in-web-logic
+status: candidate
+destination: card
+council_reviewed: false
+purpose: check-then-act with a gap lets a concurrent request slip between the two
+trigger_when: auditing balance checks, coupon/quota redemption, or 'first one wins' logic
+trigger_matcher: race condition|TOCTOU|check.*then|balance|coupon|quota|redeem|withdraw|double.spend|limit.*exceeded
+procedure:
+- find code that reads a value, decides, then writes -- with no lock/transaction spanning
+  both
+- fire the request many times in parallel (Turbo Intruder / a small script) and watch for
+  over-redemption
+- the fix is an atomic DB update with a WHERE guard, SELECT ... FOR UPDATE, or a unique constraint
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633743
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

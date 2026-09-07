@@ -1,0 +1,23 @@
+id: seed_55
+name: validate-at-the-boundary
+status: candidate
+destination: card
+council_reviewed: false
+purpose: check and normalize untrusted input once, where it enters -- then trust it inside
+trigger_when: adding a request handler, CLI arg, config load, or message consumer
+trigger_matcher: request|payload|param|user input|deserializ|parse .* (body|json)|validate|sanitize|endpoint
+procedure:
+- parse into a typed structure at the edge; reject anything that doesn't fit with a clear
+  error
+- range/format/length/enum checks happen here, not scattered through the business logic
+- canonicalize now (trim, lowercase host, resolve path) so downstream comparisons are safe
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633717
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

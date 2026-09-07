@@ -1,0 +1,25 @@
+id: seed_53
+name: kotlin-nullability-at-the-edge
+status: candidate
+destination: card
+council_reviewed: false
+purpose: platform types from Java/JNI/Intent extras are the NPE source in Kotlin
+trigger_when: handling values that come from Java APIs, Bundles, JSON, or the system
+trigger_matcher: NullPointerException|!!|platform type|getStringExtra|Bundle|nullable|\?\.|lateinit.*not
+  initialized
+procedure:
+- treat every value crossing into Kotlin from Java/Android as nullable; handle null explicitly
+  at that line
+- avoid `!!` -- use `?:` with a real default or an early return
+- '''lateinit property has not been initialized'' = you read it before onCreate/setup ran
+  -- guard with ::x.isInitialized or restructure'
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063369
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

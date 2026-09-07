@@ -1,0 +1,22 @@
+id: seed_48
+name: float-equality-and-money
+status: candidate
+destination: card
+council_reviewed: false
+purpose: 0.1 + 0.2 != 0.3; never == two floats, never store money as float
+trigger_when: comparing non-integer numbers or handling currency
+trigger_matcher: float|0\.1|round|== .*\d\.\d|money|currency|price|cents|decimal|approx
+procedure:
+- 'compare with a tolerance: abs(a - b) < 1e-9  (pytest.approx in tests)'
+- for money use integer cents, or decimal.Decimal -- never binary float
+- round only at the display boundary, and pick the rounding mode deliberately
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633621
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,24 @@
+id: seed_35
+name: when-stuck-widen-then-narrow
+status: candidate
+destination: card
+council_reviewed: false
+purpose: repeating the same failing move is not progress -- change the altitude
+trigger_when: the same action or edit has failed 2+ times
+trigger_matcher: stuck|loop|again|same (error|result)|third time|going in circles|not converging
+procedure:
+- stop editing; re-read the actual error and the code around the failure site fresh
+- state the assumption that must be wrong for this to keep failing, then check it directly
+  (grep, a print, the docs)
+- if still stuck, try the SMALLEST possible version of the change, verify that, then grow
+  it
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633433
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

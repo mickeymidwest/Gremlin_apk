@@ -1,0 +1,25 @@
+id: seed_38
+name: dont-edit-the-test-to-pass
+status: candidate
+destination: card
+council_reviewed: false
+purpose: changing the assertion to match a wrong result hides the bug, doesn't fix it
+trigger_when: a test fails and the fix that comes to mind is to change the test
+trigger_matcher: change the (test|assert)|update the expected|the test is wrong|adjust the
+  expectation
+procedure:
+- assume the test is the spec; make the implementation satisfy it
+- only touch a test if you can state exactly why its expectation is provably wrong AND the
+  task allows it
+- if the test really is wrong, fix it in its own step with a note -- don't fold it into the
+  code fix
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633478
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

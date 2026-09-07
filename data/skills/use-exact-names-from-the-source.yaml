@@ -1,0 +1,25 @@
+id: seed_65
+name: use-exact-names-from-the-source
+status: candidate
+destination: card
+council_reviewed: false
+purpose: guessing an identifier wastes a compile cycle -- copy it from the file
+trigger_when: calling a function, constructing a type, or importing from code you've read
+trigger_matcher: undeclared|undefined|not defined|no attribute|unresolved reference|cannot
+  find symbol|NameError|ImportError
+procedure:
+- before writing a call, open the definition and copy the name, argument order, and types
+  verbatim
+- '''undefined/undeclared X'' means the name is wrong or unimported -- grep the headers/modules
+  for the real spelling'
+- don't invent a plausible name (foo_t, getFoo) -- the codebase has one true name
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633852
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

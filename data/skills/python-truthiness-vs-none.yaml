@@ -1,0 +1,23 @@
+id: seed_49
+name: python-truthiness-vs-none
+status: candidate
+destination: card
+council_reviewed: false
+purpose: '`if not x` also fires on 0, '''', [], {} -- often not what you meant'
+trigger_when: checking whether an optional value was provided
+trigger_matcher: if not \w+:|if \w+:|is None|default.*fell|falsy|truthy|empty (string|list)
+  treated
+procedure:
+- mean 'was it passed'? -> `if x is None`
+- mean 'is it empty'? -> `if not x` (and know 0 and '' count as empty)
+- a function that can return a falsy-but-valid value must be distinguished from 'not found'
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633633
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

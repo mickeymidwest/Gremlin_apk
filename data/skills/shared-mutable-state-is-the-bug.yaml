@@ -1,0 +1,23 @@
+id: seed_45
+name: shared-mutable-state-is-the-bug
+status: candidate
+destination: card
+council_reviewed: false
+purpose: intermittent, load-dependent, 'works when I step through it' = a data race
+trigger_when: a bug is flaky, timing-dependent, or only shows under concurrency
+trigger_matcher: race|flaky|intermittent|sometimes|only under load|non.?determin|thread|concurren|async.*bug
+procedure:
+- list every piece of state touched by more than one thread/task/request
+- 'for each: is every read+write of it under the same lock, atomic, or confined to one owner?'
+- 'the fix is usually: make it immutable, give it one owner, or guard the whole read-modify-write
+  (not just the write)'
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063358
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,23 @@
+id: seed_44
+name: the-usual-perf-suspects
+status: candidate
+destination: card
+council_reviewed: false
+purpose: most real slowness is one of a short list of patterns
+trigger_when: looking for why a loop, request, or job is slow
+trigger_matcher: N\+1|in a loop|per (row|item|request)|repeated (query|call)|allocat|O\(n\^?2\)|quadratic|blocking
+procedure:
+- a query / network call / file open INSIDE a loop -> batch it or hoist it out
+- quadratic scan (list `in` inside a loop) -> use a set/dict for the lookup
+- re-parsing / re-compiling / re-connecting each call -> cache or reuse the handle
+- sync I/O on the hot path -> make it async or move it off the request
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633564
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

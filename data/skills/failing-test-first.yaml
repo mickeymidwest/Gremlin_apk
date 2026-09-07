@@ -1,0 +1,23 @@
+id: seed_36
+name: failing-test-first
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a red test that pins the bug turns 'is it fixed?' into a yes/no
+trigger_when: fixing a reported bug that has no test covering it
+trigger_matcher: no test|add a test|repro.*test|regression test|cover this|TDD
+procedure:
+- write the smallest test that asserts the correct behavior for the reported case -- watch
+  it FAIL for the right reason
+- make the fix; the new test goes green and every existing test stays green
+- add one or two boundary cases around the same code while you're there
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063345
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

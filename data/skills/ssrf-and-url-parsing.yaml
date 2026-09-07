@@ -1,0 +1,25 @@
+id: seed_59
+name: ssrf-and-url-parsing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a server fetch of a user URL reaches internal hosts, cloud metadata, and localhost
+trigger_when: code takes a URL/host from input and makes a request to it
+trigger_matcher: ssrf|fetch.*url|requests\.get\(.*input|webhook|url=|proxy|import.*from url|render.*remote|169\.254
+procedure:
+- 'targets: 169.254.169.254 (cloud metadata), 127.0.0.1 / localhost, 10./172.16./192.168.
+  ranges, ::1'
+- 'bypasses to try: DNS rebinding, redirect to an internal host, IP encodings (decimal, octal,
+  IPv6-mapped), @ in the userinfo'
+- the fix is an allowlist of destination hosts + blocking redirects + resolving then re-checking
+  the IP
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633771
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

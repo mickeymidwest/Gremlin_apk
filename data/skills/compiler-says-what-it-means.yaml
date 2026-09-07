@@ -1,0 +1,26 @@
+id: seed_01
+name: compiler-says-what-it-means
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a compile error names the real problem -- fix THAT, not a guess
+trigger_when: a compile or type-check error just came back
+trigger_matcher: undeclared|undefined (reference|identifier|symbol)|unknown type|no member|not
+  a member|cannot find symbol|has no attribute|expected .* before|implicit declaration
+procedure:
+- '''undeclared identifier X'' / ''unknown type X'' -> X is spelled wrong or from a header
+  you haven''t included: grep the headers for the real name, don''t just re-add an include
+  you already have'
+- '''undefined reference to X'' at link time -> the definition exists but isn''t being compiled/linked:
+  add the .c that defines it to the build'
+- re-read the header and copy names EXACTLY before editing again
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0632892
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

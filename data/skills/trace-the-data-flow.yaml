@@ -1,0 +1,26 @@
+id: seed_39
+name: trace-the-data-flow
+status: candidate
+destination: card
+council_reviewed: false
+purpose: follow one value from where it enters to where it's used -- bugs live on that path
+trigger_when: understanding how a system handles a particular input or field
+trigger_matcher: how does .* (get|flow|reach)|where is .* (set|used|passed)|data flow|from
+  .* to|call (path|chain)
+procedure:
+- grep for the field/param name; find where it's first assigned from outside (request, file,
+  argv, env)
+- follow each assignment and call forward -- note every place it's validated, transformed,
+  or stored
+- the sink is where it's finally acted on (query, write, render, exec) -- check what protects
+  it just before that
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633492
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,23 @@
+id: seed_34
+name: change-one-thing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: two changes at once means you can't attribute the result to either
+trigger_when: a fix didn't work and you're tempted to try several things
+trigger_matcher: still (failing|broken)|didn't (work|help)|try (something|another)|nothing
+  works|multiple
+procedure:
+- revert to the last known state; make exactly one change with a clear hypothesis
+- run the check; record what happened against the hypothesis (confirmed / refuted / no signal)
+- keep the change only if it helped; otherwise revert it before the next attempt
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063342
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

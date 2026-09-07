@@ -1,0 +1,23 @@
+id: seed_42
+name: keep-the-tree-green
+status: candidate
+destination: card
+council_reviewed: false
+purpose: never stack a new change on top of a broken build
+trigger_when: partway through a multi-step change
+trigger_matcher: multi.?step|several (files|changes)|next I'll|then I'll|step \d|partway
+procedure:
+- after each edit, run the fastest check that would catch a break (compile, lint, the nearest
+  test)
+- if it's red, fix that before the next edit -- don't pile on
+- commit at each green point so you always have somewhere to fall back to
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633533
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

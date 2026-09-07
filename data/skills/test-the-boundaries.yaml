@@ -1,0 +1,25 @@
+id: seed_37
+name: test-the-boundaries
+status: candidate
+destination: card
+council_reviewed: false
+purpose: 'bugs cluster at the edges: 0, 1, empty, full, negative, max, off-by-one'
+trigger_when: writing tests or reasoning about where an implementation is wrong
+trigger_matcher: edge case|boundary|off.by.one|empty|zero|negative|overflow|corner case|\bnull\b|first
+  or last
+procedure:
+- 'for a range/loop: test length 0, 1, 2, and the max; check the first and last element land
+  right'
+- 'for numbers: 0, -1, the max value, and the value that causes a carry/overflow'
+- 'for containers: empty, one element, duplicates, and the not-found case'
+- an off-by-one shows up as the boundary case failing while the middle passes
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633461
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,26 @@
+id: seed_33
+name: read-the-stack-trace-bottom-up
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a stack trace names the failure site and the path to it -- read both ends
+trigger_when: an exception, panic, or traceback was printed
+trigger_matcher: traceback|stack trace|at .*\(.*:\d+\)|panic:|\bthrew\b|caused by|  File \"
+procedure:
+- 'the innermost frame (Python: last line; JVM/JS: top) is WHERE it broke -- open that file:line'
+- the outermost frame your code owns is WHY it was called -- the bad argument usually originates
+  near there
+- '''Caused by:'' / ''During handling of the above'' -- the LAST cause is the real one, the
+  rest are wrappers'
+- 'the exception TYPE + message already narrows it: NullPointer/AttributeError = a None slipped
+  through a boundary'
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633402
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

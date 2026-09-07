@@ -1,0 +1,24 @@
+id: seed_50
+name: c-off-by-one-and-nul
+status: candidate
+destination: card
+council_reviewed: false
+purpose: buffer sizes, loop bounds, and the string terminator are where C bugs live
+trigger_when: writing or auditing C/C++ that copies into or indexes a buffer
+trigger_matcher: \bchar \w+\[|memcpy|strcpy|strncpy|strcat|snprintf|buf\[|\bi <=|\bi <|\+
+  1\b|null.?termin
+procedure:
+- a buffer of N holds indices 0..N-1; `for (i=0; i<=N; i++)` writes one past the end
+- strncpy does NOT nul-terminate if the source fills the buffer -- set buf[n-1]=0 yourself
+- a string of length L needs L+1 bytes; sizeof on a pointer is the pointer size, not the buffer
+- the copy length must be checked against the DESTINATION capacity, not the source length
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063365
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

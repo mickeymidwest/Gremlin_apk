@@ -384,6 +384,430 @@ _SEED = [
             "remediation: the specific fix (parameterize the query, add the bounds check, enforce the ACL server-side), not just 'sanitize input'",
         ],
     ),
+
+    # --- debugging craft: turn guessing into a search ---
+    dict(
+        name="bisect-the-failure",
+        purpose="each step should cut the suspect space roughly in half, not by one line",
+        trigger_when="you have a failure but not a location, and the code is more than a screenful",
+        trigger_matcher=r"where is|can't find|not sure why|somewhere in|narrow (it |down)|isolate|which (function|line|commit)",
+        procedure=[
+            "pick a checkpoint halfway through the suspect path; print/assert the state there",
+            "the bug is on exactly one side of that checkpoint -- discard the other half",
+            "repeat on the half that still fails; 3-4 cuts localizes almost anything",
+            "for a regression, `git bisect` does this over commits automatically -- give it a one-command test",
+        ],
+    ),
+    dict(
+        name="minimize-the-repro",
+        purpose="a 3-line failing case is debuggable; a 300-line one is not",
+        trigger_when="you can trigger the bug but the case is large or noisy",
+        trigger_matcher=r"minim|reduce|smallest (case|input|repro)|strip (it |down)|delta debug|shrink",
+        procedure=[
+            "delete half the input / config / setup; if it still fails, keep going; if it passes, restore and cut elsewhere",
+            "replace dependencies with constants (fixed clock, hardcoded response) until only the buggy bit is live",
+            "stop when nothing else can be removed without the failure disappearing -- that residue is the bug",
+        ],
+    ),
+    dict(
+        name="read-the-stack-trace-bottom-up",
+        purpose="a stack trace names the failure site and the path to it -- read both ends",
+        trigger_when="an exception, panic, or traceback was printed",
+        trigger_matcher=r"traceback|stack trace|at .*\(.*:\d+\)|panic:|\bthrew\b|caused by|  File \"",
+        procedure=[
+            "the innermost frame (Python: last line; JVM/JS: top) is WHERE it broke -- open that file:line",
+            "the outermost frame your code owns is WHY it was called -- the bad argument usually originates near there",
+            "'Caused by:' / 'During handling of the above' -- the LAST cause is the real one, the rest are wrappers",
+            "the exception TYPE + message already narrows it: NullPointer/AttributeError = a None slipped through a boundary",
+        ],
+    ),
+    dict(
+        name="change-one-thing",
+        purpose="two changes at once means you can't attribute the result to either",
+        trigger_when="a fix didn't work and you're tempted to try several things",
+        trigger_matcher=r"still (failing|broken)|didn't (work|help)|try (something|another)|nothing works|multiple",
+        procedure=[
+            "revert to the last known state; make exactly one change with a clear hypothesis",
+            "run the check; record what happened against the hypothesis (confirmed / refuted / no signal)",
+            "keep the change only if it helped; otherwise revert it before the next attempt",
+        ],
+    ),
+    dict(
+        name="when-stuck-widen-then-narrow",
+        purpose="repeating the same failing move is not progress -- change the altitude",
+        trigger_when="the same action or edit has failed 2+ times",
+        trigger_matcher=r"stuck|loop|again|same (error|result)|third time|going in circles|not converging",
+        procedure=[
+            "stop editing; re-read the actual error and the code around the failure site fresh",
+            "state the assumption that must be wrong for this to keep failing, then check it directly (grep, a print, the docs)",
+            "if still stuck, try the SMALLEST possible version of the change, verify that, then grow it",
+        ],
+    ),
+
+    # --- tests as the ground truth ---
+    dict(
+        name="failing-test-first",
+        purpose="a red test that pins the bug turns 'is it fixed?' into a yes/no",
+        trigger_when="fixing a reported bug that has no test covering it",
+        trigger_matcher=r"no test|add a test|repro.*test|regression test|cover this|TDD",
+        procedure=[
+            "write the smallest test that asserts the correct behavior for the reported case -- watch it FAIL for the right reason",
+            "make the fix; the new test goes green and every existing test stays green",
+            "add one or two boundary cases around the same code while you're there",
+        ],
+    ),
+    dict(
+        name="test-the-boundaries",
+        purpose="bugs cluster at the edges: 0, 1, empty, full, negative, max, off-by-one",
+        trigger_when="writing tests or reasoning about where an implementation is wrong",
+        trigger_matcher=r"edge case|boundary|off.by.one|empty|zero|negative|overflow|corner case|\bnull\b|first or last",
+        procedure=[
+            "for a range/loop: test length 0, 1, 2, and the max; check the first and last element land right",
+            "for numbers: 0, -1, the max value, and the value that causes a carry/overflow",
+            "for containers: empty, one element, duplicates, and the not-found case",
+            "an off-by-one shows up as the boundary case failing while the middle passes",
+        ],
+    ),
+    dict(
+        name="dont-edit-the-test-to-pass",
+        purpose="changing the assertion to match a wrong result hides the bug, doesn't fix it",
+        trigger_when="a test fails and the fix that comes to mind is to change the test",
+        trigger_matcher=r"change the (test|assert)|update the expected|the test is wrong|adjust the expectation",
+        procedure=[
+            "assume the test is the spec; make the implementation satisfy it",
+            "only touch a test if you can state exactly why its expectation is provably wrong AND the task allows it",
+            "if the test really is wrong, fix it in its own step with a note -- don't fold it into the code fix",
+        ],
+    ),
+
+    # --- reading code you didn't write ---
+    dict(
+        name="trace-the-data-flow",
+        purpose="follow one value from where it enters to where it's used -- bugs live on that path",
+        trigger_when="understanding how a system handles a particular input or field",
+        trigger_matcher=r"how does .* (get|flow|reach)|where is .* (set|used|passed)|data flow|from .* to|call (path|chain)",
+        procedure=[
+            "grep for the field/param name; find where it's first assigned from outside (request, file, argv, env)",
+            "follow each assignment and call forward -- note every place it's validated, transformed, or stored",
+            "the sink is where it's finally acted on (query, write, render, exec) -- check what protects it just before that",
+        ],
+    ),
+    dict(
+        name="entry-points-first",
+        purpose="find the few places the outside world calls in before reading everything",
+        trigger_when="starting on an unfamiliar codebase or a large module",
+        trigger_matcher=r"unfamiliar|new (codebase|repo|project)|where do I start|orient|overview|main\(|route|handler|endpoint",
+        procedure=[
+            "locate main / the router / the CLI parser / the test files -- these frame what the code is FOR",
+            "repo_map or a tree of the source dirs; note the 3-5 files that everything imports",
+            "read one full request/command path end to end before touching anything",
+        ],
+    ),
+
+    # --- safe change ---
+    dict(
+        name="characterize-before-refactor",
+        purpose="you can't safely restructure code whose current behavior isn't captured",
+        trigger_when="refactoring or restructuring code that has thin or no tests",
+        trigger_matcher=r"refactor|restructure|clean up|extract|rename|move .* (to|into)|tidy|reorganize",
+        procedure=[
+            "add tests that lock in what the code does NOW (even quirks) -- run them green",
+            "refactor in small steps, re-running those tests after each; a red means you changed behavior",
+            "only change behavior deliberately, in a separate commit, with the test updated to match",
+        ],
+    ),
+    dict(
+        name="keep-the-tree-green",
+        purpose="never stack a new change on top of a broken build",
+        trigger_when="partway through a multi-step change",
+        trigger_matcher=r"multi.?step|several (files|changes)|next I'll|then I'll|step \d|partway",
+        procedure=[
+            "after each edit, run the fastest check that would catch a break (compile, lint, the nearest test)",
+            "if it's red, fix that before the next edit -- don't pile on",
+            "commit at each green point so you always have somewhere to fall back to",
+        ],
+    ),
+
+    # --- performance ---
+    dict(
+        name="measure-before-optimizing",
+        purpose="the slow part is almost never where you'd guess -- profile first",
+        trigger_when="asked to make something faster or reduce resource use",
+        trigger_matcher=r"slow|optim|performance|faster|speed ?up|latency|too long|profil|bottleneck|hot ?path",
+        procedure=[
+            "reproduce the slowness with a timer around the whole operation -- get a baseline number",
+            "profile it (cProfile / perf / a sampling profiler) or bisect with timers to find the dominant cost",
+            "fix only the top cost, re-measure against the baseline, stop when it's good enough",
+        ],
+    ),
+    dict(
+        name="the-usual-perf-suspects",
+        purpose="most real slowness is one of a short list of patterns",
+        trigger_when="looking for why a loop, request, or job is slow",
+        trigger_matcher=r"N\+1|in a loop|per (row|item|request)|repeated (query|call)|allocat|O\(n\^?2\)|quadratic|blocking",
+        procedure=[
+            "a query / network call / file open INSIDE a loop -> batch it or hoist it out",
+            "quadratic scan (list `in` inside a loop) -> use a set/dict for the lookup",
+            "re-parsing / re-compiling / re-connecting each call -> cache or reuse the handle",
+            "sync I/O on the hot path -> make it async or move it off the request",
+        ],
+    ),
+
+    # --- concurrency ---
+    dict(
+        name="shared-mutable-state-is-the-bug",
+        purpose="intermittent, load-dependent, 'works when I step through it' = a data race",
+        trigger_when="a bug is flaky, timing-dependent, or only shows under concurrency",
+        trigger_matcher=r"race|flaky|intermittent|sometimes|only under load|non.?determin|thread|concurren|async.*bug",
+        procedure=[
+            "list every piece of state touched by more than one thread/task/request",
+            "for each: is every read+write of it under the same lock, atomic, or confined to one owner?",
+            "the fix is usually: make it immutable, give it one owner, or guard the whole read-modify-write (not just the write)",
+        ],
+    ),
+    dict(
+        name="lock-ordering-prevents-deadlock",
+        purpose="a deadlock is two code paths taking the same two locks in opposite orders",
+        trigger_when="the program hangs with no CPU use, or you're adding a second lock",
+        trigger_matcher=r"deadlock|hang|frozen|stuck (waiting|acquiring)|two locks|lock order|mutex.*mutex",
+        procedure=[
+            "dump the stacks of all threads/tasks -- two of them blocked on acquire() is a deadlock",
+            "define ONE global order for locks (e.g. always A before B) and make every path follow it",
+            "better: hold one lock at a time; do the second phase after releasing the first",
+        ],
+    ),
+
+    # --- python footguns ---
+    dict(
+        name="python-mutable-default-arg",
+        purpose="def f(x=[]) shares that one list across every call",
+        trigger_when="writing or reviewing a Python function with a list/dict/set default",
+        trigger_matcher=r"def .*=\s*(\[\]|\{\}|set\(\))|mutable default|shared .* between calls|accumulat",
+        procedure=[
+            "use `x=None` in the signature and `if x is None: x = []` in the body",
+            "same trap for default values captured at def-time (datetime.now(), a config lookup)",
+        ],
+    ),
+    dict(
+        name="float-equality-and-money",
+        purpose="0.1 + 0.2 != 0.3; never == two floats, never store money as float",
+        trigger_when="comparing non-integer numbers or handling currency",
+        trigger_matcher=r"float|0\.1|round|== .*\d\.\d|money|currency|price|cents|decimal|approx",
+        procedure=[
+            "compare with a tolerance: abs(a - b) < 1e-9  (pytest.approx in tests)",
+            "for money use integer cents, or decimal.Decimal -- never binary float",
+            "round only at the display boundary, and pick the rounding mode deliberately",
+        ],
+    ),
+    dict(
+        name="python-truthiness-vs-none",
+        purpose="`if not x` also fires on 0, '', [], {} -- often not what you meant",
+        trigger_when="checking whether an optional value was provided",
+        trigger_matcher=r"if not \w+:|if \w+:|is None|default.*fell|falsy|truthy|empty (string|list) treated",
+        procedure=[
+            "mean 'was it passed'? -> `if x is None`",
+            "mean 'is it empty'? -> `if not x` (and know 0 and '' count as empty)",
+            "a function that can return a falsy-but-valid value must be distinguished from 'not found'",
+        ],
+    ),
+
+    # --- C / C++ footguns ---
+    dict(
+        name="c-off-by-one-and-nul",
+        purpose="buffer sizes, loop bounds, and the string terminator are where C bugs live",
+        trigger_when="writing or auditing C/C++ that copies into or indexes a buffer",
+        trigger_matcher=r"\bchar \w+\[|memcpy|strcpy|strncpy|strcat|snprintf|buf\[|\bi <=|\bi <|\+ 1\b|null.?termin",
+        procedure=[
+            "a buffer of N holds indices 0..N-1; `for (i=0; i<=N; i++)` writes one past the end",
+            "strncpy does NOT nul-terminate if the source fills the buffer -- set buf[n-1]=0 yourself",
+            "a string of length L needs L+1 bytes; sizeof on a pointer is the pointer size, not the buffer",
+            "the copy length must be checked against the DESTINATION capacity, not the source length",
+        ],
+    ),
+    dict(
+        name="c-integer-overflow-before-alloc",
+        purpose="len1 + len2 or count * size can wrap, then you allocate too little",
+        trigger_when="a size/length for malloc/memcpy is computed from input values",
+        trigger_matcher=r"malloc\(|calloc\(|alloca|\* size|len \+|count \*|size_t|integer overflow|realloc",
+        procedure=[
+            "any arithmetic on an attacker-influenced size can overflow -- check for wrap BEFORE the allocation",
+            "use calloc(n, size) (it checks n*size) or an explicit `if (a > SIZE_MAX - b) fail`",
+            "signed length compared with `<` can be negative -> passes the check, then huge as size_t",
+        ],
+    ),
+    dict(
+        name="c-lifetime-and-ownership",
+        purpose="use-after-free and double-free come from unclear ownership of a pointer",
+        trigger_when="writing C/C++ that frees, returns, or stores a pointer",
+        trigger_matcher=r"\bfree\(|delete |dangling|use.after.free|double free|owns|lifetime|return &|out of scope",
+        procedure=[
+            "for every allocation name exactly one owner responsible for freeing it, once",
+            "set the pointer to NULL right after free() so a stray reuse crashes instead of corrupting",
+            "never return the address of a local; a freed struct's function pointers are an exploit primitive",
+        ],
+    ),
+
+    # --- kotlin / android depth ---
+    dict(
+        name="kotlin-nullability-at-the-edge",
+        purpose="platform types from Java/JNI/Intent extras are the NPE source in Kotlin",
+        trigger_when="handling values that come from Java APIs, Bundles, JSON, or the system",
+        trigger_matcher=r"NullPointerException|!!|platform type|getStringExtra|Bundle|nullable|\?\.|lateinit.*not initialized",
+        procedure=[
+            "treat every value crossing into Kotlin from Java/Android as nullable; handle null explicitly at that line",
+            "avoid `!!` -- use `?:` with a real default or an early return",
+            "'lateinit property has not been initialized' = you read it before onCreate/setup ran -- guard with ::x.isInitialized or restructure",
+        ],
+    ),
+    dict(
+        name="android-no-work-on-main-thread",
+        purpose="file/network/db/heavy work on the UI thread = jank or ANR",
+        trigger_when="adding I/O, parsing, or a loop to an Activity/View/callback",
+        trigger_matcher=r"ANR|jank|NetworkOnMainThread|StrictMode|UI thread|runOnUiThread|Dispatchers|AsyncTask|freeze",
+        procedure=[
+            "move the work to a background thread / coroutine (Dispatchers.IO); post only the result back to the UI",
+            "onDraw / onTouchEvent / onBindViewHolder must be allocation-free and fast -- no parsing, no I/O",
+            "for a game loop use a dedicated thread or Choreographer, not a tight loop on main",
+        ],
+    ),
+
+    # --- API / web design ---
+    dict(
+        name="validate-at-the-boundary",
+        purpose="check and normalize untrusted input once, where it enters -- then trust it inside",
+        trigger_when="adding a request handler, CLI arg, config load, or message consumer",
+        trigger_matcher=r"request|payload|param|user input|deserializ|parse .* (body|json)|validate|sanitize|endpoint",
+        procedure=[
+            "parse into a typed structure at the edge; reject anything that doesn't fit with a clear error",
+            "range/format/length/enum checks happen here, not scattered through the business logic",
+            "canonicalize now (trim, lowercase host, resolve path) so downstream comparisons are safe",
+        ],
+    ),
+    dict(
+        name="make-writes-idempotent",
+        purpose="clients retry; a POST that ran twice shouldn't double-charge",
+        trigger_when="designing an endpoint or job that creates or mutates state",
+        trigger_matcher=r"idempoten|retry|exactly once|duplicate (request|charge|row)|POST|at.least.once|dedupe",
+        procedure=[
+            "accept a client-supplied idempotency key; on a repeat key return the first result, don't re-run",
+            "or make the operation naturally idempotent (upsert by natural key, set-not-add)",
+            "guard the check-then-act with a unique constraint or a lock so two concurrent tries can't both pass",
+        ],
+    ),
+
+    # --- security: web classes worth their own card ---
+    dict(
+        name="toctou-in-web-logic",
+        purpose="check-then-act with a gap lets a concurrent request slip between the two",
+        trigger_when="auditing balance checks, coupon/quota redemption, or 'first one wins' logic",
+        trigger_matcher=r"race condition|TOCTOU|check.*then|balance|coupon|quota|redeem|withdraw|double.spend|limit.*exceeded",
+        procedure=[
+            "find code that reads a value, decides, then writes -- with no lock/transaction spanning both",
+            "fire the request many times in parallel (Turbo Intruder / a small script) and watch for over-redemption",
+            "the fix is an atomic DB update with a WHERE guard, SELECT ... FOR UPDATE, or a unique constraint",
+        ],
+    ),
+    dict(
+        name="jwt-and-session-pitfalls",
+        purpose="token bugs: alg confusion, no expiry check, weak secret, no revocation",
+        trigger_when="testing or reviewing JWT / bearer-token / session authentication",
+        trigger_matcher=r"jwt|bearer|alg.*none|HS256|RS256|token.*expir|session (fixation|token)|kid|refresh token",
+        procedure=[
+            "try alg:none and alg swap (RS256->HS256 signing with the public key as the HMAC secret)",
+            "check exp/nbf are actually enforced; try an old token, a token with exp removed",
+            "crack HS256 with a wordlist (hashcat -m 16500); check the token still works after 'logout' / password change",
+        ],
+    ),
+    dict(
+        name="ssrf-and-url-parsing",
+        purpose="a server fetch of a user URL reaches internal hosts, cloud metadata, and localhost",
+        trigger_when="code takes a URL/host from input and makes a request to it",
+        trigger_matcher=r"ssrf|fetch.*url|requests\.get\(.*input|webhook|url=|proxy|import.*from url|render.*remote|169\.254",
+        procedure=[
+            "targets: 169.254.169.254 (cloud metadata), 127.0.0.1 / localhost, 10./172.16./192.168. ranges, ::1",
+            "bypasses to try: DNS rebinding, redirect to an internal host, IP encodings (decimal, octal, IPv6-mapped), @ in the userinfo",
+            "the fix is an allowlist of destination hosts + blocking redirects + resolving then re-checking the IP",
+        ],
+    ),
+    dict(
+        name="command-and-arg-injection",
+        purpose="user data in a shell string is RCE; even argv can inject flags",
+        trigger_when="code builds a command line, calls system/popen/exec, or passes input as an argument",
+        trigger_matcher=r"os\.system|subprocess.*shell=True|popen|exec\w*\(|`.*\$|backtick|shell (out|command)|Runtime\.exec",
+        procedure=[
+            "shell=True with any input -> `;`, `|`, `$()`, backticks all execute -- switch to an argv list, no shell",
+            "even argv: input starting with `-` can be read as a flag (`--output=/etc/x`) -- put `--` before user args",
+            "for a filename argument, also block path traversal and absolute paths",
+        ],
+    ),
+    dict(
+        name="xxe-and-unsafe-parsers",
+        purpose="XML/YAML/pickle parsers execute or fetch by default in many libs",
+        trigger_when="code parses XML, YAML, or deserializes an object format from untrusted input",
+        trigger_matcher=r"XXE|lxml|etree|xml\.|yaml\.load\b|pickle\.load|unserialize|readObject|SnakeYAML|DocumentBuilder|ENTITY",
+        procedure=[
+            "XML: disable DTDs / external entities (defusedxml in Python, setFeature disallow-doctype-decl in Java)",
+            "YAML: yaml.safe_load, never yaml.load; SnakeYAML with a restricted constructor",
+            "pickle / native deserialization of untrusted bytes is RCE by design -- use JSON or a schema'd format",
+        ],
+    ),
+    dict(
+        name="secrets-in-git-history",
+        purpose="a removed key still lives in every prior commit and every clone",
+        trigger_when="recon on a repo, or you spot a credential in the code",
+        trigger_matcher=r"secret|api.?key|password|token|credential|\.env|git log -p|trufflehog|gitleaks|AKIA|-----BEGIN",
+        procedure=[
+            "scan full history: gitleaks detect / trufflehog git file://. -- not just the working tree",
+            "check the provider (AWS/GCP/GitHub/Slack) for whether the key is live before reporting it as valid",
+            "remediation in the report: rotate the secret first, THEN rewrite history / use the platform's secret scanning",
+        ],
+    ),
+    dict(
+        name="dependency-and-cve-check",
+        purpose="the vuln is often in a pinned transitive dependency, not the app code",
+        trigger_when="auditing a project, or a lockfile / SBOM is in scope",
+        trigger_matcher=r"dependenc|CVE|lockfile|package-lock|requirements\.txt|pom\.xml|go\.mod|osv|npm audit|SBOM|outdated",
+        procedure=[
+            "run osv-scanner / npm audit / pip-audit against the lockfile -- get exact vulnerable versions",
+            "for each hit, confirm the vulnerable code path is actually reachable from this app before rating it",
+            "check for a known exploit / PoC for that CVE to demonstrate impact in the report",
+        ],
+    ),
+
+    # --- agent meta: how to behave in a battle ---
+    dict(
+        name="state-the-plan-then-work-it",
+        purpose="a 3-5 step plan up front keeps a long task from wandering",
+        trigger_when="a task has multiple parts or will take many steps",
+        trigger_matcher=r"implement|build|add .* feature|several (things|parts)|first.*then|plan|multi",
+        procedure=[
+            "write the ordered steps before touching code; put the riskiest / most-uncertain one first",
+            "do one step, verify it, then move on -- adjust the plan if a step teaches you something",
+            "if you've done 5+ actions with no progress on the current step, stop and re-plan",
+        ],
+    ),
+    dict(
+        name="use-exact-names-from-the-source",
+        purpose="guessing an identifier wastes a compile cycle -- copy it from the file",
+        trigger_when="calling a function, constructing a type, or importing from code you've read",
+        trigger_matcher=r"undeclared|undefined|not defined|no attribute|unresolved reference|cannot find symbol|NameError|ImportError",
+        procedure=[
+            "before writing a call, open the definition and copy the name, argument order, and types verbatim",
+            "'undefined/undeclared X' means the name is wrong or unimported -- grep the headers/modules for the real spelling",
+            "don't invent a plausible name (foo_t, getFoo) -- the codebase has one true name",
+        ],
+    ),
+    dict(
+        name="finish-what-you-changed",
+        purpose="a half-applied change that breaks the build is worse than no change",
+        trigger_when="a step turned out bigger than expected or you're running low on budget",
+        trigger_matcher=r"running low|out of (time|steps|budget)|bigger than|half|incomplete|revert|leave it",
+        procedure=[
+            "get back to a compiling, test-passing state even if the feature is smaller than planned",
+            "if you can't finish cleanly, revert this step's edits rather than leave the tree broken",
+            "say plainly what's done and what's left -- don't claim done when a check is red",
+        ],
+    ),
 ]
 
 

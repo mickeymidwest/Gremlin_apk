@@ -1,0 +1,24 @@
+id: seed_60
+name: command-and-arg-injection
+status: candidate
+destination: card
+council_reviewed: false
+purpose: user data in a shell string is RCE; even argv can inject flags
+trigger_when: code builds a command line, calls system/popen/exec, or passes input as an argument
+trigger_matcher: os\.system|subprocess.*shell=True|popen|exec\w*\(|`.*\$|backtick|shell (out|command)|Runtime\.exec
+procedure:
+- shell=True with any input -> `;`, `|`, `$()`, backticks all execute -- switch to an argv
+  list, no shell
+- 'even argv: input starting with `-` can be read as a flag (`--output=/etc/x`) -- put `--`
+  before user args'
+- for a filename argument, also block path traversal and absolute paths
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633783
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

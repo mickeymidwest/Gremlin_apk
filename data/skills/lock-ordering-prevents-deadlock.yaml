@@ -1,0 +1,22 @@
+id: seed_46
+name: lock-ordering-prevents-deadlock
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a deadlock is two code paths taking the same two locks in opposite orders
+trigger_when: the program hangs with no CPU use, or you're adding a second lock
+trigger_matcher: deadlock|hang|frozen|stuck (waiting|acquiring)|two locks|lock order|mutex.*mutex
+procedure:
+- dump the stacks of all threads/tasks -- two of them blocked on acquire() is a deadlock
+- define ONE global order for locks (e.g. always A before B) and make every path follow it
+- 'better: hold one lock at a time; do the second phase after releasing the first'
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633593
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,24 @@
+id: seed_43
+name: measure-before-optimizing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the slow part is almost never where you'd guess -- profile first
+trigger_when: asked to make something faster or reduce resource use
+trigger_matcher: slow|optim|performance|faster|speed ?up|latency|too long|profil|bottleneck|hot
+  ?path
+procedure:
+- reproduce the slowness with a timer around the whole operation -- get a baseline number
+- profile it (cProfile / perf / a sampling profiler) or bisect with timers to find the dominant
+  cost
+- fix only the top cost, re-measure against the baseline, stop when it's good enough
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063355
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

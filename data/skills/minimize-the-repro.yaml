@@ -1,0 +1,25 @@
+id: seed_32
+name: minimize-the-repro
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a 3-line failing case is debuggable; a 300-line one is not
+trigger_when: you can trigger the bug but the case is large or noisy
+trigger_matcher: minim|reduce|smallest (case|input|repro)|strip (it |down)|delta debug|shrink
+procedure:
+- delete half the input / config / setup; if it still fails, keep going; if it passes, restore
+  and cut elsewhere
+- replace dependencies with constants (fixed clock, hardcoded response) until only the buggy
+  bit is live
+- stop when nothing else can be removed without the failure disappearing -- that residue is
+  the bug
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633361
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

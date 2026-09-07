@@ -1,0 +1,22 @@
+id: seed_41
+name: characterize-before-refactor
+status: candidate
+destination: card
+council_reviewed: false
+purpose: you can't safely restructure code whose current behavior isn't captured
+trigger_when: refactoring or restructuring code that has thin or no tests
+trigger_matcher: refactor|restructure|clean up|extract|rename|move .* (to|into)|tidy|reorganize
+procedure:
+- add tests that lock in what the code does NOW (even quirks) -- run them green
+- refactor in small steps, re-running those tests after each; a red means you changed behavior
+- only change behavior deliberately, in a separate commit, with the test updated to match
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063352
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,24 @@
+id: seed_61
+name: xxe-and-unsafe-parsers
+status: candidate
+destination: card
+council_reviewed: false
+purpose: XML/YAML/pickle parsers execute or fetch by default in many libs
+trigger_when: code parses XML, YAML, or deserializes an object format from untrusted input
+trigger_matcher: XXE|lxml|etree|xml\.|yaml\.load\b|pickle\.load|unserialize|readObject|SnakeYAML|DocumentBuilder|ENTITY
+procedure:
+- 'XML: disable DTDs / external entities (defusedxml in Python, setFeature disallow-doctype-decl
+  in Java)'
+- 'YAML: yaml.safe_load, never yaml.load; SnakeYAML with a restricted constructor'
+- pickle / native deserialization of untrusted bytes is RCE by design -- use JSON or a schema'd
+  format
+supersedes: null
+provenance:
+- seed
+created: 1788816592.06338
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,23 @@
+id: seed_52
+name: c-lifetime-and-ownership
+status: candidate
+destination: card
+council_reviewed: false
+purpose: use-after-free and double-free come from unclear ownership of a pointer
+trigger_when: writing C/C++ that frees, returns, or stores a pointer
+trigger_matcher: \bfree\(|delete |dangling|use.after.free|double free|owns|lifetime|return
+  &|out of scope
+procedure:
+- for every allocation name exactly one owner responsible for freeing it, once
+- set the pointer to NULL right after free() so a stray reuse crashes instead of corrupting
+- never return the address of a local; a freed struct's function pointers are an exploit primitive
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633674
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

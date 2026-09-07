@@ -70,34 +70,34 @@ def targets() -> list[dict]:
     bal = HOME / "Downloads" / "buildalot"
 
     if lg.is_dir():
-        T.append(dict(name="ledger-fix", repo=lg, verifier=PytestVerifier(), step_budget=18,
+        T.append(dict(name="ledger-fix", repo=lg, verifier=PytestVerifier(), step_budget=16, max_tokens=2560, time_budget=900,
             task=Task(id="ledger", test_filter="", prompt=(
                 "ledger.py has bugs -- every failing test in test_ledger.py names one. "
                 "Read ledger.py and test_ledger.py, fix the METHOD BODIES only (keep the "
                 "signatures, don't touch the test file), and get `python -m pytest -q` to "
                 "all-green. Work one failing test at a time and re-run pytest after each fix."))))
     if tu.is_dir():
-        T.append(dict(name="text-fix", repo=tu, verifier=PytestVerifier(), step_budget=18,
+        T.append(dict(name="text-fix", repo=tu, verifier=PytestVerifier(), step_budget=16, max_tokens=2560, time_budget=900,
             task=Task(id="textutils", prompt=(
                 "textutils.py has bugs -- each failing test in test_textutils.py pins one down. "
                 "Read both files, fix the function bodies only (keep signatures, don't edit tests), "
                 "get `python -m pytest -q` fully green. One test at a time, re-run after each fix."))))
     if ns.is_dir():
-        T.append(dict(name="netstring-fuzz", repo=ns, verifier=FuzzVerifier(run_seconds=40), step_budget=20,
+        T.append(dict(name="netstring-fuzz", repo=ns, verifier=FuzzVerifier(run_seconds=40), step_budget=18, max_tokens=2560, time_budget=1000,
             task=Task(id="nsfuzz", prompt=_readme_goal(ns,
                 "Write a libFuzzer harness (*fuzz*.c) for the C source in src/.") + (
                 "\n\nRead src/*.h and src/*.c and use the EXACT names from them. Write ONE "
                 "harness file in the repo root. Compile-check with `clang -fsanitize=fuzzer,"
                 "address,undefined <harness>.c src/*.c -I . -o /tmp/h`, fix errors, then DONE."))))
     if tlv.is_dir():
-        T.append(dict(name="tlv-fuzz", repo=tlv, verifier=FuzzVerifier(run_seconds=40), step_budget=20,
+        T.append(dict(name="tlv-fuzz", repo=tlv, verifier=FuzzVerifier(run_seconds=40), step_budget=18, max_tokens=2560, time_budget=1000,
             task=Task(id="tlvfuzz", prompt=_readme_goal(tlv, "Write a libFuzzer harness for src/.") + (
                 "\n\nRead src/*.h and src/*.c, use exact names, write ONE harness file in the "
                 "repo root, compile-check with clang -fsanitize=fuzzer,address <harness>.c "
                 "src/*.c -I . -o /tmp/h, fix errors, DONE."))))
     if klon.is_dir() and (klon / "gradlew").exists():
         T.append(dict(name="klondike-apk", repo=klon,
-            verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=40,
+            verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=38, max_tokens=4096, time_budget=2400,
             task=Task(id="klondike", verify_cmd="./gradlew testDebugUnitTest --offline --console=plain",
                 prompt=(
                 "Android Klondike solitaire. Implement every TODO() method body in "
@@ -109,7 +109,7 @@ def targets() -> list[dict]:
                 "move rules, re-running the check after each."))))
     if bal.is_dir() and (bal / "gradlew").exists():
         T.append(dict(name="buildalot-apk", repo=bal,
-            verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=44,
+            verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=42, max_tokens=4096, time_budget=2400,
             task=Task(id="buildalot", verify_cmd="./gradlew testDebugUnitTest --offline --console=plain",
                 prompt=(
                 "Build-a-Lot, a property-tycoon game. Implement every TODO() method body in "
@@ -140,10 +140,34 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
             s = verifier.score(task, str(work))
             return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
 
+        # live trace into the log so a long battle is visibly alive
+        import gremlin_core.magic.battle as _b
+        turn = [0]
+        _oc = model.complete
+        def _traced(msgs, system=None, max_tokens=4096):
+            turn[0] += 1
+            tt = time.monotonic()
+            r = _oc(msgs, system=system, max_tokens=max_tokens)
+            log(f"     t{turn[0]} {time.monotonic()-tt:.0f}s :: "
+                f"{(r.text or '')[:120].replace(chr(10), ' ')}")
+            return r
+        model.complete = _traced
+        _orun = _b.ShellToolHost.run
+        def _trun(self, call):
+            r = _orun(self, call)
+            log(f"       [{call.name}] {str(call.args)[:70]} -> {'ok' if r.ok else 'ERR'}")
+            return r
+        _b.ShellToolHost.run = _trun
+
         t0 = time.monotonic()
-        tr = run_battle(task, str(work), model, lifecycle.loadable(skills), facts,
-                        step_budget=tgt["step_budget"], max_tokens=4096, plan=True,
-                        phase_gate=True, time_budget_s=1500.0, on_done=on_done, lessons=lessons)
+        try:
+            tr = run_battle(task, str(work), model, lifecycle.loadable(skills), facts,
+                            step_budget=tgt["step_budget"], max_tokens=tgt.get("max_tokens", 3072),
+                            plan=True, phase_gate=True, time_budget_s=tgt.get("time_budget", 1500.0),
+                            on_done=on_done, lessons=lessons)
+        finally:
+            model.complete = _oc
+            _b.ShellToolHost.run = _orun
         score = verifier.score(task, str(work))
         mins = (time.monotonic() - t0) / 60
         result = BattleResult(battle_id=f"zoid_{tgt['name']}_{int(time.time())}",

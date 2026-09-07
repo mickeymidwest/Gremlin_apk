@@ -1,0 +1,25 @@
+id: seed_31
+name: bisect-the-failure
+status: candidate
+destination: card
+council_reviewed: false
+purpose: each step should cut the suspect space roughly in half, not by one line
+trigger_when: you have a failure but not a location, and the code is more than a screenful
+trigger_matcher: where is|can't find|not sure why|somewhere in|narrow (it |down)|isolate|which
+  (function|line|commit)
+procedure:
+- pick a checkpoint halfway through the suspect path; print/assert the state there
+- the bug is on exactly one side of that checkpoint -- discard the other half
+- repeat on the half that still fails; 3-4 cuts localizes almost anything
+- for a regression, `git bisect` does this over commits automatically -- give it a one-command
+  test
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063335
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

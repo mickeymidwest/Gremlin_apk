@@ -1,0 +1,22 @@
+id: seed_64
+name: state-the-plan-then-work-it
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a 3-5 step plan up front keeps a long task from wandering
+trigger_when: a task has multiple parts or will take many steps
+trigger_matcher: implement|build|add .* feature|several (things|parts)|first.*then|plan|multi
+procedure:
+- write the ordered steps before touching code; put the riskiest / most-uncertain one first
+- do one step, verify it, then move on -- adjust the plan if a step teaches you something
+- if you've done 5+ actions with no progress on the current step, stop and re-plan
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063384
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

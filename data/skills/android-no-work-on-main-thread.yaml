@@ -1,0 +1,24 @@
+id: seed_54
+name: android-no-work-on-main-thread
+status: candidate
+destination: card
+council_reviewed: false
+purpose: file/network/db/heavy work on the UI thread = jank or ANR
+trigger_when: adding I/O, parsing, or a loop to an Activity/View/callback
+trigger_matcher: ANR|jank|NetworkOnMainThread|StrictMode|UI thread|runOnUiThread|Dispatchers|AsyncTask|freeze
+procedure:
+- move the work to a background thread / coroutine (Dispatchers.IO); post only the result
+  back to the UI
+- onDraw / onTouchEvent / onBindViewHolder must be allocation-free and fast -- no parsing,
+  no I/O
+- for a game loop use a dedicated thread or Choreographer, not a tight loop on main
+supersedes: null
+provenance:
+- seed
+created: 1788816592.0633702
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,24 @@
+id: seed_58
+name: jwt-and-session-pitfalls
+status: candidate
+destination: card
+council_reviewed: false
+purpose: 'token bugs: alg confusion, no expiry check, weak secret, no revocation'
+trigger_when: testing or reviewing JWT / bearer-token / session authentication
+trigger_matcher: jwt|bearer|alg.*none|HS256|RS256|token.*expir|session (fixation|token)|kid|refresh
+  token
+procedure:
+- try alg:none and alg swap (RS256->HS256 signing with the public key as the HMAC secret)
+- check exp/nbf are actually enforced; try an old token, a token with exp removed
+- crack HS256 with a wordlist (hashcat -m 16500); check the token still works after 'logout'
+  / password change
+supersedes: null
+provenance:
+- seed
+created: 1788816592.063376
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
