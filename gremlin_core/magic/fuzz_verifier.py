@@ -43,6 +43,15 @@ class FuzzVerifier:
     def _clang(self) -> str | None:
         return shutil.which("clang++") or shutil.which("clang")
 
+    def _driver(self, harness: Path) -> str | None:
+        """clang for a .c harness (keeps LLVMFuzzerTestOneInput at C
+        linkage so libFuzzer's own main() can find it), clang++ for a
+        C++ one. Using clang++ on a bare .c harness silently mangles the
+        entry point and the link fails with 'undefined reference'."""
+        if harness.suffix.lower() == ".c":
+            return shutil.which("clang") or shutil.which("clang++")
+        return shutil.which("clang++") or shutil.which("clang")
+
     def _find_harness(self, root: Path) -> Path | None:
         if self.harness:
             p = root / self.harness
@@ -54,8 +63,7 @@ class FuzzVerifier:
 
     def score(self, task: Task, repo_path: str, transcript: Transcript | None = None) -> Score:
         root = Path(repo_path)
-        cc = self._clang()
-        if cc is None:
+        if self._clang() is None:
             return Score(0.0, "clang not installed -- run deploy/setup-security-tools.sh "
                              "(pacman -S clang)", "toolchain")
 
@@ -63,6 +71,7 @@ class FuzzVerifier:
         if harness is None:
             return Score(0.0, "no fuzz harness found (a *fuzz*.c/cc/cpp with "
                              "LLVMFuzzerTestOneInput). Write one.", "no-harness")
+        cc = self._driver(harness)
 
         # other C/C++ sources in the tree (the target under test), minus the harness
         srcs = [str(p) for p in root.rglob("*")

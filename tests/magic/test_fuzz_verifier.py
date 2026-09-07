@@ -55,6 +55,19 @@ def test_a_harness_that_crashes_still_scores_one_and_reports_it(tmp_path):
     assert s.value >= 1.0 and "CRASH" in s.failure_signal.upper()
 
 
+@pytest.mark.skipif(not _HAS_CLANG, reason="needs clang + libFuzzer")
+def test_a_plain_c_harness_links(tmp_path):
+    """A .c harness must be driven by `clang`, not `clang++` -- otherwise
+    LLVMFuzzerTestOneInput gets C++ mangled and libFuzzer's main() can't
+    find it ('undefined reference')."""
+    (tmp_path / "thing.c").write_text("int thing(const char*p){return p?1:0;}\n")
+    (tmp_path / "thing_fuzz.c").write_text(
+        "#include <stddef.h>\n#include <stdint.h>\n"
+        "int LLVMFuzzerTestOneInput(const uint8_t *d, size_t s){ (void)d; (void)s; return 0; }\n")
+    s = FuzzVerifier(run_seconds=6).score(_TASK, str(tmp_path))
+    assert s.value >= 1.0
+
+
 @pytest.mark.skipif(not _HAS_CLANG, reason="needs clang")
 def test_uncompilable_harness_scores_zero(tmp_path):
     (tmp_path / "broken_fuzz.cc").write_text("this is not c++ at all;\n")
