@@ -29,7 +29,7 @@ def test_whitespace_flexible_fallback(tmp_path):
 def test_edit_that_would_break_syntax_is_refused(tmp_path):
     th = _th(tmp_path, "def f():\n    return 0\n")
     r = th.run(ToolCall("edit_file", {"path": "m.py", "search": "return 0", "replace": "return ("}))
-    assert not r.ok and "NOT WRITTEN" in r.output
+    assert not r.ok and "NOT applied" in r.output
     assert "return 0" in (tmp_path / "m.py").read_text()   # unchanged
 
 

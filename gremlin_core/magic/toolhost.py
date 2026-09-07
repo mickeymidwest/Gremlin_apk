@@ -402,7 +402,11 @@ class ShellToolHost:
             verb = "edited" if j - i <= search.count("\n") + 1 else "replaced the block at"
         rej = _precheck(str(p), updated)
         if rej:
-            return ToolResult(False, f"NOT WRITTEN -- edit would break the file: {rej}")
+            return ToolResult(False,
+                f"Your edit to {rel} was NOT applied -- it would make the file invalid "
+                f"({rej}). The file is UNCHANGED. Your 'replace' text must be a complete, "
+                "correctly-indented drop-in for what 'search' matched (e.g. if search is a "
+                "method header, replace is the whole method with its body).")
         p.write_text(updated)
         return ToolResult(True, f"{verb} {rel} ({len(original)} -> {len(updated)} chars)")
 

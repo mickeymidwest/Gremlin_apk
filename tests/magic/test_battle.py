@@ -60,7 +60,7 @@ def test_check_spin_without_edit_is_flagged(tmp_path):
     tr = run_battle(Task(id="n1", prompt="fix it"), str(tmp_path), model,
                     skills=[], facts=[], step_budget=6, plan=False)
     notes = [s.content for s in tr.steps if s.kind == "note"]
-    assert any("without editing any file" in n for n in notes)
+    assert any("nudge" in n and "no edits" in n for n in notes)
 
 
 def test_run_battle_step_budget_gives_up(tmp_path):

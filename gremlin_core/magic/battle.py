@@ -348,14 +348,27 @@ def run_battle(task: Task, repo_path: str, model: Model,
             _checks_since_edit = 0
         elif _is_check:
             _checks_since_edit += 1
-        if _is_check and _checks_since_edit >= 2 and "write_file" in toolhost.allowed:
-            nudge = (
-                f"[!] You have run the check {_checks_since_edit} times in a row without "
-                f"editing any file ({_edits_made} edits so far this battle). Running the check "
-                "does not change the code. Your next action should edit a file, or state plainly "
-                "what is blocking you from editing.")
+        _editable = "write_file" in toolhost.allowed
+        if _is_check and _checks_since_edit >= 2 and _editable:
+            if _checks_since_edit == 2 or _edits_made > 0:
+                nudge = (
+                    f"[!] {_checks_since_edit} checks in a row, no edit between them "
+                    f"({_edits_made} edits this battle). The check doesn't change the code. "
+                    "Edit a file next.")
+            else:
+                # explored + checked repeatedly and has NEVER edited -- be blunt
+                # and show the exact shape wanted. Still the pilot's decision
+                # what to put in it.
+                nudge = (
+                    "[!] You have run the check " + str(_checks_since_edit) + " times and edited "
+                    "NOTHING. Stop reading and stop checking. Your very next message must be an "
+                    "edit_file ACTION that fixes the FIRST failing case, shaped exactly like:\n"
+                    'ACTION: edit_file\n```json\n{"path": "<the file>", "search": "<a line or '
+                    'header you saw in it>", "replace": "<the corrected version>"}\n```\n'
+                    "Nothing else.")
             result_msg += "\n\n" + nudge
-            transcript.steps.append(StepRecord(kind="note", content="harness: " + nudge))
+            transcript.steps.append(StepRecord(kind="note", content="harness: nudge (no edits yet)"
+                                               if _edits_made == 0 else "harness: check-spin nudge"))
 
         if reps >= 3:
             result_msg += (f"\n\n[!] You have run this exact action {reps} times and gotten "
