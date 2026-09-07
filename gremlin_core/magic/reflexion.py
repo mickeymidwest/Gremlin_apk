@@ -48,7 +48,16 @@ def distil_lesson(model: Model, task: Task, transcript: Transcript) -> str:
     except Exception:
         return ""
     txt = txt.splitlines()[0].strip().strip('"').strip() if txt else ""
-    return txt if 8 <= len(txt) <= 240 else ""
+    if not (8 <= len(txt) <= 240):
+        return ""
+    # Drop lessons that blame the harness's own tools -- those come from a
+    # model that was confused about the interface, not about the task, and
+    # loading them into the next battle just spreads the confusion.
+    low = txt.lower()
+    if re.search(r"(don'?t|do not|avoid|never)\s+use\s+(run_shell|run_python|edit_file|"
+                 r"write_file|read_file|list_dir|the tools?)", low):
+        return ""
+    return txt
 
 
 def save_lesson(root: str, task: Task, lesson: str) -> None:
