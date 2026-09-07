@@ -152,6 +152,35 @@ def _skill_matches(skill: Skill, task: Task) -> bool:
     return bool(trig_words & set(re.findall(r"[a-z]{4,}", hay)))
 
 
+_HALLUCINATED_RESULT_RE = re.compile(
+    r"\n\s*(?:user\s*:|RESULT\s*\(|<\|?(?:im_start|user)\|?>|assistant\s*:|"
+    r"Observation\s*:|TOOL[_ ]?RESULT)", re.IGNORECASE)
+
+
+def _trim_to_first_action(text: str) -> str:
+    """Keep only up to (and including) the first ACTION's json fence, or the
+    first DONE line -- drop any hallucinated tool output / extra turns the
+    model tacked on after it."""
+    m = _ACTION_RE.search(text)
+    if m:
+        after = text[m.end():]
+        fence = re.search(r"```(?:json|sh|bash)?\s*.*?```", after, re.DOTALL)
+        if fence:
+            return text[: m.end() + fence.end()]
+        # no fence -- cut at the first fake-result / role marker instead
+        cut = _HALLUCINATED_RESULT_RE.search(after)
+        return text[: m.end() + cut.start()] if cut else text
+    d = re.search(r"^\s*DONE\b[:.]?[ \t]*", text, re.IGNORECASE | re.MULTILINE)
+    if d:
+        tail = text[d.end():]
+        stop = _HALLUCINATED_RESULT_RE.search(tail)
+        summary = (tail[: stop.start()] if stop else tail).strip()
+        # keep just the first paragraph of the summary
+        summary = summary.split("\n\n")[0].strip()
+        return text[: d.start()] + "DONE\n" + summary
+    return text
+
+
 def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
     """-> (kind, tool_call, final_message). kind in {'action','done','unclear'}."""
     done = _DONE_RE.search(text)
@@ -271,10 +300,16 @@ def run_battle(task: Task, repo_path: str, model: Model,
         except Exception as e:          # a transient backend error ends this battle, doesn't crash the caller
             transcript.final_message = f"(gave up: model error: {type(e).__name__}: {e})"
             break
-        transcript.steps.append(StepRecord(kind="model", content=reply.text))
-        messages.append({"role": "assistant", "content": reply.text})
+        # Small models often keep writing past their action -- inventing a
+        # "user: RESULT (ok): ..." block, then planning against that made-up
+        # tool output. Cut the turn at the first action's JSON fence (or the
+        # first fake RESULT / role marker) so only the real tool result,
+        # appended below, ever feeds the next turn.
+        clean = _trim_to_first_action(reply.text)
+        transcript.steps.append(StepRecord(kind="model", content=clean))
+        messages.append({"role": "assistant", "content": clean})
 
-        kind, call, final = _parse_turn(reply.text)
+        kind, call, final = _parse_turn(clean)
 
         if kind == "done":
             if on_done is not None:
