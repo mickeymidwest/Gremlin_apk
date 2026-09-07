@@ -46,12 +46,17 @@ class OpenAIBackend(ModelBackend):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        history: Optional[list] = None,
     ) -> GenerationResult:
         try:
             await self.warmup()
             messages = []
             if system:
                 messages.append({"role": "system", "content": system})
+            for m in (history or []):
+                r = m.get("role", "user")
+                messages.append({"role": r if r in ("user", "assistant", "system") else "user",
+                                 "content": str(m.get("content", ""))})
             messages.append({"role": "user", "content": prompt})
 
             resp = await self._client.chat.completions.create(

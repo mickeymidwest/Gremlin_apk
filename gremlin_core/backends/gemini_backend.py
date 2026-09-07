@@ -33,6 +33,7 @@ class GeminiBackend(ModelBackend):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        history: Optional[list] = None,
     ) -> GenerationResult:
         try:
             await self.warmup()
@@ -42,6 +43,13 @@ class GeminiBackend(ModelBackend):
             }
             if system:
                 config["system_instruction"] = system
+            contents = prompt
+            if history:
+                contents = [
+                    {"role": "model" if m.get("role") == "assistant" else "user",
+                     "parts": [{"text": str(m.get("content", ""))}]}
+                    for m in history
+                ] + [{"role": "user", "parts": [{"text": prompt}]}]
 
             # google-genai's client is sync-only; run it off the event loop
             # thread so it doesn't block other models running in parallel.
@@ -51,7 +59,7 @@ class GeminiBackend(ModelBackend):
             def _call():
                 return self._client.models.generate_content(
                     model=self.model_id,
-                    contents=prompt,
+                    contents=contents,
                     config=config,
                 )
 
