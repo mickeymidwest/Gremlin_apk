@@ -115,11 +115,40 @@ def reckon(model: Model, result: BattleResult,
     return out
 
 
+_GENERIC_SKILL_NAMES = re.compile(
+    r"^(fix|solve|debug|handle|check|test|run|read|understand|identify|analyze|review|"
+    r"implement|update|improve|refactor)[-_ ](the[-_ ])?"
+    r"(bug|issue|error|test|code|function|method|file|problem|failure|task)s?$")
+
+
+def _too_generic_or_dup(p: Proposal, skills: Sequence[Skill]) -> bool:
+    """Cheap pre-gate: a new skill that just restates 'fix the bug' or
+    heavily overlaps an existing card's procedure isn't worth a model call."""
+    if p.kind != "new_skill":
+        return False
+    name = (p.payload.get("name") or "").lower()
+    if _GENERIC_SKILL_NAMES.match(name):
+        return True
+    words = lambda s: set(re.findall(r"[a-z]{4,}", (s or "").lower()))
+    new_w = words(" ".join(p.payload.get("procedure", [])) + " " + p.payload.get("purpose", ""))
+    if len(new_w) < 4:
+        return True
+    for s in skills:
+        if s.status == "deprecated":
+            continue
+        ex_w = words(" ".join(s.procedure) + " " + s.purpose)
+        if ex_w and len(new_w & ex_w) / len(new_w) >= 0.6:
+            return True
+    return False
+
+
 def gate(model: Model, proposals: Sequence[Proposal],
          skills: Sequence[Skill], facts: Sequence[Fact]) -> list[Proposal]:
     ctx = _render_context(skills, facts)
     kept: list[Proposal] = []
     for p in proposals:
+        if _too_generic_or_dup(p, skills):
+            continue
         prompt = f"{ctx}\n\n---\nPROPOSED {p.kind}:\n{json.dumps(p.payload, indent=2)}\n\nrationale: {p.rationale}"
         if p.kind == "revise_skill":
             cur = next((s for s in skills if s.name == p.payload.get("target")
