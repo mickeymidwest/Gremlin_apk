@@ -305,15 +305,26 @@ def run_battle(task: Task, repo_path: str, model: Model,
         unclear_strikes = 0
 
         # Loop guard: a small model that hits a wall will repeat the exact
-        # same action forever. After 3 identical calls, break in; after 5,
-        # end the battle rather than burn the whole budget spinning.
+        # same action forever. 3rd identical call -> refuse it and force a
+        # rethink; 5th -> end the battle rather than burn the whole budget.
         fp = f"{call.name}:{json.dumps(call.args, sort_keys=True)}"
         _recent.append(fp)
-        _recent[:] = _recent[-6:]
+        _recent[:] = _recent[-8:]
         reps = _recent.count(fp)
         if reps >= 5:
             transcript.final_message = "(gave up: stuck repeating one action)"
             break
+        if reps >= 3:
+            transcript.steps.append(StepRecord(
+                kind="note", content=f"harness: refused a 3rd identical {call.name}"))
+            messages.append({"role": "user", "content":
+                f"REFUSED: you have already run `{call.name}` with these exact arguments "
+                f"{reps - 1} times and it {'errored' if True else ''} each time. It will not "
+                "work on a repeat. Do something different: a different tool, a different "
+                "path (run list_dir with \".\" to see what actually exists), or read the "
+                "error text more carefully."})
+            unclear_strikes = 0
+            continue
 
         result = toolhost.run(call)
         _step_n += 1
