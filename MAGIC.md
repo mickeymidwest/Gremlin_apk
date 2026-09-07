@@ -185,6 +185,45 @@ RECKONING between battles: one model call proposes (`new_skill` / `revise_skill`
 from the Verifier — model "simulation" is allowed for choosing what to try next,
 never for accepting a change.
 
+### Seed skill catalogue (67 cards, `seed_skills.py` → `data/skills/`)
+
+Loaded into a battle when `trigger_matcher` hits the task text (cap 8), and
+folded into plain chat (cap 3). Grouped:
+
+- **Engineering basics** — read-the-error-first, reproduce-before-fixing,
+  one-change-at-a-time, search-before-you-guess, verify-before-done,
+  edit-file-over-rewrite, snapshot-before-risky-change
+- **Debugging craft** — bisect-the-failure, minimize-the-repro,
+  read-the-stack-trace-bottom-up, change-one-thing, when-stuck-widen-then-narrow,
+  compiler-says-what-it-means
+- **Tests as truth** — failing-test-first, test-the-boundaries,
+  dont-edit-the-test-to-pass
+- **Reading unfamiliar code** — trace-the-data-flow, entry-points-first
+- **Safe change** — characterize-before-refactor, keep-the-tree-green
+- **Performance** — measure-before-optimizing, the-usual-perf-suspects
+- **Concurrency** — shared-mutable-state-is-the-bug, lock-ordering-prevents-deadlock
+- **Language footguns** — python-mutable-default-arg, float-equality-and-money,
+  python-truthiness-vs-none, c-off-by-one-and-nul, c-integer-overflow-before-alloc,
+  c-lifetime-and-ownership, kotlin-nullability-at-the-edge, kotlin-kdoc-terminator
+- **API / web design** — validate-at-the-boundary, make-writes-idempotent
+- **Android** — android-project-layout, android-gradle-build-loop,
+  android-read-gradle-errors, android-minimal-deps-offline, android-agp9-kotlin,
+  android-custom-view, android-targetsdk-edge-to-edge, android-debug-apk-install,
+  android-no-work-on-main-thread
+- **This box** — manjaro-full-upgrade-only, vram-budget-8gb, gremlin-not-answering,
+  hdd-cold-start-patience, service-status-then-logs
+- **Vuln research** — scope-first, fuzz-harness, static-vuln-sweep, binary-recon,
+  apk-recon, crash-triage-exploitability, linux-memory-corruption, patch-diff-nday,
+  bounty-report, toctou-in-web-logic, jwt-and-session-pitfalls, ssrf-and-url-parsing,
+  command-and-arg-injection, xxe-and-unsafe-parsers, secrets-in-git-history,
+  dependency-and-cve-check
+- **Agent meta** — state-the-plan-then-work-it, use-exact-names-from-the-source,
+  finish-what-you-changed
+
+New cards are added to `_SEED`; `/skill seed` (idempotent) materialises any
+missing ones. Cards earn `active` by winning battles; the loop also proposes
+its own from battle transcripts.
+
 ## 4. The Council — skill destination decision
 
 After an active skill has enough wins, the Council (a few model voices, incl.
