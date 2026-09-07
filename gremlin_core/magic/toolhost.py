@@ -222,12 +222,16 @@ class ShellToolHost:
         r"""|(?:^|[|;&\s])(?:ba|z)?sh\s+-c\b""")
 
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
-                 allowed: "tuple[str, ...] | None" = None, readonly: bool = False):
+                 allowed: "tuple[str, ...] | None" = None, readonly: bool = False,
+                 protect_glob: str | None = None):
         self.root = Path(root).resolve()
         self.shell_timeout = shell_timeout
         self.max_output = max_output
         self.allowed = tuple(allowed) if allowed is not None else tuple(self.TOOLS)
         self.readonly = readonly
+        # paths (relative-glob) the agent may READ but not write -- e.g. the
+        # target-under-test in a fuzzing battle, which must keep its bug
+        self.protect_glob = protect_glob
         if readonly:
             self.allowed = tuple(t for t in self.allowed
                                  if t not in ("write_file", "edit_file", "undo_last"))
@@ -248,6 +252,13 @@ class ShellToolHost:
         if p == self.root or self.root in p.parents:
             return p
         return None
+
+    def _protected(self, rel: str) -> bool:
+        if not self.protect_glob or not rel:
+            return False
+        import fnmatch
+        r = rel.lstrip("./")
+        return any(fnmatch.fnmatch(r, g.strip()) for g in self.protect_glob.split(","))
 
     def _clip(self, text: str) -> str:
         if len(text) <= self.max_output:
@@ -383,6 +394,9 @@ class ShellToolHost:
         p = self._resolve(rel)
         if p is None:
             return ToolResult(False, "path escapes the repo root")
+        if self._protected(rel):
+            return ToolResult(False, f"{rel} is READ-ONLY for this task -- you can read it but "
+                                     "not change it. Put your changes in a different (new) file.")
         text = args.get("text", args.get("content", args.get("body", "")))
         # Parse-before-apply (MAGIC.md section 8, from SWE-agent's ACI): a
         # Python file that won't compile never lands -- the model gets the
@@ -402,6 +416,9 @@ class ShellToolHost:
         p = self._resolve(rel)
         if p is None:
             return ToolResult(False, "path escapes the repo root")
+        if self._protected(rel):
+            return ToolResult(False, f"{rel} is READ-ONLY for this task -- do not change it. "
+                                     "Put your work in a new file in the repo root.")
         if not p.is_file():
             return ToolResult(False, f"no such file: {rel or '(empty path)'} (use write_file to create it)")
         search = args.get("search", args.get("old", args.get("find", "")))

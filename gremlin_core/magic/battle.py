@@ -268,7 +268,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
                step_budget: int = 12, max_tokens: int = 4096,
                plan: bool = True, phase_gate: bool = True,
                readonly: bool = False, time_budget_s: float = 600.0,
-               on_done=None, lessons: Sequence[str] = (), autocommit: bool = True) -> Transcript:
+               on_done=None, lessons: Sequence[str] = (), autocommit: bool = True,
+               protect_glob: str | None = None) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
@@ -278,6 +279,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
     toolhost = ShellToolHost(
         repo_path, readonly=readonly,
         allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
+        protect_glob=protect_glob,
     )
     if readonly:
         phase_gate = False

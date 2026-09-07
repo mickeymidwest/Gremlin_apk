@@ -86,11 +86,14 @@ def targets() -> list[dict]:
 
     def _cfuzz(path, tid):
         return dict(name=tid, repo=path, verifier=FuzzVerifier(run_seconds=40),
-            step_budget=18, max_tokens=2560, time_budget=1000,
+            step_budget=18, max_tokens=2560, time_budget=1000, protect_glob="src/*",
             task=Task(id=tid, prompt=_readme_goal(path, "Write a libFuzzer harness for src/.") + (
-                "\n\nRead src/*.h and src/*.c, use the EXACT names from them, write ONE "
-                "harness file in the repo root, compile-check with clang -fsanitize=fuzzer,"
-                "address,undefined <harness>.c src/*.c -I . -o /tmp/h, fix errors, then DONE.")))
+                "\n\n*** src/ IS READ-ONLY. Do NOT edit src/*.c or src/*.h -- the planted "
+                "bug must stay. Your job is ONLY to add a new harness file in the repo root. ***\n"
+                "Read src/*.h and src/*.c, use the EXACT names from them, write ONE harness "
+                "file in the repo root (e.g. harness_fuzz.c), compile-check with "
+                "clang -fsanitize=fuzzer,address,undefined harness_fuzz.c src/*.c -I . -o /tmp/h, "
+                "fix errors IN YOUR HARNESS, then DONE.")))
 
     if tc.is_dir():
         T.append(_pybug(tc, "convert", "convert"))
@@ -150,8 +153,17 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         facts = store.read_facts()
         lessons = reflexion.load_lessons(str(ROOT), task)
         verifier = tgt["verifier"]
+        protect = tgt.get("protect_glob")
+
+        def _restore_protected():
+            # a fuzz target must be scored against its ORIGINAL (buggy) src,
+            # even if the model found a way to patch it
+            if protect and (Path(work) / ".git").exists():
+                subprocess.run(["git", "-C", str(work), "checkout", "--",
+                                protect.split("/")[0]], capture_output=True)
 
         def on_done():
+            _restore_protected()
             s = verifier.score(task, str(work))
             return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
 
@@ -179,10 +191,12 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
             tr = run_battle(task, str(work), model, lifecycle.loadable(skills), facts,
                             step_budget=tgt["step_budget"], max_tokens=tgt.get("max_tokens", 3072),
                             plan=True, phase_gate=True, time_budget_s=tgt.get("time_budget", 1500.0),
-                            on_done=on_done, lessons=lessons)
+                            on_done=on_done, lessons=lessons,
+                            protect_glob=tgt.get("protect_glob"))
         finally:
             model.complete = _oc
             _b.ShellToolHost.run = _orun
+        _restore_protected()
         score = verifier.score(task, str(work))
         mins = (time.monotonic() - t0) / 60
         result = BattleResult(battle_id=f"zoid_{tgt['name']}_{int(time.time())}",
