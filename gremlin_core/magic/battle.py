@@ -36,9 +36,9 @@ _PROTOCOL = """\
 You are an autonomous agent working inside a code repository. Work in
 small steps. End EVERY message with exactly one of:
 
-ACTION: <tool_name>
+ACTION: read_file
 ```json
-{ "arg": "value" }
+{"path": "app/src/main/java/com/x/Thing.kt"}
 ```
 
 ...to run a tool, or:
@@ -46,16 +46,20 @@ ACTION: <tool_name>
 DONE
 <one or two sentences on what you changed>
 
-...when the task is complete. Available tools:
+...when the task is complete. Available tools (the JSON keys are the
+argument names shown in parentheses):
 {tools}
 
 Rules:
 - Read the relevant files before editing them.
+- The JSON keys must match the tool's arguments -- read_file takes
+  "path", run_shell takes "cmd", edit_file takes "path"/"search"/"replace".
 - write_file overwrites the whole file -- include the complete new contents.
-- After an edit, run the tests to check your work before saying DONE.
+- After an edit, run the check below to see if it worked, before DONE.
 - One ACTION per message. No text after the JSON block.
+- If an action fails the same way twice, STOP repeating it -- change approach.
 
-To run this task's tests:  {test_cmd}
+The check for this task:  {test_cmd}
 """
 
 
@@ -176,6 +180,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
     messages = [{"role": "user", "content": opening}]
 
     unclear_strikes = 0
+    _recent: list[str] = []   # fingerprints of the last few actions -- loop guard
     _start = time.monotonic()
     for _ in range(step_budget):
         if time.monotonic() - _start > time_budget_s:
@@ -221,12 +226,28 @@ def run_battle(task: Task, repo_path: str, model: Model,
             continue
         unclear_strikes = 0
 
+        # Loop guard: a small model that hits a wall will repeat the exact
+        # same action forever. After 3 identical calls, break in; after 5,
+        # end the battle rather than burn the whole budget spinning.
+        fp = f"{call.name}:{json.dumps(call.args, sort_keys=True)}"
+        _recent.append(fp)
+        _recent[:] = _recent[-6:]
+        reps = _recent.count(fp)
+        if reps >= 5:
+            transcript.final_message = "(gave up: stuck repeating one action)"
+            break
+
         result = toolhost.run(call)
         transcript.steps.append(StepRecord(
             kind="tool", tool_name=call.name, tool_args=call.args,
             tool_result=result.output, content=("ok" if result.ok else "error"),
         ))
         result_msg = f"RESULT ({'ok' if result.ok else 'error'}):\n{result.output}"
+
+        if reps >= 3:
+            result_msg += (f"\n\n[!] You have run this exact action {reps} times and gotten "
+                           "the same result. It is not working -- do something different: "
+                           "a different tool, a different path, or list_dir to see what exists.")
 
         # Phase gate (#2): the editing tools open once the agent has
         # actually looked at the code.
