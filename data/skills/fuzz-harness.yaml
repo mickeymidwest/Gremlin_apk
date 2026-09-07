@@ -1,24 +1,22 @@
-id: seed_22
+id: skill_d3be33ad
 name: fuzz-harness
 status: candidate
 destination: card
 council_reviewed: false
-purpose: turn a parser/decoder into a fuzz target that finds memory bugs fast
-trigger_when: fuzzing a library, file format, protocol parser, or codec
+purpose: Improve the fuzzing strategy to increase the likelihood of finding a crash
+trigger_when: when fuzzing a target that has a known memory safety bug
 trigger_matcher: fuzz|libfuzzer|afl\+\+|honggfuzz|LLVMFuzzerTestOneInput|corpus|sanitizer|ASAN
 procedure:
-- 'write the smallest entry point: LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
-  that calls ONE parse function'
-- build with -fsanitize=address,undefined,fuzzer  (clang); for AFL++ use afl-clang-lto + a
-  persistent-mode loop
-- seed a corpus from real valid samples of that format; add a dictionary of magic bytes /
-  keywords
-- run with -max_len set near real inputs; watch for ASAN/UBSAN reports, not just SIGSEGV
-- 'minimize any crash: libfuzzer -minimize_crash=1, or afl-tmin, then reproduce standalone'
-supersedes: null
+- Increase the size of the input data to test larger memory allocations and more complex scenarios.
+- Use a variety of input types, including edge cases and boundary values, to increase the
+  likelihood of triggering the bug.
+- Run the fuzzer for a longer period of time to allow it to explore more input combinations.
+- Monitor the fuzzer's progress and adjust the fuzzing strategy as needed based on the results.
+supersedes: seed_22
 provenance:
 - seed
-created: 1788803179.100525
+- zoid_inifuzz_1788824518
+created: 1788824527.0657942
 record:
   uses: 0
   wins: 0

@@ -80,9 +80,21 @@ class FuzzVerifier:
 
         work = Path(tempfile.mkdtemp(prefix="magic-fuzz-"))
         binp = work / "harness"
+        # -I the root plus any dir that actually holds headers, so a harness
+        # that does #include "foo.h" (not "src/foo.h") still compiles
+        inc_dirs = [str(root)]
+        for d in ("include", "src", "lib", "inc"):
+            if (root / d).is_dir():
+                inc_dirs.append(str(root / d))
+        for hdr in root.rglob("*.h"):
+            if ".git" not in hdr.parts:
+                inc_dirs.append(str(hdr.parent))
+        inc: list[str] = []
+        for d in dict.fromkeys(inc_dirs):
+            inc += ["-I", d]
         cmd = [cc, "-g", "-O1", "-fno-omit-frame-pointer",
                "-fsanitize=fuzzer,address,undefined", str(harness), *srcs,
-               "-I", str(root), "-o", str(binp)]
+               *inc, "-o", str(binp)]
         try:
             b = subprocess.run(cmd, cwd=root, capture_output=True, text=True,
                                timeout=self.build_timeout)

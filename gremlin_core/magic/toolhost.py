@@ -131,13 +131,17 @@ def _edit_locate(original: str, search: str, replace: str):
                 if len(decl) == 1:
                     anchor = (decl[0], decl[0] + 1)
         if anchor is None and len(one) >= 12:    # fuzzy single line
-            best_r, best_k = 0.0, None
-            for k, ln in enumerate(lines):
-                r = difflib.SequenceMatcher(None, one, ln.strip()).ratio()
-                if r > best_r:
-                    best_r, best_k = r, k
-            if best_k is not None and best_r >= 0.8:
-                anchor = (best_k, best_k + 1)
+            scored = sorted(
+                ((difflib.SequenceMatcher(None, one, ln.strip()).ratio(), k)
+                 for k, ln in enumerate(lines)),
+                reverse=True)
+            near = [k for r, k in scored if r >= 0.8]
+            if len(near) == 1:
+                anchor = (near[0], near[0] + 1)
+            elif len(near) > 1:
+                ns = ", ".join(str(k + 1) for k in sorted(near))
+                return (f"your search closely matches {len(near)} lines ({ns}) -- ambiguous. "
+                        "Give a multi-line search with a unique neighbouring line, or use write_file.")
 
     if anchor is None:
         # show the closest few lines so the model can correct

@@ -70,15 +70,22 @@ class PersonaBackend(ModelBackend):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        history: Optional[list] = None,
     ) -> GenerationResult:
         combined_system = self._combined_system(system)
         candidates = [self.primary] + self.fallbacks
         errors = []
 
         for backend in candidates:
-            result = await backend.generate(
-                prompt, system=combined_system, max_tokens=max_tokens, temperature=temperature
-            )
+            try:
+                result = await backend.generate(
+                    prompt, system=combined_system, max_tokens=max_tokens,
+                    temperature=temperature, history=history,
+                )
+            except TypeError:
+                result = await backend.generate(
+                    prompt, system=combined_system, max_tokens=max_tokens, temperature=temperature
+                )
             if result.ok:
                 # Always answer AS Gremlin -- the caller shouldn't need to
                 # know or care which underlying model actually ran.
@@ -101,6 +108,7 @@ class PersonaBackend(ModelBackend):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        history: Optional[list] = None,
     ):
         """Stream deltas from the primary; if it produces nothing before
         failing, fall through to each fallback in turn (their default
@@ -112,10 +120,15 @@ class PersonaBackend(ModelBackend):
         for backend in [self.primary] + self.fallbacks:
             produced = False
             try:
-                async for delta in backend.generate_stream(
-                    prompt, system=combined_system,
-                    max_tokens=max_tokens, temperature=temperature,
-                ):
+                try:
+                    agen = backend.generate_stream(
+                        prompt, system=combined_system, max_tokens=max_tokens,
+                        temperature=temperature, history=history)
+                except TypeError:
+                    agen = backend.generate_stream(
+                        prompt, system=combined_system,
+                        max_tokens=max_tokens, temperature=temperature)
+                async for delta in agen:
                     produced = True
                     yield delta
                 if produced:

@@ -26,8 +26,17 @@ def _memory_block(root: str) -> str:
         return ""
     if not facts:
         return ""
+    # newest first, capped at ~2500 chars so a few huge pasted facts can't
+    # crowd out the actual conversation
+    picked, total = [], 0
+    for f in reversed(facts):
+        line = f"- {f.text}"
+        if total + len(line) > 2500 and picked:
+            break
+        picked.append(line)
+        total += len(line)
     return ("Things you (Gremlin) know about the user and this setup, kept "
-            "across sessions:\n" + "\n".join(f"- {f.text}" for f in facts[-30:]))
+            "across sessions:\n" + "\n".join(reversed(picked)))
 
 
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,
@@ -76,17 +85,49 @@ def _skills_block(root: str, message: str, limit: int = 3) -> str:
     return "\n".join(lines)
 
 
-def _build_prompt(message: str, root: str, history: str) -> str:
-    """The context Gremlin answers against -- durable memory, matching
-    skill cards, recent away-mode turns, this thread's history -- folded
-    in ahead of the user's line. Shared by answer() and answer_stream()."""
+def _build_prompt(message: str, root: str, history: str):
+    """(prompt, history_msgs) for the backend: the user's line as the
+    prompt, everything else (durable memory, matching skills, away-mode
+    turns, this thread's history) as prior turns so the model answers in
+    assistant mode with proper role separation -- not string-completing a
+    'User: ...' line. Shared by answer() and answer_stream()."""
     context = "\n\n".join(p for p in (
         _memory_block(root),
         _skills_block(root, message),
         notes.recent_away_context(root),
-        history,
     ) if p)
-    return f"{context}\n\nUser: {message}" if context else f"User: {message}"
+    hist: list[dict] = []
+    if context:
+        hist.append({"role": "user", "content": context})
+        hist.append({"role": "assistant", "content": "Understood -- I'll keep that in mind."})
+    if history:
+        hist.append({"role": "user", "content":
+                     "Earlier in this conversation:\n" + history})
+        hist.append({"role": "assistant", "content": "Got it, continuing from there."})
+    return message, hist
+
+
+async def _gen(backend, prompt: str, hist: list):
+    """backend.generate with history= when the backend takes it, else fall
+    back to a flattened prompt (API fallbacks that predate the kwarg)."""
+    try:
+        return await backend.generate(prompt, max_tokens=1024, temperature=0.6, history=hist)
+    except TypeError:
+        flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
+        flat = f"{flat}\n\nUser: {prompt}" if flat else prompt
+        return await backend.generate(flat, max_tokens=1024, temperature=0.6)
+
+
+async def _stream(backend, prompt: str, hist: list):
+    try:
+        agen = backend.generate_stream(prompt, max_tokens=1024, temperature=0.6, history=hist)
+        async for d in agen:
+            yield d
+    except TypeError:
+        flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
+        flat = f"{flat}\n\nUser: {prompt}" if flat else prompt
+        async for d in backend.generate_stream(flat, max_tokens=1024, temperature=0.6):
+            yield d
 
 
 async def _post_answer_bookkeeping(primary, message: str, root: str,
@@ -120,12 +161,12 @@ async def answer_stream(primary, message: str, root: str,
         yield "done", _reply(msg, action="remember")
         return
 
-    prompt = _build_prompt(message, root, history)
+    prompt, hist = _build_prompt(message, root, history)
 
     acc = ""
     stream_broke = False
     try:
-        async for delta in primary.generate_stream(prompt, max_tokens=1024, temperature=0.6):
+        async for delta in _stream(primary, prompt, hist):
             acc += delta
             yield "delta", delta
     except Exception:
@@ -142,7 +183,7 @@ async def answer_stream(primary, message: str, root: str,
         return
 
     if fallback is not None:
-        r = await fallback.generate(prompt, max_tokens=1024, temperature=0.6)
+        r = await _gen(fallback, prompt, hist)
         text = (r.text or "").strip() or "I couldn't get an answer just now — try again."
         used = getattr(r, "model", "fallback")
         yield "delta", text
@@ -165,12 +206,12 @@ async def answer(primary, message: str, root: str,
         notes.remember_fact(root, f"[user] {fact}")
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
-    prompt = _build_prompt(message, root, history)
+    prompt, hist = _build_prompt(message, root, history)
 
-    r = await primary.generate(prompt, max_tokens=1024, temperature=0.6)
+    r = await _gen(primary, prompt, hist)
     used, used_fallback = getattr(r, "model", "gremlin"), False
     if (not getattr(r, "ok", True) or not (r.text or "").strip()) and fallback is not None:
-        r = await fallback.generate(prompt, max_tokens=1024, temperature=0.6)
+        r = await _gen(fallback, prompt, hist)
         used, used_fallback = getattr(r, "model", "fallback"), True
 
     text = (r.text or "").strip() or "I couldn't get an answer just now — try again."

@@ -226,6 +226,7 @@ class LlamaCppBackend(ModelBackend):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        history: Optional[list] = None,
     ):
         """Async generator of text deltas as llama.cpp produces them.
 
@@ -241,6 +242,10 @@ class LlamaCppBackend(ModelBackend):
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
+        for m in (history or []):
+            r = m.get("role", "user")
+            messages.append({"role": r if r in ("user", "assistant", "system") else "user",
+                             "content": str(m.get("content", ""))})
         messages.append({"role": "user", "content": prompt})
         if self.no_think:
             messages[-1]["content"] += " /no_think"

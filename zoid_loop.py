@@ -80,24 +80,26 @@ def targets() -> list[dict]:
             task=Task(id=tid, prompt=(
                 f"{mod}.py has bugs -- each failing test in test_{mod}.py pins one down. "
                 f"Read {mod}.py and test_{mod}.py, fix the function/method BODIES only "
-                "(keep the exact signatures, don't edit the tests), get `python -m pytest -q` "
+                "(keep the EXACT signatures, don't edit the tests), get `python -m pytest -q` "
                 "fully green.\n"
-                f"{mod}.py is small -- the reliable move is to write_file the WHOLE corrected "
-                "file at once: copy every function, fix the broken bodies, leave the "
-                "already-passing ones exactly as they are. Then run pytest. If one test still "
-                "fails, one more small write_file. Don't do many tiny edit_file calls on a "
-                "class -- they get fragile.")))
+                "Loop: read -> edit ONE fix -> run pytest -> read the next failure -> edit.\n"
+                "For a small one-line fix, edit_file with the exact line copied from read_file. "
+                "If edit_file keeps failing on the same spot (ambiguous line, indentation), "
+                "switch to write_file with the WHOLE corrected file -- copy every function, fix "
+                "the broken bodies, leave the passing ones byte-for-byte as they are.")))
 
     def _cfuzz(path, tid):
         return dict(name=tid, repo=path, verifier=FuzzVerifier(run_seconds=40),
             step_budget=18, max_tokens=2560, time_budget=1000, protect_glob="src/*",
             task=Task(id=tid, prompt=_readme_goal(path, "Write a libFuzzer harness for src/.") + (
-                "\n\n*** src/ IS READ-ONLY. Do NOT edit src/*.c or src/*.h -- the planted "
-                "bug must stay. Your job is ONLY to add a new harness file in the repo root. ***\n"
-                "Read src/*.h and src/*.c, use the EXACT names from them, write ONE harness "
-                "file in the repo root (e.g. harness_fuzz.c), compile-check with "
-                "clang -fsanitize=fuzzer,address,undefined harness_fuzz.c src/*.c -I . -o /tmp/h, "
-                "fix errors IN YOUR HARNESS, then DONE.")))
+                "\n\n*** RULES ***\n"
+                "- src/ IS READ-ONLY. Do NOT edit src/*.c or src/*.h. The planted bug stays.\n"
+                "- Your ONLY job: add ONE new harness file in the repo root (e.g. harness_fuzz.c).\n"
+                "- #include \"src/<name>.h\"  (with the src/ prefix -- that's where the header is).\n"
+                "- Compile-check ONCE: clang -fsanitize=fuzzer,address harness_fuzz.c src/*.c -I . -o /tmp/h\n"
+                "- Do NOT run /tmp/h yourself. The grader runs it.\n"
+                "- The MOMENT it compiles cleanly, say DONE. If running it would crash, THAT IS "
+                "  THE WIN -- a crash means your harness works. Never try to 'fix' a crash.")))
 
     if tc.is_dir():
         T.append(_pybug(tc, "convert", "convert"))
