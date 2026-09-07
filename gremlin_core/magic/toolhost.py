@@ -269,9 +269,20 @@ class ShellToolHost:
             return ToolResult(False, f"no such file: {rel or '(empty path)'} (use write_file to create it)")
         search = args.get("search", args.get("old", args.get("find", "")))
         replace = args.get("replace", args.get("new", args.get("with", "")))
-        if not search:
-            return ToolResult(False, "edit_file needs a non-empty 'search'")
         original = p.read_text()
+        if not search:
+            # A common move: "add an #include / a line at the very top".
+            # Empty search + real replace = prepend, rather than a dead end.
+            if replace:
+                updated = replace + ("" if replace.endswith("\n") else "\n") + original
+                rej = _precheck(str(p), updated)
+                if rej:
+                    return ToolResult(False, f"NOT WRITTEN -- prepend would break the file: {rej}")
+                p.write_text(updated)
+                return ToolResult(True, f"prepended to {rel} ({len(original)} -> {len(updated)} chars)")
+            return ToolResult(False, "edit_file needs 'search' (an exact snippet to replace) and "
+                                     "'replace'. To add text at the top, pass an empty 'search' with "
+                                     "your new text in 'replace'. To rewrite the whole file, use write_file.")
         if search in original:
             updated = original.replace(search, replace, 1)
         else:

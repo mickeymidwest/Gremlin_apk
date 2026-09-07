@@ -23,6 +23,22 @@ _SEED = [
         ],
     ),
     dict(
+        name="compiler-says-what-it-means",
+        purpose="a compile error names the real problem -- fix THAT, not a guess",
+        trigger_when="a compile or type-check error just came back",
+        trigger_matcher=r"undeclared|undefined (reference|identifier|symbol)|unknown type|"
+                        r"no member|not a member|cannot find symbol|has no attribute|"
+                        r"expected .* before|implicit declaration",
+        procedure=[
+            "'undeclared identifier X' / 'unknown type X' -> X is spelled wrong or "
+            "from a header you haven't included: grep the headers for the real name, "
+            "don't just re-add an include you already have",
+            "'undefined reference to X' at link time -> the definition exists but "
+            "isn't being compiled/linked: add the .c that defines it to the build",
+            "re-read the header and copy names EXACTLY before editing again",
+        ],
+    ),
+    dict(
         name="reproduce-before-fixing",
         purpose="confirm you can see the bug before you try to fix it",
         trigger_when="asked to fix a bug or a failing test",

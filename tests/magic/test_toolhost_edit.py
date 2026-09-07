@@ -33,6 +33,20 @@ def test_edit_that_would_break_syntax_is_refused(tmp_path):
     assert "return 0" in (tmp_path / "m.py").read_text()   # unchanged
 
 
+def test_empty_search_with_replace_prepends(tmp_path):
+    th = _th(tmp_path, "def f():\n    return 0\n")
+    r = th.run(ToolCall("edit_file", {
+        "path": "m.py", "search": "", "replace": "import os"}))
+    assert r.ok and "prepended" in r.output
+    assert (tmp_path / "m.py").read_text() == "import os\ndef f():\n    return 0\n"
+
+
+def test_empty_search_and_empty_replace_is_a_helpful_error(tmp_path):
+    th = _th(tmp_path, "x = 1\n")
+    r = th.run(ToolCall("edit_file", {"path": "m.py", "search": "", "replace": ""}))
+    assert not r.ok and "write_file" in r.output
+
+
 def test_edit_nonexistent_file(tmp_path):
     th = ShellToolHost(tmp_path)
     r = th.run(ToolCall("edit_file", {"path": "nope.py", "search": "a", "replace": "b"}))
