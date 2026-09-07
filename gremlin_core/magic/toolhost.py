@@ -299,10 +299,39 @@ class ShellToolHost:
                 if hit:
                     break
             if not hit:
-                return ToolResult(False, "search text not found (exact or whitespace-insensitive). "
-                                         "read_file first and copy the block verbatim.")
-            i, j = hit
-            updated = "".join(lines[:i]) + replace + ("" if replace.endswith("\n") else "\n") + "".join(lines[j:])
+                # Fuzzy anchor: a near-miss search (the model paraphrased a
+                # signature, dropped a type hint, etc.). Find the closest
+                # contiguous span of the same line count; apply it if it's
+                # clearly the intended spot, else show candidates.
+                import difflib
+                want_lines = search.strip("\n").splitlines() or [search]
+                span = len(want_lines)
+                best_ratio, best = 0.0, None
+                # only fuzz a search substantial enough for the ratio to mean
+                # something -- a bare "return 0" is too short to guess from
+                fuzzable = len(search.strip()) >= 12
+                for i in range(len(lines) - span + 1) if fuzzable else []:
+                    cand = "".join(lines[i:i + span])
+                    r = difflib.SequenceMatcher(None, norm(search), norm(cand)).ratio()
+                    if r > best_ratio:
+                        best_ratio, best = r, (i, i + span)
+                if best and best_ratio >= 0.8:
+                    i, j = best
+                    updated = ("".join(lines[:i]) + replace
+                               + ("" if replace.endswith("\n") else "\n") + "".join(lines[j:]))
+                else:
+                    near = ""
+                    if best:
+                        i0 = max(0, best[0] - 1)
+                        near = "\n  ".join(l.rstrip() for l in lines[i0:best[1] + 1])
+                        near = f"\nclosest lines in the file:\n  {near}"
+                    return ToolResult(False,
+                        "search text not found -- copy an exact snippet from read_file "
+                        "(or use write_file to replace the whole file)." + near)
+            else:
+                i, j = hit
+                updated = ("".join(lines[:i]) + replace
+                           + ("" if replace.endswith("\n") else "\n") + "".join(lines[j:]))
         rej = _precheck(str(p), updated)
         if rej:
             return ToolResult(False, f"NOT WRITTEN -- edit would break the file: {rej}")

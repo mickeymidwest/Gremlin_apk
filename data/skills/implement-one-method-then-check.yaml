@@ -1,0 +1,26 @@
+id: seed_17
+name: implement-one-method-then-check
+status: candidate
+destination: card
+council_reviewed: false
+purpose: on a scaffold with many stubbed methods, do them one at a time
+trigger_when: a file has several TODO()/NotImplementedError stubs to fill in against tests
+trigger_matcher: TODO\(\)|implement (every|all|each)|stub|NotImplementedError|method bod|scaffold|failing
+  tests
+procedure:
+- pick the method the earliest/most tests depend on (constructor, deal, init, parse) -- do
+  THAT one first
+- write just that body; run the check; read which tests moved from error to fail-or-pass
+- a compile error blocks ALL tests -- fix syntax before judging logic; a plain test failure
+  is progress
+- repeat for the next method; don't write three bodies before running the check
+supersedes: null
+provenance:
+- seed
+created: 1788817915.63095
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

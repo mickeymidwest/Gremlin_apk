@@ -636,6 +636,57 @@ _SEED = [
         ],
     ),
 
+    # --- C / C++ building ---
+    dict(
+        name="c-compile-basics",
+        purpose="the gcc/clang invocation for a small C/C++ program or test",
+        trigger_when="building a C or C++ file from the command line",
+        trigger_matcher=r"\bgcc\b|\bclang\b|\bg\+\+\b|clang\+\+|\.c\b|\.cpp\b|\.cc\b|compile .* (c|cpp)|-std=|-o \w",
+        procedure=[
+            "single file: `cc -std=c11 -g -O1 -Wall -Wextra -fsanitize=address,undefined main.c -o main` (use clang for -fsanitize=fuzzer)",
+            "multiple files: compile each to an object (`cc -c a.c -o a.o`) then link (`cc a.o b.o -o app`); headers are #included, never compiled",
+            "`-I dir` adds a header search path; `-L dir -lfoo` links libfoo; `-D NAME=val` sets a macro",
+            "C++ needs g++/clang++ (not gcc) so the standard library links; pick `-std=c++17` unless told otherwise",
+            "keep `-g` and a sanitizer on while developing -- a clean ASAN run is the bar, not just 'it compiled'",
+        ],
+    ),
+    dict(
+        name="c-read-linker-errors",
+        purpose="'undefined reference' and 'multiple definition' are link errors, not compile errors",
+        trigger_when="a C/C++ build fails after the files compiled",
+        trigger_matcher=r"undefined reference|multiple definition|ld returned|ld:|collect2|cannot find -l|relocation|__imp_",
+        procedure=[
+            "'undefined reference to X' -> the .c/.o that DEFINES X isn't in the link line, or a `-lLIB` is missing; add it",
+            "'multiple definition of X' -> a non-inline function/variable defined in a header that's included twice; move the definition to one .c, leave a declaration in the header",
+            "'cannot find -lfoo' -> the library isn't installed or needs `-L` pointing at its directory",
+            "link order matters with static libs: list them AFTER the objects that use them",
+        ],
+    ),
+    dict(
+        name="c-build-systems",
+        purpose="drive a Makefile or a CMake project instead of hand-compiling",
+        trigger_when="a C/C++ repo has a Makefile, CMakeLists.txt, or configure script",
+        trigger_matcher=r"Makefile|makefile|CMakeLists|cmake|\.\/configure|make (all|check|test)|autoreconf|meson",
+        procedure=[
+            "Makefile: `make` builds, `make test` / `make check` runs tests, `make clean` resets; `make -j` parallelizes",
+            "CMake: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug` then `cmake --build build`; tests via `ctest --test-dir build`",
+            "to add sanitizers to someone's build: `make CFLAGS='-g -O1 -fsanitize=address,undefined'` or `-DCMAKE_C_FLAGS=...`",
+            "autotools: `./configure && make`; if configure is missing run `autoreconf -i` first",
+        ],
+    ),
+    dict(
+        name="c-header-hygiene",
+        purpose="what goes in a .h vs a .c, and the include guard",
+        trigger_when="creating or editing a C/C++ header, or hitting redefinition / incomplete-type errors",
+        trigger_matcher=r"\.h\b|#include|include guard|#ifndef|#pragma once|redefinition|incomplete type|forward declar",
+        procedure=[
+            "header holds: declarations (prototypes), typedefs/structs, macros, `extern` globals -- NOT function bodies or global definitions",
+            "guard every header: `#ifndef FOO_H` / `#define FOO_H` / ... / `#endif`  (or `#pragma once`)",
+            "a .c includes its own .h first, then others; a C header used from C++ needs `extern \"C\" { }` around the declarations",
+            "'incomplete type' -> you only forward-declared a struct; include the header that fully defines it",
+        ],
+    ),
+
     # --- C / C++ footguns ---
     dict(
         name="c-off-by-one-and-nul",

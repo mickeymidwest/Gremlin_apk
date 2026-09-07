@@ -1,0 +1,30 @@
+id: seed_16
+name: kotlin-is-not-c-or-java
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the syntax mistakes a C/Java habit makes in Kotlin, and the fix
+trigger_when: writing Kotlin and hitting compile errors on loops, conditionals, or literals
+trigger_matcher: '\.kt:|kotlin|Expecting|expected .* but|unresolved reference|for \(.*;|\bnew
+  \w+\(|\?\s*:.*:'
+procedure:
+- 'counted loop: `for (i in 0 until n) { }` or `for (i in a..b)` -- NOT `for (i = 0; i < n;
+  i++)`'
+- 'no ternary: use `val x = if (c) a else b` or `c ?: fallback`; `when (x) { 1 -> ...; else
+  -> ... }` for multi-branch'
+- 'collections are functions: `listOf(1,2)`, `mutableListOf()`, `mapOf(k to v)`, `IntArray(n)`
+  -- no `[]` literals; index with `a[i]`'
+- 'no `new`: `Foo(args)` constructs; `val`/`var` not a type; nullable is `Foo?` and you must
+  handle it (`?.`, `?:`, or check)'
+- 'string templates: `"$x"` and `"${obj.prop}"`; multiple statements on one line need `;`
+  between them'
+supersedes: null
+provenance:
+- seed
+created: 1788817915.6309483
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
