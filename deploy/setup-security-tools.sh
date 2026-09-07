@@ -10,12 +10,13 @@ priv_block() {
   echo "== pacman: clang/llvm (libFuzzer+ASAN), radare2, checksec, unzip, ltrace =="
   pacman -S --needed --noconfirm clang llvm lld compiler-rt radare2 checksec unzip ltrace strace
 
-  echo "== AFL++ (from the AUR if not in the repos) =="
-  if pacman -Si aflplusplus >/dev/null 2>&1; then
+  echo "== AFL++ (official repo package is 'afl++', provides 'afl') =="
+  if pacman -Si afl++ >/dev/null 2>&1; then
+    pacman -S --needed --noconfirm afl++
+  elif pacman -Si aflplusplus >/dev/null 2>&1; then
     pacman -S --needed --noconfirm aflplusplus
   else
-    echo "   aflplusplus not in the repos -- install from the AUR manually:"
-    echo "     yay -S aflplusplus   (or build github.com/AFLplusplus/AFLplusplus)"
+    echo "   not in the configured repos -- 'yay -S aflplusplus' or build from source"
   fi
 }
 export -f priv_block; export here
