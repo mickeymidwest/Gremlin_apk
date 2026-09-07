@@ -69,6 +69,8 @@ def targets() -> list[dict]:
     ns = HOME / "Downloads" / "fuzz-practice"
     tlv = HOME / "Downloads" / "fuzz-practice-2"
     ini = HOME / "Downloads" / "fuzz-practice-3"
+    tc = HOME / "Downloads" / "pybugs" / "temp_convert"
+    lo = HOME / "Downloads" / "pybugs" / "list_ops"
     klon = HOME / "Downloads" / "klondike"
     bal = HOME / "Downloads" / "buildalot"
 
@@ -90,6 +92,10 @@ def targets() -> list[dict]:
                 "harness file in the repo root, compile-check with clang -fsanitize=fuzzer,"
                 "address,undefined <harness>.c src/*.c -I . -o /tmp/h, fix errors, then DONE.")))
 
+    if tc.is_dir():
+        T.append(_pybug(tc, "convert", "convert"))
+    if lo.is_dir():
+        T.append(_pybug(lo, "listops", "listops"))
     if lg.is_dir():
         T.append(_pybug(lg, "ledger", "ledger"))
     if tu.is_dir():
