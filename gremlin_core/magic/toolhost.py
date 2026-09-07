@@ -32,6 +32,27 @@ class ToolResult:
 _DECL_RE = re.compile(r"\b(def|fun|fn|function|class|struct|sub|impl|interface)\b")
 
 
+def _leading_ws(s: str) -> str:
+    return s[: len(s) - len(s.lstrip())]
+
+
+def _reindent(text: str, want: str, have: str) -> str:
+    """Shift every line of `text` so its base indent goes from `have` to
+    `want` (keeps relative nesting)."""
+    if want == have:
+        return text
+    out = []
+    for ln in text.splitlines(keepends=True):
+        stripped = ln.lstrip(" \t")
+        if not stripped.strip():
+            out.append(ln)
+            continue
+        cur = ln[: len(ln) - len(stripped)]
+        rel = cur[len(have):] if cur.startswith(have) else cur
+        out.append(want + rel + stripped)
+    return "".join(out)
+
+
 def _block_end(lines: list[str], i: int) -> int:
     """Line index one past the end of the def/class block that starts at
     line i -- brace-balanced if it opens with '{', else by indentation."""
@@ -412,9 +433,21 @@ class ShellToolHost:
                 return ToolResult(False, span)   # a helpful "not found" message
             i, j = span
             lines = original.splitlines(keepends=True)
+            block = "".join(lines[i:j])
             updated = ("".join(lines[:i]) + replace
                        + ("" if replace.endswith("\n") or not replace else "\n")
                        + "".join(lines[j:]))
+            # If the replace's own indentation doesn't line up with the code
+            # it's replacing (model dropped/added the method indent), re-align
+            # the whole block to the anchor line's indent and retry.
+            if _precheck(str(p), updated):
+                fixed = _reindent(replace, _leading_ws(lines[i]) if i < len(lines) else "",
+                                  _leading_ws(replace))
+                if fixed != replace:
+                    alt = ("".join(lines[:i]) + fixed
+                           + ("" if fixed.endswith("\n") else "\n") + "".join(lines[j:]))
+                    if not _precheck(str(p), alt):
+                        updated = alt
             verb = "edited" if j - i <= search.count("\n") + 1 else "replaced the block at"
         rej = _precheck(str(p), updated)
         if rej:
