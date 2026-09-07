@@ -20,16 +20,22 @@ DEPRECATE_LOSSES = 3
 
 def update_records(skills: Sequence[Skill], result: BattleResult, score_delta: float) -> None:
     invoked = set(result.transcript.skills_invoked)
+    # A skill is credited a "win" when the battle it was used in either
+    # passed OR made real forward progress (score climbed a fair amount).
+    # On a box where a full pass is rare, "did this skill help" is the
+    # signal that should promote a card -- not only "did everything pass".
+    helped = result.won or score_delta >= 0.25
     for s in skills:
         if s.id not in invoked:
             continue
         s.record.uses += 1
         s.record.last_used_battle = result.battle_id
         s.record.score_deltas.append(round(score_delta, 4))
-        if result.won:
+        if helped:
             s.record.wins += 1
-        else:
+        elif score_delta <= 0.0:
             s.record.losses += 1
+        # a small positive delta (0 < d < 0.25) is neither -- no signal
 
 
 def audit(skills: Sequence[Skill]) -> list[str]:
