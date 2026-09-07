@@ -1,23 +1,10 @@
 models:
-  # Gremlin's base/primary voice. Picked 2026-09-05 off an 11-model
-  # bench/quality.py run on this 2070 Super (no-think column):
-  #   qwen2.5-7b-instruct   8/8   65 tok/s   <- this: top score AND fastest
-  #   granite-3.1-8b        8/8   56 tok/s
-  #   qwen2.5-coder-7b      8/8   50 tok/s   (best on code -> /build, /fix)
-  #   qwen3-8b base         7/8   62 tok/s   (needs /no_think)
-  # Qwen2.5-7B wins on score+speed and has no thinking phase to manage.
-  - name: qwen2.5-7b
-    type: local_gguf
-    display_name: "Qwen2.5-7B-Instruct"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-    n_ctx: 32768
-    n_gpu_layers: -1
-    flash_attn: true
-    kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
-    chat_format: chatml
-
-  # Coding specialist -- 8/8, best on the code tasks. The model behind
-  # /build and /fix once those route to a specialist (see MAGIC.md).
+  # Gremlin's brain. Picked 2026-09-06 off the harder 19-task bench
+  # (15/19, top score, ~64 tok/s) -- a strong generalist (code + math +
+  # reasoning), not just a code model. Chat + /build + /fix all share
+  # this one warm model. The 2026-09-05 shortlist that also ran here
+  # (plain qwen2.5-7b, qwen3-8b, granite-3.1-8b) was pruned 2026-09-07 --
+  # unused menu options, and the box has no room to run two 7Bs anyway.
   - name: qwen2.5-coder-7b
     type: local_gguf
     display_name: "Qwen2.5-Coder-7B-Instruct"
@@ -25,21 +12,8 @@ models:
     n_ctx: 32768
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q8_0
+    kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
     chat_format: chatml
-
-  # Alternate -- Qwen3's hybrid thinking (toggle no_think off for hard
-  # problems). 7/8 on the suite.
-  - name: qwen3-8b
-    type: local_gguf
-    display_name: "Qwen3-8B"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen_Qwen3-8B-Q4_K_M.gguf"
-    n_ctx: 32768
-    n_gpu_layers: -1
-    flash_attn: true
-    kv_cache_type: q4_0
-    chat_format: chatml
-    no_think: true
 
   # Bigger brain, big-model VRAM profile. IQ3_XS (~6.4GB) of a 14B is
   # right at this 8GB card's ceiling: 8k ctx, q4_0 KV (mandatory), and it
@@ -75,24 +49,11 @@ models:
     kv_cache_type: q4_0
     chat_format: llama-3
 
-  # First fine-tune, 2026-09-07. Qwen2.5-3B base + a QLoRA adapter on 124
-  # finetune_sources examples, eval loss 1.51 -> 1.41 / 2 epochs. VALUE OF
-  # THE PIPELINE: proven end to end (data -> QLoRA -> GGUF LoRA -> loads).
-  # VALUE OF THE MODEL: none -- A/B'd 2026-09-07, it's WORSE than the plain
-  # 3B (repetition loops, garbled facts) and far below the Coder-7B
-  # primary. 124 tiny examples overfit to noise; a 3B is a weak base. Kept
-  # only for reference; the real run is the 7B on rented GPU (deploy/
-  # CLOUD-FINETUNE.md). ctx dropped 16384->4096 + f16 KV: the 16k/q4_0
-  # combo made a small model emit pure garbage. Do NOT set as primary.
-  - name: gremlin-3b-ft
-    type: local_gguf
-    display_name: "Gremlin-3B (fine-tuned, experimental)"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
-    lora_path: "/home/mickey/Downloads/gremlin/data/finetunes/20260907-124946/gremlin-3b-lora-f16.gguf"
-    n_ctx: 4096
-    n_gpu_layers: -1
-    chat_format: chatml
-    footprint_mb: 2600
+  # The first fine-tune (Qwen2.5-3B + QLoRA on 124 examples, 2026-09-07)
+  # was A/B'd and came out WORSE than the plain 3B -- repetition loops,
+  # garbled facts. Unregistered 2026-09-07. The pipeline is proven; the
+  # payoff run is the 7B on a rented GPU (deploy/CLOUD-FINETUNE.md). The
+  # adapter still exists at data/finetunes/20260907-124946/ for reference.
 
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   - name: gemini
