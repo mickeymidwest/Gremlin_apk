@@ -75,21 +75,22 @@ models:
     kv_cache_type: q4_0
     chat_format: llama-3
 
-  # First real fine-tuned Gremlin (2026-09-07). Qwen2.5-3B base + a
-  # QLoRA adapter trained on 124 examples from finetune_sources (skill
-  # cards + kept conversations). eval loss 1.51 -> 1.41 across 2 epochs.
-  # A 3B is weaker than the Coder-7B primary and 124 examples is thin --
-  # this is the pipeline proven end to end (data -> QLoRA -> GGUF LoRA ->
-  # loadable), not a primary. `/model use gremlin-3b-ft` to A/B it.
+  # First fine-tune, 2026-09-07. Qwen2.5-3B base + a QLoRA adapter on 124
+  # finetune_sources examples, eval loss 1.51 -> 1.41 / 2 epochs. VALUE OF
+  # THE PIPELINE: proven end to end (data -> QLoRA -> GGUF LoRA -> loads).
+  # VALUE OF THE MODEL: none -- A/B'd 2026-09-07, it's WORSE than the plain
+  # 3B (repetition loops, garbled facts) and far below the Coder-7B
+  # primary. 124 tiny examples overfit to noise; a 3B is a weak base. Kept
+  # only for reference; the real run is the 7B on rented GPU (deploy/
+  # CLOUD-FINETUNE.md). ctx dropped 16384->4096 + f16 KV: the 16k/q4_0
+  # combo made a small model emit pure garbage. Do NOT set as primary.
   - name: gremlin-3b-ft
     type: local_gguf
-    display_name: "Gremlin-3B (fine-tuned)"
+    display_name: "Gremlin-3B (fine-tuned, experimental)"
     model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
     lora_path: "/home/mickey/Downloads/gremlin/data/finetunes/20260907-124946/gremlin-3b-lora-f16.gguf"
-    n_ctx: 16384
+    n_ctx: 4096
     n_gpu_layers: -1
-    flash_attn: true
-    kv_cache_type: q4_0
     chat_format: chatml
     footprint_mb: 2600
 
