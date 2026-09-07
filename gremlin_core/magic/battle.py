@@ -62,8 +62,11 @@ To run this task's tests:  {test_cmd}
 def _assemble_system(task: Task, facts: Sequence[Fact], skills: Sequence[Skill],
                      toolhost: ShellToolHost, fact_budget: int = 12,
                      skill_budget: int = 8) -> tuple[str, list[str]]:
-    k = f" -k '{task.test_filter}'" if task.test_filter else ""
-    test_cmd = f"python -m pytest -q{k}"
+    if task.verify_cmd:
+        test_cmd = task.verify_cmd
+    else:
+        k = f" -k '{task.test_filter}'" if task.test_filter else ""
+        test_cmd = f"python -m pytest -q{k}"
     parts = [_PROTOCOL.replace("{tools}", toolhost.tool_help()).replace("{test_cmd}", test_cmd)]
 
     matched = [s for s in skills if _skill_matches(s, task)][:skill_budget]
@@ -217,10 +220,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
         # diagnose before its next edit instead of flailing. Cheap -- a
         # prompt nudge, not an extra model call.
         if (call.name == "run_shell" and not result.ok
-                and re.search(r"\b(FAILED|failed|assert|Error)\b", result.output)):
-            result_msg += ("\n\nThe tests are still failing. Before editing again, "
-                           "say in ONE sentence what this specific failure tells you "
-                           "about the bug, then make the smallest fix for it.")
+                and re.search(r"\b(FAILED|failed|assert|Error)\b|error:|(?<!\w)e: ", result.output)):
+            result_msg += ("\n\nThe check is still failing. Before editing again, "
+                           "say in ONE sentence what this specific failure tells you, "
+                           "then make the smallest fix for it.")
 
         messages.append({"role": "user", "content": result_msg})
     else:

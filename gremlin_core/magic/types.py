@@ -25,6 +25,9 @@ class Task:
     # Empty string = the whole suite (design doc §14's default).
     test_filter: str = ""
     tags: list[str] = field(default_factory=list)
+    # Override the check the agent is told to run (default: pytest). e.g.
+    # "./gradlew assembleDebug" for an Android build task.
+    verify_cmd: str = ""
 
 
 @dataclass
