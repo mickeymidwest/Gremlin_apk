@@ -95,8 +95,17 @@ models:
 persona:
   name: gremlin
   display_name: "Gremlin"
-  primary_model: qwen2.5-7b
+  # Picked 2026-09-06 off the harder 19-task bench/quality run:
+  #   qwen2.5-coder-7b  15/19  64 tok/s   <- this: top score, same speed class
+  #   qwen2.5-7b        13/19  69 tok/s
+  # Qwen2.5-Coder is a strong generalist (code + math + reasoning), not
+  # narrow -- it passed the long-context sum and the duration parser the
+  # plain 7B botched. Chat + /build + /fix now all share one warm model.
+  primary_model: qwen2.5-coder-7b
   fallback_models: [gemini]
+  # HF full-precision repo the primary was quantized from -- what
+  # `gremlin finetune` needs (QLoRA loads it via transformers).
+  base_repo: "Qwen/Qwen2.5-Coder-7B-Instruct"
   system_prompt: |
     Your name is Gremlin. You're a personal AI assistant running locally
     on the user's own desktop. If asked your name or who you are, answer

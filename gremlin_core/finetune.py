@@ -87,21 +87,47 @@ def _entries_to_split(entries: list[dict], eval_fraction: float) -> tuple[list[d
     return examples[:split_at], examples[split_at:]
 
 
-def build_training_dataset(root: str, eval_fraction: float = 0.15) -> tuple[list[dict], list[dict]]:
+def build_training_dataset(root: str, eval_fraction: float = 0.15,
+                           extra_sources: bool = True) -> tuple[list[dict], list[dict]]:
     """
-    Returns (train_examples, eval_examples) -- both lists of chat-format
-    SFT examples: {"messages": [{"role": "user", "content": prompt},
-    {"role": "assistant", "content": final_answer}]}.
+    Returns (train_examples, eval_examples) -- chat-format SFT examples
+    {"messages": [{"role": "user", ...}, {"role": "assistant", ...}]}.
 
-    Every entry in learning_log.jsonl already represents a real
-    "Gremlin didn't know this on its own" moment -- load_learned_answer
-    short-circuits an exact-repeat question before a consult ever
-    happens, so nothing here is an already-known answer. Used to fine-
-    tune the PRIMARY on everything logged, regardless of which
-    specialist contributed each entry -- see build_training_dataset_for_model
-    for training a specific sub-model on just its own contributions.
+    Sources (see gremlin_core/finetune_sources.py):
+      - learning_log.jsonl  -- a fallback model rescued a failed local
+        answer; the (prompt, final_answer) pair teaches Gremlin to
+        answer directly next time. Strongest signal.
+      - extra_sources=True also folds in: Magic battle wins, the proven
+        skill cards (as "when X, do Y"), real kept conversation turns,
+        and anything the user curated in data/finetune_seed/*.jsonl.
     """
-    return _entries_to_split(_read_log_entries(root), eval_fraction)
+    entries = _read_log_entries(root)
+    log_examples = []
+    for e in sorted(entries, key=lambda e: e.get("timestamp", 0)):
+        p, a = e.get("prompt"), e.get("final_answer")
+        if p and a:
+            log_examples.append({"messages": [
+                {"role": "user", "content": p},
+                {"role": "assistant", "content": a}]})
+
+    extra = []
+    if extra_sources:
+        try:
+            from . import finetune_sources
+            for x in finetune_sources.gather(root):
+                extra.append({"messages": x["messages"]})
+        except Exception:  # noqa
+            pass
+
+    # learning-log examples first (held-out eval is drawn from the tail
+    # of the log, the genuinely newest "Gremlin didn't know this")
+    all_ex = log_examples + [e for e in extra if e not in log_examples]
+    if not all_ex:
+        return [], []
+    if len(all_ex) == 1:
+        return all_ex, []
+    split_at = max(1, min(int(len(all_ex) * (1 - eval_fraction)), len(all_ex) - 1))
+    return all_ex[:split_at], all_ex[split_at:]
 
 
 def build_training_dataset_for_model(
@@ -162,7 +188,19 @@ def write_training_set(root: str, eval_fraction: float = 0.15, model_name: Optio
     }
 
 
-DEFAULT_BASE_REPO = "mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated"
+# Fallback only -- the real value comes from config/models.yaml's
+# persona.base_repo (the HF repo the current primary was quantized from).
+# See _primary_base_repo() and cmd_finetune.
+DEFAULT_BASE_REPO = "Qwen/Qwen2.5-Coder-7B-Instruct"
+
+
+def _primary_base_repo(config_path: str) -> str:
+    try:
+        import yaml
+        cfg = yaml.safe_load(Path(config_path).read_text())
+        return (cfg.get("persona") or {}).get("base_repo") or DEFAULT_BASE_REPO
+    except Exception:  # noqa
+        return DEFAULT_BASE_REPO
 
 
 def _load_jsonl(path: Path) -> list[dict]:
@@ -454,13 +492,19 @@ def promote_finetuned_submodel(config_path: str, model_name: str, gguf_path: str
         raise RuntimeError(f"couldn't promote '{model_name}': {err}")
 
 
-def run_pipeline(root: str, config_path: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3,
+def run_pipeline(root: str, config_path: str, base_repo: str | None = None, epochs: int = 3,
                   quant: str = "Q4_K_M", promote: bool = False) -> dict:
     """Full ladder: dataset -> LoRA training -> merge/convert/quantize ->
     (optionally) promote. Returns a dict the CLI prints as it goes; raises
     on any stage's failure rather than half-applying a broken result.
     Always targets the PRIMARY -- see run_pipeline_for_model to instead
-    fine-tune one specific sub-model on just its own contributions."""
+    fine-tune one specific sub-model on just its own contributions.
+
+    base_repo=None -> read persona.base_repo from config (the repo the
+    current primary was quantized from). A stale hardcoded default here
+    once trained the wrong architecture entirely."""
+    if base_repo is None:
+        base_repo = _primary_base_repo(config_path)
     ds = write_training_set(root)
     if ds["train_count"] == 0:
         return {"stage": "dataset", **ds}

@@ -122,19 +122,21 @@ def g_num_last(want, tol=1e-6):
     return grade
 
 
-def g_word(want, avoid=()):
+def g_yesno(want):
+    """The reply must OPEN with the right yes/no verdict -- the first
+    'yes' or 'no' token in the first line decides it. Robust to the model
+    then quoting premises that contain 'no'."""
     def grade(out):
-        low = re.sub(r"[^a-z ]", " ", out.lower())
-        toks = low.split()
-        if want.lower() not in toks:
-            return False, f"'{want}' not stated; tail={out.strip()[-80:]!r}"
-        # if an avoid-word appears AFTER the last mention of `want`, the
-        # model likely contradicted itself / hedged to the wrong answer
-        li = len(toks) - 1 - toks[::-1].index(want.lower())
-        for a in avoid:
-            if a.lower() in toks[li:]:
-                return False, f"contradicted with '{a}' after the answer"
-        return True, None
+        first = re.sub(r"[^a-z ]", " ", out.strip().splitlines()[0].lower()) if out.strip() else ""
+        toks = first.split()
+        verdict = next((t for t in toks if t in ("yes", "no")), None)
+        if verdict is None:
+            # fall back to the first yes/no anywhere
+            allt = re.sub(r"[^a-z ]", " ", out.lower()).split()
+            verdict = next((t for t in allt if t in ("yes", "no")), None)
+        if verdict is None:
+            return False, f"no yes/no verdict; tail={out.strip()[-80:]!r}"
+        return (verdict == want), f"said {verdict!r}, wanted {want!r}"
     return grade
 
 
@@ -261,7 +263,7 @@ TASKS = [
      "Premises: (1) All bloops are razzies. (2) No razzies are toppies. (3) Some toppies are wuggs. "
      "Question: Does it necessarily follow that some wuggs are not bloops? Answer 'yes' or 'no' "
      "first, then one sentence why." + NOTHINK_SUFFIX,
-     g_word("yes", avoid=("no",))),
+     g_yesno("yes")),
 
     ("hard_ledger_sum",
      _LEDGER + "\nAdd up the salaries of everyone in the Engineering department. "
