@@ -1,0 +1,26 @@
+id: seed_54
+name: c-build-systems
+status: candidate
+destination: card
+council_reviewed: false
+purpose: drive a Makefile or a CMake project instead of hand-compiling
+trigger_when: a C/C++ repo has a Makefile, CMakeLists.txt, or configure script
+trigger_matcher: Makefile|makefile|CMakeLists|cmake|\.\/configure|make (all|check|test)|autoreconf|meson
+procedure:
+- 'Makefile: `make` builds, `make test` / `make check` runs tests, `make clean` resets; `make
+  -j` parallelizes'
+- 'CMake: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug` then `cmake --build build`; tests
+  via `ctest --test-dir build`'
+- 'to add sanitizers to someone''s build: `make CFLAGS=''-g -O1 -fsanitize=address,undefined''`
+  or `-DCMAKE_C_FLAGS=...`'
+- 'autotools: `./configure && make`; if configure is missing run `autoreconf -i` first'
+supersedes: null
+provenance:
+- seed
+created: 1788818355.667313
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

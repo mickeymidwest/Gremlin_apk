@@ -1,0 +1,27 @@
+id: seed_53
+name: c-read-linker-errors
+status: candidate
+destination: card
+council_reviewed: false
+purpose: '''undefined reference'' and ''multiple definition'' are link errors, not compile
+  errors'
+trigger_when: a C/C++ build fails after the files compiled
+trigger_matcher: undefined reference|multiple definition|ld returned|ld:|collect2|cannot find
+  -l|relocation|__imp_
+procedure:
+- '''undefined reference to X'' -> the .c/.o that DEFINES X isn''t in the link line, or a
+  `-lLIB` is missing; add it'
+- '''multiple definition of X'' -> a non-inline function/variable defined in a header that''s
+  included twice; move the definition to one .c, leave a declaration in the header'
+- '''cannot find -lfoo'' -> the library isn''t installed or needs `-L` pointing at its directory'
+- 'link order matters with static libs: list them AFTER the objects that use them'
+supersedes: null
+provenance:
+- seed
+created: 1788818355.6673117
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

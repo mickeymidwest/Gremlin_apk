@@ -1,0 +1,22 @@
+id: skill_60b67b2d
+name: incremental-test-fix
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Fix one bug at a time in a failing test suite.
+trigger_when: when fixing a bug in a test
+trigger_matcher: null
+procedure:
+- Fix the identified bug in the code.
+- Run the failing test again to ensure the bug is fixed.
+- Repeat the process for any remaining failing tests.
+supersedes: null
+provenance:
+- zoid_mini-ledger_1788821188
+created: 1788821197.9795203
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

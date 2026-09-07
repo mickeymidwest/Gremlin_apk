@@ -1,0 +1,23 @@
+id: skill_228f5568
+name: correct-brace-placement
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Identify and correct misplaced braces in C code
+trigger_when: when the code contains syntax errors related to braces
+trigger_matcher: error message indicating a misplaced brace
+procedure:
+- Identify the line number and column where the error occurs.
+- Check the surrounding code to determine if the brace is misplaced.
+- Correct the brace placement to match the intended code structure.
+- Re-run the code to verify the error is resolved.
+supersedes: null
+provenance:
+- zoid_tlvfuzz_1788823315
+created: 1788823323.1404922
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

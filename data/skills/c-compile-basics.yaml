@@ -1,0 +1,29 @@
+id: seed_52
+name: c-compile-basics
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the gcc/clang invocation for a small C/C++ program or test
+trigger_when: building a C or C++ file from the command line
+trigger_matcher: \bgcc\b|\bclang\b|\bg\+\+\b|clang\+\+|\.c\b|\.cpp\b|\.cc\b|compile .* (c|cpp)|-std=|-o
+  \w
+procedure:
+- 'single file: `cc -std=c11 -g -O1 -Wall -Wextra -fsanitize=address,undefined main.c -o main`
+  (use clang for -fsanitize=fuzzer)'
+- 'multiple files: compile each to an object (`cc -c a.c -o a.o`) then link (`cc a.o b.o -o
+  app`); headers are #included, never compiled'
+- '`-I dir` adds a header search path; `-L dir -lfoo` links libfoo; `-D NAME=val` sets a macro'
+- C++ needs g++/clang++ (not gcc) so the standard library links; pick `-std=c++17` unless
+  told otherwise
+- keep `-g` and a sanitizer on while developing -- a clean ASAN run is the bar, not just 'it
+  compiled'
+supersedes: null
+provenance:
+- seed
+created: 1788818355.66731
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

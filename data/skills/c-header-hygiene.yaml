@@ -1,0 +1,28 @@
+id: seed_55
+name: c-header-hygiene
+status: candidate
+destination: card
+council_reviewed: false
+purpose: what goes in a .h vs a .c, and the include guard
+trigger_when: creating or editing a C/C++ header, or hitting redefinition / incomplete-type
+  errors
+trigger_matcher: \.h\b|#include|include guard|#ifndef|#pragma once|redefinition|incomplete
+  type|forward declar
+procedure:
+- 'header holds: declarations (prototypes), typedefs/structs, macros, `extern` globals --
+  NOT function bodies or global definitions'
+- 'guard every header: `#ifndef FOO_H` / `#define FOO_H` / ... / `#endif`  (or `#pragma once`)'
+- a .c includes its own .h first, then others; a C header used from C++ needs `extern "C"
+  { }` around the declarations
+- '''incomplete type'' -> you only forward-declared a struct; include the header that fully
+  defines it'
+supersedes: null
+provenance:
+- seed
+created: 1788818355.6673145
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

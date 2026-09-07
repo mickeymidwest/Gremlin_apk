@@ -1,0 +1,23 @@
+id: skill_51fc3b7c
+name: read-failing-test-output
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test.
+trigger_when: when a test fails
+trigger_matcher: null
+procedure:
+- Identify the specific failing test and its assertion to understand the expected behavior.
+- Report the failure details to the user.
+supersedes: skill_07c5806a
+provenance:
+- zoid_mini-ledger_1788821188
+- zoid_text-utils_1788823063
+created: 1788823075.9743865
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
