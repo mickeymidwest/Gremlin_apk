@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import council as council_mod
-from . import lifecycle, reckoning
+from . import lifecycle, reckoning, reflexion
 from .model import Model, QuotaExhausted
 from .store import Store
 from .types import BattleResult, CampaignState, Task, Transcript
@@ -70,11 +70,23 @@ class Campaign:
 
     def _battle(self, task: Task, battle_id: str, skills, facts) -> BattleResult:
         work = _fresh_workdir(self.target_repo, self.store.battle_workdir(battle_id))
+        root = str(self.store.root)
+        lessons = reflexion.load_lessons(root, task)
         transcript = run_battle(
             task, str(work), self.model,
             lifecycle.loadable(skills), facts, step_budget=self.step_budget,
+            lessons=lessons,
         )
         score = self.verifier.score(task, str(work), transcript)
+        # Reflexion: a lost battle leaves a one-line lesson for next time.
+        if score.value < 0.999:
+            try:
+                lesson = reflexion.distil_lesson(self.model, task, transcript)
+                reflexion.save_lesson(root, task, lesson)
+                if lesson:
+                    self.log(f"  lesson: {lesson}")
+            except Exception:  # noqa -- never let reflexion break a campaign
+                pass
         return BattleResult(battle_id=battle_id, task_id=task.id,
                             transcript=transcript, score=score)
 

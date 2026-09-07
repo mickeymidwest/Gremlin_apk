@@ -120,3 +120,32 @@ def test_on_done_can_reject_a_premature_done(tmp_path):
     assert calls["n"] == 2
     assert "for real" in tr.final_message
     assert any(s.kind == "note" and "DONE rejected" in s.content for s in tr.steps)
+
+
+def test_autocommit_snapshots_each_edit_and_undo_reverts(tmp_path):
+    (tmp_path / "x.txt").write_text("one\n")
+    from gremlin_core.magic.model import ScriptedModel
+    m = ScriptedModel([
+        'ACTION: read_file\n```json\n{"path": "x.txt"}\n```',
+        'ACTION: write_file\n```json\n{"path": "x.txt", "text": "two\\n"}\n```',
+        'ACTION: write_file\n```json\n{"path": "x.txt", "text": "three\\n"}\n```',
+        'ACTION: undo_last\n```json\n{}\n```',
+        'DONE\nreverted the last one',
+    ])
+    tr = run_battle(Task(id="ac", prompt="edit x.txt"), str(tmp_path), m,
+                    skills=[], facts=[], step_budget=8, plan=False)
+    # 2 writes then 1 undo -> back to the "two" state
+    assert (tmp_path / "x.txt").read_text() == "two\n"
+    import subprocess
+    log = subprocess.run(["git", "-C", str(tmp_path), "log", "--oneline"],
+                         capture_output=True, text=True).stdout
+    assert "magic: battle start" in log and "step 2" in log
+
+
+def test_multiline_json_arg_parses(tmp_path):
+    # a model writing a multi-line file puts raw newlines in the JSON --
+    # strict json rejects that; the loop must not.
+    kind, call, _ = _parse_turn(
+        'ACTION: write_file\n```json\n{"path": "a.py", "text": "def f():\n    return 1\n"}\n```')
+    assert kind == "action" and call.args.get("path") == "a.py"
+    assert "return 1" in call.args.get("text", "")

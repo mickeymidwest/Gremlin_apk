@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 
-_DECODER = json.JSONDecoder()
+# strict=False: tolerate raw newlines/tabs inside string values, which
+# models emit constantly (a multi-line file body in a "text" field).
+_DECODER = json.JSONDecoder(strict=False)
 
 
 def extract_json(text: str) -> dict:

@@ -59,6 +59,8 @@ class ShellToolHost:
         "edit_file":  "edit_file(path, search, replace) -- replace the first exact match of `search` "
                       "(prefer this over write_file for an existing file)",
         "write_file": "write_file(path, text)          -- overwrite a whole file with text",
+        "undo_last":  "undo_last()                     -- revert your most recent edit "
+                      "(rolls back the last per-step snapshot)",
         "list_dir":   "list_dir(path)                  -- list a directory (defaults to '.')",
     }
 
@@ -106,7 +108,8 @@ class ShellToolHost:
         self.allowed = tuple(allowed) if allowed is not None else tuple(self.TOOLS)
         self.readonly = readonly
         if readonly:
-            self.allowed = tuple(t for t in self.allowed if t not in ("write_file", "edit_file"))
+            self.allowed = tuple(t for t in self.allowed
+                                 if t not in ("write_file", "edit_file", "undo_last"))
         # Put the interpreter running Einherjar first on PATH so the agent's
         # `pytest` / `python` resolve to the env that actually has the test
         # deps -- otherwise a bare shell has neither and the agent can't
@@ -299,6 +302,14 @@ class ShellToolHost:
         """Called by battle.py once the agent has actually looked at the
         code -- opens the editing tools."""
         self.allowed = tuple(self.TOOLS)
+
+    def _t_undo_last(self, args: dict) -> ToolResult:
+        r = subprocess.run(["git", "-C", str(self.root), "reset", "--hard", "HEAD~1"],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode != 0:
+            return ToolResult(False, "nothing to undo -- no earlier snapshot "
+                              f"({(r.stderr or '').strip()[:120]})")
+        return ToolResult(True, "reverted the last edit. " + (r.stdout or "").strip())
 
     _SKIP_MAP_DIRS = {".git", "venv", ".venv", "__pycache__", "node_modules",
                       "build", "dist", ".pytest_cache", ".gradle", ".idea"}

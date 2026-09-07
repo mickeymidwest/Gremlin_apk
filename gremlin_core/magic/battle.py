@@ -19,6 +19,7 @@ until DONE or the step budget runs out. Model-agnostic by construction.
 from __future__ import annotations
 
 import json
+import subprocess
 import time
 import re
 from typing import Optional, Sequence
@@ -27,6 +28,39 @@ from ._jsonx import extract_json
 from .model import Model, QuotaExhausted
 from .toolhost import ShellToolHost, ToolCall
 from .types import Fact, Skill, StepRecord, Task, Transcript
+
+
+# --- per-step git snapshots (Aider pattern) ---------------------------
+
+def _git(repo: str, *args: str, timeout: int = 20):
+    return subprocess.run(
+        ["git", "-C", repo, "-c", "user.email=magic@gremlin", "-c", "user.name=magic", *args],
+        capture_output=True, text=True, timeout=timeout)
+
+
+def _git_begin(repo: str) -> bool:
+    """git-init the battle's working copy if needed and take a starting
+    snapshot, so every edit the agent makes is its own commit -- the
+    battle becomes a readable, revertible history. Returns True if
+    snapshotting is on for this battle."""
+    try:
+        inside = _git(repo, "rev-parse", "--is-inside-work-tree").stdout.strip()
+        if inside != "true":
+            if _git(repo, "init", "-q").returncode != 0:
+                return False
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "--allow-empty", "-m", "magic: battle start")
+        return True
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _git_snapshot(repo: str, msg: str) -> None:
+    try:
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "--allow-empty", "-m", msg[:120])
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 _ACTION_RE = re.compile(r"ACTION:\s*([a-z_]+)", re.IGNORECASE)
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
@@ -118,7 +152,10 @@ def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
         args = {}
         if m:
             try:
-                args = json.loads(m.group(1))
+                # strict=False: models routinely put raw newlines/tabs
+                # inside string values (a multi-line file in write_file's
+                # "text"), which strict JSON rejects.
+                args = json.loads(m.group(1), strict=False)
             except (ValueError, TypeError):
                 args = {}
         if not isinstance(args, dict) or not args:
@@ -155,22 +192,27 @@ def run_battle(task: Task, repo_path: str, model: Model,
                step_budget: int = 12, max_tokens: int = 4096,
                plan: bool = True, phase_gate: bool = True,
                readonly: bool = False, time_budget_s: float = 600.0,
-               on_done=None) -> Transcript:
+               on_done=None, lessons: Sequence[str] = (), autocommit: bool = True) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
-    agent says DONE. If it returns False the DONE is rejected -- the
-    signal is fed back and the loop continues (up to the budget). Bakes
-    "verify before done" into the loop rather than trusting the agent's
-    word (a small model will claim success after doing nothing)."""
+    agent says DONE -- False rejects the DONE and feeds the signal back.
+    lessons: one-line takeaways from past lost battles on similar tasks
+    (see reflexion.py), shown in the opening.
+    autocommit: git-snapshot the working copy after every successful edit
+    so the battle is a readable, revertible history (Aider's pattern)."""
     toolhost = ShellToolHost(
         repo_path, readonly=readonly,
         allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
     )
     if readonly:
         phase_gate = False
+    snapshotting = autocommit and not readonly and _git_begin(repo_path)
     system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)
     opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
+    if lessons:
+        opening += ("\n\nLESSONS from past attempts at tasks like this "
+                    "(avoid repeating these):\n" + "\n".join(f"- {x}" for x in lessons[:4]))
     if plan:
         p = _plan(task, model, skills)
         if p:
@@ -180,6 +222,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
     messages = [{"role": "user", "content": opening}]
 
     unclear_strikes = 0
+    _step_n = 0
     _recent: list[str] = []   # fingerprints of the last few actions -- loop guard
     _start = time.monotonic()
     for _ in range(step_budget):
@@ -238,11 +281,15 @@ def run_battle(task: Task, repo_path: str, model: Model,
             break
 
         result = toolhost.run(call)
+        _step_n += 1
         transcript.steps.append(StepRecord(
             kind="tool", tool_name=call.name, tool_args=call.args,
             tool_result=result.output, content=("ok" if result.ok else "error"),
         ))
         result_msg = f"RESULT ({'ok' if result.ok else 'error'}):\n{result.output}"
+
+        if snapshotting and result.ok and call.name in ("write_file", "edit_file"):
+            _git_snapshot(repo_path, f"step {_step_n}: {call.name} {call.args.get('path', '')}")
 
         if reps >= 3:
             result_msg += (f"\n\n[!] You have run this exact action {reps} times and gotten "
