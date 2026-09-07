@@ -250,6 +250,124 @@ _SEED = [
             "so no kotlinOptions{} block either; set the JVM target via compileOptions{ sourceCompatibility/targetCompatibility }",
         ],
     ),
+
+    # --- vulnerability research (mickey does authorized bug-bounty work).
+    #     the craft: fuzzing, static analysis, RE, crash triage, PoC.
+    #     Scope discipline is the first card for a reason. ---
+    dict(
+        name="scope-first",
+        purpose="only test what a program's written scope + your authorization actually covers",
+        trigger_when="starting any security testing, recon, fuzzing, or exploitation",
+        trigger_matcher=r"bug bounty|bounty|pentest|fuzz|exploit|recon|target|in.?scope|authorization|CTF|vuln research",
+        procedure=[
+            "confirm the exact asset is in the program's scope doc (domain, IP range, app package, repo) -- screenshot/save it",
+            "note the rules: rate limits, no-DoS, no data exfiltration beyond proof, no social engineering unless allowed",
+            "if it's your own lab / a downloaded target / a CTF, that's automatically fine -- say so and move on",
+            "when the scope is unclear, ask the program (or mickey) before touching it, not after",
+        ],
+    ),
+    dict(
+        name="fuzz-harness",
+        purpose="turn a parser/decoder into a fuzz target that finds memory bugs fast",
+        trigger_when="fuzzing a library, file format, protocol parser, or codec",
+        trigger_matcher=r"fuzz|libfuzzer|afl\+\+|honggfuzz|LLVMFuzzerTestOneInput|corpus|sanitizer|ASAN",
+        procedure=[
+            "write the smallest entry point: LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) that calls ONE parse function",
+            "build with -fsanitize=address,undefined,fuzzer  (clang); for AFL++ use afl-clang-lto + a persistent-mode loop",
+            "seed a corpus from real valid samples of that format; add a dictionary of magic bytes / keywords",
+            "run with -max_len set near real inputs; watch for ASAN/UBSAN reports, not just SIGSEGV",
+            "minimize any crash: libfuzzer -minimize_crash=1, or afl-tmin, then reproduce standalone",
+        ],
+    ),
+    dict(
+        name="static-vuln-sweep",
+        purpose="grep the codebase for the vuln classes before reading everything",
+        trigger_when="auditing source for vulnerabilities",
+        trigger_matcher=r"static analysis|audit .* (code|source)|semgrep|codeql|weggli|sink|taint|injection|deserial|ssrf|path traversal",
+        procedure=[
+            "run semgrep --config auto + a language CodeQL pack + weggli for C/C++ memory patterns",
+            "memory safety: memcpy/strcpy/sprintf/alloca with attacker length; input-derived array index; integer overflow before malloc",
+            "injection: string-built SQL/shell/HTML/LDAP, format strings, template rendering of user data. auth: IDOR (missing check on an object id), JWT alg=none/weak secret, TOCTOU",
+            "deserialization: pickle/unserialize/readObject/yaml.load on untrusted bytes. SSRF: input URL into a fetch. path traversal: '..' or absolute path into an open()",
+            "trace each hit source (input) -> sink -- confirm the data reaches it unfiltered before flagging",
+        ],
+    ),
+    dict(
+        name="binary-recon",
+        purpose="first pass on an unknown native binary -- what it is and where the attack surface is",
+        trigger_when="reversing an ELF / Mach-O / PE, or handed a binary to analyze",
+        trigger_matcher=r"revers|ghidra|radare|r2\b|IDA|binary|ELF|disassembl|decompil|checksec|\.so\b",
+        procedure=[
+            "file / checksec (NX, PIE, RELRO, canary) / strings / nm -D / rabin2 -I -- know the mitigations before you start",
+            "load in Ghidra or radare2 (r2 -A); look at main, then every function that reads a socket, a file, argv, or env",
+            "mark the parsers: fixed-size stack buffers, memcpy/read with a length from the wire, loops with an index from input",
+            "for a network daemon, script the protocol with pwntools; for a file parser, feed it malformed samples under gdb + ASAN if you can rebuild",
+        ],
+    ),
+    dict(
+        name="apk-recon",
+        purpose="map an Android app's attack surface: components, data flow, native code",
+        trigger_when="analyzing or pentesting an Android APK",
+        trigger_matcher=r"apk|android app|jadx|apktool|frida|drozer|exported|deep link|AndroidManifest|dex|smali",
+        procedure=[
+            "jadx-gui the apk; read AndroidManifest for exported=true activities/services/receivers/providers, and intent-filter deep links",
+            "grep decompiled source for: hardcoded secrets/keys, cleartext http, WebView addJavascriptInterface, SQL string-building, file paths from intents, exported ContentProvider queries",
+            "check network_security_config, certificate pinning, root/debug/emulator checks -- and how to bypass them (Frida hooks)",
+            "runtime: Frida to hook crypto, auth, and the checks above; mitmproxy for the traffic; look for IDOR in the API the app calls",
+            "if there's a lib*.so, pull it and run binary-recon on it",
+        ],
+    ),
+    dict(
+        name="crash-triage-exploitability",
+        purpose="decide whether a crash is a security bug and what primitive it gives",
+        trigger_when="a fuzzer or test produced a crash / segfault and you need to classify it",
+        trigger_matcher=r"crash|segfault|SIGSEGV|exploitab|primitive|UAF|use.after.free|OOB|heap overflow|double free|type confusion|ASAN report",
+        procedure=[
+            "reproduce deterministically with the minimized input; run under ASAN (or gdb + exploitable/gef) for the real bug type",
+            "classify: OOB read (info leak), OOB write (control), use-after-free, double free, type confusion, uninitialized use",
+            "check WHAT you control: the offset, the length, the written value, the freed-then-reused object's contents",
+            "note the mitigations that matter here: ASLR (need a leak), NX (need ROP/JOP), stack canary (need a leak or overwrite past it), CFI, PAC, MTE",
+            "write it up as 'attacker-controlled <primitive> at <location> given <preconditions>' -- that's the finding, exploit is optional",
+        ],
+    ),
+    dict(
+        name="linux-memory-corruption",
+        purpose="the primitives and the modern mitigation stack for Linux userland exploitation",
+        trigger_when="developing a PoC/exploit for a memory-corruption bug on Linux",
+        trigger_matcher=r"buffer overflow|stack overflow|ROP|ret2|heap exploit|tcache|GOT overwrite|one_gadget|pwntools|libc leak|canary",
+        procedure=[
+            "stack BOF: leak or brute the canary, then overwrite saved RIP; no gadgets in the binary -> leak libc (puts/printf GOT) then ROP in libc",
+            "heap: tcache/fastbin poisoning for an arbitrary-write, UAF to overlap objects, house-of-* techniques for older glibc; check the glibc version's protections (tcache key, safe-linking)",
+            "PIE -> you need a text/PIE-base leak; full RELRO -> can't overwrite GOT, target __free_hook/__malloc_hook (old glibc) or a struct with a fn pointer",
+            "build with pwntools: context.binary, ROP(elf), cyclic() to find offsets, one_gadget for a single-shot libc RCE",
+            "keep the PoC minimal and local -- it proves the bug for the report, it's not a deployed tool",
+        ],
+    ),
+    dict(
+        name="patch-diff-nday",
+        purpose="turn a security patch into an understanding of (and a trigger for) the bug it fixed",
+        trigger_when="analyzing a CVE, a security advisory, or a suspicious commit",
+        trigger_matcher=r"CVE|patch diff|n-?day|advisory|security fix|bindiff|regression|1day|silent fix",
+        procedure=[
+            "get the vulnerable and patched versions; for source, git diff the fix commit; for binaries, BinDiff / Diaphora the two",
+            "the added check IS the bug boundary -- what condition does the guard now reject that used to be allowed",
+            "work backward: what input reaches that code path, and what state made the old code wrong (missing bounds check, sign confusion, TOCTOU, missing auth)",
+            "write a trigger that hits the pre-patch condition; confirm it crashes/misbehaves on the old version and is clean on the new",
+        ],
+    ),
+    dict(
+        name="bounty-report",
+        purpose="a report that gets triaged fast and paid fairly",
+        trigger_when="writing up a vulnerability finding for a bug-bounty program or a client",
+        trigger_matcher=r"bounty report|write.?up|disclosure|CVSS|severity|remediation|repro steps|impact statement",
+        procedure=[
+            "title: <vuln class> in <component> leading to <impact>. One line.",
+            "severity: CVSS v3.1 vector + score, and a plain-English impact sentence (what an attacker gains)",
+            "repro: numbered, copy-pasteable steps from a clean state; include the exact request/input and the observed vs expected result",
+            "PoC: minimal, self-contained, with any account/setup noted; a short video only if the steps are UI-heavy",
+            "remediation: the specific fix (parameterize the query, add the bounds check, enforce the ACL server-side), not just 'sanitize input'",
+        ],
+    ),
 ]
 
 

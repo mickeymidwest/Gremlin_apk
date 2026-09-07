@@ -1,0 +1,28 @@
+id: seed_28
+name: patch-diff-nday
+status: candidate
+destination: card
+council_reviewed: false
+purpose: turn a security patch into an understanding of (and a trigger for) the bug it fixed
+trigger_when: analyzing a CVE, a security advisory, or a suspicious commit
+trigger_matcher: CVE|patch diff|n-?day|advisory|security fix|bindiff|regression|1day|silent
+  fix
+procedure:
+- get the vulnerable and patched versions; for source, git diff the fix commit; for binaries,
+  BinDiff / Diaphora the two
+- the added check IS the bug boundary -- what condition does the guard now reject that used
+  to be allowed
+- 'work backward: what input reaches that code path, and what state made the old code wrong
+  (missing bounds check, sign confusion, TOCTOU, missing auth)'
+- write a trigger that hits the pre-patch condition; confirm it crashes/misbehaves on the
+  old version and is clean on the new
+supersedes: null
+provenance:
+- seed
+created: 1788803179.1005342
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

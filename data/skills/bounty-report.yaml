@@ -1,0 +1,29 @@
+id: seed_29
+name: bounty-report
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a report that gets triaged fast and paid fairly
+trigger_when: writing up a vulnerability finding for a bug-bounty program or a client
+trigger_matcher: bounty report|write.?up|disclosure|CVSS|severity|remediation|repro steps|impact
+  statement
+procedure:
+- 'title: <vuln class> in <component> leading to <impact>. One line.'
+- 'severity: CVSS v3.1 vector + score, and a plain-English impact sentence (what an attacker
+  gains)'
+- 'repro: numbered, copy-pasteable steps from a clean state; include the exact request/input
+  and the observed vs expected result'
+- 'PoC: minimal, self-contained, with any account/setup noted; a short video only if the steps
+  are UI-heavy'
+- 'remediation: the specific fix (parameterize the query, add the bounds check, enforce the
+  ACL server-side), not just ''sanitize input'''
+supersedes: null
+provenance:
+- seed
+created: 1788803179.1005359
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

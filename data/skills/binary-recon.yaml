@@ -1,0 +1,28 @@
+id: seed_24
+name: binary-recon
+status: candidate
+destination: card
+council_reviewed: false
+purpose: first pass on an unknown native binary -- what it is and where the attack surface
+  is
+trigger_when: reversing an ELF / Mach-O / PE, or handed a binary to analyze
+trigger_matcher: revers|ghidra|radare|r2\b|IDA|binary|ELF|disassembl|decompil|checksec|\.so\b
+procedure:
+- file / checksec (NX, PIE, RELRO, canary) / strings / nm -D / rabin2 -I -- know the mitigations
+  before you start
+- load in Ghidra or radare2 (r2 -A); look at main, then every function that reads a socket,
+  a file, argv, or env
+- 'mark the parsers: fixed-size stack buffers, memcpy/read with a length from the wire, loops
+  with an index from input'
+- for a network daemon, script the protocol with pwntools; for a file parser, feed it malformed
+  samples under gdb + ASAN if you can rebuild
+supersedes: null
+provenance:
+- seed
+created: 1788803179.1005278
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

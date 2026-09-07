@@ -288,7 +288,7 @@ def train_lora(
         # sequence length (activation memory scales with it) combined
         # with the smaller LoRA config below. Longer synthesized answers
         # get truncated harder than before, not dropped.
-        return tokenizer(text, truncation=True, max_length=384)
+        return tokenizer(text, truncation=True, max_length=512)
 
     train_ds = Dataset.from_list(train_rows).map(_tokenize, remove_columns=["messages"])
     eval_ds = Dataset.from_list(eval_rows).map(_tokenize, remove_columns=["messages"]) if eval_rows else None
@@ -317,12 +317,16 @@ def train_lora(
     # and (even paged) optimizer state ask for meaningfully less scratch
     # VRAM during the backward pass, which is where both prior OOMs hit.
     lora_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
+        r=16,
+        lora_alpha=32,
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj"],
+        # all attention projections -- the 3B (the base this box can
+        # actually fit for QLoRA) leaves ~3GB of headroom at seq 512, so
+        # the r=8/q+v-only config that was fighting the 7B OOM isn't
+        # needed. A cloud 7B run has room for this too.
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
     )
     model = get_peft_model(model, lora_config)
 

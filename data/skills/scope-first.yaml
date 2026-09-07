@@ -1,0 +1,27 @@
+id: seed_21
+name: scope-first
+status: candidate
+destination: card
+council_reviewed: false
+purpose: only test what a program's written scope + your authorization actually covers
+trigger_when: starting any security testing, recon, fuzzing, or exploitation
+trigger_matcher: bug bounty|bounty|pentest|fuzz|exploit|recon|target|in.?scope|authorization|CTF|vuln
+  research
+procedure:
+- confirm the exact asset is in the program's scope doc (domain, IP range, app package, repo)
+  -- screenshot/save it
+- 'note the rules: rate limits, no-DoS, no data exfiltration beyond proof, no social engineering
+  unless allowed'
+- if it's your own lab / a downloaded target / a CTF, that's automatically fine -- say so
+  and move on
+- when the scope is unclear, ask the program (or mickey) before touching it, not after
+supersedes: null
+provenance:
+- seed
+created: 1788803179.1005232
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -30,7 +30,7 @@ PY
 echo "-- 2/3  QLoRA train (Coder-7B base, 2 epochs) --"
 venv/bin/python - <<'PY'
 from gremlin_core import finetune
-r = finetune.train_lora(".", base_repo="Qwen/Qwen2.5-Coder-7B-Instruct", epochs=2)
+r = finetune.train_lora(".", base_repo="Qwen/Qwen2.5-3B-Instruct", epochs=2)
 print("TRAIN RESULT:", r)
 open("data/finetunes/last_adapter.txt","w").write(r["adapter_dir"])
 PY
@@ -38,9 +38,9 @@ PY
 ADAPTER=$(cat data/finetunes/last_adapter.txt 2>/dev/null)
 echo "-- 3/3  adapter -> GGUF LoRA  (adapter=$ADAPTER) --"
 if [ -n "$ADAPTER" ] && [ -d "$ADAPTER" ]; then
-  OUT="${ADAPTER%/adapter}/gremlin-coder7b-lora-f16.gguf"
+  OUT="${ADAPTER%/adapter}/gremlin-3b-lora-f16.gguf"
   venv/bin/python tools/llama.cpp/convert_lora_to_gguf.py "$ADAPTER" \
-    --base-model-id Qwen/Qwen2.5-Coder-7B-Instruct --outtype f16 --outfile "$OUT" \
+    --base-model-id Qwen/Qwen2.5-3B-Instruct --outtype f16 --outfile "$OUT" \
     && echo "GGUF LoRA: $OUT" && ls -la "$OUT"
 else
   echo "no adapter dir -- training must have failed; see above"

@@ -1,0 +1,30 @@
+id: seed_27
+name: linux-memory-corruption
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the primitives and the modern mitigation stack for Linux userland exploitation
+trigger_when: developing a PoC/exploit for a memory-corruption bug on Linux
+trigger_matcher: buffer overflow|stack overflow|ROP|ret2|heap exploit|tcache|GOT overwrite|one_gadget|pwntools|libc
+  leak|canary
+procedure:
+- 'stack BOF: leak or brute the canary, then overwrite saved RIP; no gadgets in the binary
+  -> leak libc (puts/printf GOT) then ROP in libc'
+- 'heap: tcache/fastbin poisoning for an arbitrary-write, UAF to overlap objects, house-of-*
+  techniques for older glibc; check the glibc version''s protections (tcache key, safe-linking)'
+- PIE -> you need a text/PIE-base leak; full RELRO -> can't overwrite GOT, target __free_hook/__malloc_hook
+  (old glibc) or a struct with a fn pointer
+- 'build with pwntools: context.binary, ROP(elf), cyclic() to find offsets, one_gadget for
+  a single-shot libc RCE'
+- keep the PoC minimal and local -- it proves the bug for the report, it's not a deployed
+  tool
+supersedes: null
+provenance:
+- seed
+created: 1788803179.100533
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

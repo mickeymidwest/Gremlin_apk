@@ -1,0 +1,31 @@
+id: seed_23
+name: static-vuln-sweep
+status: candidate
+destination: card
+council_reviewed: false
+purpose: grep the codebase for the vuln classes before reading everything
+trigger_when: auditing source for vulnerabilities
+trigger_matcher: static analysis|audit .* (code|source)|semgrep|codeql|weggli|sink|taint|injection|deserial|ssrf|path
+  traversal
+procedure:
+- run semgrep --config auto  and  a language CodeQL pack; also weggli for C/C++ memory patterns
+- 'memory safety: memcpy/strcpy/sprintf/alloca with attacker length; array index from input;
+  integer overflow before malloc'
+- 'injection: string-built SQL/shell/HTML/LDAP; format strings; template rendering of user
+  data'
+- 'auth: missing check on an object ID (IDOR); JWT alg=none / weak secret; path-based access
+  control; race in a check-then-use'
+- 'deserialization: pickle/PHP unserialize/Java readObject/YAML load on untrusted bytes; SSRF:
+  URL from input into a fetch; path traversal: ''..'' or absolute path into a file open'
+- trace each hit from source (input) to sink -- confirm the data really reaches it unfiltered
+  before flagging
+supersedes: null
+provenance:
+- seed
+created: 1788803179.1005263
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
