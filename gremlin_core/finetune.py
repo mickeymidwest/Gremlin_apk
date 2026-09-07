@@ -299,23 +299,15 @@ def train_lora(
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
     )
-    # NOTE (confirmed by real testing): this 8B model's 4-bit weights
-    # alone (~6.3GB) leave only ~1GB of real headroom on this 7.6GB-
-    # usable card, and something needs ~2GB more right after loading
-    # finishes -- reproduced at IDENTICAL byte counts across different
-    # LoRA ranks and sequence lengths, so it's a fixed cost (very likely
-    # dequantizing this model's large embedding/lm_head matrix, an 8B
-    # model's ~128k-vocabulary tax), not a training-hyperparameter one.
-    # A device_map="auto" + max_memory split (forcing part of the 4-bit
-    # model onto CPU via llm_int8_enable_fp32_cpu_offload=True) DOES
-    # avoid the OOM, but was measured to be catastrophically slow in
-    # practice -- 6+ real hours and still not finished loading, not a
-    # usable tradeoff. Left as plain full-GPU 4-bit (fails fast and
-    # clearly if retried as-is) until either this box gets more VRAM
-    # headroom or a properly-scoped device_map (offloading ONLY the
-    # embedding/lm_head, not whatever automatic dispatch was choosing)
-    # is worth building and re-measuring.
-    model = AutoModelForCausalLM.from_pretrained(base_repo, quantization_config=bnb_config, device_map="auto")
+    # device_map="auto" on an 8GB card decides to offload some layers to
+    # CPU, and bitsandbytes 4-bit training then refuses outright ("Some
+    # modules are dispatched on the CPU or the disk"). Force everything
+    # onto GPU 0 -- a 7B's 4-bit weights (~4.5GB) + LoRA training at the
+    # short seq length below fits ~7GB. If this OOMs, the fix is a
+    # shorter max_length / smaller LoRA rank / a smaller base, not CPU
+    # offload (which was measured at 6+ hours just to load).
+    model = AutoModelForCausalLM.from_pretrained(
+        base_repo, quantization_config=bnb_config, device_map={"": 0})
     model = prepare_model_for_kbit_training(model)
     model.gradient_checkpointing_enable()
     model.config.use_cache = False
