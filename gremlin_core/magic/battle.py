@@ -89,6 +89,9 @@ Rules:
 - The JSON keys must match the tool's arguments -- read_file takes
   "path", run_shell takes "cmd", edit_file takes "path"/"search"/"replace".
 - write_file overwrites the whole file -- include the complete new contents.
+- The loop is: read -> EDIT -> run the check -> read the failure -> EDIT again.
+  Running the check twice in a row without an edit between is wasted -- the
+  code only changes when you edit it.
 - After an edit, run the check below to see if it worked, before DONE.
 - One ACTION per message. No text after the JSON block.
 - If an action fails the same way twice, STOP repeating it -- change approach.
@@ -224,6 +227,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
     unclear_strikes = 0
     _step_n = 0
     _recent: list[str] = []   # fingerprints of the last few actions -- loop guard
+    _edits_made = 0           # write_file / edit_file that landed ok
+    _checks_since_edit = 0    # check-command runs with no edit in between
     _start = time.monotonic()
     for _ in range(step_budget):
         if time.monotonic() - _start > time_budget_s:
@@ -290,6 +295,26 @@ def run_battle(task: Task, repo_path: str, model: Model,
 
         if snapshotting and result.ok and call.name in ("write_file", "edit_file"):
             _git_snapshot(repo_path, f"step {_step_n}: {call.name} {call.args.get('path', '')}")
+
+        # Progress accounting (a resource-limit concern, the harness's job):
+        # an agent that re-runs the check without editing between runs is
+        # spinning. Report the observation back to the pilot; don't decide
+        # for it.
+        _is_check = call.name == "run_shell" and re.search(
+            r"\bpytest\b|gradlew|npm (test|run)|cargo test|go test|ctest|make test", str(call.args))
+        if result.ok and call.name in ("write_file", "edit_file"):
+            _edits_made += 1
+            _checks_since_edit = 0
+        elif _is_check:
+            _checks_since_edit += 1
+        if _is_check and _checks_since_edit >= 2 and "write_file" in toolhost.allowed:
+            nudge = (
+                f"[!] You have run the check {_checks_since_edit} times in a row without "
+                f"editing any file ({_edits_made} edits so far this battle). Running the check "
+                "does not change the code. Your next action should edit a file, or state plainly "
+                "what is blocking you from editing.")
+            result_msg += "\n\n" + nudge
+            transcript.steps.append(StepRecord(kind="note", content="harness: " + nudge))
 
         if reps >= 3:
             result_msg += (f"\n\n[!] You have run this exact action {reps} times and gotten "

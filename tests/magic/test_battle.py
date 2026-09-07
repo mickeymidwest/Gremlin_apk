@@ -49,6 +49,20 @@ def test_plan_pass_prepends_a_plan_note(tmp_path):
     assert "hi" in (tmp_path / "greet.py").read_text()
 
 
+def test_check_spin_without_edit_is_flagged(tmp_path):
+    (tmp_path / "m.py").write_text("x = 1\n")
+    model = ScriptedModel([
+        'ACTION: read_file\n```json\n{"path": "m.py"}\n```',      # unlocks editing
+        'ACTION: run_shell\n```json\n{"cmd": "python -m pytest -q x"}\n```',
+        'ACTION: run_shell\n```json\n{"cmd": "python -m pytest -q y"}\n```',
+        "DONE\nstopping",
+    ])
+    tr = run_battle(Task(id="n1", prompt="fix it"), str(tmp_path), model,
+                    skills=[], facts=[], step_budget=6, plan=False)
+    notes = [s.content for s in tr.steps if s.kind == "note"]
+    assert any("without editing any file" in n for n in notes)
+
+
 def test_run_battle_step_budget_gives_up(tmp_path):
     model = ScriptedModel(['ACTION: list_dir\n```json\n{"path": "."}\n```'])  # never says DONE
     tr = run_battle(Task(id="t2", prompt="loop forever"), str(tmp_path),
