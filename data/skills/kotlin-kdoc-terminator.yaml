@@ -1,0 +1,25 @@
+id: seed_19
+name: kotlin-kdoc-terminator
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a bare */ anywhere inside a /** ... */ comment body ends the comment early
+trigger_when: writing a KDoc / block comment that mentions a path, a glob, or math
+trigger_matcher: /\*\*|kdoc|block comment|Expecting a top level declaration
+procedure:
+- '''Syntax error: Expecting a top level declaration'' right after a doc comment usually means
+  the comment closed early'
+- check the comment text for a literal '*/' (e.g. writing 'foo*/bar' or 'a */ b') and reword
+  it
+- same for '/*' opening a nested comment -- Kotlin block comments don't nest cleanly in older
+  tooling
+supersedes: null
+provenance:
+- seed
+created: 1788744588.660553
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

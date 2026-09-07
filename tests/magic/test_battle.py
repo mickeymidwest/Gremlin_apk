@@ -98,3 +98,25 @@ def test_skill_marked_invoked_when_named(tmp_path):
                     model, skills=[skill], facts=[Fact(id="f", text="x")], step_budget=4, plan=False)
     assert tr.skills_invoked == ["skill_flush"]
     assert "skill_flush" in tr.skills_available
+
+
+def test_on_done_can_reject_a_premature_done(tmp_path):
+    """A small model that says DONE without doing the work gets pushed
+    back until on_done() actually passes."""
+    from gremlin_core.magic.model import ScriptedModel
+    calls = {"n": 0}
+
+    def on_done():
+        calls["n"] += 1
+        return (calls["n"] >= 2), f"still failing (check {calls['n']})"
+
+    model = ScriptedModel([
+        "DONE\nall set",                       # 1st DONE -> rejected
+        'ACTION: list_dir\n```json\n{"path": "."}\n```',
+        "DONE\nok now for real",               # 2nd DONE -> on_done passes
+    ])
+    tr = run_battle(Task(id="d", prompt="x"), str(tmp_path), model,
+                    skills=[], facts=[], step_budget=6, plan=False, on_done=on_done)
+    assert calls["n"] == 2
+    assert "for real" in tr.final_message
+    assert any(s.kind == "note" and "DONE rejected" in s.content for s in tr.steps)

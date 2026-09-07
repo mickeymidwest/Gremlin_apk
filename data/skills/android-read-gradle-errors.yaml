@@ -1,0 +1,27 @@
+id: seed_14
+name: android-read-gradle-errors
+status: candidate
+destination: card
+council_reviewed: false
+purpose: gradle output has three error shapes and they mean different things
+trigger_when: a gradle build or test run failed
+trigger_matcher: 'gradle.*fail|BUILD FAILED|What went wrong|Caused by|Unresolved reference|e:
+  file'
+procedure:
+- '''e: file:///...Foo.kt:12:5 ...'' = a Kotlin COMPILE error at that line:col -- open the
+  file, fix the code'
+- '''> Task :app:xyz FAILED'' then ''What went wrong'' = a Gradle CONFIG problem (a plugin,
+  a version, a missing dep) -- fix build.gradle.kts'
+- '''X tests completed, Y failed'' with ''SomeTest > case FAILED'' = logic wrong -- read the
+  assertion, fix the implementation, not the test'
+- '''Caused by:'' is the root; ignore the wrapper stack above it'
+supersedes: null
+provenance:
+- seed
+created: 1788744588.660543
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,26 @@
+id: seed_12
+name: android-project-layout
+status: candidate
+destination: card
+council_reviewed: false
+purpose: where every file goes in a single-module Android/Gradle project
+trigger_when: creating, reading, or editing an Android app project
+trigger_matcher: android|\.kt\b|gradle|kotlin|apk|activity|manifest|jetpack|compose
+procedure:
+- 'root: settings.gradle.kts (includes :app), build.gradle.kts (plugin versions, apply false),
+  gradle.properties, gradle/wrapper/'
+- 'app/build.gradle.kts: the android{} block (namespace, compileSdk, defaultConfig{applicationId,minSdk,targetSdk,versionCode,versionName}),
+  dependencies{}'
+- app/src/main/AndroidManifest.xml, app/src/main/res/values/*.xml (strings, themes), app/src/main/java/<pkg>/*.kt
+- app/src/test/java/<pkg>/*.kt = JVM unit tests (run by testDebugUnitTest); app/src/androidTest/
+  = on-device tests (don't use here)
+supersedes: null
+provenance:
+- seed
+created: 1788744588.6605396
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

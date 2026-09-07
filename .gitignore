@@ -54,3 +54,4 @@ config/models.yaml.bak-*
 
 # Magic build: model quality bench runtime output
 bench/quality-*.jsonl
+scratch_*.py

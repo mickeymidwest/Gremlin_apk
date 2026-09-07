@@ -1,0 +1,25 @@
+id: seed_18
+name: android-debug-apk-install
+status: candidate
+destination: card
+council_reviewed: false
+purpose: assembleDebug produces a signed, installable APK -- no manual signing
+trigger_when: producing an APK to install on a phone
+trigger_matcher: assembleDebug|app-debug\.apk|apksigner|install .*apk|debug keystore|unsigned
+procedure:
+- ./gradlew assembleDebug -> app/build/outputs/apk/debug/app-debug.apk, auto-signed with the
+  debug keystore (v2 scheme)
+- same debug key every build, so it installs as an update over a prior debug build with no
+  signature conflict
+- bump versionCode every build so the installer shows it as an update, not 'app not installed'
+- 'verify: apksigner verify --print-certs app-debug.apk'
+supersedes: null
+provenance:
+- seed
+created: 1788744588.6605494
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

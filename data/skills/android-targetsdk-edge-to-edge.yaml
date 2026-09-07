@@ -1,0 +1,25 @@
+id: seed_16
+name: android-targetsdk-edge-to-edge
+status: candidate
+destination: card
+council_reviewed: false
+purpose: targetSdk 35 force-enables edge-to-edge -- content draws under the status/nav bars
+trigger_when: setting targetSdk, or the top/bottom of the UI is hidden or clipped
+trigger_matcher: targetSdk|edge.to.edge|status bar|nav bar|inset|WindowInsets|hidden behind|clipped|fitsSystemWindows
+procedure:
+- 'if the top row of the UI is behind the status bar: either set targetSdk = 34, or handle
+  insets'
+- 'insets: setOnApplyWindowInsetsListener { _, i -> topPad = i.systemWindowInsetTop; ... }  and
+  offset your layout by it'
+- an ActionBar (Theme.Material, non-NoActionBar) also takes vertical space above the content
+  view
+supersedes: null
+provenance:
+- seed
+created: 1788744588.6605463
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

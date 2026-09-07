@@ -1,0 +1,26 @@
+id: seed_20
+name: android-agp9-kotlin
+status: candidate
+destination: card
+council_reviewed: false
+purpose: AGP 9.x compiles .kt with no separate Kotlin Gradle plugin
+trigger_when: setting up an Android module's plugins block on this toolchain
+trigger_matcher: org\.jetbrains\.kotlin\.android|kotlin plugin|kotlinOptions|plugin was not
+  found|AGP|com\.android\.application
+procedure:
+- app/build.gradle.kts plugins { id("com.android.application") } is enough -- .kt files compile
+  via AGP's built-in Kotlin
+- 'do NOT add id("org.jetbrains.kotlin.android") here: it fails to resolve offline and isn''t
+  needed'
+- so no kotlinOptions{} block either; set the JVM target via compileOptions{ sourceCompatibility/targetCompatibility
+  }
+supersedes: null
+provenance:
+- seed
+created: 1788744588.6605542
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

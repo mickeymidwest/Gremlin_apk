@@ -1,0 +1,27 @@
+id: seed_15
+name: android-minimal-deps-offline
+status: candidate
+destination: card
+council_reviewed: false
+purpose: on this box gradle runs --offline; only what's already cached resolves
+trigger_when: choosing dependencies for an Android project on this machine
+trigger_matcher: dependencies|implementation\(|androidx|appcompat|--offline|Could not resolve|No
+  cached version
+procedure:
+- 'prefer framework classes: android.app.Activity, android.view.View, android.graphics.* --
+  no dependency needed'
+- '''No cached version of X available for offline mode'' means drop that dep or run once WITHOUT
+  --offline to populate ~/.gradle/caches'
+- androidx.core:core-ktx and junit:junit:4.13.2 are cached and safe; appcompat pulls customview
+  which may not be
+- a custom View + a plain Activity covers most simple apps with zero deps
+supersedes: null
+provenance:
+- seed
+created: 1788744588.6605444
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

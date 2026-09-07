@@ -1,0 +1,27 @@
+id: seed_17
+name: android-custom-view
+status: candidate
+destination: card
+council_reviewed: false
+purpose: draw a whole screen by hand with one View + Canvas
+trigger_when: building a game board, chart, or any custom-drawn Android screen
+trigger_matcher: custom view|onDraw|Canvas|onTouchEvent|invalidate|SurfaceView|drawRect|Paint\b|game
+  board
+procedure:
+- extend View(context); do layout math in onSizeChanged(w,h,...) storing sizes as fields
+- 'draw in onDraw(canvas): canvas.drawColor(bg) first, then shapes with reusable Paint objects
+  (don''t allocate in onDraw)'
+- 'input in onTouchEvent(e): handle only e.action == MotionEvent.ACTION_DOWN, hit-test against
+  your stored rects, then call invalidate() to redraw'
+- an options menu needs an Activity with onCreateOptionsMenu/onOptionsItemSelected and a theme
+  that has an ActionBar
+supersedes: null
+provenance:
+- seed
+created: 1788744588.6605477
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

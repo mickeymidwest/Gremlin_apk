@@ -150,7 +150,13 @@ def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
                plan: bool = True, phase_gate: bool = True,
-               readonly: bool = False, time_budget_s: float = 600.0) -> Transcript:
+               readonly: bool = False, time_budget_s: float = 600.0,
+               on_done=None) -> Transcript:
+    """on_done: optional `() -> (passed: bool, signal: str)` run when the
+    agent says DONE. If it returns False the DONE is rejected -- the
+    signal is fed back and the loop continues (up to the budget). Bakes
+    "verify before done" into the loop rather than trusting the agent's
+    word (a small model will claim success after doing nothing)."""
     toolhost = ShellToolHost(
         repo_path, readonly=readonly,
         allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
@@ -188,6 +194,20 @@ def run_battle(task: Task, repo_path: str, model: Model,
         kind, call, final = _parse_turn(reply.text)
 
         if kind == "done":
+            if on_done is not None:
+                try:
+                    passed, signal = on_done()
+                except Exception as e:  # noqa
+                    passed, signal = True, f"(verify raised: {e})"
+                if not passed:
+                    transcript.steps.append(StepRecord(
+                        kind="note", content=f"DONE rejected -- check still failing:\n{signal}"))
+                    messages.append({"role": "user", "content":
+                        "You said DONE but the check still fails:\n\n" + signal +
+                        "\n\nThat is the real state, not your summary. Keep going --"
+                        " make the next fix and re-run the check."})
+                    unclear_strikes = 0
+                    continue
             transcript.final_message = final
             break
 
