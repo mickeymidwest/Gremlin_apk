@@ -237,7 +237,20 @@ class ShellToolHost:
 
     # -- dispatch --------------------------------------------------
 
+    # common names models reach for that map onto a real tool
+    _TOOL_ALIASES = {
+        "run_python": "run_shell", "python": "run_shell", "bash": "run_shell",
+        "shell": "run_shell", "execute": "run_shell", "run": "run_shell",
+        "cat": "read_file", "open": "read_file", "view": "read_file",
+        "ls": "list_dir", "search": "grep", "find": "grep",
+        "create_file": "write_file", "new_file": "write_file",
+        "replace": "edit_file", "patch": "edit_file", "modify": "edit_file",
+    }
+
     def run(self, call: ToolCall) -> ToolResult:
+        name = self._TOOL_ALIASES.get(call.name, call.name)
+        if name != call.name:
+            call = ToolCall(name=name, args=call.args)
         fn = getattr(self, f"_t_{call.name}", None)
         if fn is None:
             return ToolResult(False, f"unknown tool {call.name!r}. available: {', '.join(self.allowed)}")
@@ -270,6 +283,9 @@ class ShellToolHost:
         cmd = self._val(args, "cmd", "command", "shell", "run")
         if not cmd:
             return ToolResult(False, "run_shell needs a 'cmd'")
+        # models shorten "python -m pytest" to bare "pytest" (not on PATH
+        # in the sandbox env) -- run it through the interpreter that has it
+        cmd = re.sub(r"^(\s*)pytest(\s|$)", rf"\1{sys.executable} -m pytest\2", cmd)
         if self.readonly:
             low = cmd.lower()
             hit = next((v for v in self._WRITE_VERBS
