@@ -55,3 +55,7 @@ config/models.yaml.bak-*
 # Magic build: model quality bench runtime output
 bench/quality-*.jsonl
 scratch_*.py
+
+# zoid loop
+data/zoid/
+data/zoid_stop
