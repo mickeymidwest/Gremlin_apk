@@ -75,6 +75,24 @@ models:
     kv_cache_type: q4_0
     chat_format: llama-3
 
+  # First real fine-tuned Gremlin (2026-09-07). Qwen2.5-3B base + a
+  # QLoRA adapter trained on 124 examples from finetune_sources (skill
+  # cards + kept conversations). eval loss 1.51 -> 1.41 across 2 epochs.
+  # A 3B is weaker than the Coder-7B primary and 124 examples is thin --
+  # this is the pipeline proven end to end (data -> QLoRA -> GGUF LoRA ->
+  # loadable), not a primary. `/model use gremlin-3b-ft` to A/B it.
+  - name: gremlin-3b-ft
+    type: local_gguf
+    display_name: "Gremlin-3B (fine-tuned)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
+    lora_path: "/home/mickey/Downloads/gremlin/data/finetunes/20260907-124946/gremlin-3b-lora-f16.gguf"
+    n_ctx: 16384
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0
+    chat_format: chatml
+    footprint_mb: 2600
+
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   - name: gemini
     type: gemini

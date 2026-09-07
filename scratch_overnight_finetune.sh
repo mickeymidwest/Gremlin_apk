@@ -27,7 +27,7 @@ ds = finetune.write_training_set(".")
 print("wrote", ds)
 PY
 
-echo "-- 2/3  QLoRA train (Coder-7B base, 2 epochs) --"
+echo "-- 2/3  QLoRA train (Qwen2.5-3B base, 2 epochs) --"
 venv/bin/python - <<'PY'
 from gremlin_core import finetune
 r = finetune.train_lora(".", base_repo="Qwen/Qwen2.5-3B-Instruct", epochs=2)
