@@ -100,11 +100,18 @@ Rules:
 - The JSON keys must match the tool's arguments -- read_file takes
   "path", run_shell takes "cmd", edit_file takes "path"/"search"/"replace".
 - write_file overwrites the whole file -- include the complete new contents.
+- edit_file "search" MUST be text copied VERBATIM from read_file output --
+  same characters, same indentation. Do not paraphrase or retype it. If you
+  don't have the exact text, read_file again first.
+- Fix ONE thing per edit_file. Don't bundle several changes.
 - The loop is: read -> EDIT -> run the check -> read the failure -> EDIT again.
   Running the check twice in a row without an edit between is wasted -- the
   code only changes when you edit it.
+- A non-zero exit from the test command because tests FAIL is normal while
+  you work -- it is not a broken tool. Read the failure and fix the code.
 - After an edit, run the check below to see if it worked, before DONE.
-- One ACTION per message. No text after the JSON block.
+- One ACTION per message. No text after the JSON block. Never write a
+  "RESULT:" or "user:" line yourself -- the real result comes back to you.
 - If an action fails the same way twice, STOP repeating it -- change approach.
 
 The check for this task:  {test_cmd}
@@ -221,6 +228,13 @@ def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
                         break
             if cmd:
                 args = {"cmd": cmd}
+        # A tool that needs arguments but got none isn't a runnable action
+        # -- treat it as an unclear turn (which re-prompts for the format)
+        # instead of firing an "args missing" error that trips the loop guard.
+        if not args and name in ("read_file", "edit_file", "write_file",
+                                 "view_file", "grep", "run_shell", "undo_last"):
+            if name != "undo_last":
+                return "unclear", None, ""
         return "action", ToolCall(name=name, args=args), ""
     return "unclear", None, ""
 
@@ -321,9 +335,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
                     transcript.steps.append(StepRecord(
                         kind="note", content=f"DONE rejected -- check still failing:\n{signal}"))
                     messages.append({"role": "user", "content":
-                        "You said DONE but the check still fails:\n\n" + signal +
-                        "\n\nThat is the real state, not your summary. Keep going --"
-                        " make the next fix and re-run the check."})
+                        "REJECTED -- you said DONE but the check still fails:\n\n" + signal +
+                        "\n\nYou are NOT done until the check passes. Take the FIRST failing "
+                        "case in that output, name the file and the one line that's wrong, "
+                        "and fix exactly that with edit_file. Then re-run the check."})
                     unclear_strikes = 0
                     continue
             transcript.final_message = final
@@ -440,6 +455,18 @@ def run_battle(task: Task, repo_path: str, model: Model,
                            "then make the smallest fix for it.")
 
         messages.append({"role": "user", "content": result_msg})
+
+        # Context hygiene: a 7B thrashes when the window fills with stale
+        # errors from bugs it already fixed. Keep the opening (task + plan
+        # + skills) and the most recent turns; drop the middle.
+        if len(messages) > 16:
+            head = messages[:1]
+            tail = messages[-10:]
+            if tail and tail[0].get("role") != "assistant":
+                tail = messages[-11:]   # don't start the tail on a bare result
+            messages[:] = head + [{"role": "user", "content":
+                "(earlier exploration trimmed to keep this focused -- "
+                "re-read a file if you need it again)"}] + tail
     else:
         transcript.final_message = "(gave up: step budget exhausted)"
 

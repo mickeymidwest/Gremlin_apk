@@ -77,10 +77,25 @@ class BackendModel:
         self._loop = loop
 
     def complete(self, messages, system=None, max_tokens=4096):
-        prompt = _flatten(messages)
-        coro = self._backend.generate(
-            prompt, system=system, max_tokens=max_tokens, temperature=self.temperature,
-        )
+        msgs = list(messages)
+        # Prefer real multi-turn: the last user message is the prompt, the
+        # rest is history the backend can render as ChatML turns. Falls
+        # back to the flattened blob for backends that don't take history.
+        if len(msgs) > 1 and msgs[-1].get("role") == "user":
+            prompt = msgs[-1].get("content", "")
+            history = msgs[:-1]
+        else:
+            prompt, history = _flatten(msgs), None
+        try:
+            coro = self._backend.generate(
+                prompt, system=system, max_tokens=max_tokens,
+                temperature=self.temperature, history=history,
+            )
+        except TypeError:
+            coro = self._backend.generate(
+                _flatten(msgs), system=system, max_tokens=max_tokens,
+                temperature=self.temperature,
+            )
         if self._loop is not None:
             result = asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=600)
         else:

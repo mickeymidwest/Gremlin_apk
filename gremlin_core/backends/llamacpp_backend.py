@@ -146,11 +146,20 @@ class LlamaCppBackend(ModelBackend):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        history: Optional[list] = None,
     ) -> GenerationResult:
         try:
             messages = []
             if system:
                 messages.append({"role": "system", "content": system})
+            # A real multi-turn history renders as proper ChatML turns --
+            # without it the ReAct loop's whole transcript arrives as one
+            # giant "user:" blob and a 7B starts hallucinating "user:"
+            # replies to itself.
+            for m in (history or []):
+                r = m.get("role", "user")
+                messages.append({"role": r if r in ("user", "assistant", "system") else "user",
+                                 "content": str(m.get("content", ""))})
             messages.append({"role": "user", "content": prompt})
             if self.no_think:
                 # Qwen3 reads "/no_think" in the latest turn as "skip the
