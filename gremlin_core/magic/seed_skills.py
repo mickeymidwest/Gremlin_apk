@@ -198,6 +198,31 @@ _SEED = [
         ],
     ),
     dict(
+        name="kotlin-is-not-c-or-java",
+        purpose="the syntax mistakes a C/Java habit makes in Kotlin, and the fix",
+        trigger_when="writing Kotlin and hitting compile errors on loops, conditionals, or literals",
+        trigger_matcher=r"\.kt:|kotlin|Expecting|expected .* but|unresolved reference|for \(.*;|\bnew \w+\(|\?\s*:.*:",
+        procedure=[
+            "counted loop: `for (i in 0 until n) { }` or `for (i in a..b)` -- NOT `for (i = 0; i < n; i++)`",
+            "no ternary: use `val x = if (c) a else b` or `c ?: fallback`; `when (x) { 1 -> ...; else -> ... }` for multi-branch",
+            "collections are functions: `listOf(1,2)`, `mutableListOf()`, `mapOf(k to v)`, `IntArray(n)` -- no `[]` literals; index with `a[i]`",
+            "no `new`: `Foo(args)` constructs; `val`/`var` not a type; nullable is `Foo?` and you must handle it (`?.`, `?:`, or check)",
+            "string templates: `\"$x\"` and `\"${obj.prop}\"`; multiple statements on one line need `;` between them",
+        ],
+    ),
+    dict(
+        name="implement-one-method-then-check",
+        purpose="on a scaffold with many stubbed methods, do them one at a time",
+        trigger_when="a file has several TODO()/NotImplementedError stubs to fill in against tests",
+        trigger_matcher=r"TODO\(\)|implement (every|all|each)|stub|NotImplementedError|method bod|scaffold|failing tests",
+        procedure=[
+            "pick the method the earliest/most tests depend on (constructor, deal, init, parse) -- do THAT one first",
+            "write just that body; run the check; read which tests moved from error to fail-or-pass",
+            "a compile error blocks ALL tests -- fix syntax before judging logic; a plain test failure is progress",
+            "repeat for the next method; don't write three bodies before running the check",
+        ],
+    ),
+    dict(
         name="android-minimal-deps-offline",
         purpose="on this box gradle runs --offline; only what's already cached resolves",
         trigger_when="choosing dependencies for an Android project on this machine",

@@ -242,6 +242,10 @@ def main() -> None:
     coder = reg.get("qwen2.5-coder-7b")
     model = BackendModel(coder, temperature=0.2)
     store = Store(str(ROOT))
+    from gremlin_core.magic import seed_skills
+    newly = seed_skills.seed(str(ROOT))
+    if newly:
+        log(f"seeded {len(newly)} new skill cards: {newly}")
     T = targets()
     log(f"zoid loop: {len(T)} targets {[t['name'] for t in T]}  budget {args.minutes:.0f}min / {args.rounds} rounds")
 

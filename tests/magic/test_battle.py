@@ -96,6 +96,13 @@ def test_run_battle_returns_transcript_on_model_error(tmp_path):
         pass
 
 
+def test_parse_turn_recovers_run_shell_from_a_sh_fence():
+    k, call, _ = _parse_turn("ACTION: run_shell\n```sh\npython -m pytest -q\n```")
+    assert k == "action" and call.name == "run_shell" and call.args == {"cmd": "python -m pytest -q"}
+    k, call, _ = _parse_turn("ACTION: run_shell\n$ ./gradlew assembleDebug")
+    assert call.args == {"cmd": "./gradlew assembleDebug"}
+
+
 def test_parse_turn_recovers_args_without_a_fence():
     kind, call, _ = _parse_turn('ACTION: read_file\nthe args are {"path": "x.py"} ok')
     assert kind == "action" and call.args == {"path": "x.py"}

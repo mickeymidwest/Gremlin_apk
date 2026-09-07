@@ -1,0 +1,22 @@
+id: skill_74f1c910
+name: fix-function
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Fix the function to handle the specific issue identified in the failing test.
+trigger_when: when a function needs fixing
+trigger_matcher: null
+procedure:
+- Identify the exact problem in the function.
+- Make the smallest necessary fix to address the problem.
+- Run the tests again to ensure the issue is resolved.
+supersedes: null
+provenance:
+- zoid_text-fix_1788816828
+created: 1788816837.7162406
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

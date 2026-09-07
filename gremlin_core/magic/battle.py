@@ -75,6 +75,13 @@ ACTION: read_file
 {"path": "app/src/main/java/com/x/Thing.kt"}
 ```
 
+Another example -- a shell command goes in the "cmd" field, still JSON:
+
+ACTION: run_shell
+```json
+{"cmd": "python -m pytest -q"}
+```
+
 ...to run a tool, or:
 
 DONE
@@ -163,7 +170,25 @@ def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
                 args = {}
         if not isinstance(args, dict) or not args:
             args = extract_json(after)   # fence missing/garbled -- scan raw
-        return "action", ToolCall(name=name, args=args if isinstance(args, dict) else {}), ""
+        if not isinstance(args, dict):
+            args = {}
+        # Models habitually give run_shell a ```sh / ```bash fence (or a bare
+        # command) instead of {"cmd": "..."} -- recover the command rather
+        # than hand the toolhost empty args.
+        if not args and name in ("run_shell", "shell", "bash", "run"):
+            fence = re.search(r"```(?:sh|bash|shell|console)?\s*\n?(.+?)```", after, re.DOTALL)
+            cmd = None
+            if fence:
+                cmd = fence.group(1).strip()
+            else:
+                for ln in after.splitlines():
+                    ln = ln.strip().lstrip("$ ").strip()
+                    if ln and not ln.startswith("```"):
+                        cmd = ln
+                        break
+            if cmd:
+                args = {"cmd": cmd}
+        return "action", ToolCall(name=name, args=args), ""
     return "unclear", None, ""
 
 

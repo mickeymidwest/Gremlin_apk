@@ -1,0 +1,23 @@
+id: skill_232dc389
+name: fix-balance-method
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Fix the balance method in a Ledger class to correctly include the opening balance.
+trigger_when: when the balance method in a Ledger class is failing tests
+trigger_matcher: test_balance_includes_opening_balance
+procedure:
+- Identify the failing test and understand the assertion error.
+- Locate the method body that corresponds to the failing test.
+- Modify the method to correctly include the opening balance.
+- Run the tests again to verify the fix.
+supersedes: null
+provenance:
+- zoid_ledger-fix_1788816774
+created: 1788816781.7942657
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
