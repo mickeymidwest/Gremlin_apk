@@ -141,6 +141,12 @@ def main():
     kw = dict(model_path=MODEL, n_ctx=N_CTX, n_gpu_layers=-1, flash_attn=True, verbose=False)
     if CHAT_FORMAT:
         kw["chat_format"] = CHAT_FORMAT
+    # BENCH_KV=q4_0 (etc.) -- quantized KV cache, needed to fit a bigger
+    # model on an 8GB card (f16 KV at 8k on a 14B is a CUDA OOM).
+    _kv = os.environ.get("BENCH_KV")
+    if _kv:
+        _t = {"f16": 1, "q8_0": 8, "q5_1": 7, "q5_0": 6, "q4_1": 3, "q4_0": 2}[_kv]
+        kw["type_k"] = kw["type_v"] = _t
     llm = Llama(**kw)
     load_s = round(time.time() - t, 1)
 

@@ -17,6 +17,28 @@ import subprocess
 # load will not fit and must not be attempted.
 MODEL_FOOTPRINT_MB = 5800
 
+# Rough resident cost (weights + a 16k q4_0 KV cache + overhead) by
+# quant size, so the governor knows how much headroom a *bigger* model
+# needs before it tries to load one on this 8GB card. Read from a
+# model's `footprint_mb` in config/models.yaml when present; this table
+# is the fallback keyed on the filename.
+_FOOTPRINT_HINTS = (
+    ("14b", 7600), ("13b", 7400), ("12b", 6600), ("9b", 6100),
+    ("8b", 5800), ("7b", 5600), ("3b", 2800), ("1.5b", 1600), ("0.5b", 900),
+)
+
+
+def footprint_mb(model_path_or_name: str | None, configured: int | None = None) -> int:
+    """How much VRAM to expect a model to take. `configured` (its
+    footprint_mb in models.yaml) wins; else guess from the name/path."""
+    if configured:
+        return int(configured)
+    s = (model_path_or_name or "").lower()
+    for tag, mb in _FOOTPRINT_HINTS:
+        if tag in s:
+            return mb
+    return MODEL_FOOTPRINT_MB
+
 # The model Magic is deliberately keeping resident right now (the chat
 # primary normally; the coder while a /fix or /build battle runs). The
 # idle-eviction sweep must not unload this one mid-battle.
@@ -64,8 +86,14 @@ def _local_gguf_backends(registry):
 async def ensure_only(registry, keep: str | None) -> None:
     """Unload every resident local model except `keep`, and mark `keep`
     as the one Magic is holding so idle-eviction leaves it alone. Call
-    this right before loading a model."""
+    this right before loading a model.
+
+    For a *big* model (footprint >= 7000 MB -- a 12B+ on this 8GB card)
+    this is not optional politeness: a second resident model is a
+    guaranteed OOM, so the unload is awaited fully and we don't return
+    until the card actually has room."""
     set_active(keep)
+    big = footprint_mb(_model_path(registry, keep)) if keep else 0
     for name, be in _local_gguf_backends(registry).items():
         if name == keep:
             continue
@@ -74,6 +102,19 @@ async def ensure_only(registry, keep: str | None) -> None:
                 await be.unload()
             except Exception:  # noqa
                 pass
+    if big >= 7000:
+        # give the driver a moment to actually reclaim, then sanity-check
+        await asyncio.sleep(0.5)
+        f = free_mb()
+        if f is not None and f < big:
+            print(f"[vram] warning: keeping {keep} (~{big}MB) but only {f}MB free after unloads")
+
+
+def _model_path(registry, name: str | None) -> str:
+    if not name:
+        return ""
+    be = getattr(registry.get(name), "primary", registry.get(name))
+    return str(getattr(be, "model_path", name) or name)
 
 
 def ensure_only_sync(registry, keep: str | None, loop=None) -> None:

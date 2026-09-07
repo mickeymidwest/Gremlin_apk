@@ -41,6 +41,28 @@ models:
     chat_format: chatml
     no_think: true
 
+  # Bigger brain, big-model VRAM profile. IQ3_XS (~6.4GB) of a 14B is
+  # right at this 8GB card's ceiling: 8k ctx, q4_0 KV (mandatory), and it
+  # MUST be the only resident model (vram.ensure_only enforces this hard
+  # for a >=7000MB footprint).
+  #
+  # bench/quality 2026-09-06 (8-task suite):
+  #   qwen2.5-14b IQ3_XS  8/8  load 85s  23 tok/s
+  #   qwen2.5-7b   Q4_K_M  8/8  load 46s  65 tok/s
+  # 3-bit quant loss cancels the extra params on easy tasks and it's ~3x
+  # slower -- NOT worth it as the chat primary. Keep for /fix + build
+  # battles where agentic capability matters more than latency.
+  - name: qwen2.5-14b
+    type: local_gguf
+    display_name: "Qwen2.5-14B-Instruct (IQ3_XS)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-14B-Instruct-IQ3_XS.gguf"
+    n_ctx: 8192          # tested ceiling with q4_0 KV on this 8GB card; f16 KV OOMs
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0  # NOT optional for the 14B -- f16 KV at 8k is a CUDA OOM
+    chat_format: chatml
+    footprint_mb: 7600
+
   # The one uncensored option, for the rare case a base model balks at
   # something legitimate. Not the voice -- addressable by name only.
   - name: llama-3.1-8b-abliterated

@@ -48,10 +48,14 @@ def _precheck(path: str, text: str) -> str:
 
 class ShellToolHost:
     TOOLS = {
-        "repo_map":   "repo_map(query)                 -- symbol-level map of the repo, "
-                      "ranked toward `query`; read this before opening files",
+        "repo_map":   "repo_map(query)                 -- map of the repo, ranked toward "
+                      "`query`; read this before opening files",
+        "grep":       "grep(pattern, path)             -- search files for a regex "
+                      "(path defaults to '.'); use this to find where something is defined/used",
         "run_shell":  "run_shell(cmd)                  -- run a shell command in the repo root",
         "read_file":  "read_file(path)                 -- print a file's contents",
+        "view_file":  "view_file(path, start, count)   -- print `count` lines of a file from line "
+                      "`start`, with line numbers (for navigating a big file)",
         "edit_file":  "edit_file(path, search, replace) -- replace the first exact match of `search` "
                       "(prefer this over write_file for an existing file)",
         "write_file": "write_file(path, text)          -- overwrite a whole file with text",
@@ -60,7 +64,7 @@ class ShellToolHost:
 
     # Phase-gated tool space (MAGIC.md section 8, #2): a small model does
     # much better when it can't edit before it has looked.
-    EXPLORE_TOOLS = ("repo_map", "read_file", "list_dir", "run_shell")
+    EXPLORE_TOOLS = ("repo_map", "grep", "read_file", "view_file", "list_dir", "run_shell")
 
     # Shell verbs that can change state -- blocked in read-only mode so
     # /do can answer "what's using my disk" by actually checking, without
@@ -188,6 +192,51 @@ class ShellToolHost:
             return ToolResult(False, f"no such file: {rel or '(empty path)'} -- "
                               "list_dir to see what's there; give read_file a 'path'")
         return ToolResult(True, self._clip(p.read_text()))
+
+    def _t_view_file(self, args: dict) -> ToolResult:
+        rel = self._val(args, "path", "file", "filename", "name")
+        p = self._resolve(rel)
+        if p is None or not p.is_file():
+            return ToolResult(False, f"no such file: {rel or '(empty path)'}")
+        lines = p.read_text().splitlines()
+        try:
+            start = max(1, int(args.get("start", 1)))
+        except (TypeError, ValueError):
+            start = 1
+        try:
+            count = int(args.get("count", args.get("n", 60)))
+        except (TypeError, ValueError):
+            count = 60
+        count = max(1, min(count, 200))
+        chunk = lines[start - 1:start - 1 + count]
+        w = len(str(start + len(chunk)))
+        body = "\n".join(f"{start + i:>{w}}  {ln}" for i, ln in enumerate(chunk))
+        tail = "" if start - 1 + count >= len(lines) else f"\n... ({len(lines) - (start-1+count)} more lines)"
+        return ToolResult(True, self._clip(f"{rel} lines {start}-{start+len(chunk)-1} of {len(lines)}:\n{body}{tail}"))
+
+    def _t_grep(self, args: dict) -> ToolResult:
+        pat = self._val(args, "pattern", "query", "regex", "search", "arg", "q")
+        if not pat:
+            return ToolResult(False, "grep needs a 'pattern'")
+        where = self._val(args, "path", "dir", "in") or "."
+        target = self._resolve(where)
+        if target is None:
+            return ToolResult(False, "path escapes the repo root")
+        try:
+            proc = subprocess.run(
+                ["grep", "-rniI", "--line-number",
+                 "--exclude-dir=.git", "--exclude-dir=node_modules",
+                 "--exclude-dir=build", "--exclude-dir=.gradle", "--exclude-dir=__pycache__",
+                 "-e", pat, "."],
+                cwd=target if target.is_dir() else target.parent,
+                capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return ToolResult(False, f"grep failed: {e}")
+        hits = [ln for ln in (proc.stdout or "").splitlines() if ln]
+        if not hits:
+            return ToolResult(True, f"no matches for {pat!r}")
+        return ToolResult(True, self._clip(f"{len(hits)} match(es) for {pat!r}:\n"
+                                           + "\n".join(hits[:60])))
 
     def _t_write_file(self, args: dict) -> ToolResult:
         rel = self._val(args, "path", "file", "filename", "name")
