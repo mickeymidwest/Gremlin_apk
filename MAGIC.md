@@ -98,6 +98,20 @@ queue (a client that stops draining stops the generation). APK
 `GremlinClient.chatStream()` renders tokens live, auto-falls-back to the blocking
 path for an old server / no network / pending away-sync. 141 tests.
 
+**Vuln research (mickey does authorized bug bounty):** the craft lives as
+**skills** (scope-first, fuzz-harness, static-vuln-sweep, binary-recon,
+apk-recon, crash-triage-exploitability, linux-memory-corruption,
+patch-diff-nday, bounty-report) that feed chat + battles like every other
+skill. **`FuzzVerifier`** (magic/fuzz_verifier.py) is the gauge: a battle
+"write a fuzzer for this parser" is scored on whether the harness actually
+builds with `-fsanitize=fuzzer,address` and does real executions (a found
+crash still scores 1.0, reported in the signal). Recon is read-only shell
+via `/do` (`file`/`strings`/`nm`/`objdump`/`readelf` aren't write verbs).
+Toolchain: `deploy/setup-security-tools.sh` (clang, radare2, checksec,
+afl++; semgrep/lief/capstone pip'd into the venv). No separate command --
+Gremlin the pilot uses the skills, and wins/losses feed the learning loop
+(reflexion + skill promotion + finetune_sources pulls battle wins).
+
 **Open:**
 - **/fix + /build are desktop-CLI only.** A multi-step battle needs the model
   resident AND pytest/gradle running beside it; on this box (7.5GB RAM, HDD swap)
