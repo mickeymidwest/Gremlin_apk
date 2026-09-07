@@ -497,8 +497,15 @@ class ShellToolHost:
         p = self._resolve(rel)
         if p is None:
             return ToolResult(False, "path escapes the repo root")
+        if p.is_file():
+            # the model passed a file where a dir goes -- list its parent
+            # and point it at read_file rather than just erroring
+            par = p.parent
+            entries = sorted(c.name + ("/" if c.is_dir() else "") for c in par.iterdir())
+            return ToolResult(True, f"'{rel}' is a file (use read_file for it). "
+                                    f"contents of its directory:\n" + "\n".join(entries))
         if not p.is_dir():
-            return ToolResult(False, f"not a directory: {rel}")
+            return ToolResult(False, f"no such directory: {rel} -- try list_dir with \".\"")
         entries = sorted(
             (c.name + ("/" if c.is_dir() else "")) for c in p.iterdir()
         )

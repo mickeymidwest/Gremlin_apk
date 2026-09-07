@@ -70,16 +70,9 @@ _PROTOCOL = """\
 You are an autonomous agent working inside a code repository. Work in
 small steps. End EVERY message with exactly one of:
 
-ACTION: read_file
+ACTION: <tool_name>
 ```json
-{"path": "app/src/main/java/com/x/Thing.kt"}
-```
-
-Another example -- a shell command goes in the "cmd" field, still JSON:
-
-ACTION: run_shell
-```json
-{"cmd": "python -m pytest -q"}
+{ ...arguments as JSON... }
 ```
 
 ...to run a tool, or:
@@ -87,11 +80,22 @@ ACTION: run_shell
 DONE
 <one or two sentences on what you changed>
 
-...when the task is complete. Available tools (the JSON keys are the
-argument names shown in parentheses):
+...when the task is complete.
+
+The JSON is always a real object. Format examples (the paths/commands
+here are ILLUSTRATIVE -- use the real files in THIS repo, which you find
+with list_dir / repo_map):
+  read_file   -> {"path": "<a real file in this repo>"}
+  run_shell   -> {"cmd": "<the command to run>"}
+  edit_file   -> {"path": "<file>", "search": "<exact snippet>", "replace": "<new text>"}
+
+Available tools (the JSON keys are the argument names shown in
+parentheses):
 {tools}
 
 Rules:
+- Your FIRST action should be list_dir or repo_map to see what's actually
+  here -- don't assume a path.
 - Read the relevant files before editing them.
 - The JSON keys must match the tool's arguments -- read_file takes
   "path", run_shell takes "cmd", edit_file takes "path"/"search"/"replace".
@@ -194,8 +198,9 @@ def _parse_turn(text: str) -> tuple[str, Optional[ToolCall], str]:
 
 _PLAN_SYSTEM = """\
 You are about to attempt a coding task. Before touching anything, write a
-short plan: 3-6 numbered steps, concrete, in order. Name the file(s) you
-expect to change. Do NOT solve it here -- just the plan. No prose around it.
+short plan: 3-6 numbered steps, concrete, in order. Step 1 is always to
+list_dir / repo_map and read the files named in the task -- do not assume
+any path. Do NOT solve it here -- just the plan. No prose around it.
 """
 
 
