@@ -111,10 +111,13 @@ Toolchain: `deploy/setup-security-tools.sh` (clang, radare2, checksec,
 afl++; semgrep/lief/capstone pip'd into the venv). No separate command --
 Gremlin the pilot uses the skills, and wins/losses feed the learning loop
 (reflexion + skill promotion + finetune_sources pulls battle wins).
-Practice run: `scratch_fuzz_battle.py` (gitignored, like the klondike one)
-drives a battle against `~/Downloads/fuzz-practice` -- a netstring parser
-in C with a planted overflow; the win condition is a harness that builds
-and runs. Needs `setup-security-tools.sh` first (no clang -> score 0.0).
+Practice runs: `scratch_fuzz_battle.py [target-dir]` (gitignored, like the
+klondike one) drives a battle against a fuzzing-practice repo (planted
+bug + README task; win = a harness that builds and does real execs).
+Targets: `~/Downloads/fuzz-practice` (C netstring parser, stack overflow --
+Gremlin won 26 steps) and `~/Downloads/fuzz-practice-2` (binary TLV
+parser, heap overflow past a header count -- won 10 steps after the
+edit_file/skill-card fixes). Needs `setup-security-tools.sh` (clang).
 
 **Open:**
 - **/fix + /build are desktop-CLI only.** A multi-step battle needs the model
