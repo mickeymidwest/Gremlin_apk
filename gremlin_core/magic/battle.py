@@ -332,7 +332,19 @@ def run_battle(task: Task, repo_path: str, model: Model,
             kind="tool", tool_name=call.name, tool_args=call.args,
             tool_result=result.output, content=("ok" if result.ok else "error"),
         ))
-        result_msg = f"RESULT ({'ok' if result.ok else 'error'}):\n{result.output}"
+        # A test/build command that exits non-zero because the suite is RED
+        # is not a broken command -- label it so the model iterates on the
+        # code instead of hunting for a tool problem that isn't there.
+        _looks_like_test_output = re.search(
+            r"\b\d+ (passed|failed|error)|FAILED |PASSED |assert|AssertionError|"
+            r"BUILD (SUCCESSFUL|FAILED)|tests? (completed|passed|failed)", result.output)
+        if not result.ok and _looks_like_test_output:
+            label = "check ran -- some cases still failing (this is expected mid-fix)"
+        elif result.ok:
+            label = "ok"
+        else:
+            label = "error"
+        result_msg = f"RESULT ({label}):\n{result.output}"
 
         if snapshotting and result.ok and call.name in ("write_file", "edit_file"):
             _git_snapshot(repo_path, f"step {_step_n}: {call.name} {call.args.get('path', '')}")

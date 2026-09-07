@@ -62,6 +62,17 @@ models:
     model_id: "gemini-2.5-flash"
     api_key_env: GEMINI_API_KEY
 
+  # OpenAI GPT -- key added 2026-09-07 (in .env, gitignored). A second
+  # cloud brain for `/model use gpt`, a review voice, and a fallback
+  # alongside gemini. NOTE: the key currently has $0 balance -- add
+  # credits at platform.openai.com/billing for it to work. Bump model_id
+  # (gpt-5 / gpt-4.1 / o4-mini) once it's funded.
+  - name: gpt
+    type: openai_compatible
+    display_name: "GPT (OpenAI)"
+    model_id: "gpt-4o"
+    api_key_env: OPENAI_API_KEY
+
   # Claude -- re-enable once a real ANTHROPIC_API_KEY is set.
   # - name: claude
   #   type: anthropic
