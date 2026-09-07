@@ -29,6 +29,106 @@ class ToolResult:
     output: str
 
 
+_DECL_RE = re.compile(r"\b(def|fun|fn|function|class|struct|sub|impl|interface)\b")
+
+
+def _block_end(lines: list[str], i: int) -> int:
+    """Line index one past the end of the def/class block that starts at
+    line i -- brace-balanced if it opens with '{', else by indentation."""
+    if lines[i].rstrip().endswith("{"):
+        depth = 0
+        for k in range(i, len(lines)):
+            depth += lines[k].count("{") - lines[k].count("}")
+            if k > i and depth <= 0:
+                return k + 1
+        return len(lines)
+    base = len(lines[i]) - len(lines[i].lstrip())
+    k = i + 1
+    while k < len(lines):
+        s = lines[k]
+        if s.strip() and (len(s) - len(s.lstrip())) <= base:
+            break
+        k += 1
+    return k
+
+
+def _edit_locate(original: str, search: str, replace: str):
+    """Find the [i, j) line span in `original` that `search` refers to.
+    Returns (i, j), or a str error message with nearby lines. Handles a
+    near-miss single-line search (paraphrased signature, dropped type
+    hint) and, when `replace` is a whole method and `search` is just its
+    header line, extends the span over the old body."""
+    import difflib
+    lines = original.splitlines(keepends=True)
+    norm = lambda s: "\n".join(ln.strip() for ln in s.splitlines())
+    s_lines = search.strip("\n").splitlines() or [search]
+
+    def _line_span_of_substring(sub: str):
+        pos = original.find(sub)
+        if pos < 0:
+            return None
+        i = original.count("\n", 0, pos)
+        j = i + sub.count("\n") + 1
+        # only accept if it covers those lines whole (not a mid-line splice)
+        if norm("".join(lines[i:j])) == norm(sub):
+            return (i, j)
+        return None
+
+    anchor = None
+    if len(s_lines) > 1:
+        anchor = _line_span_of_substring(search)
+        if anchor is None:                                   # whitespace-flex block
+            tgt = norm(search)
+            for i in range(len(lines)):
+                for j in range(i + 1, min(len(lines), i + len(s_lines) + 3) + 1):
+                    if norm("".join(lines[i:j])) == tgt:
+                        anchor = (i, j)
+                        break
+                if anchor:
+                    break
+    else:
+        one = search.strip()
+        exact = [k for k, ln in enumerate(lines) if ln.strip() == one]
+        if len(exact) == 1:
+            anchor = (exact[0], exact[0] + 1)
+        elif exact:
+            anchor = (exact[0], exact[0] + 1)   # first occurrence
+        if anchor is None:                       # signature-name match
+            m = re.search(r"\b([A-Za-z_]\w*)\s*\(", one)
+            if m:
+                nm = m.group(1)
+                decl = [k for k, ln in enumerate(lines)
+                        if _DECL_RE.search(ln) and re.search(rf"\b{re.escape(nm)}\s*\(", ln)]
+                if len(decl) == 1:
+                    anchor = (decl[0], decl[0] + 1)
+        if anchor is None and len(one) >= 12:    # fuzzy single line
+            best_r, best_k = 0.0, None
+            for k, ln in enumerate(lines):
+                r = difflib.SequenceMatcher(None, one, ln.strip()).ratio()
+                if r > best_r:
+                    best_r, best_k = r, k
+            if best_k is not None and best_r >= 0.8:
+                anchor = (best_k, best_k + 1)
+
+    if anchor is None:
+        # show the closest few lines so the model can correct
+        best_r, best_k = 0.0, 0
+        for k, ln in enumerate(lines):
+            r = difflib.SequenceMatcher(None, norm(search), ln.strip()).ratio()
+            if r > best_r:
+                best_r, best_k = r, k
+        lo, hi = max(0, best_k - 1), min(len(lines), best_k + 3)
+        near = "".join(lines[lo:hi]).rstrip()
+        return ("search text not found -- copy an exact snippet from read_file, "
+                f"or use write_file for a whole-file change.\nclosest lines:\n{near}")
+
+    i, j = anchor
+    # header-only search + multi-line replace -> replace the whole block
+    if (j - i == 1 and "\n" in replace.strip() and _DECL_RE.search(lines[i])):
+        j = _block_end(lines, i)
+    return (i, j)
+
+
 def _precheck(path: str, text: str) -> str:
     """Return a rejection message if `text` is obviously broken for its
     file type, else "". Cheap static checks only -- syntax, not logic."""
@@ -271,9 +371,7 @@ class ShellToolHost:
         replace = args.get("replace", args.get("new", args.get("with", "")))
         original = p.read_text()
         if not search:
-            # A common move: "add an #include / a line at the very top".
-            # Empty search + real replace = prepend, rather than a dead end.
-            if replace:
+            if replace:   # empty search + real replace = prepend
                 updated = replace + ("" if replace.endswith("\n") else "\n") + original
                 rej = _precheck(str(p), updated)
                 if rej:
@@ -283,60 +381,30 @@ class ShellToolHost:
             return ToolResult(False, "edit_file needs 'search' (an exact snippet to replace) and "
                                      "'replace'. To add text at the top, pass an empty 'search' with "
                                      "your new text in 'replace'. To rewrite the whole file, use write_file.")
-        if search in original:
+
+        # Plain substring replace when the match is unambiguous and won't
+        # orphan a block: exact substring, and either the replace is a
+        # simple in-line swap or the search already spans whole lines.
+        _one_line_header = ("\n" not in search and _DECL_RE.search(search)
+                            and search.rstrip().endswith(("{", ":")))
+        if search in original and not ("\n" in replace.strip() and _one_line_header):
             updated = original.replace(search, replace, 1)
+            verb = "edited"
         else:
-            # whitespace-flexible fallback: match ignoring leading indent
-            norm = lambda s: "\n".join(line.strip() for line in s.splitlines())
+            span = _edit_locate(original, search, replace)
+            if isinstance(span, str):
+                return ToolResult(False, span)   # a helpful "not found" message
+            i, j = span
             lines = original.splitlines(keepends=True)
-            target = norm(search)
-            hit = None
-            for i in range(len(lines)):
-                for j in range(i + 1, len(lines) + 1):
-                    if norm("".join(lines[i:j])) == target:
-                        hit = (i, j)
-                        break
-                if hit:
-                    break
-            if not hit:
-                # Fuzzy anchor: a near-miss search (the model paraphrased a
-                # signature, dropped a type hint, etc.). Find the closest
-                # contiguous span of the same line count; apply it if it's
-                # clearly the intended spot, else show candidates.
-                import difflib
-                want_lines = search.strip("\n").splitlines() or [search]
-                span = len(want_lines)
-                best_ratio, best = 0.0, None
-                # only fuzz a search substantial enough for the ratio to mean
-                # something -- a bare "return 0" is too short to guess from
-                fuzzable = len(search.strip()) >= 12
-                for i in range(len(lines) - span + 1) if fuzzable else []:
-                    cand = "".join(lines[i:i + span])
-                    r = difflib.SequenceMatcher(None, norm(search), norm(cand)).ratio()
-                    if r > best_ratio:
-                        best_ratio, best = r, (i, i + span)
-                if best and best_ratio >= 0.8:
-                    i, j = best
-                    updated = ("".join(lines[:i]) + replace
-                               + ("" if replace.endswith("\n") else "\n") + "".join(lines[j:]))
-                else:
-                    near = ""
-                    if best:
-                        i0 = max(0, best[0] - 1)
-                        near = "\n  ".join(l.rstrip() for l in lines[i0:best[1] + 1])
-                        near = f"\nclosest lines in the file:\n  {near}"
-                    return ToolResult(False,
-                        "search text not found -- copy an exact snippet from read_file "
-                        "(or use write_file to replace the whole file)." + near)
-            else:
-                i, j = hit
-                updated = ("".join(lines[:i]) + replace
-                           + ("" if replace.endswith("\n") else "\n") + "".join(lines[j:]))
+            updated = ("".join(lines[:i]) + replace
+                       + ("" if replace.endswith("\n") or not replace else "\n")
+                       + "".join(lines[j:]))
+            verb = "edited" if j - i <= search.count("\n") + 1 else "replaced the block at"
         rej = _precheck(str(p), updated)
         if rej:
             return ToolResult(False, f"NOT WRITTEN -- edit would break the file: {rej}")
         p.write_text(updated)
-        return ToolResult(True, f"edited {rel} ({len(original)} -> {len(updated)} chars)")
+        return ToolResult(True, f"{verb} {rel} ({len(original)} -> {len(updated)} chars)")
 
     def unlock_all(self) -> None:
         """Called by battle.py once the agent has actually looked at the

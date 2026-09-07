@@ -123,17 +123,22 @@ async def answer_stream(primary, message: str, root: str,
     prompt = _build_prompt(message, root, history)
 
     acc = ""
+    stream_broke = False
     try:
         async for delta in primary.generate_stream(prompt, max_tokens=1024, temperature=0.6):
             acc += delta
             yield "delta", delta
     except Exception:
-        acc = ""  # nothing usable came out -- fall back below
+        stream_broke = True
 
+    # Anything already on the client's screen stays the answer -- falling
+    # back now would splice a second full answer onto the partial one the
+    # user is already reading. (PersonaBackend also stops rather than
+    # re-answers mid-stream; this is the same rule one layer up.)
     if acc.strip():
         text = acc.strip()
         await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin")
-        yield "done", _reply(text, source="gremlin")
+        yield "done", _reply(text, source="gremlin", ok=not stream_broke)
         return
 
     if fallback is not None:

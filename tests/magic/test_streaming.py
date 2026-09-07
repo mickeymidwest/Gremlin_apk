@@ -102,6 +102,31 @@ def test_answer_stream_remember_shortcuts_without_model(tmp_path):
     assert any("Manjaro" in f.text for f in Store(str(tmp_path)).read_facts())
 
 
+class BreakingStream(ModelBackend):
+    """streams `text`, then raises -- a mid-generation backend failure."""
+    def __init__(self, name, text):
+        super().__init__(ModelInfo(name=name, kind="local"))
+        self._text = text
+
+    async def generate(self, prompt, system=None, max_tokens=1536, temperature=0.7):
+        return GenerationResult(model=self.info.name, text="")
+
+    async def generate_stream(self, prompt, system=None, max_tokens=1536, temperature=0.7):
+        yield self._text
+        raise RuntimeError("backend died mid-stream")
+
+
+def test_answer_stream_keeps_the_partial_on_mid_stream_error_no_splice(tmp_path):
+    # a raw backend (not PersonaBackend) that dies mid-stream
+    fb = FakeBackend("gemini", text="a different answer")
+    events = _collect(reply_mod.answer_stream(
+        BreakingStream("p", "here is most of a real answer"), "q", str(tmp_path), fallback=fb))
+    ans = events[-1][1]["answer"]
+    assert ans == "here is most of a real answer"      # partial kept verbatim
+    assert "a different answer" not in ans             # fallback NOT spliced on
+    assert events[-1][1]["source"] == "gremlin" and events[-1][1]["action_ok"] is False
+
+
 def test_answer_stream_falls_back_on_empty_primary(tmp_path):
     p = PersonaBackend(ModelInfo(name="gremlin", kind="local"),
                        primary=FakeBackend("p", text=""))   # yields nothing

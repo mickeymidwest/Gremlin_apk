@@ -47,6 +47,39 @@ def test_empty_search_and_empty_replace_is_a_helpful_error(tmp_path):
     assert not r.ok and "write_file" in r.output
 
 
+def test_header_search_with_multiline_replace_swaps_the_whole_method(tmp_path):
+    (tmp_path / "g.py").write_text(
+        "class L:\n"
+        "    def balance(self):\n"
+        "        total = 0.0\n"
+        "        for e in self.entries:\n"
+        "            total += e.amount\n"
+        "        return total\n"
+        "\n"
+        "    def other(self):\n"
+        "        return 1\n"
+    )
+    th = ShellToolHost(tmp_path)
+    r = th.run(ToolCall("edit_file", {
+        "path": "g.py", "search": "def balance(self):",
+        "replace": "    def balance(self):\n        return self.opening + sum(e.amount for e in self.entries)"}))
+    assert r.ok
+    out = (tmp_path / "g.py").read_text()
+    assert "return self.opening + sum" in out
+    assert "total += e.amount" not in out          # old body gone, not orphaned
+    assert "def other(self):" in out               # next method untouched
+
+
+def test_near_miss_signature_still_anchors(tmp_path):
+    (tmp_path / "g.py").write_text("class L:\n    def balance(self) -> float:\n        return 0.0\n")
+    th = ShellToolHost(tmp_path)
+    # model dropped the return-type hint in its search string
+    r = th.run(ToolCall("edit_file", {
+        "path": "g.py", "search": "def balance(self):",
+        "replace": "    def balance(self) -> float:\n        return 42.0"}))
+    assert r.ok and "return 42.0" in (tmp_path / "g.py").read_text()
+
+
 def test_edit_nonexistent_file(tmp_path):
     th = ShellToolHost(tmp_path)
     r = th.run(ToolCall("edit_file", {"path": "nope.py", "search": "a", "replace": "b"}))
