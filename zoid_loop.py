@@ -64,37 +64,46 @@ def targets() -> list[dict]:
     T: list[dict] = []
     lg = HOME / "Downloads" / "pybugs" / "mini_ledger"
     tu = HOME / "Downloads" / "pybugs" / "text_utils"
+    gp = HOME / "Downloads" / "pybugs" / "graph_paths"
+    cr = HOME / "Downloads" / "pybugs" / "csv_report"
     ns = HOME / "Downloads" / "fuzz-practice"
     tlv = HOME / "Downloads" / "fuzz-practice-2"
+    ini = HOME / "Downloads" / "fuzz-practice-3"
     klon = HOME / "Downloads" / "klondike"
     bal = HOME / "Downloads" / "buildalot"
 
+    def _pybug(path, tid, mod):
+        return dict(name=path.name.replace("_", "-"), repo=path, verifier=PytestVerifier(),
+            step_budget=16, max_tokens=2560, time_budget=900,
+            task=Task(id=tid, prompt=(
+                f"{mod}.py has bugs -- each failing test in test_{mod}.py pins one down. "
+                f"Read {mod}.py and test_{mod}.py, fix the function/method BODIES only "
+                "(keep signatures, don't edit the tests), get `python -m pytest -q` fully "
+                "green. Loop: read -> edit one fix -> run pytest -> read the next failure. "
+                "Do NOT re-run pytest without editing between runs.")))
+
+    def _cfuzz(path, tid):
+        return dict(name=tid, repo=path, verifier=FuzzVerifier(run_seconds=40),
+            step_budget=18, max_tokens=2560, time_budget=1000,
+            task=Task(id=tid, prompt=_readme_goal(path, "Write a libFuzzer harness for src/.") + (
+                "\n\nRead src/*.h and src/*.c, use the EXACT names from them, write ONE "
+                "harness file in the repo root, compile-check with clang -fsanitize=fuzzer,"
+                "address,undefined <harness>.c src/*.c -I . -o /tmp/h, fix errors, then DONE.")))
+
     if lg.is_dir():
-        T.append(dict(name="ledger-fix", repo=lg, verifier=PytestVerifier(), step_budget=16, max_tokens=2560, time_budget=900,
-            task=Task(id="ledger", test_filter="", prompt=(
-                "ledger.py has bugs -- every failing test in test_ledger.py names one. "
-                "Read ledger.py and test_ledger.py, fix the METHOD BODIES only (keep the "
-                "signatures, don't touch the test file), and get `python -m pytest -q` to "
-                "all-green. Work one failing test at a time and re-run pytest after each fix."))))
+        T.append(_pybug(lg, "ledger", "ledger"))
     if tu.is_dir():
-        T.append(dict(name="text-fix", repo=tu, verifier=PytestVerifier(), step_budget=16, max_tokens=2560, time_budget=900,
-            task=Task(id="textutils", prompt=(
-                "textutils.py has bugs -- each failing test in test_textutils.py pins one down. "
-                "Read both files, fix the function bodies only (keep signatures, don't edit tests), "
-                "get `python -m pytest -q` fully green. One test at a time, re-run after each fix."))))
+        T.append(_pybug(tu, "textutils", "textutils"))
+    if gp.is_dir():
+        T.append(_pybug(gp, "graph", "graph"))
+    if cr.is_dir():
+        T.append(_pybug(cr, "csvreport", "report"))
     if ns.is_dir():
-        T.append(dict(name="netstring-fuzz", repo=ns, verifier=FuzzVerifier(run_seconds=40), step_budget=18, max_tokens=2560, time_budget=1000,
-            task=Task(id="nsfuzz", prompt=_readme_goal(ns,
-                "Write a libFuzzer harness (*fuzz*.c) for the C source in src/.") + (
-                "\n\nRead src/*.h and src/*.c and use the EXACT names from them. Write ONE "
-                "harness file in the repo root. Compile-check with `clang -fsanitize=fuzzer,"
-                "address,undefined <harness>.c src/*.c -I . -o /tmp/h`, fix errors, then DONE."))))
+        T.append(_cfuzz(ns, "nsfuzz"))
     if tlv.is_dir():
-        T.append(dict(name="tlv-fuzz", repo=tlv, verifier=FuzzVerifier(run_seconds=40), step_budget=18, max_tokens=2560, time_budget=1000,
-            task=Task(id="tlvfuzz", prompt=_readme_goal(tlv, "Write a libFuzzer harness for src/.") + (
-                "\n\nRead src/*.h and src/*.c, use exact names, write ONE harness file in the "
-                "repo root, compile-check with clang -fsanitize=fuzzer,address <harness>.c "
-                "src/*.c -I . -o /tmp/h, fix errors, DONE."))))
+        T.append(_cfuzz(tlv, "tlvfuzz"))
+    if ini.is_dir():
+        T.append(_cfuzz(ini, "inifuzz"))
     if klon.is_dir() and (klon / "gradlew").exists():
         T.append(dict(name="klondike-apk", repo=klon,
             verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=38, max_tokens=4096, time_budget=2400,
