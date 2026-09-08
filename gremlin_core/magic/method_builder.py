@@ -142,7 +142,11 @@ _SYS_KT = ("You write ONE Kotlin method body. Output ONLY the statements that go
            "takes an Int index wants an index -- iterate `for (i in plots.indices)`, "
            "not `for (p in plots)`). Prefer early-return guards. Count your braces. "
            "A Kotlin { } body does NOT return its last expression -- if the method "
-           "returns a value, EVERY path must end in an explicit `return <value>`.")
+           "returns a value, EVERY path must end in an explicit `return <value>`. "
+           "For a deterministic shuffle use kotlin.random.Random: "
+           "`val rng = if (seed != null) Random(seed) else Random.Default` then "
+           "build a `MutableList` and call `.shuffle(rng)` (the import is handled "
+           "for you -- just use `Random`, never `java.util.Random`).")
 _SYS_PY = ("You write ONE Python method body. Output ONLY the indented statements "
            "that go under the `def` line -- no signature, no fences, no docstring, "
            "no other methods. Use the exact names shown. Nothing else.")
@@ -200,11 +204,34 @@ def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
     return _fix_trailing_return(txt, stub)
 
 
+_KT_AUTO_IMPORTS = [
+    (re.compile(r"(?<![\w.])Random\b"), "import kotlin.random.Random"),
+    (re.compile(r"(?<![\w.])abs\s*\("), "import kotlin.math.abs"),
+    (re.compile(r"(?<![\w.])(min|max)\s*\("), "import kotlin.math.min\nimport kotlin.math.max"),
+]
+
+
+def _ensure_kt_imports(src: str, body: str) -> str:
+    """method_builder only writes method *bodies* -- if a body uses a symbol
+    that needs an import (deal() needs kotlin.random.Random), add it after
+    the package line. An unused import is a Kotlin warning, not an error."""
+    add: list[str] = []
+    for rx, imp in _KT_AUTO_IMPORTS:
+        if rx.search(body):
+            add += [ln for ln in imp.splitlines() if ln not in src]
+    if not add:
+        return src
+    m = re.search(r"^package\s+[\w.]+.*$", src, re.M)
+    at = m.end() if m else 0
+    return src[:at] + "\n\n" + "\n".join(dict.fromkeys(add)) + src[at:]
+
+
 def _splice(src: str, stub: Stub, body: str) -> str:
     if stub.lang == "kt":
-        body = "\n".join("        " + ln if ln.strip() else ln
-                         for ln in body.splitlines())
-        return src[:stub.start] + "\n" + body + "\n    " + src[stub.end:]
+        ind = "\n".join("        " + ln if ln.strip() else ln
+                        for ln in body.splitlines())
+        return _ensure_kt_imports(
+            src[:stub.start] + "\n" + ind + "\n    " + src[stub.end:], body)
     body = "\n".join("        " + ln if ln.strip() else ln for ln in body.splitlines())
     return src[:stub.start] + body + ("\n" if not body.endswith("\n") else "") + src[stub.end:]
 
