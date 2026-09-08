@@ -213,6 +213,11 @@ def apply_proposals(proposals: Sequence[Proposal], battle_id: str,
                 provenance=list(old.provenance) + [battle_id],
                 supersedes=old.id,
                 status="candidate",
+                # the council judged this skill's ROLE (card vs weights); a
+                # wording revision doesn't change that -- carry it forward so
+                # it isn't re-reviewed (a wasted voter call) on re-promotion
+                council_reviewed=old.council_reviewed,
+                destination=old.destination,
             ))
             n += 1
         elif p.kind == "new_fact":
