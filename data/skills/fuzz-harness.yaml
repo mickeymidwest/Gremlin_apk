@@ -8,11 +8,9 @@ purpose: Ensure the agent correctly sets up the fuzz harness with the correct in
 trigger_when: when setting up a fuzz harness
 trigger_matcher: fuzz-harness
 procedure:
-- Identify the target function to fuzz.
-- Include the necessary headers.
-- Declare the `LLVMFuzzerTestOneInput` function.
-- Call the target function with the input data.
-- Free any allocated resources.
+- Identify the target function and its dependencies.
+- Include all necessary headers and declare the `LLVMFuzzerTestOneInput` function.
+- Ensure the function correctly handles the input data and calls the target function.
 supersedes: skill_2e294e4c
 provenance:
 - seed
@@ -20,6 +18,7 @@ provenance:
 - zoid_inifuzz_1788836283
 - zoid_tlvfuzz_1788843731
 - zoid_tlvfuzz_1788845035
+- zoid_inifuzz_1788881797
 created: 1788845044.445987
 record:
   uses: 0

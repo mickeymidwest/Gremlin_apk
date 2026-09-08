@@ -1,38 +1,24 @@
-id: skill_6c4b0972
+id: skill_159b12e7
 name: verify-before-done
-status: active
+status: candidate
 destination: card
 council_reviewed: false
-purpose: Never say DONE on code work without a green check.
-trigger_when: when code changes are made
+purpose: Ensure the agent verifies the correctness of changes before declaring the task complete.
+trigger_when: when changes are made to code
 trigger_matcher: fix|bug|implement|add|change|test
 procedure:
-- Run all tests to ensure they pass.
-- Check for any new failures introduced by the changes.
-- Verify that the changes do not introduce new bugs.
-supersedes: seed_04
+- Run all relevant tests to ensure the changes do not introduce new bugs.
+- Check the code for any syntax or logical errors.
+- Ensure the tests cover the fixed issues.
+supersedes: skill_6c4b0972
 provenance:
 - seed
 - zoid_csv-report_1788877053
-created: 1788877063.3770778
+- zoid_mb_buildalot-apk_1788882308
+created: 1788882317.225859
 record:
-  uses: 15
-  wins: 15
+  uses: 0
+  wins: 0
   losses: 0
-  score_deltas:
-  - 0.625
-  - 0.6545
-  - 1.0
-  - 0.75
-  - 0.5727
-  - 1.0
-  - 0.75
-  - 0.5727
-  - 1.0
-  - 0.625
-  - 0.6545
-  - 1.0
-  - 0.75
-  - 0.7364
-  - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788881485
+  score_deltas: []
+  last_used_battle: null
