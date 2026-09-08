@@ -215,6 +215,23 @@ def _run(verify_cmd: str, repo: Path, timeout: int = 600) -> tuple[int, int, str
     return 0, (1 if p.returncode != 0 else 0), out
 
 
+def _gradle_assertion_failures(root: Path) -> list[str]:
+    """Read the JUnit XML for the real 'expected X but was Y' messages --
+    the gradle console only prints the test name."""
+    import xml.etree.ElementTree as ET
+    out: list[str] = []
+    for xml in root.rglob("build/test-results/**/TEST-*.xml"):
+        try:
+            for tc in ET.parse(xml).getroot().iter("testcase"):
+                fx = tc.find("failure") if tc.find("failure") is not None else tc.find("error")
+                if fx is not None:
+                    msg = (fx.get("message") or "").strip().splitlines()[0][:200]
+                    out.append(f"{tc.get('name')}: {msg}")
+        except Exception:
+            pass
+    return out
+
+
 def _first_failure(out: str, lang: str) -> str:
     for rx in (_KT_FAIL_LINE, _PYFAIL):
         m = rx.search(out)
@@ -268,9 +285,10 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
         best_src, best_p, best_f = cur, base_p, base_f
         hint = ""
         _seen: list[tuple[int, int]] = []
+        temps = [0.15, 0.5, 0.85, 0.6, 0.9]
         for attempt in range(best_of + repair_rounds):
-            t = 0.2 if attempt < best_of else 0.45
-            body = _gen_body(model, stub, spec, cur, hint, temperature=t)
+            body = _gen_body(model, stub, spec, cur, hint,
+                             temperature=temps[min(attempt, len(temps) - 1)])
             if not body:
                 continue
             trial = _splice(cur, stub, body)
@@ -278,23 +296,30 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
             if compile_cmd:
                 cp, cf, cout = _run(compile_cmd, root, timeout=300)
                 if cf and not cp:
-                    hint = "does not compile:\n" + _first_failure(cout, stub.lang)[:500]
+                    hint = ("Your last body did NOT compile:\n"
+                            + _first_failure(cout, stub.lang)[:500])
                     log(f"[method_builder] {name} try {attempt+1}: COMPILE FAIL")
                     tgt.write_text(cur)
                     continue
             p, f, out = _run(verify_cmd, root)
-            log(f"[method_builder] {name} try {attempt+1}: {p}p/{f}f"
-                + ("" if (p, f) != (0, 0) else "  ||" + out.strip().splitlines()[-1][:120]))
+            log(f"[method_builder] {name} try {attempt+1}: {p}p/{f}f  body={body!r}")
+            asserts = _gradle_assertion_failures(root) if stub.lang == "kt" else []
+            rel = [a for a in asserts if name.lower() in a.lower()] or asserts[:3]
+            if p <= best_p:
+                log("    " + " | ".join(rel[:3] or [_first_failure(out, stub.lang)[:150]]))
+                hint = (f"Your last body for `{name}` was:\n{body}\n\n"
+                        f"It still fails these:\n" + "\n".join(rel[:4]) +
+                        f"\n\nRe-read the spec above carefully -- a guard condition may be "
+                        f"inverted (e.g. `plots[i].owned` vs `!plots[i].owned`), or the "
+                        f"order of operations is wrong. Return a corrected full body.")
             if p > best_p or (p == best_p and f < best_f):
                 best_src, best_p, best_f = trial, p, f
                 if f == 0:
                     break
             _seen.append((p, f))
-            # plateau: same p/f 3 times running -> this method isn't the
-            # blocker (or the model can't do better), stop wasting gradle runs
-            if len(_seen) >= 3 and len(set(_seen[-3:])) == 1:
+            # plateau: same p/f 4 times running -> move on
+            if len(_seen) >= 4 and len(set(_seen[-4:])) == 1:
                 break
-            hint = _first_failure(out, stub.lang)[:600]
         cur = best_src
         tgt.write_text(cur)
         res.methods_done.append(name)
