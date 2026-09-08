@@ -217,8 +217,12 @@ def _load_jsonl(path: Path) -> list[dict]:
 
 def train_lora(
     root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 1, lr: float = 1e-4,
-    model_name: Optional[str] = None,
+    model_name: Optional[str] = None, max_length: int = 384, max_rows: int = 0,
 ) -> dict:
+    """max_length: tokens per example -- activation memory scales with it,
+    so this is the main 'don't crash' knob (384 is gentle; 256 gentler).
+    max_rows: 0 = all; a positive cap keeps a big dataset from being pulled
+    into memory at once (rows past the cap are simply not used this run)."""
     """
     QLoRA fine-tune on <target>/training_set.jsonl (write_training_set()
     must have already been run for the SAME model_name -- this doesn't
@@ -289,10 +293,16 @@ def train_lora(
         # sequence length (activation memory scales with it) combined
         # with the smaller LoRA config below. Longer synthesized answers
         # get truncated harder than before, not dropped.
-        return tokenizer(text, truncation=True, max_length=512)
+        return tokenizer(text, truncation=True, max_length=max_length)
 
-    train_ds = Dataset.from_list(train_rows).map(_tokenize, remove_columns=["messages"])
-    eval_ds = Dataset.from_list(eval_rows).map(_tokenize, remove_columns=["messages"]) if eval_rows else None
+    if max_rows and len(train_rows) > max_rows:
+        train_rows = train_rows[:max_rows]
+    # tokenize in small batches so a large set isn't all resident at once
+    train_ds = Dataset.from_list(train_rows).map(
+        _tokenize, batched=False, remove_columns=["messages"])
+    eval_ds = (Dataset.from_list(eval_rows).map(
+        _tokenize, batched=False, remove_columns=["messages"])
+        if eval_rows else None)
 
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -349,7 +359,9 @@ def train_lora(
         output_dir=str(out_dir / "checkpoints"),
         num_train_epochs=epochs,
         per_device_train_batch_size=1,
-        gradient_accumulation_steps=8,
+        gradient_accumulation_steps=16,   # bigger effective batch, SAME memory (one real sample at a time)
+        dataloader_num_workers=0,         # no worker processes competing for RAM
+        dataloader_pin_memory=False,
         learning_rate=lr,
         # ease in over the first 10% of steps, then cosine-decay to ~0 --
         # no big jolts to the weights at the start or the end
