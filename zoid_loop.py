@@ -124,6 +124,16 @@ def targets() -> list[dict]:
         T.append(_cfuzz(tlv, "tlvfuzz"))
     if ini.is_dir():
         T.append(_cfuzz(ini, "inifuzz"))
+
+    multi = HOME / "Downloads" / "pybugs-multi"
+    if multi.is_dir():
+        T.append(dict(name="bank-multi", repo=multi, verifier=PytestVerifier(),
+            step_budget=1, max_tokens=2560, time_budget=1800, builder="*",
+            task=Task(id="bankmulti", verify_cmd="python -m pytest -q",
+                prompt=("A 4-file python package under bank/ -- every function a "
+                        "NotImplementedError stub, pinned by test_bank.py. The "
+                        "harness fills them file by file in dependency order."))))
+
     if klon.is_dir() and (klon / "gradlew").exists():
         T.append(dict(name="klondike-apk", repo=klon,
             verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=38, max_tokens=4096, time_budget=2400,
@@ -274,9 +284,15 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         lines: list[str] = []
         def _blog(m):
             lines.append(str(m)); log(f"     {m}")
-        r = build_from_scaffold(str(work), tgt["builder"], task.verify_cmd, model,
-                                best_of=3, repair_rounds=4,
-                                compile_cmd=tgt.get("compile_cmd"), log=_blog)
+        if tgt.get("builder") == "*":          # multi-file: harness discovers the files
+            from gremlin_core.magic.method_builder import build_project
+            r = build_project(str(work), task.verify_cmd, model,
+                              best_of=3, repair_rounds=3, project_passes=4,
+                              compile_cmd=tgt.get("compile_cmd"), log=_blog)
+        else:
+            r = build_from_scaffold(str(work), tgt["builder"], task.verify_cmd, model,
+                                    best_of=3, repair_rounds=4,
+                                    compile_cmd=tgt.get("compile_cmd"), log=_blog)
         mins = (time.monotonic() - t0) / 60
         score = tgt["verifier"].score(task, str(work))
         steps = [StepRecord(kind="note", content=ln) for ln in lines[-60:]]
