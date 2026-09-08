@@ -35,6 +35,19 @@ def _keywords(s: str) -> set[str]:
     return set(re.findall(r"[a-z]{4,}", (s or "").lower()))
 
 
+def _is_concrete(txt: str) -> bool:
+    """Reject the fragments the model sometimes emits instead of a lesson
+    -- "The agent", "The agent repeatedly failed", "The `share" (cut off
+    mid-word). A real lesson is a whole sentence naming what went wrong."""
+    if not (20 <= len(txt) <= 240):
+        return False
+    if txt.count("`") % 2:                    # truncated mid-backtick
+        return False
+    if len(re.findall(r"\w+", txt)) < 6:      # not a sentence
+        return False
+    return True
+
+
 def distil_lesson(model: Model, task: Task, transcript: Transcript) -> str:
     """One model call -> one sentence, or '' if nothing useful."""
     steps = []
@@ -53,7 +66,7 @@ def distil_lesson(model: Model, task: Task, transcript: Transcript) -> str:
     except Exception:
         return ""
     txt = txt.splitlines()[0].strip().strip('"').strip() if txt else ""
-    if not (8 <= len(txt) <= 240) or txt.upper().startswith("NONE"):
+    if txt.upper().startswith("NONE") or not _is_concrete(txt):
         return ""
     # a lesson with no concrete noun is noise ("be careful", "don't assume")
     if re.search(r"^\W*(be (more )?careful|don'?t assume|pay attention|"

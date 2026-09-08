@@ -41,3 +41,14 @@ def test_empty_lesson_not_saved(tmp_path):
 def test_distil_returns_empty_on_a_junk_reply(tmp_path):
     model = ScriptedModel([""])   # model gave nothing
     assert reflexion.distil_lesson(model, Task(id="t", prompt="x"), _lost_transcript()) == ""
+
+
+def test_fragment_lessons_are_rejected(tmp_path):
+    task = Task(id="t", prompt="fix the bug")
+    tr = Transcript(task_id="t", final_message="lost",
+                    steps=[StepRecord(kind="model", content="hmm")])
+    for frag in ("The agent", "The agent repeatedly failed", "The `share"):
+        assert reflexion.distil_lesson(ScriptedModel([frag]), task, tr) == ""
+    # a real, whole-sentence lesson survives
+    good = "The dedupe function kept duplicates because it never tracked seen items."
+    assert reflexion.distil_lesson(ScriptedModel([good]), task, tr) == good
