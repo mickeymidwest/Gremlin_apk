@@ -1,0 +1,26 @@
+id: skill_3d3712b6
+name: identify-bug-and-root-cause
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Identify the root cause of a bug and provide a comprehensive plan to fix it.
+trigger_when: when a bug is identified
+trigger_matcher: null
+procedure:
+- Reproduce the bug to ensure it can be seen.
+- Analyze the test output to understand the assertion failure and the expected result.
+- Trace the data flow to identify where the bug is introduced.
+- Characterize the bug and understand its behavior.
+- Develop a plan to fix the bug, including any necessary refactoring or changes to the codebase.
+- Implement the fix and verify that it resolves the bug.
+- Document the fix and the root cause for future reference.
+supersedes: null
+provenance:
+- zoid_csv-report_1788842216
+created: 1788842228.985403
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
