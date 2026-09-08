@@ -176,11 +176,15 @@ def _fix_trailing_return(body: str, stub: Stub) -> str:
 
 
 def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
-              fail_hint: str = "", temperature: float = 0.2) -> str:
+              fail_hint: str = "", temperature: float = 0.2, context: str = "") -> str:
     marked = full_src[:stub.start] + "\n<<<WRITE THE BODY HERE>>>\n" + full_src[stub.end:]
     sys = _SYS_KT if stub.lang == "kt" else _SYS_PY
-    user = (f"{spec}\n\n---\nThe file (fill in only the marked body of `{stub.name}`):\n"
-            f"```\n{marked}\n```\n")
+    user = ""
+    if context:
+        user += ("OTHER FILES in this project you can call into (signatures only):\n"
+                 f"{context}\n\n---\n")
+    user += (f"{spec}\n\n---\nThe file (fill in only the marked body of `{stub.name}`):\n"
+             f"```\n{marked}\n```\n")
     if fail_hint:
         user += f"\nYour last attempt failed this check -- fix exactly this:\n{fail_hint}\n"
     user += f"\nNow output only the body of `{stub.name}`:"
@@ -325,7 +329,7 @@ def _first_failure(out: str, lang: str) -> str:
 
 def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Model, *,
                         best_of: int = 3, repair_rounds: int = 2,
-                        compile_cmd: str | None = None,
+                        compile_cmd: str | None = None, context: str = "",
                         log=lambda m: print(m, flush=True)) -> BuildResult:
     root = Path(repo)
     tgt = root / target_rel
@@ -372,7 +376,8 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                    "    if (<cond on plots[i]>) acc += <expr using i / houseValue(i) / consts>\n"
                    "}\nreturn acc") if (_cfails >= 2 and stub.lang == "kt") else ""
             body = _gen_body(model, stub, spec, cur, hint + _sk,
-                             temperature=temps[min(attempt, len(temps) - 1)])
+                             temperature=temps[min(attempt, len(temps) - 1)],
+                             context=context)
             if not body:
                 continue
             trial = _splice(cur, stub, body)
@@ -455,7 +460,8 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                              "    if (<condition on plots[i]>) acc += <expr using i, "
                              "houseValue(i), the constants>\n}\nreturn acc")
                 body = _gen_body(model, stub, spec, cur, hint,
-                                 temperature=[0.2, 0.6, 0.9, 0.7, 0.5][min(attempt, 4)])
+                                 temperature=[0.2, 0.6, 0.9, 0.7, 0.5][min(attempt, 4)],
+                                 context=context)
                 if not body:
                     continue
                 trial = _splice(cur, stub, body)
@@ -492,3 +498,102 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
     res.final_source = cur
     log(f"[method_builder] FINAL {p}p/{f}f score={res.score:.2f} methods={res.methods_done}")
     return res
+
+
+# ---- multi-file: a whole scaffolded project --------------------------
+
+_SRC_DIRS = ("src/main", "src", "app/src/main", "lib", "core")
+_SKIP_DIR = re.compile(r"(^|/)(test|androidTest|build|\.git|__pycache__|\.gradle|venv)(/|$)")
+
+
+def discover_stub_files(repo: str) -> list[str]:
+    """Every non-test source file under `repo` that still holds an
+    unimplemented stub, roughly in dependency order (fewest stubs first
+    -- a leaf/helper file tends to have fewer)."""
+    root = Path(repo)
+    found: list[tuple[int, str]] = []
+    for p in list(root.rglob("*.kt")) + list(root.rglob("*.py")):
+        rel = p.relative_to(root).as_posix()
+        if _SKIP_DIR.search(rel) or rel.endswith(("Test.kt", "_test.py")) \
+           or Path(rel).name.startswith("test_"):
+            continue
+        try:
+            n = len(find_stubs(p.read_text(), rel))
+        except Exception:
+            n = 0
+        if n:
+            found.append((n, rel))
+    found.sort()
+    return [rel for _, rel in found]
+
+
+_KT_SIG = re.compile(r"(?m)^[ \t]*(?:(?:public|internal|private|open|abstract|"
+                     r"data|sealed|override|suspend)\s+)*"
+                     r"(class|object|interface|fun|val|var|const val)\s+[^\n{=]+")
+
+
+def _api_digest(sources: dict[str, str], *, max_lines_per_file: int = 40) -> str:
+    """Signatures a sibling file might call: class/fun/val declaration
+    lines, no bodies. Keeps the multi-file context small."""
+    out: list[str] = []
+    for rel, src in sources.items():
+        if rel.endswith((".kt", ".kts")):
+            sigs = [m.group(0).strip().rstrip("{").strip()
+                    for m in _KT_SIG.finditer(src)]
+        else:
+            sigs = [ln.strip() for ln in src.splitlines()
+                    if re.match(r"^[ \t]*(class |def |[A-Z_][A-Z0-9_]* *=)", ln)]
+        sigs = [s for s in sigs if s][:max_lines_per_file]
+        if sigs:
+            out.append(f"// {rel}\n" + "\n".join(sigs))
+    return "\n\n".join(out)
+
+
+def build_project(repo: str, verify_cmd: str, model: Model, *,
+                  targets: list[str] | None = None, compile_cmd: str | None = None,
+                  best_of: int = 3, repair_rounds: int = 2, project_passes: int = 3,
+                  log=lambda m: print(m, flush=True)) -> BuildResult:
+    """Fill a scaffold that spans SEVERAL files. Each file is built with
+    build_from_scaffold (one body at a time, compiled + tested), and the
+    whole set is swept `project_passes` times so a method in file A can be
+    retried once file B -- which its test needs -- exists. Every _gen_body
+    call for file A gets a signatures-only digest of the other targets."""
+    root = Path(repo)
+    targets = targets or discover_stub_files(repo)
+    log(f"[build_project] {len(targets)} scaffold files: {targets}")
+    if not targets:
+        p, f, _ = _run(verify_cmd, root)
+        r = BuildResult(passed=p, failed=f, score=p / (p + f) if (p + f) else 0.0)
+        return r
+
+    sources = {t: (root / t).read_text() for t in targets}
+    last_p = -1
+    for ppass in range(project_passes):
+        p, f, _ = _run(verify_cmd, root)
+        log(f"[build_project] pass {ppass + 1}: {p}p/{f}f")
+        if f == 0 and p > 0:
+            break
+        for trel in targets:
+            if not find_stubs((root / trel).read_text(), trel) and ppass > 0:
+                continue   # this file is fully filled; the sweep is for the others
+            digest = _api_digest({k: v for k, v in sources.items() if k != trel})
+            log(f"[build_project] -> {trel}")
+            sub = build_from_scaffold(
+                repo, trel, verify_cmd, model, best_of=best_of,
+                repair_rounds=repair_rounds, compile_cmd=compile_cmd,
+                context=digest, log=log)
+            sources[trel] = sub.final_source or sources[trel]
+        p, f, _ = _run(verify_cmd, root)
+        if p == last_p and ppass > 0:
+            log("[build_project] no progress this pass -- stopping")
+            break
+        last_p = p
+
+    p, f, _ = _run(verify_cmd, root)
+    r = BuildResult(passed=p, failed=f, score=p / (p + f) if (p + f) else 0.0,
+                    methods_done=[t for t in targets
+                                  if not find_stubs((root / t).read_text(), t)])
+    r.final_source = "\n\n".join(f"// ==== {t} ====\n{sources[t]}" for t in targets)
+    log(f"[build_project] FINAL {p}p/{f}f score={r.score:.2f} "
+        f"files_complete={len(r.methods_done)}/{len(targets)}")
+    return r
