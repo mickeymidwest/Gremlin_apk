@@ -51,10 +51,14 @@ suite is green.
   builds.
 
 ### 3. Getting better on its own
-`zoid_loop.py` runs Gremlin through a rotation of ~11 practice targets,
-round after round. After every attempt it distils a lesson from a loss,
-proposes new skill cards, and promotes the ones that keep helping. The
-skill library grew from 30 hand-written cards to ~80 in a day.
+`zoid_loop.py` runs Gremlin through a rotation of 11 practice targets
+(6 bug-fixes, 3 fuzzers, 2 Android builds), round after round. After
+every attempt it distils a lesson from a loss, proposes new skill cards,
+and promotes the ones that keep helping. The skill library grew from 30
+hand-written cards to ~85 in a day.
+- One recent round: `temp-convert` 1.00, `csv-report` 1.00, `tlvfuzz`
+  1.00, `inifuzz` 1.00, **`buildalot` 13/13 via `method_builder`** — all
+  unattended.
 - `deploy/zoid-nightly.sh` runs it overnight; the service is back up in
   the morning.
 
