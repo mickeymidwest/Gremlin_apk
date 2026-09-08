@@ -1,19 +1,25 @@
-id: skill_74f1c910
+id: skill_79e2c9c4
 name: fix-function
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Fix the function to handle the specific issue identified in the failing test.
-trigger_when: when a function needs fixing
+purpose: Ensure the agent correctly identifies and fixes the failing test before declaring
+  success.
+trigger_when: when fixing a function that is failing a test
 trigger_matcher: null
 procedure:
-- Identify the exact problem in the function.
-- Make the smallest necessary fix to address the problem.
-- Run the tests again to ensure the issue is resolved.
-supersedes: null
+- Identify the specific failing test and its assertion to understand the expected behavior.
+- Read the failing test output to understand the assertion failure and the expected result.
+- Reproduce the bug before trying to fix it.
+- Characterize the bug and understand its root cause.
+- Develop a targeted fix for the bug.
+- Test the fix to ensure it resolves the issue without introducing new bugs.
+- Verify that the tests cover the fixed issues.
+supersedes: skill_74f1c910
 provenance:
 - zoid_text-fix_1788816828
-created: 1788816837.7162406
+- zoid_mini-ledger_1788852483
+created: 1788852494.4671125
 record:
   uses: 0
   wins: 0
