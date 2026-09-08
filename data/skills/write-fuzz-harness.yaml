@@ -1,0 +1,25 @@
+id: skill_c377f010
+name: write-fuzz-harness
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Create a fuzz harness for a given target function
+trigger_when: when a fuzzing task is assigned
+trigger_matcher: null
+procedure:
+- Identify the target function to fuzz
+- Create a new file named 'fuzz_target.c' in the root of the repository
+- Include all necessary headers and declare all used identifiers
+- Write the fuzz harness template for the target function
+- Compile the fuzz harness with libFuzzer and run it with a corpus to identify memory safety
+  bugs
+supersedes: null
+provenance:
+- zoid_nsfuzz_1788889243
+created: 1788889252.8131425
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

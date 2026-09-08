@@ -15,9 +15,9 @@ provenance:
 - seed
 created: 1788664611.4948788
 record:
-  uses: 34
-  wins: 32
-  losses: 2
+  uses: 36
+  wins: 33
+  losses: 3
   score_deltas:
   - 1.0
   - 0.6231
@@ -53,4 +53,6 @@ record:
   - 1.0
   - 1.0
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788888983
+  - 0.0
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1788889793
