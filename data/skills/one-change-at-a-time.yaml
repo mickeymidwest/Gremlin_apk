@@ -1,19 +1,22 @@
-id: seed_02
+id: skill_a19769ec
 name: one-change-at-a-time
 status: candidate
 destination: card
 council_reviewed: false
-purpose: a small model loses the thread on multi-file edits -- go one step at a time
-trigger_when: a task needs more than one edit
+purpose: Ensure the agent makes one change at a time to avoid introducing new bugs and to
+  make it easier to track the impact of each change.
+trigger_when: when fixing bugs or refactoring code
 trigger_matcher: null
 procedure:
-- make the single smallest edit that could move things forward
-- run the check (tests / compile / lint) to see if it helped
-- only make the next edit once you know the last one's effect
-supersedes: null
+- Identify the specific bug or issue to be fixed.
+- Make a single change to address the identified bug or issue.
+- Run the tests to ensure the change resolves the issue without introducing new bugs.
+- Repeat the process for each subsequent bug or issue.
+supersedes: seed_02
 provenance:
 - seed
-created: 1788664611.494871
+- zoid_csv-report_1788839444
+created: 1788839452.5151262
 record:
   uses: 0
   wins: 0
