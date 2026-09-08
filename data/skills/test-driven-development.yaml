@@ -1,4 +1,4 @@
-id: skill_6979e12d
+id: skill_e226fe30
 name: test-driven-development
 status: candidate
 destination: card
@@ -8,16 +8,18 @@ purpose: Ensure the agent correctly identifies and fixes the failing test before
 trigger_when: when a test fails
 trigger_matcher: test failed
 procedure:
-- Identify the specific failing test and its assertion.
-- Understand the expected behavior and the actual outcome.
-- Fix the bug in the code that causes the test to fail.
-- Run the test again to ensure it passes.
-- Repeat if necessary.
-supersedes: skill_29eb2ca6
+- Identify the specific failing test and its assertion to understand the expected behavior.
+- Reproduce the bug before trying to fix it.
+- Read the failing test output to understand the assertion failure.
+- Fix the function to handle the specific issue identified in the failing test.
+- Run the failing test again to ensure it passes.
+- Repeat the process for all failing tests.
+supersedes: skill_6979e12d
 provenance:
 - zoid_csv-report_1788842216
 - zoid_mb_buildalot-apk_1788844738
-created: 1788844745.9844472
+- zoid_mb_buildalot-apk_1788845395
+created: 1788845403.3385496
 record:
   uses: 0
   wins: 0

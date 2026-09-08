@@ -1,0 +1,20 @@
+id: skill_dfb72b2f
+name: write-file
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Create a new file with the specified content.
+trigger_when: when creating a new file
+trigger_matcher: null
+procedure:
+- Create a new file at the specified path with the given text content.
+supersedes: null
+provenance:
+- zoid_nsfuzz_1788844986
+created: 1788844994.1798127
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

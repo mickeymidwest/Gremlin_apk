@@ -1,22 +1,26 @@
-id: skill_2e294e4c
+id: skill_7722f972
 name: fuzz-harness
 status: candidate
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly sets up the fuzz harness with the correct include path
   and necessary headers.
-trigger_when: when creating a fuzz harness
-trigger_matcher: fuzz|libfuzzer|afl\+\+|honggfuzz|LLVMFuzzerTestOneInput|corpus|sanitizer|ASAN
+trigger_when: when setting up a fuzz harness
+trigger_matcher: fuzz-harness
 procedure:
-- Ensure the include path is correct for the header files.
-- Include all necessary headers at the top of the fuzz harness file.
-supersedes: skill_cad915b3
+- Identify the target function to fuzz.
+- Include the necessary headers.
+- Declare the `LLVMFuzzerTestOneInput` function.
+- Call the target function with the input data.
+- Free any allocated resources.
+supersedes: skill_2e294e4c
 provenance:
 - seed
 - zoid_inifuzz_1788824518
 - zoid_inifuzz_1788836283
 - zoid_tlvfuzz_1788843731
-created: 1788843739.3475885
+- zoid_tlvfuzz_1788845035
+created: 1788845044.445987
 record:
   uses: 0
   wins: 0
