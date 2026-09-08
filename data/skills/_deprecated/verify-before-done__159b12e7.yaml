@@ -1,0 +1,42 @@
+id: skill_159b12e7
+name: verify-before-done
+status: deprecated
+destination: card
+council_reviewed: false
+purpose: Ensure the agent verifies the correctness of changes before declaring the task complete.
+trigger_when: when changes are made to code
+trigger_matcher: fix|bug|implement|add|change|test
+procedure:
+- Run all relevant tests to ensure the changes do not introduce new bugs.
+- Check the code for any syntax or logical errors.
+- Ensure the tests cover the fixed issues.
+supersedes: skill_6c4b0972
+provenance:
+- seed
+- zoid_csv-report_1788877053
+- zoid_mb_buildalot-apk_1788882308
+created: 1788882317.225859
+record:
+  uses: 18
+  wins: 18
+  losses: 0
+  score_deltas:
+  - 0.625
+  - 0.6545
+  - 1.0
+  - 0.75
+  - 0.5727
+  - 1.0
+  - 0.875
+  - 0.6545
+  - 1.0
+  - 0.625
+  - 0.6545
+  - 1.0
+  - 0.75
+  - 0.6545
+  - 1.0
+  - 0.625
+  - 0.5727
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788887220
