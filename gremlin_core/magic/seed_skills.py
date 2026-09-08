@@ -1058,6 +1058,59 @@ _SEED = [
             "for a native (C) tool, that needs the Termux NDK cross-toolchain -- not set up here; stick to script tools unless mickey installs it",
         ],
     ),
+
+    # --- rootkits / malware: detect, contain, clean (defensive) ---
+    dict(
+        name="linux-rootkit-detection",
+        purpose="tell whether a Linux box is rootkitted, and at what layer",
+        trigger_when="a machine is behaving oddly -- hidden processes, unexplained traffic, tampered binaries",
+        trigger_matcher=r"rootkit|compromis|backdoor|hidden process|LD_PRELOAD|ld\.so\.preload|kallsyms|infected|malware.*linux",
+        procedure=[
+            "userland rootkit: `cat /etc/ld.so.preload` (should not exist), `env | grep LD_`, compare `ls` vs `echo *`, `ps` vs `ls /proc/[0-9]*`, `ss -tlnp` vs `/proc/net/tcp` -- mismatches = something hooking libc",
+            "kernel/LKM rootkit: `lsmod` vs `cat /proc/modules` vs `ls /sys/module`, `dmesg | grep -i taint`, `cat /proc/kallsyms | grep -iE 'hook|hide'`, unexpected entries in the syscall table (via a check module or volatility)",
+            "integrity: `pacman -Qkk` flags every package file that changed on disk (Arch's tripwire); on a live box also diff against a known-good hash set",
+            "the authoritative check is offline: image the disk, run rkhunter/chkrootkit/unhide against the mounted image, and a memory dump through Volatility -- a rootkit lies to tools running under it",
+        ],
+    ),
+    dict(
+        name="linux-rootkit-response",
+        purpose="what to actually do once a Linux compromise is confirmed",
+        trigger_when="a rootkit or persistent backdoor on Linux has been confirmed",
+        trigger_matcher=r"confirmed (compromise|rootkit)|incident response|remediat|reimage|clean(ing)? .*(rootkit|infect)|persistence",
+        procedure=[
+            "FIRST: forensic image (dd/dc3dd) + a memory capture before touching anything -- you only get one shot at the evidence",
+            "isolate the box from the network; do NOT reboot yet (loses memory-only artifacts) unless it's actively causing harm",
+            "map persistence from the image: kernel modules, initramfs, systemd units + timers, cron, ~/.*rc, ld.so.preload, authorized_keys, PAM modules, package post-install hooks",
+            "userland-only + you can enumerate every persistence point -> targeted removal + rotate all creds is possible; kernel-level or any doubt -> reimage from trusted media, restore data (not binaries) from backup",
+            "after: rotate every credential that touched the box, review what the attacker could have reached, patch the entry vector",
+        ],
+    ),
+    dict(
+        name="android-malware-and-root-detection",
+        purpose="check an Android device for unwanted root, spyware, or a malicious app",
+        trigger_when="an Android phone is suspected of being compromised or carrying stalkerware",
+        trigger_matcher=r"android.*(malware|spyware|stalkerware|rootkit|compromis)|magisk|unwanted root|rogue app|device admin",
+        procedure=[
+            "root/tamper: `adb shell which su`, look for Magisk/SuperSU, `adb shell getprop ro.boot.verifiedbootstate` (should be `green`), Play Integrity / `ro.boot.flash.locked`",
+            "apps: `pm list packages -3` (third-party) and `-s` (system-that-shouldn't-be); `dumpsys package <pkg>` for requested permissions; flag anything with BIND_ACCESSIBILITY_SERVICE, device-admin, SYSTEM_ALERT_WINDOW, or NOTIFICATION_LISTENER it doesn't need",
+            "behaviour: `dumpsys activity services`, running native procs, `/data/local/tmp` contents, battery/data usage by app, `adb logcat` for repeated network to one host",
+            "pull suspicious APKs (`pm path` -> `adb pull`) and run apk-recon + secrets-in-mobile-apps on them; capture traffic through a proxy for C2",
+            "clean-up: uninstall + revoke accessibility/admin first (some apps block uninstall via device-admin); a rooted/tampered `verifiedbootstate` means factory reset, and if bootloader was unlocked, reflash stock",
+        ],
+    ),
+    dict(
+        name="analyze-untrusted-apk-safely",
+        purpose="run a possibly-malicious APK without risking your own device or data",
+        trigger_when="you need to observe what an unknown or suspected-malicious APK actually does",
+        trigger_matcher=r"dynamic analysis|sandbox .*apk|detonat|run .*(malware|untrusted).*apk|emulator.*analysis|behavioou?r.*apk",
+        procedure=[
+            "static FIRST (apk-recon, secrets-in-mobile-apps, YARA) -- never run it before you've read it",
+            "use a throwaway AVD emulator (or a spare device you'll wipe), no real Google account, no personal data, a fresh snapshot to revert to",
+            "route traffic through mitmproxy/PCAP; consider offline / fake-services so it can't phone home for real",
+            "install, snapshot, exercise it; diff filesystem + `pm list packages` + granted perms before/after; `frida-trace` or `strace` the process; watch logcat",
+            "record IOCs (C2 domains/IPs, dropped files, package names, cert hashes) and revert the snapshot when done",
+        ],
+    ),
 ]
 
 

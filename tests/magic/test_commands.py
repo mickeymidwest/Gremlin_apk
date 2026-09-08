@@ -87,3 +87,27 @@ def test_build_android_new_is_desktop_only(tmp_path):
     ctx.loop = object()          # pretend we're under the server
     r = asyncio.run(dispatch("/build android new a stopwatch app", ctx))
     assert not r["ok"] and "desktop" in r["answer"].lower()
+
+
+def test_do_learn_flag_parsed(tmp_path, monkeypatch):
+    import gremlin_core.magic.battle as battle_mod
+    from gremlin_core.magic.types import Transcript
+    seen = {}
+
+    class BE:
+        async def generate(self, *a, **k):
+            return None
+
+    def fake_rb(task, root, model, **kw):
+        seen["budget"] = kw.get("step_budget")
+        return Transcript(task_id="do", final_message="done", steps=[])
+
+    monkeypatch.setattr(battle_mod, "run_battle", fake_rb)
+    reg = FakeRegistry()
+    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("gremlin", "qwen3-8b") else None)
+    ctx = _ctx(tmp_path)
+    ctx.registry = reg
+    r = asyncio.run(dispatch("/do learn how does the apk store its keys", ctx))
+    assert r["ok"] and seen["budget"] == 10          # learn mode bumps the budget
+    r2 = asyncio.run(dispatch("/do just a quick check", ctx))
+    assert seen["budget"] == 8

@@ -452,14 +452,24 @@ async def _memory(args: str, ctx: CommandContext) -> dict:
 
 async def _do(args: str, ctx: CommandContext) -> dict:
     """A bounded read-only ReAct loop: Gremlin actually runs df / ps /
-    systemctl status / docker ps to answer a question about live state.
-    Nothing that changes state can run (toolhost readonly mode)."""
+    systemctl status / jadx / grep to answer a question about live state
+    or a target. Nothing that changes state can run (toolhost readonly).
+
+    `/do learn <question>` also distils a skill card from what it did --
+    for recon / reverse-engineering sessions where the *method* is worth
+    keeping (see reckoning; lands as a candidate, earns `active` normally).
+    """
+    learn = False
+    if args.strip().lower().startswith("learn "):
+        learn, args = True, args.strip()[6:]
     if not args.strip():
-        return {"ok": False, "answer": "Usage: /do <question needing live system data>"}
+        return {"ok": False, "answer": "Usage: /do [learn] <question needing live system data>"}
     import asyncio
     from .battle import run_battle
     from .model import BackendModel
-    from .types import Task
+    from .types import Task, BattleResult, Score
+    from .store import Store
+    from . import lifecycle, reckoning
     backend = ctx.registry.get("gremlin") or ctx.registry.get(
         ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
     if backend is None:
@@ -468,6 +478,10 @@ async def _do(args: str, ctx: CommandContext) -> dict:
     task = Task(id="do", prompt=(
         f"Answer this by checking the live system, then say DONE with the answer: {args}"))
 
+    store = Store(ctx.project_root)
+    skills = store.read_skills()
+    facts = store.read_facts()
+
     # read_file / list_dir in the battle are jailed to this root; keep it
     # at the user's home, not "/", so a prompt-injected /do can't dump
     # arbitrary system files through the structured tools. run_shell still
@@ -475,12 +489,24 @@ async def _do(args: str, ctx: CommandContext) -> dict:
     do_root = str(Path.home())
 
     def run():
-        tr = run_battle(task, do_root, model, skills=[], facts=[],
-                        step_budget=8, plan=False, readonly=True)
+        tr = run_battle(task, do_root, model,
+                        skills=lifecycle.loadable(skills), facts=facts,
+                        step_budget=10 if learn else 8, plan=False, readonly=True)
         cmds = [f"$ {s.tool_args.get('cmd', '')}" for s in tr.steps
                 if s.kind == "tool" and s.tool_name == "run_shell"]
-        ans = tr.final_message or "(no answer)"
-        return ans + ("\n\n" + "\n".join(cmds) if cmds else "")
+        ans = (tr.final_message or "(no answer)") + (
+            "\n\n" + "\n".join(cmds) if cmds else "")
+        learned: list[str] = []
+        if learn and len([s for s in tr.steps if s.kind == "tool"]) >= 3:
+            res = BattleResult(battle_id=f"do_{int(__import__('time').time())}",
+                               task_id="do", transcript=tr, score=Score(0.6, ""))
+            props = reckoning.reckon(model, res, skills, facts, ctx.project_root)
+            kept = reckoning.gate(model, props, skills, facts)
+            n = reckoning.apply_proposals(kept, res.battle_id, skills, facts)
+            if n:
+                store.write_skills(skills)
+                learned = [p.payload.get("name") or p.payload.get("target", "?") for p in kept]
+        return ans + (f"\n\n[learned: {', '.join(learned)}]" if learned else "")
 
     return {"ok": True, "action": "do",
             "answer": await asyncio.get_event_loop().run_in_executor(None, run)}
@@ -522,8 +548,10 @@ COMMANDS: dict[str, Command] = {
                      "new <desc> | improve <name> | <fix>. Falls back to Gemini to draft.", _skill),
     "defense": Command("defense", "Check your own box: surface | updates | ssh | "
                        "secrets <path> | report. Read-only, defensive.", _defense),
-    "do": Command("do", "Ask something that needs live data -- Gremlin runs read-only "
-                  "shell commands to answer (\"what's using my disk\", \"is jellyfin up\").", _do),
+    "do": Command("do", "Ask something that needs live data, or recon/RE a target -- "
+                  "Gremlin runs read-only shell commands to answer (\"what's using my "
+                  "disk\", \"is jellyfin up\", \"what keys are in this apk\"). "
+                  "`do learn <q>` also keeps a skill card from how it did it.", _do),
     "memory": Command("memory", "What Gremlin remembers about you: list | forget <n> | clear. "
                       "(The file is ~/Downloads/gremlin_memory.txt -- editable by hand too.)", _memory),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
