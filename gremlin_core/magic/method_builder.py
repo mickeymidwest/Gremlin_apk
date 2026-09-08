@@ -139,8 +139,10 @@ _SYS_PY = ("You write ONE Python method body. Output ONLY the indented statement
 
 def _fix_trailing_return(body: str, stub: Stub) -> str:
     """A common 7B slip: ending a value-returning Kotlin { } body with a bare
-    `true` / `x + 1` instead of `return true`. Patch the last statement."""
-    if stub.lang != "kt" or "): " not in stub.header and "):" not in stub.header:
+    `true` / `false` / a number instead of `return true`. Conservative --
+    only a genuinely standalone simple literal on the last line, never a
+    continuation of a multi-line expression."""
+    if stub.lang != "kt":
         return body
     ret_t = re.search(r"\)\s*:\s*([\w<>?.\[\] ]+?)\s*\{?\s*$", stub.header)
     if not ret_t or ret_t.group(1).strip() in ("Unit", ""):
@@ -149,12 +151,13 @@ def _fix_trailing_return(body: str, stub: Stub) -> str:
     if not lines:
         return body
     last = lines[-1].strip()
-    if last and not re.match(r"return\b|throw\b|\}$|\{$", last) and "=" not in last.split("//")[0]:
-        # bare trailing expression -> return it
-        lines[-1] = re.sub(r"^(\s*)", r"\1return ", lines[-1], count=1) \
-            if lines[-1][:1] in " \t" else "return " + lines[-1]
-        return "\n".join(lines)
-    return body
+    # already returns / not a bare value / part of a bracket expression
+    if (re.match(r"(return|throw)\b", last)
+            or not re.fullmatch(r"(true|false|null|-?\d+(\.\d+)?|[A-Za-z_]\w*(\(\))?)", last)
+            or "return" in body):
+        return body
+    lines[-1] = lines[-1].replace(last, "return " + last, 1)
+    return "\n".join(lines)
 
 
 def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
@@ -262,6 +265,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
         spec = _method_spec(name, cur, test_src) or f"Implement {stub.header}"
         best_src, best_p, best_f = cur, base_p, base_f
         hint = ""
+        _seen: list[tuple[int, int]] = []
         for attempt in range(best_of + repair_rounds):
             t = 0.2 if attempt < best_of else 0.45
             body = _gen_body(model, stub, spec, cur, hint, temperature=t)
@@ -272,7 +276,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
             if compile_cmd:
                 cp, cf, cout = _run(compile_cmd, root, timeout=300)
                 if cf and not cp:
-                    hint = _first_failure(cout, stub.lang)[:600]
+                    hint = "does not compile:\n" + _first_failure(cout, stub.lang)[:500]
                     tgt.write_text(cur)
                     continue
             p, f, out = _run(verify_cmd, root)
@@ -281,6 +285,11 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 best_src, best_p, best_f = trial, p, f
                 if f == 0:
                     break
+            _seen.append((p, f))
+            # plateau: same p/f 3 times running -> this method isn't the
+            # blocker (or the model can't do better), stop wasting gradle runs
+            if len(_seen) >= 3 and len(set(_seen[-3:])) == 1:
+                break
             hint = _first_failure(out, stub.lang)[:600]
         cur = best_src
         tgt.write_text(cur)
