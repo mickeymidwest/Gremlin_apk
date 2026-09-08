@@ -188,8 +188,21 @@ def apply_proposals(proposals: Sequence[Proposal], battle_id: str,
                         and s.status != "deprecated"), None)
             if old is None:
                 continue
-            old.status = "deprecated"
             tm = p.payload["trigger_matcher"]
+            # an unproven candidate has no track record worth preserving --
+            # edit it in place instead of leaving a deprecated husk behind
+            # (that husk-per-revision is why the store grew same-name dupes)
+            if old.status == "candidate":
+                old.purpose = p.payload["purpose"] or old.purpose
+                old.trigger_when = p.payload["trigger_when"] or old.trigger_when
+                if tm is not None:
+                    old.trigger_matcher = tm
+                old.procedure = p.payload["procedure"]
+                if battle_id not in old.provenance:
+                    old.provenance.append(battle_id)
+                n += 1
+                continue
+            old.status = "deprecated"
             skills.append(Skill(
                 id="skill_" + uuid.uuid4().hex[:8],
                 name=old.name,

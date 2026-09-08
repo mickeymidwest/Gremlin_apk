@@ -1,0 +1,533 @@
+{
+  "battle_id": "zoid_mb_buildalot-apk_1788835352",
+  "task_id": "buildalot",
+  "transcript": {
+    "task_id": "buildalot",
+    "steps": [
+      {
+        "kind": "note",
+        "content": "    house_value_reflects_upgrades: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] upgrade try 3: 5p/8f  body='if (i < 0 || i >= plots.size) return false\\nif (plots[i].house == null) return false\\nif (plots[i].house!!.level == MAX_LEVEL) return false\\nval upgradeCost = UPGRADE_COST * (plots[i].house!!.level - 1)\\nif (cash < upgradeCost) return false\\nplots[i].house!!.level++\\ncash -= upgradeCost\\nreturn true'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    house_value_reflects_upgrades: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] upgrade try 4: 5p/8f  body='if (i < 0 || i >= plots.size) return false\\nif (plots[i].house == null) return false\\nif (plots[i].house!!.level == MAX_LEVEL) return false\\nval upgradeCost = UPGRADE_COST * (plots[i].house!!.level - 1)\\nif (cash < upgradeCost) return false\\nplots[i].house!!.level++\\ncash -= upgradeCost\\nreturn true'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    house_value_reflects_upgrades: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] sell try 1: 5p/8f  body='if (i < 0 || i >= plots.size) return false\\nif (!plots[i].owned) return false\\nval plot = plots[i]\\nval house = plot.house\\nval value = if (house != null) PLOT_PRICE / 2 + houseValue(i) else PLOT_PRICE / 2\\ncash += value\\nplot.owned = false\\nplot.house = null\\nreturn true'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] sell try 2: 5p/8f  body='if (i < 0 || i >= plots.size) return false\\nif (!plots[i].owned) return false\\nval plot = plots[i]\\nval house = plot.house\\nval value = if (house != null) PLOT_PRICE / 2 + houseValue(i) else PLOT_PRICE / 2\\ncash += value\\nplot.owned = false\\nplot.house = null\\nreturn true'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] sell try 3: 5p/8f  body='if (i < 0 || i >= plots.size) return false\\nif (!plots[i].owned) return false\\nval plot = plots[i]\\nval house = plot.house\\nval value = if (house != null) PLOT_PRICE / 2 + houseValue(i) else PLOT_PRICE / 2\\ncash += value\\nplot.owned = false\\nplot.house = null\\nreturn true'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] sell try 4: 5p/8f  body='if (i < 0 || i >= plots.size) return false\\nif (!plots[i].owned) return false\\nval plot = plots[i]\\nval house = plot.house\\nval value = if (house != null) PLOT_PRICE / 2 + houseValue(i) else PLOT_PRICE / 2\\ncash += value\\nplot.owned = false\\nplot.house = null\\nreturn true'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] endTurn try 1: 7p/6f  body='turn++\\nfor (i in plots.indices) {\\n    val plot = plots[i]\\n    if (plot.owned && plot.house != null) {\\n        if (plot.house!!.turnsLeft > 0) {\\n            plot.house!!.turnsLeft--\\n        } else if (plot.house!!.finished) {\\n            cash += RENT_PER_LEVEL * plot.house!!.level\\n        }\\n    }\\n}'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] endTurn try 2: 7p/6f  body='turn++\\nfor (i in plots.indices) {\\n    if (plots[i].house != null) {\\n        if (plots[i].house!!.turnsLeft > 0) {\\n            plots[i].house!!.turnsLeft--\\n        } else if (plots[i].house!!.finished) {\\n            cash += RENT_PER_LEVEL * plots[i].house!!.level\\n        }\\n    }\\n}'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] endTurn try 3: 7p/6f  body='turn++\\nfor (i in plots.indices) {\\n    if (plots[i].house != null) {\\n        if (plots[i].house!!.turnsLeft > 0) {\\n            plots[i].house!!.turnsLeft--\\n        } else if (plots[i].house!!.finished) {\\n            cash += RENT_PER_LEVEL * plots[i].house!!.level\\n        }\\n    }\\n}'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] endTurn try 4: 7p/6f  body='turn++\\nfor (i in plots.indices) {\\n    if (plots[i].house != null) {\\n        if (plots[i].house!!.turnsLeft > 0) {\\n            plots[i].house!!.turnsLeft--\\n        } else if (plots[i].house!!.finished) {\\n            cash += RENT_PER_LEVEL * plots[i].house!!.level\\n        }\\n    }\\n}'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] houseValue try 1: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:109:50 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] houseValue try 2: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:109:50 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] houseValue try 3: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:109:50 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] houseValue try 4: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:109:50 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] houseValue try 5: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:109:50 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] netWorth try 1: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:110:99 Argument type mismatch: actual type is 'Plot', but 'Int' was expected.",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] netWorth try 2: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:110:99 Argument type mismatch: actual type is 'Plot', but 'Int' was expected.",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] netWorth try 3: 8p/5f  body='var acc = cash\\nfor (i in plots.indices) {\\n    if (plots[i].owned) acc += (PLOT_PRICE / 2) + houseValue(i)\\n}\\nreturn acc'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] netWorth try 4: 8p/5f  body='var acc = cash\\nfor (i in plots.indices) {\\n    if (plots[i].owned) acc += (PLOT_PRICE / 2) + houseValue(i)\\n}\\nreturn acc'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] netWorth try 5: 8p/5f  body='var acc = cash\\nfor (i in plots.indices) {\\n    if (plots[i].owned) acc += (PLOT_PRICE / 2) + houseValue(i)\\n}\\nreturn acc'",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass 2 -- retrying ['upgrade', 'sell', 'houseValue']  (8p/5f)",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 upgrade try 1: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 upgrade try 2: 8p/5f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 upgrade try 3: 8p/5f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 upgrade try 4: 8p/5f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 upgrade try 5: 8p/5f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 sell try 1: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 sell try 2: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 sell try 3: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 sell try 4: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 sell try 5: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 houseValue try 1: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 houseValue try 2: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 houseValue try 3: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 houseValue try 4: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass2 houseValue try 5: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass 3 -- retrying ['upgrade', 'sell', 'houseValue']  (9p/4f)",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 sell try 1: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 sell try 2: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 sell try 3: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 sell try 4: 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 sell try 5: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:88:51 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 houseValue try 1: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 houseValue try 2: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 houseValue try 3: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:45 Smart cast to 'House' is impossible, because 'house' is a mutable property that co",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 houseValue try 4: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:67 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] pass3 houseValue try 5: COMPILE FAIL -- e: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/src/main/java/com/buildalot/game/Game.kt:115:67 Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "[method_builder] FINAL 9p/4f score=0.69 methods=['buyPlot', 'build', 'upgrade', 'sell', 'endTurn', 'houseValue', 'netWorth']",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      },
+      {
+        "kind": "note",
+        "content": "method_builder filled ['buyPlot', 'build', 'upgrade', 'sell', 'endTurn', 'houseValue', 'netWorth']; final 9p/4f",
+        "tool_name": null,
+        "tool_args": null,
+        "tool_result": null
+      }
+    ],
+    "final_message": "9/13 tests pass",
+    "skills_available": [
+      "seed_20",
+      "seed_17",
+      "seed_18",
+      "seed_13",
+      "seed_15",
+      "seed_54",
+      "seed_12",
+      "seed_14",
+      "seed_16",
+      "seed_25",
+      "seed_24",
+      "seed_31",
+      "seed_29",
+      "seed_54",
+      "seed_52",
+      "seed_55",
+      "skill_082fc8f1",
+      "seed_51",
+      "seed_52",
+      "seed_50",
+      "seed_53",
+      "seed_34",
+      "seed_41",
+      "seed_60",
+      "seed_01",
+      "skill_228f5568",
+      "seed_26",
+      "seed_63",
+      "seed_38",
+      "skill_40989b4b",
+      "seed_40",
+      "seed_36",
+      "seed_66",
+      "skill_232dc389",
+      "skill_74f1c910",
+      "seed_48",
+      "skill_fbdf4249",
+      "skill_d3be33ad",
+      "seed_10",
+      "seed_11",
+      "skill_6350ef6a",
+      "skill_4725e072",
+      "skill_367a38b9",
+      "seed_17",
+      "skill_60b67b2d",
+      "skill_2f4a73d0",
+      "seed_58",
+      "seed_42",
+      "seed_16",
+      "seed_19",
+      "seed_53",
+      "seed_27",
+      "seed_46",
+      "seed_56",
+      "seed_08",
+      "seed_18",
+      "seed_43",
+      "seed_32",
+      "skill_0ba74826",
+      "seed_02",
+      "seed_28",
+      "seed_47",
+      "seed_49",
+      "skill_51fc3b7c",
+      "seed_00",
+      "seed_33",
+      "skill_9fb94755",
+      "skill_90e439fb",
+      "seed_21",
+      "seed_03",
+      "seed_62",
+      "seed_07",
+      "seed_45",
+      "seed_06",
+      "seed_59",
+      "seed_64",
+      "seed_23",
+      "seed_37",
+      "seed_44",
+      "seed_57",
+      "seed_39",
+      "seed_65",
+      "seed_55",
+      "seed_04",
+      "seed_09",
+      "seed_35",
+      "seed_61"
+    ],
+    "skills_invoked": []
+  },
+  "score": {
+    "value": 0.6230769230769231,
+    "failure_signal": "gradle testDebugUnitTest failed:\n> Task :app:testDebugUnitTest FAILED\nBuildalotTest > net_worth_counts_cash_plots_and_houses FAILED\nBuildalotTest > selling_frees_the_plot_and_returns_money FAILED\nBuildalotTest > house_value_reflects_upgrades FAILED\nBuildalotTest > you_win_at_the_target FAILED\n* What went wrong:\nBUILD FAILED in 16s",
+    "detail": "To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.\nDaemon will be stopped at the end of the build \n\n> Configure project :app\nWARNING: The option setting 'android.useAndroidX=false' is deprecated.\nThe current default is 'true'.\nIt will be removed in version 10.0 of the Android Gradle plugin.\n\n> Task :app:preBuild UP-TO-DATE\n> Task :app:preDebugBuild UP-TO-DATE\n> Task :app:generateDebugResources UP-TO-DATE\n> Task :app:packageDebugResources UP-TO-DATE\n> Task :app:processDebugNavigationResources UP-TO-DATE\n> Task :app:parseDebugLocalResources UP-TO-DATE\n> Task :app:generateDebugRFile UP-TO-DATE\n> Task :app:compileDebugKotlin UP-TO-DATE\n> Task :app:javaPreCompileDebug UP-TO-DATE\n> Task :app:compileDebugJavaWithJavac NO-SOURCE\n> Task :app:checkDebugAarMetadata UP-TO-DATE\n> Task :app:mapDebugSourceSetPaths UP-TO-DATE\n> Task :app:compileDebugNavigationResources UP-TO-DATE\n> Task :app:mergeDebugResources UP-TO-DATE\n> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE\n> Task :app:extractDeepLinksDebug UP-TO-DATE\n> Task :app:processDebugMainManifest UP-TO-DATE\n> Task :app:processDebugManifest UP-TO-DATE\n> Task :app:processDebugManifestForPackage UP-TO-DATE\n> Task :app:processDebugResources UP-TO-DATE\n> Task :app:bundleDebugClassesToRuntimeJar UP-TO-DATE\n> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE\n> Task :app:preDebugUnitTestBuild UP-TO-DATE\n> Task :app:compileDebugUnitTestKotlin UP-TO-DATE\n> Task :app:javaPreCompileDebugUnitTest UP-TO-DATE\n> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE\n> Task :app:processDebugJavaRes UP-TO-DATE\n> Task :app:processDebugUnitTestJavaRes UP-TO-DATE\n\n> Task :app:testDebugUnitTest FAILED\n\nBuildalotTest > net_worth_counts_cash_plots_and_houses FAILED\n    kotlin.NotImplementedError at BuildalotTest.kt:115\n\nBuildalotTest > selling_frees_the_plot_and_returns_money FAILED\n    kotlin.NotImplementedError at BuildalotTest.kt:95\n\nBuildalotTest > house_value_reflects_upgrades FAILED\n    kotlin.NotImplementedError at BuildalotTest.kt:106\n\nBuildalotTest > you_win_at_the_target FAILED\n    kotlin.NotImplementedError at BuildalotTest.kt:127\n24 actionable tasks: 1 executed, 23 up-to-date\n\n13 tests completed, 4 failed\n\nFAILURE: Build failed with an exception.\n\n* What went wrong:\nExecution failed for task ':app:testDebugUnitTest'.\n> There were failing tests. See the report at: file:///tmp/zoid-mb-buildalot-apk-62qjnu96/app/build/reports/tests/testDebugUnitTest/index.html\n\n* Try:\n> Run with --scan to get full insights from a Build Scan (powered by Develocity).\n\nBUILD FAILED in 16s\n"
+  },
+  "ts": 1788835352.2258308
+}

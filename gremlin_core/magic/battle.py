@@ -128,7 +128,19 @@ def _assemble_system(task: Task, facts: Sequence[Fact], skills: Sequence[Skill],
         test_cmd = f"python -m pytest -q{k}"
     parts = [_PROTOCOL.replace("{tools}", toolhost.tool_help()).replace("{test_cmd}", test_cmd)]
 
-    matched = [s for s in skills if _skill_matches(s, task)][:skill_budget]
+    ranked = sorted(
+        ((_skill_score(s, task), i, s) for i, s in enumerate(skills)),
+        key=lambda t: (-t[0], t[1]),
+    )
+    matched: list[Skill] = []
+    seen_names: set[str] = set()
+    for score, _, s in ranked:
+        if score < 2 or s.name in seen_names:
+            continue
+        seen_names.add(s.name)
+        matched.append(s)
+        if len(matched) >= skill_budget:
+            break
     if matched:
         parts.append(
             "SKILLS (procedures compiled from past runs -- follow the ones that fit; "
@@ -146,17 +158,34 @@ def _assemble_system(task: Task, facts: Sequence[Fact], skills: Sequence[Skill],
     return "\n\n".join(parts), [s.id for s in matched]
 
 
-def _skill_matches(skill: Skill, task: Task) -> bool:
+def _skill_score(skill: Skill, task: Task) -> int:
+    """How well a skill fits this task. 0 = don't load it. A regex
+    trigger_matcher hit is worth a lot; otherwise it's the count of
+    meaningful words shared with the trigger description (need >= 2 to
+    beat the noise floor of a big skill library)."""
     hay = f"{task.prompt} {' '.join(task.tags)}".lower()
+    score = 0
     if skill.trigger_matcher:
         try:
             if re.search(skill.trigger_matcher, hay, re.IGNORECASE):
-                return True
+                score += 6
         except re.error:
             pass
-    # fall back to a loose word overlap with the trigger description
-    trig_words = {w for w in re.findall(r"[a-z]{4,}", skill.trigger_when.lower())}
-    return bool(trig_words & set(re.findall(r"[a-z]{4,}", hay)))
+    trig_words = {w for w in re.findall(r"[a-z]{4,}", skill.trigger_when.lower())
+                  if w not in _STOP_WORDS}
+    score += len(trig_words & set(re.findall(r"[a-z]{4,}", hay)))
+    return score
+
+
+_STOP_WORDS = frozenset((
+    "this", "that", "with", "from", "when", "into", "your", "these", "those",
+    "code", "test", "tests", "file", "files", "function", "method", "task",
+    "them", "then", "have", "must", "each", "only", "keep", "which", "want",
+))
+
+
+def _skill_matches(skill: Skill, task: Task) -> bool:   # kept for _propose_skills
+    return _skill_score(skill, task) >= 2
 
 
 _HALLUCINATED_RESULT_RE = re.compile(
