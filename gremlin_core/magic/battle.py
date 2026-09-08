@@ -287,7 +287,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
     system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
     _check_cmd = task.verify_cmd or (
         f"python -m pytest -q" + (f" -k '{task.test_filter}'" if task.test_filter else ""))
-    _auto_check = "pytest" in _check_cmd and not readonly   # cheap, Aider-style
+    # cheap, Aider-style -- but NOT on a protected-src task (a fuzz harness
+    # build: there are no pytest tests, and auto-running pytest just feeds
+    # the model "check failed" noise so it thrashes on src/ it can't edit)
+    _auto_check = "pytest" in _check_cmd and not readonly and not protect_glob
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)
     opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
