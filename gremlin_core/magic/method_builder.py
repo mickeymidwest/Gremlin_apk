@@ -116,11 +116,16 @@ def find_stubs(src: str, target_rel: str) -> list[Stub]:
 
 def _method_spec(name: str, target_src: str, test_src: str) -> str:
     parts = []
-    # the doc/comment directly above the stub + the header
     m = re.search(rf"(?m)^([ \t]*)(?:override\s+)?(?:fun|def)\s+{re.escape(name)}\b", target_src)
     if m:
+        # kotlin/C: the /** */ or // doc block directly ABOVE the signature
         above = target_src[:m.start()].rstrip().splitlines()[-8:]
         doc = [ln for ln in above if ln.strip().startswith(("*", "/*", "//", "#"))]
+        # python: the """docstring""" just BELOW the def line, before the stub
+        below = target_src[m.start():m.start() + 800]
+        dm = re.search(r':\s*\n\s*("""|\'\'\')(.*?)\1', below, re.S)
+        if dm:
+            doc.append(dm.group(2).strip())
         if doc:
             parts.append("Spec for this method:\n" + "\n".join(doc))
     # every test line that calls name(  (+/- 1 line of context)
