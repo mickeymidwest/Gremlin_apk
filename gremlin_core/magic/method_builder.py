@@ -319,6 +319,26 @@ def _gradle_assertion_failures(root: Path) -> list[str]:
     return out
 
 
+_PYTEST_SUMMARY = re.compile(r"^(?:FAILED|ERROR)\s+\S+::(\w+)(?:\s+-\s+(.*))?$", re.M)
+_PYTEST_E_LINE = re.compile(r"^E\s{2,}(assert .+|\w*(?:Error|Exception).*)$", re.M)
+
+
+def _pytest_failures(out: str) -> list[str]:
+    """`test_name: <assertion or exception>` for each failing test -- the
+    python analogue of _gradle_assertion_failures, from pytest -q output.
+    The `FAILED ... - reason` summary line carries the real message."""
+    res: list[str] = []
+    for m in _PYTEST_SUMMARY.finditer(out):
+        name, reason = m.group(1), (m.group(2) or "").strip()
+        if not reason or reason in ("AssertionError",):
+            # dig the E-line out of that test's traceback block
+            blk = out[max(0, out.find(name) - 40): out.find(name) + 1200]
+            em = _PYTEST_E_LINE.search(blk)
+            reason = em.group(1).strip() if em else (reason or "failed")
+        res.append(f"{name}: {reason[:200]}")
+    return res
+
+
 def _first_failure(out: str, lang: str) -> str:
     for rx in (_KT_FAIL_LINE, _PYFAIL):
         m = rx.search(out)
@@ -405,7 +425,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                     continue
             p, f, out = _run(verify_cmd, root)
             log(f"[method_builder] {name} try {attempt+1}: {p}p/{f}f  body={body!r}")
-            asserts = _gradle_assertion_failures(root) if stub.lang == "kt" else []
+            asserts = _gradle_assertion_failures(root) if stub.lang == "kt" else _pytest_failures(out)
             rel = [a for a in asserts if name.lower() in a.lower()] or asserts[:3]
             if p <= best_p:
                 log("    " + " | ".join(rel[:3] or [_first_failure(out, stub.lang)[:150]]))
@@ -458,7 +478,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 continue
             spec = _method_spec(name, cur, test_src)
             best_src, best_p, best_f, hint = cur, base_p, base_f, ""
-            asserts = _gradle_assertion_failures(root) if ext == "x.kt" else []
+            asserts = _gradle_assertion_failures(root) if ext == "x.kt" else _pytest_failures(out)
             hint = ("The method compiles but is logically wrong. Still failing:\n"
                     + "\n".join(a for a in asserts if name.lower() in a.lower())[:600])
             _cfails = 0
@@ -493,7 +513,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                     best_src, best_p, best_f = trial, np, nf
                     if nf == 0:
                         break
-                asserts = _gradle_assertion_failures(root) if ext == "x.kt" else []
+                asserts = _gradle_assertion_failures(root) if ext == "x.kt" else _pytest_failures(nout)
                 hint = ("Still wrong. " + "\n".join(a for a in asserts
                         if name.lower() in a.lower())[:400] +
                         f"\nYour last body:\n{body}\nReturn a corrected full body.")
