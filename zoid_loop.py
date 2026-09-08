@@ -98,6 +98,46 @@ def _readme_goal(repo: Path, fallback: str) -> str:
     return p.read_text() if p.is_file() else fallback
 
 
+def _mem_available_mb() -> int:
+    """MemAvailable from /proc/meminfo. 99999 if it can't be read -- a
+    missing reading must never be a reason to stall the loop."""
+    try:
+        for ln in Path("/proc/meminfo").read_text().splitlines():
+            if ln.startswith("MemAvailable:"):
+                return int(ln.split()[1]) // 1024
+    except Exception:
+        pass
+    return 99999
+
+
+def _reclaim_memory(log) -> int:
+    """Stop the idle Gradle + Kotlin daemons -- between battles they hold
+    ~1.5GB for nothing, and on this 7.5GB box that is the difference
+    between a clean run and the watchdog killing the service mid-battle.
+    They restart (a ~25s cost) the next time a gradle target needs them."""
+    for pat in ("GradleDaemon", "KotlinCompileDaemon"):
+        subprocess.run(["pkill", "-f", pat], capture_output=True)
+    time.sleep(2)
+    return _mem_available_mb()
+
+
+def _mem_gate(log, floor: int = 900) -> None:
+    """Before a round: if RAM is tight, reclaim; if still tight, wait it
+    out. The autonomous loop must not be what crashes the box."""
+    avail = _mem_available_mb()
+    if avail >= floor:
+        return
+    log(f"  [mem] {avail}MB available -- reclaiming idle JVM daemons")
+    avail = _reclaim_memory(log)
+    log(f"  [mem] {avail}MB after reclaim")
+    for _ in range(6):                    # up to 3 min of waiting
+        if avail >= floor - 150:
+            return
+        log(f"  [mem] still tight ({avail}MB) -- pausing 30s")
+        time.sleep(30)
+        avail = _mem_available_mb()
+
+
 # pinned specs (android_scaffold.SPECS) -- trustworthy test, model fills
 # bodies only. One rotates in per round.
 _SCAFFOLD_SPECS = ["tipcalc", "salestax", "streak"]
@@ -534,6 +574,7 @@ def main() -> None:
         if time.monotonic() > deadline:
             log("minute budget spent -- halting"); break
         log(f"\n=== round {round_i} ===")
+        _mem_gate(log)
         for tgt in T:
             if time.monotonic() > deadline:
                 log("  (deadline reached mid-round)"); break
