@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import textwrap
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,7 @@ class Stub:
     end: int            # char offset of the body-close
     header: str         # the `fun x(...): T {` / `def x(...):` line
     lang: str           # "kt" | "py"
+    indent: int = 0     # leading-space count of the `fun`/`def` line
 
 
 @dataclass
@@ -79,7 +81,8 @@ def _find_kt_stubs(src: str) -> list[Stub]:
             k += 1
         body = src[brace_open + 1:k]
         if "TODO(" in body or "TODO (" in body:
-            out.append(Stub(name, brace_open + 1, k, m.group(0).strip(), "kt"))
+            out.append(Stub(name, brace_open + 1, k, m.group(0).strip(), "kt",
+                            indent=len(m.group(1).expandtabs(4))))
     return out
 
 
@@ -104,7 +107,8 @@ def _find_py_stubs(src: str) -> list[Stub]:
         body = "".join(lines[i + 1:j])
         if re.search(r"\bTODO\b|NotImplementedError|^\s*pass\s*$", body, re.M):
             # start offset: end of the def line; end: start of line j
-            out.append(Stub(hm.group(2), offs[i + 1], offs[j], ln.strip(), "py"))
+            out.append(Stub(hm.group(2), offs[i + 1], offs[j], ln.strip(), "py",
+                            indent=len(hm.group(1).expandtabs(4))))
     return out
 
 
@@ -235,14 +239,22 @@ def _ensure_kt_imports(src: str, body: str) -> str:
     return src[:at] + "\n\n" + "\n".join(dict.fromkeys(add)) + src[at:]
 
 
+def _reindent(body: str, n: int) -> str:
+    """Normalise the model's body to indent level `n`. The 7B is inconsistent
+    about whether it writes the body flush-left or already at method-body
+    indent -- strip whatever common indent it used, then re-apply ours."""
+    body = textwrap.dedent(body.replace("\t", "    ")).strip("\n")
+    pad = " " * n
+    return "\n".join(pad + ln if ln.strip() else "" for ln in body.split("\n"))
+
+
 def _splice(src: str, stub: Stub, body: str) -> str:
     if stub.lang == "kt":
-        ind = "\n".join("        " + ln if ln.strip() else ln
-                        for ln in body.splitlines())
+        ind = _reindent(body, stub.indent + 4)
         return _ensure_kt_imports(
-            src[:stub.start] + "\n" + ind + "\n    " + src[stub.end:], body)
-    body = "\n".join("        " + ln if ln.strip() else ln for ln in body.splitlines())
-    return src[:stub.start] + body + ("\n" if not body.endswith("\n") else "") + src[stub.end:]
+            src[:stub.start] + "\n" + ind + "\n" + " " * stub.indent + src[stub.end:], body)
+    body = _reindent(body, stub.indent + 4)
+    return src[:stub.start] + body + "\n" + src[stub.end:]
 
 
 # ---- the test runner ----------------------------------------------------
