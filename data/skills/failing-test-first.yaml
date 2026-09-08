@@ -3,17 +3,18 @@ name: failing-test-first
 status: candidate
 destination: card
 council_reviewed: false
-purpose: a red test that pins the bug turns 'is it fixed?' into a yes/no
-trigger_when: fixing a reported bug that has no test covering it
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test before declaring success.
+trigger_when: when a test fails
 trigger_matcher: no test|add a test|repro.*test|regression test|cover this|TDD
 procedure:
-- write the smallest test that asserts the correct behavior for the reported case -- watch
-  it FAIL for the right reason
-- make the fix; the new test goes green and every existing test stays green
-- add one or two boundary cases around the same code while you're there
+- Identify the failing test by examining the test output.
+- Report the specific assertion failure and the expected result.
+- Fix the failing test before declaring success.
 supersedes: null
 provenance:
 - seed
+- zoid_mb_klondike-apk_1788879620
 created: 1788816592.063345
 record:
   uses: 0

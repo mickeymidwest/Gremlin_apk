@@ -2,7 +2,7 @@ id: seed_75
 name: dockerfile-reproducible-build
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: a Dockerfile that builds the same next month and doesn't rebuild the world on every
   edit
 trigger_when: writing or fixing a Dockerfile
@@ -24,9 +24,9 @@ provenance:
 - seed
 created: 1788874289.991766
 record:
-  uses: 25
-  wins: 14
-  losses: 3
+  uses: 31
+  wins: 18
+  losses: 4
   score_deltas:
   - 0.5
   - 0.2
@@ -53,4 +53,10 @@ record:
   - 0.4286
   - 0.2222
   - 0.4286
-  last_used_battle: zoid_csv-report_1788878343
+  - 0.5
+  - 0.4
+  - 0.3333
+  - 0.0
+  - 0.2222
+  - 0.4286
+  last_used_battle: zoid_csv-report_1788879181
