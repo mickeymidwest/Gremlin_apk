@@ -1,23 +1,22 @@
-id: skill_dd965ce7
+id: skill_f9104fa3
 name: reproduce-before-fixing
-status: candidate
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the agent confirms it can see the bug before trying to fix it.
-trigger_when: when a test fails
+trigger_when: when fixing a bug
 trigger_matcher: fix|bug|failing|broken|doesn't work|not working
 procedure:
-- Reproduce the bug by running the failing test.
-- Confirm the bug is reproducible before attempting to fix it.
-supersedes: skill_f9104fa3
+- Reproduce the bug to confirm it is present.
+- Only proceed with fixing the bug after reproduction.
+supersedes: skill_0920477e
 provenance:
 - seed
 - zoid_list-ops_1788824732
 - zoid_buildalot-apk_1788825432
 - zoid_mb_klondike-apk_1788838446
 - zoid_mb_klondike-apk_1788844573
-- zoid_mb_klondike-apk_1788850352
-created: 1788850361.0420065
+created: 1788844581.7671385
 record:
   uses: 0
   wins: 0
