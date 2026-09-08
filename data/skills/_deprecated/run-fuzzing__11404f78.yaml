@@ -1,23 +1,21 @@
-id: skill_f9da15b6
+id: skill_11404f78
 name: run-fuzzing
-status: candidate
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly sets up and runs the fuzzing harness with the correct
   parameters and corpus.
-trigger_when: when running a fuzzing process
+trigger_when: when fuzzing a target function
 trigger_matcher: libFuzzer harness file exists
 procedure:
 - Ensure the fuzzing harness is correctly set up with the necessary include path and headers.
-- Create a corpus directory if one does not exist and populate it with initial test cases.
-- Run the fuzzing process with the corpus using the appropriate flags.
-supersedes: skill_11404f78
+- Run the fuzzing harness with a corpus to identify memory safety bugs.
+supersedes: skill_af98d5f9
 provenance:
 - zoid_inifuzz_1788832513
 - zoid_tlvfuzz_1788838238
 - zoid_tlvfuzz_1788852718
-- zoid_nsfuzz_1788853320
-created: 1788853332.1688368
+created: 1788852728.8354857
 record:
   uses: 0
   wins: 0
