@@ -1,18 +1,20 @@
-id: skill_90e439fb
+id: skill_af98d5f9
 name: run-fuzzing
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Run a libFuzzer harness to find crashes
-trigger_when: when fuzzing a target
+purpose: Ensure the agent runs the fuzzing harness with a corpus to identify memory safety
+  bugs.
+trigger_when: when fuzzing is required
 trigger_matcher: libFuzzer harness file exists
 procedure:
-- 'Run the fuzzing process using the command: `./harness_fuzz <input_file>`'
-- Monitor the output for crashes and collect results
-supersedes: null
+- Ensure the fuzzing harness is correctly set up with the target function and corpus.
+- 'Run the fuzzing harness using the command: `./harness_fuzz < corpus.txt`.'
+supersedes: skill_90e439fb
 provenance:
 - zoid_inifuzz_1788832513
-created: 1788832520.1774576
+- zoid_tlvfuzz_1788838238
+created: 1788838246.5136917
 record:
   uses: 0
   wins: 0
