@@ -1,0 +1,23 @@
+id: skill_0ba74826
+name: multi-line-search-and-replace
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Handle multi-line search patterns and ensure correct indentation in file edits.
+trigger_when: when editing a file with multi-line search patterns
+trigger_matcher: search text spans multiple lines
+procedure:
+- Identify the unique lines above and below the search text to create a multi-line search
+  pattern.
+- Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
+  matched.
+supersedes: null
+provenance:
+- zoid_klondike-apk_1788826472
+created: 1788826480.0368931
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
