@@ -75,3 +75,15 @@ def test_model_list_marks_primary(tmp_path, monkeypatch):
 def test_model_bad_subcommand(tmp_path):
     r = asyncio.run(dispatch("/model frobnicate", _ctx(tmp_path)))
     assert not r["ok"] and "Usage" in r["answer"]
+
+
+def test_build_android_new_needs_a_spec(tmp_path):
+    r = asyncio.run(dispatch("/build android new", _ctx(tmp_path)))
+    assert not r["ok"] and "Usage" in r["answer"]
+
+
+def test_build_android_new_is_desktop_only(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.loop = object()          # pretend we're under the server
+    r = asyncio.run(dispatch("/build android new a stopwatch app", ctx))
+    assert not r["ok"] and "desktop" in r["answer"].lower()

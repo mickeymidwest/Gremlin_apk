@@ -128,6 +128,10 @@ async def _build(args: str, ctx: CommandContext) -> dict:
     if parts[0].lower() == "android":
         from . import android_build
         rest = parts[1:]
+        # "/build android new <what it does> [as <name>]" -- scaffold a
+        # whole app from one sentence (heavy: plan + fill + gradle).
+        if rest and rest[0].lower() == "new":
+            return await _build_android_new(" ".join(rest[1:]), ctx)
         name = "gremlin-apk"
         if "as" in rest:
             i = rest.index("as")
@@ -166,6 +170,53 @@ async def _build(args: str, ctx: CommandContext) -> dict:
             "answer": (result.get("answer") or result.get("summary")
                        or (f"Built at {target}" if result.get("applied") else result.get("reason", "build finished"))),
             "build": Path(target).name, "action": "build"}
+
+
+async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
+    """One sentence -> a scaffolded, method-filled, assembled Android app
+    in the Builds screen. Harness owns the boilerplate (templates), the
+    model plans the feature classes + writes a JUnit test + fills the
+    bodies, gradle is the oracle."""
+    name = "gremlin-app"
+    if " as " in spec:
+        spec, name = (p.strip() for p in spec.rsplit(" as ", 1))
+    spec = spec.strip()
+    if not spec:
+        return {"ok": False, "answer": "Usage: /build android new <what the app does> [as <name>]"}
+    if ctx.loop is not None:      # under the server -- too heavy for this box
+        return {"ok": False, "action": "build",
+                "answer": _HEAVY_ON_DESKTOP.format(cmd="build android new", args=spec)}
+
+    import asyncio
+    from .android_scaffold import scaffold_from_spec
+    from .android_build import build_apk, toolchain_ready
+    from .method_builder import build_project
+    from .model import BackendModel
+    from . import vram
+    from ..build_project import sanitize_folder_name
+
+    if not toolchain_ready():
+        return {"ok": False, "answer": "Android toolchain not installed (need ~/android-build + ~/Android/Sdk)."}
+
+    coder = _coding_model_name(ctx)
+    await vram.ensure_only(ctx.registry, keep=coder)
+    model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("gremlin"), loop=ctx.loop)
+    slug = sanitize_folder_name(name) or "gremlin-app"
+    dest = str(Path(ctx.project_root).parent / slug)
+
+    def _run():
+        repo, verify = scaffold_from_spec(spec, dest, model)
+        r = build_project(repo, verify, model, best_of=3, repair_rounds=3, project_passes=4,
+                          compile_cmd="./gradlew :app:compileDebugKotlin --offline --console=plain -q")
+        if r.score >= 0.999:
+            return build_apk(repo, f"app_{slug}")
+        return {"ok": False, "action": "build",
+                "answer": (f"Scaffolded at {repo}, filled to {r.passed}/{r.passed + r.failed} "
+                           f"tests ({r.score:.2f}) -- not all green, so no APK yet. The project "
+                           f"is on disk to open or finish by hand. Note: the tests are "
+                           f"model-written -- check they're actually what you want.")}
+
+    return await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
 async def _fix(args: str, ctx: CommandContext) -> dict:
@@ -476,7 +527,8 @@ COMMANDS: dict[str, Command] = {
     "memory": Command("memory", "What Gremlin remembers about you: list | forget <n> | clear. "
                       "(The file is ~/Downloads/gremlin_memory.txt -- editable by hand too.)", _memory),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
-                     "grab it from the app's Builds screen.", _build),
+                     "grab it from the app's Builds screen. `build android new <what "
+                     "it does>` scaffolds a whole Android app from one sentence.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
                    "and shows the diff.", _fix),
     "model": Command("model", "Base model: list | search <q> | use <name>.", _model),
