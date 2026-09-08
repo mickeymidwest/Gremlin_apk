@@ -339,6 +339,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
     _recent: list[str] = []   # fingerprints of the last few actions -- loop guard
     _edits_made = 0           # write_file / edit_file that landed ok
     _checks_since_edit = 0    # check-command runs with no edit in between
+    _file_edits: dict[str, int] = {}   # path -> consecutive edits with no pass-count gain
+    _best_pass = -1                    # highest pytest pass count seen so far
     _start = time.monotonic()
     for _ in range(step_budget):
         if time.monotonic() - _start > time_budget_s:
@@ -508,6 +510,28 @@ def run_battle(task: Task, repo_path: str, model: Model,
                     "still red -- read the FIRST failure and fix that one line next")
             messages.append({"role": "user", "content":
                 f"AUTO-CHECK after your edit ({_lbl}):\n{ac.output}"})
+
+            # Tunnel-vision guard: the 7B re-edits ONE function 4+ times with
+            # slightly different search strings and never touches the other
+            # planted bugs. If the pass count hasn't moved, push it off that
+            # function onto a different failing test.
+            _pc = re.search(r"(\d+) passed", ac.output)
+            pc = int(_pc.group(1)) if _pc else -1
+            _path = str(call.args.get("path", "")) if isinstance(call.args, dict) else ""
+            if pc > _best_pass:
+                _best_pass = pc
+                _file_edits.clear()
+            elif _path:
+                _file_edits[_path] = _file_edits.get(_path, 0) + 1
+                if _file_edits[_path] >= 3:
+                    messages.append({"role": "user", "content":
+                        f"STOP editing `{_path}` -- {_file_edits[_path]} edits and the "
+                        "pass count has not changed. That function may already be right, "
+                        "or the bug is elsewhere. Run the check, look at a DIFFERENT "
+                        "failing test, and fix THAT function instead."})
+                    _file_edits[_path] = 0
+                    transcript.steps.append(StepRecord(
+                        kind="note", content=f"harness: pushed off {_path} (no progress)"))
 
         # Context hygiene: a 7B thrashes when the window fills with stale
         # errors from bugs it already fixed. Keep the opening (task + plan
