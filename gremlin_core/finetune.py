@@ -218,11 +218,17 @@ def _load_jsonl(path: Path) -> list[dict]:
 def train_lora(
     root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 1, lr: float = 1e-4,
     model_name: Optional[str] = None, max_length: int = 384, max_rows: int = 0,
+    lora_r: int = 8, lora_targets: Optional[list] = None, gpu_mem_gib: float = 0.0,
 ) -> dict:
     """max_length: tokens per example -- activation memory scales with it,
     so this is the main 'don't crash' knob (384 is gentle; 256 gentler).
     max_rows: 0 = all; a positive cap keeps a big dataset from being pulled
-    into memory at once (rows past the cap are simply not used this run)."""
+    into memory at once (rows past the cap are simply not used this run).
+    lora_r / lora_targets: shrink the adapter (r=4, ["q_proj","v_proj"] is
+    the smallest sane config).
+    gpu_mem_gib: >0 caps GPU use to that many GiB and lets accelerate
+    offload the overflow transformer layers to CPU RAM -- the only way a
+    7B QLoRA runs on an 8GB card, at the cost of much slower steps."""
     """
     QLoRA fine-tune on <target>/training_set.jsonl (write_training_set()
     must have already been run for the SAME model_name -- this doesn't
@@ -309,16 +315,20 @@ def train_lora(
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
         bnb_4bit_use_double_quant=True,
+        # required for 4-bit + any layer on CPU
+        llm_int8_enable_fp32_cpu_offload=bool(gpu_mem_gib),
     )
-    # device_map="auto" on an 8GB card decides to offload some layers to
-    # CPU, and bitsandbytes 4-bit training then refuses outright ("Some
-    # modules are dispatched on the CPU or the disk"). Force everything
-    # onto GPU 0 -- a 7B's 4-bit weights (~4.5GB) + LoRA training at the
-    # short seq length below fits ~7GB. If this OOMs, the fix is a
-    # shorter max_length / smaller LoRA rank / a smaller base, not CPU
-    # offload (which was measured at 6+ hours just to load).
+    if gpu_mem_gib:
+        # split the model: as much as fits in gpu_mem_gib on the card, the
+        # rest in CPU RAM. Steps are much slower (CPU layers in the loop)
+        # but a 7B fits where it otherwise OOMs on load.
+        load_kw = dict(device_map="auto",
+                       max_memory={0: f"{gpu_mem_gib:.1f}GiB", "cpu": "5GiB"})
+    else:
+        # everything on GPU 0 -- fits a 3B, or a 7B on a >=16GB card
+        load_kw = dict(device_map={"": 0})
     model = AutoModelForCausalLM.from_pretrained(
-        base_repo, quantization_config=bnb_config, device_map={"": 0})
+        base_repo, quantization_config=bnb_config, **load_kw)
     model = prepare_model_for_kbit_training(model)
     model.gradient_checkpointing_enable()
     model.config.use_cache = False
@@ -334,8 +344,8 @@ def train_lora(
     # LR, and a cosine decay it adds the house style without eating the
     # model's general ability. If it's still too weak, raise r first.
     lora_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
+        r=lora_r,
+        lora_alpha=lora_r * 2,
         lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
@@ -343,7 +353,7 @@ def train_lora(
         # actually fit for QLoRA) leaves ~3GB of headroom at seq 512, so
         # the r=8/q+v-only config that was fighting the 7B OOM isn't
         # needed. A cloud 7B run has room for this too.
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+        target_modules=lora_targets or ["q_proj", "k_proj", "v_proj", "o_proj"],
     )
     model = get_peft_model(model, lora_config)
 
