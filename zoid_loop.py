@@ -43,7 +43,7 @@ from gremlin_core.magic.model import BackendModel
 from gremlin_core.magic.store import Store
 from gremlin_core.magic.battle import run_battle
 from gremlin_core.magic.method_builder import build_from_scaffold
-from gremlin_core.magic import lifecycle, reckoning, reflexion
+from gremlin_core.magic import lifecycle, reckoning, reflexion, council as council_mod
 from gremlin_core.magic.verifier import PytestVerifier
 from gremlin_core.magic.fuzz_verifier import FuzzVerifier
 from gremlin_core.magic.gradle_verifier import GradleVerifier
@@ -52,6 +52,25 @@ from gremlin_core.magic.types import Task, BattleResult, Transcript, StepRecord
 ROOT = Path(__file__).parent
 CONFIG = str(ROOT / "config" / "models.yaml")
 HOME = Path.home()
+
+_COUNCIL: list = []          # zero-VRAM voter(s) for skill destination; filled in main()
+
+
+def _council_step(store, skills, log) -> None:
+    """Let the council rule on well-proven skills -- card vs bake-into-weights.
+    Runs on gemini (no VRAM) so it doesn't fight the loop's model."""
+    if not _COUNCIL:
+        return
+    try:
+        rulings = council_mod.review(skills, _COUNCIL,
+                                     episodes=store.read_episodes(limit=200))
+        for d in rulings:
+            nm = next((s.name for s in skills if s.id == d.skill_id), d.skill_id)
+            log(f"     council: {nm} -> {d.choice} {d.tally}")
+    except Exception as e:
+        log(f"     council skipped: {type(e).__name__}")
+
+
 _IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "venv",
                                  ".venv", "*.pyc", "build", ".gradle", "*.o",
                                  # a previously-committed winning harness must NOT
@@ -248,6 +267,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
+        _council_step(store, skills, log)
         store.write_skills(skills)
         store.write_facts(facts)
         try:
@@ -324,6 +344,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
+        _council_step(store, skills, log)
         store.write_skills(skills)
         store.write_facts(facts)
         try:
@@ -365,6 +386,13 @@ def main() -> None:
     reg = ModelRegistry.from_yaml(CONFIG)
     coder = reg.get("qwen2.5-coder-7b")
     model = BackendModel(coder, temperature=0.2)
+    # council voter: gemini if configured (API, no VRAM) -- rules on whether a
+    # proven skill should be baked into the finetune vs stay a card
+    try:
+        _COUNCIL.append(BackendModel(reg.get("gemini"), temperature=0.0))
+        log("council voter: gemini")
+    except Exception:
+        log("council voter: none (gemini not configured) -- skills stay cards")
     store = Store(str(ROOT))
     from gremlin_core.magic import seed_skills
     newly = seed_skills.seed(str(ROOT))
