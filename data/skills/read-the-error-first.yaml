@@ -1,19 +1,20 @@
-id: seed_00
+id: skill_2c0258cf
 name: read-the-error-first
 status: candidate
 destination: card
 council_reviewed: false
-purpose: a failing command tells you what's wrong -- read it before touching code
-trigger_when: a build, test, or command has just failed
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test.
+trigger_when: when a test fails
 trigger_matcher: fail|error|exception|traceback|exit [1-9]
 procedure:
-- read the actual error message and the file:line it names, not the surrounding output
-- form a one-sentence hypothesis about the cause
-- only then look at the code that hypothesis points to
-supersedes: null
+- Identify the failing test and its assertion from the error output.
+- Report the specific assertion failure and the expected result.
+supersedes: seed_00
 provenance:
 - seed
-created: 1788664611.4948602
+- zoid_mb_buildalot-apk_1788837991
+created: 1788837997.7942297
 record:
   uses: 0
   wins: 0
