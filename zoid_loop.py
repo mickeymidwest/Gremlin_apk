@@ -52,7 +52,11 @@ ROOT = Path(__file__).parent
 CONFIG = str(ROOT / "config" / "models.yaml")
 HOME = Path.home()
 _IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "venv",
-                                 ".venv", "*.pyc", "build", ".gradle", "harness", "*.o")
+                                 ".venv", "*.pyc", "build", ".gradle", "*.o",
+                                 # a previously-committed winning harness must NOT
+                                 # seed the next battle -- the model starts clean
+                                 "harness", "harness*", "*fuzz*.c", "*fuzz*.cc",
+                                 "*fuzz*.cpp", "crash-*")
 
 
 def _readme_goal(repo: Path, fallback: str) -> str:
