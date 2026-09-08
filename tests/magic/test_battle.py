@@ -23,7 +23,7 @@ def test_run_battle_drives_tools_to_done(tmp_path):
         'ACTION: write_file\n```json\n{"path": "greet.py", "text": "def greet():\\n    return \'hi\'\\n"}\n```',
         "DONE\nimplemented greet()",
     ])
-    task = Task(id="t1", prompt="make greet() return 'hi'")
+    task = Task(id="t1", prompt="make greet() return 'hi'", verify_cmd="true")  # no auto pytest
     tr = run_battle(task, str(tmp_path), model, skills=[], facts=[], step_budget=6, plan=False)
 
     assert tr.final_message == "implemented greet()"
@@ -32,6 +32,21 @@ def test_run_battle_drives_tools_to_done(tmp_path):
     assert kinds.count("tool") == 2
     tool_names = [s.tool_name for s in tr.steps if s.kind == "tool"]
     assert tool_names == ["read_file", "write_file"]
+
+
+def test_run_battle_auto_checks_after_an_edit_on_pytest_tasks(tmp_path):
+    (tmp_path / "m.py").write_text("def f():\n    return 0\n")
+    (tmp_path / "test_m.py").write_text("from m import f\ndef test_f(): assert f() == 1\n")
+    model = ScriptedModel([
+        'ACTION: read_file\n```json\n{"path": "m.py"}\n```',
+        'ACTION: write_file\n```json\n{"path": "m.py", "text": "def f():\\n    return 1\\n"}\n```',
+        "DONE\nfixed",
+    ])
+    tr = run_battle(Task(id="a", prompt="fix f"), str(tmp_path), model,
+                    skills=[], facts=[], step_budget=6, plan=False)
+    # the write_file is followed by an auto run of pytest (no model turn spent)
+    tool_names = [s.tool_name for s in tr.steps if s.kind == "tool"]
+    assert tool_names == ["read_file", "write_file", "run_shell"]
 
 
 def test_plan_pass_prepends_a_plan_note(tmp_path):

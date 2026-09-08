@@ -176,6 +176,19 @@ def _precheck(path: str, text: str) -> str:
             json.loads(text)
         except ValueError as e:
             return f"invalid JSON: {e}"
+    elif path.endswith((".kt", ".kts")):
+        # cheap Kotlin sanity: after stripping strings + comments, the
+        # brackets must balance -- catches the 7B's #1 breakage (a dropped
+        # } or )) before it reaches gradle
+        s = re.sub(r'"""[\s\S]*?"""', '""', text)
+        s = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', s)
+        s = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
+        s = re.sub(r"//[^\n]*", "", s)
+        for op, cl, nm in (("{", "}", "braces"), ("(", ")", "parentheses")):
+            if s.count(op) != s.count(cl):
+                d = s.count(op) - s.count(cl)
+                return (f"unbalanced {nm}: {abs(d)} more '{op if d > 0 else cl}' than "
+                        f"'{cl if d > 0 else op}'. Count them in your replacement.")
     return ""
 
 

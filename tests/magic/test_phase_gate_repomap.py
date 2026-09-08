@@ -57,8 +57,8 @@ def test_battle_unlocks_editing_after_read(tmp_path):
                     skills=[], facts=[], step_budget=6, plan=False, phase_gate=True)
     assert "hi" in (tmp_path / "greet.py").read_text()
     tools = [s.tool_name for s in tr.steps if s.kind == "tool"]
-    assert tools == ["read_file", "write_file"]   # read first, then the edit landed
-    assert all(s.content == "ok" for s in tr.steps if s.kind == "tool")
+    assert tools[:2] == ["read_file", "write_file"]   # read first, then the edit landed (auto-check may follow)
+    assert [s.content for s in tr.steps if s.kind == "tool"][:2] == ["ok", "ok"]
 
 
 def test_battle_blocks_edit_before_read(tmp_path):

@@ -128,7 +128,8 @@ def targets() -> list[dict]:
                 "app/src/main/java/com/klondike/game/Game.kt -- the rules are in that file's "
                 "comments and pinned exactly by app/src/test/java/com/klondike/game/GameTest.kt "
                 "(do NOT edit the test, do NOT change public signatures). "
-                "Check: ./gradlew testDebugUnitTest --offline --console=plain -- run it often, "
+                "Check FAST first: ./gradlew :app:compileDebugKotlin --offline --console=plain -- this catches syntax in ~15s. Only when it compiles, run "
+                "./gradlew testDebugUnitTest --offline --console=plain. "
                 "all 11 tests must pass. Implement deal() first, then draw/recycle, then the "
                 "move rules, re-running the check after each."))))
     if bal.is_dir() and (bal / "gradlew").exists():
@@ -142,7 +143,8 @@ def targets() -> list[dict]:
                 "app/src/test/java/com/buildalot/game/BuildalotTest.kt (do NOT edit the test, "
                 "do NOT change public signatures). The constants (PLOT_PRICE, BUILD_COST, "
                 "BUILD_TURNS, etc.) are already defined -- use them. "
-                "Check: ./gradlew testDebugUnitTest --offline --console=plain -- run it often, "
+                "Check FAST first: ./gradlew :app:compileDebugKotlin --offline --console=plain -- this catches syntax in ~15s. Only when it compiles, run "
+                "./gradlew testDebugUnitTest --offline --console=plain. "
                 "all 13 tests must pass. Do buyPlot first, then build, then endTurn (turn "
                 "counter + construction countdown + rent), then houseValue/netWorth, then "
                 "upgrade and sell. Re-run the check after each method."))))
@@ -160,6 +162,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         lessons = reflexion.load_lessons(str(ROOT), task)
         verifier = tgt["verifier"]
         protect = tgt.get("protect_glob")
+        before = verifier.score(task, str(work)).value   # per-BATTLE baseline
 
         def _restore_protected():
             # a fuzz target must be scored against its ORIGINAL (buggy) src,
@@ -208,8 +211,8 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         result = BattleResult(battle_id=f"zoid_{tgt['name']}_{int(time.time())}",
                               task_id=task.id, transcript=tr, score=score)
 
+        delta = score.value - before          # what THIS battle changed
         prev = best.get(tgt["name"], 0.0)
-        delta = score.value - prev
         best[tgt["name"]] = max(prev, score.value)
 
         if score.value < 0.999:

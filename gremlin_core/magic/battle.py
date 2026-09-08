@@ -285,6 +285,9 @@ def run_battle(task: Task, repo_path: str, model: Model,
         phase_gate = False
     snapshotting = autocommit and not readonly and _git_begin(repo_path)
     system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
+    _check_cmd = task.verify_cmd or (
+        f"python -m pytest -q" + (f" -k '{task.test_filter}'" if task.test_filter else ""))
+    _auto_check = "pytest" in _check_cmd and not readonly   # cheap, Aider-style
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)
     opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
@@ -371,10 +374,9 @@ def run_battle(task: Task, repo_path: str, model: Model,
                 kind="note", content=f"harness: refused a 3rd identical {call.name}"))
             messages.append({"role": "user", "content":
                 f"REFUSED: you have already run `{call.name}` with these exact arguments "
-                f"{reps - 1} times and it {'errored' if True else ''} each time. It will not "
-                "work on a repeat. Do something different: a different tool, a different "
-                "path (run list_dir with \".\" to see what actually exists), or read the "
-                "error text more carefully."})
+                f"{reps - 1} times -- a repeat will not do anything new. Do something "
+                "different: a different tool, a different path (list_dir with \".\" to see "
+                "what exists), or read the last error text more carefully and act on it."})
             unclear_strikes = 0
             continue
 
@@ -442,7 +444,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
         # Phase gate (#2): the editing tools open once the agent has
         # actually looked at the code.
         if (phase_gate and result.ok and "write_file" not in toolhost.allowed
-                and call.name in ("repo_map", "read_file")):
+                and call.name in ("repo_map", "read_file", "view_file", "grep")):
             toolhost.unlock_all()
             system, _ = _assemble_system(task, facts, skills, toolhost)
             result_msg += "\n\n(editing tools are now available: write_file, edit_file)"
@@ -458,6 +460,23 @@ def run_battle(task: Task, repo_path: str, model: Model,
 
         messages.append({"role": "user", "content": result_msg})
 
+        # Auto-run the check right after a successful edit (Aider's pattern):
+        # the next turn starts from the fresh, real failure instead of the
+        # model burning a step to re-run pytest itself. pytest tasks only.
+        if _auto_check and result.ok and call.name in ("write_file", "edit_file"):
+            ac = toolhost.run(ToolCall(name="run_shell", args={"cmd": _check_cmd}))
+            _step_n += 1
+            _checks_since_edit = 1
+            transcript.steps.append(StepRecord(
+                kind="tool", tool_name="run_shell", tool_args={"cmd": _check_cmd},
+                tool_result=ac.output, content=("ok" if ac.ok else "error")))
+            if snapshotting:
+                pass
+            _lbl = ("all green" if ac.ok else
+                    "still red -- read the FIRST failure and fix that one line next")
+            messages.append({"role": "user", "content":
+                f"AUTO-CHECK after your edit ({_lbl}):\n{ac.output}"})
+
         # Context hygiene: a 7B thrashes when the window fills with stale
         # errors from bugs it already fixed. Keep the opening (task + plan
         # + skills) and the most recent turns; drop the middle.
@@ -472,11 +491,18 @@ def run_battle(task: Task, repo_path: str, model: Model,
     else:
         transcript.final_message = "(gave up: step budget exhausted)"
 
-    # §4 "invoke": a skill counts as used if the agent named it in its reasoning.
-    model_text = "\n".join(s.content for s in transcript.steps if s.kind == "model")
-    id_by_name = {s.name: s.id for s in skills}
-    transcript.skills_invoked = sorted({
-        sid for name, sid in id_by_name.items()
-        if sid in available_skill_ids and name in model_text
-    })
+    # §4 "invoke": a skill counts as used if the agent named it OR clearly
+    # followed one of its concrete steps -- a 7B rarely types the card name.
+    model_text = "\n".join(s.content for s in transcript.steps if s.kind == "model").lower()
+    invoked: set[str] = set()
+    for s in skills:
+        if s.id not in available_skill_ids:
+            continue
+        if s.name.lower() in model_text:
+            invoked.add(s.id)
+            continue
+        phrases = [str(st).lower() for st in (s.procedure or []) if len(str(st)) >= 14]
+        if any(ph in model_text for ph in phrases):
+            invoked.add(s.id)
+    transcript.skills_invoked = sorted(invoked)
     return transcript
