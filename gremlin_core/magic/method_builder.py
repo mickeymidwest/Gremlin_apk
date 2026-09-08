@@ -258,10 +258,16 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
     tgt = root / target_rel
     src0 = tgt.read_text()
     ext = "x.kt" if target_rel.endswith((".kt", ".kts")) else "x.py"
-    names = [s.name for s in find_stubs(src0, target_rel)]
+    all_names = [s.name for s in find_stubs(src0, target_rel)]
     test_src = ""
     for tf in list(root.rglob("*Test.kt")) + list(root.rglob("test_*.py")):
         test_src += tf.read_text() + "\n"
+
+    # Pass 1 goes in file order; pass 2 re-attempts anything still red once
+    # every method exists (that resolves the dependency chain -- e.g.
+    # upgrade's tests need endTurn, which is defined later).
+    names = list(all_names)
+    log(f"[method_builder] order: {names}")
 
     res = BuildResult()
     log(f"[method_builder] {len(names)} stubs: {names}")
@@ -327,6 +333,58 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
         if best_f == 0 and best_p > 0:
             log("[method_builder] all green -- stopping early")
             break
+
+    # Second pass: with every method now filled, dependencies are resolved
+    # -- re-attempt the ones whose tests are still red.
+    p, f, out = _run(verify_cmd, root)
+    if f > 0:
+        fails = _gradle_assertion_failures(root) if ext == "x.kt" else list(_PYFAIL.findall(out))
+        stuck_names = {a.split(":")[0] for a in fails} if ext == "x.kt" else set(fails)
+        retry = []
+        for n in names:
+            hits = [ln for ln in test_src.splitlines()
+                    if re.search(rf"\b{re.escape(n)}\s*\(", ln)]
+            if any(tn in ln for tn in stuck_names for ln in hits) or \
+               any(n.lower() in s.lower() for s in stuck_names):
+                retry.append(n)
+        log(f"[method_builder] pass 2 -- retrying {retry}")
+        base_p, base_f = p, f
+        for name in retry[:5]:
+            stub = next((s for s in find_stubs(cur, ext) if s.name == name), None)
+            if stub is None:
+                continue
+            spec = _method_spec(name, cur, test_src)
+            best_src, best_p, best_f, hint = cur, base_p, base_f, ""
+            asserts = _gradle_assertion_failures(root) if ext == "x.kt" else []
+            hint = ("The method compiles but is logically wrong. Still failing:\n"
+                    + "\n".join(a for a in asserts if name.lower() in a.lower())[:600])
+            for attempt in range(repair_rounds + 1):
+                body = _gen_body(model, stub, spec, cur, hint,
+                                 temperature=[0.2, 0.6, 0.9, 0.7][min(attempt, 3)])
+                if not body:
+                    continue
+                trial = _splice(cur, stub, body)
+                tgt.write_text(trial)
+                if compile_cmd:
+                    cp, cf, cout = _run(compile_cmd, root, timeout=300)
+                    if cf and not cp:
+                        tgt.write_text(cur)
+                        continue
+                np, nf, nout = _run(verify_cmd, root)
+                log(f"[method_builder] pass2 {name} try {attempt+1}: {np}p/{nf}f")
+                if np > best_p:
+                    best_src, best_p, best_f = trial, np, nf
+                    if nf == 0:
+                        break
+                asserts = _gradle_assertion_failures(root) if ext == "x.kt" else []
+                hint = ("Still wrong. " + "\n".join(a for a in asserts
+                        if name.lower() in a.lower())[:400] +
+                        f"\nYour last body:\n{body}\nReturn a corrected full body.")
+            cur = best_src
+            tgt.write_text(cur)
+            base_p, base_f = best_p, best_f
+            if best_f == 0:
+                break
 
     p, f, _ = _run(verify_cmd, root)
     res.passed, res.failed, res.score = p, f, (p / (p + f) if (p + f) else 0.0)
