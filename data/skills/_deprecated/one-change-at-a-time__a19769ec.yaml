@@ -1,0 +1,25 @@
+id: skill_a19769ec
+name: one-change-at-a-time
+status: deprecated
+destination: card
+council_reviewed: false
+purpose: Ensure the agent makes one change at a time to avoid introducing new bugs and to
+  make it easier to track the impact of each change.
+trigger_when: when fixing bugs or refactoring code
+trigger_matcher: null
+procedure:
+- Identify the specific bug or issue to be fixed.
+- Make a single change to address the identified bug or issue.
+- Run the tests to ensure the change resolves the issue without introducing new bugs.
+- Repeat the process for each subsequent bug or issue.
+supersedes: seed_02
+provenance:
+- seed
+- zoid_csv-report_1788839444
+created: 1788839452.5151262
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

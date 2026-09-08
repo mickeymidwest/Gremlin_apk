@@ -1,6 +1,6 @@
-id: skill_808f9ddd
+id: skill_0ed4e70e
 name: edit-file-over-rewrite
-status: candidate
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
@@ -8,11 +8,11 @@ purpose: Ensure the replacement text is a complete, correctly-indented drop-in f
 trigger_when: when editing a file
 trigger_matcher: null
 procedure:
-- Identify the method or block of code that needs to be replaced.
-- Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
-  matched.
-- Apply the replacement text.
-supersedes: skill_0ed4e70e
+- Identify the search pattern and the replacement text.
+- Ensure the replacement text is a complete, correctly-indented block that matches the structure
+  of the matched code.
+- Apply the replacement text to the file.
+supersedes: skill_ee624794
 provenance:
 - seed
 - zoid_text-utils_1788823063
@@ -22,8 +22,7 @@ provenance:
 - zoid_mini-ledger_1788838694
 - zoid_csv-report_1788844960
 - zoid_csv-report_1788845611
-- zoid_graph-paths_1788851337
-created: 1788851347.1443615
+created: 1788845620.5598142
 record:
   uses: 0
   wins: 0
