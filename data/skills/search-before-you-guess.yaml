@@ -2,7 +2,7 @@ id: seed_03
 name: search-before-you-guess
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: don't assume where a symbol lives or how it's used -- look
 trigger_when: you need to change or call something defined elsewhere
 trigger_matcher: import|call|use|where is|defined|function|class|method
@@ -14,9 +14,9 @@ provenance:
 - seed
 created: 1788664611.494873
 record:
-  uses: 34
-  wins: 22
-  losses: 4
+  uses: 36
+  wins: 23
+  losses: 5
   score_deltas:
   - 0.5
   - 0.2
@@ -52,4 +52,6 @@ record:
   - 0.2222
   - 0.0
   - 1.0
-  last_used_battle: zoid_nsfuzz_1788876471
+  - 0.5
+  - 0.0
+  last_used_battle: zoid_list-ops_1788876668

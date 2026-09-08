@@ -44,7 +44,9 @@ if _envf.is_file():
         _line = _line.strip()
         if _line and not _line.startswith("#") and "=" in _line:
             _k, _, _v = _line.partition("=")
-            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+            _k, _v = _k.strip(), _v.strip().strip('"').strip("'")
+            if _v and not os.environ.get(_k):     # fill missing OR empty
+                os.environ[_k] = _v
 
 sys.path.insert(0, str(Path(__file__).parent))
 
