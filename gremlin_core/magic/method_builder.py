@@ -152,13 +152,20 @@ _SYS_KT = ("You write ONE Kotlin method body. Output ONLY the statements that go
            "not `for (p in plots)`). Prefer early-return guards. Count your braces. "
            "A Kotlin { } body does NOT return its last expression -- if the method "
            "returns a value, EVERY path must end in an explicit `return <value>`. "
-           "For a deterministic shuffle use kotlin.random.Random: "
-           "`val rng = if (seed != null) Random(seed) else Random.Default` then "
-           "build a `MutableList` and call `.shuffle(rng)` (the import is handled "
-           "for you -- just use `Random`, never `java.util.Random`).")
+           "Implement EXACTLY what the test cases check -- nothing more. Do not add "
+           "rounding, clamping, randomness, caching, or any rule the tests don't "
+           "require. If a test says f(101, 15) == 15, your code returns exactly 15.")
+_SYS_KT_RANDOM = (
+    " This method needs randomness: use kotlin.random.Random -- "
+    "`val rng = if (seed != null) Random(seed) else Random.Default`, build a "
+    "`MutableList` and call `.shuffle(rng)` (the import is handled for you -- "
+    "just `Random`, never `java.util.Random`).")
 _SYS_PY = ("You write ONE Python method body. Output ONLY the indented statements "
            "that go under the `def` line -- no signature, no fences, no docstring, "
-           "no other methods. Use the exact names shown. Nothing else.")
+           "no other methods. Use the exact names shown. Implement EXACTLY what the "
+           "test cases check -- no rounding, clamping, randomness or extra rules "
+           "they don't require. Nothing else.")
+_RANDOM_HINT = re.compile(r"\b(shuffl|random|deck|deal|draw|seed)\w*", re.I)
 
 
 def _fix_trailing_return(body: str, stub: Stub) -> str:
@@ -187,7 +194,10 @@ def _fix_trailing_return(body: str, stub: Stub) -> str:
 def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
               fail_hint: str = "", temperature: float = 0.2, context: str = "") -> str:
     marked = full_src[:stub.start] + "\n<<<WRITE THE BODY HERE>>>\n" + full_src[stub.end:]
-    sys = _SYS_KT if stub.lang == "kt" else _SYS_PY
+    if stub.lang == "kt":
+        sys = _SYS_KT + (_SYS_KT_RANDOM if _RANDOM_HINT.search(spec + " " + stub.header) else "")
+    else:
+        sys = _SYS_PY
     user = ""
     if context:
         user += ("OTHER FILES in this project you can call into (signatures only):\n"
@@ -415,18 +425,31 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
         best_src, best_p, best_f = cur, base_p, base_f
         hint = ""
         _seen: list[tuple[int, int]] = []
-        _cfails = 0
+        _bodies: set[str] = set()
+        _cfails = _dupes = 0
         temps = [0.15, 0.5, 0.85, 0.6, 0.9]
         for attempt in range(best_of + repair_rounds):
             _sk = ("\n\nUse EXACTLY this shape, only fill the guard + accumulation:\n"
                    "var acc = <start>\nfor (i in plots.indices) {\n"
                    "    if (<cond on plots[i]>) acc += <expr using i / houseValue(i) / consts>\n"
                    "}\nreturn acc") if (_cfails >= 2 and stub.lang == "kt") else ""
-            body = _gen_body(model, stub, spec, cur, hint + _sk,
-                             temperature=temps[min(attempt, len(temps) - 1)],
-                             context=context)
+            # a repeated body means the hint isn't landing -- push temperature up
+            t = temps[min(attempt + 2 * _dupes, len(temps) - 1)]
+            body = _gen_body(model, stub, spec, cur, hint + _sk, temperature=t, context=context)
             if not body:
                 continue
+            _norm = re.sub(r"\s+", " ", body).strip()
+            if _norm in _bodies:
+                _dupes += 1
+                log(f"[method_builder] {name} try {attempt+1}: identical body again -- escalating")
+                hint = (hint + "\n\nSTOP -- that body is WORD-FOR-WORD one you already tried and "
+                        "it does not pass. Do NOT repeat it. Change the actual logic: a different "
+                        "formula or branch, not renamed variables.")
+                if _dupes >= 2:
+                    log(f"[method_builder] {name}: stuck repeating -- moving on")
+                    break
+                continue
+            _bodies.add(_norm)
             trial = _splice(cur, stub, body)
             tgt.write_text(trial)
             if compile_cmd:

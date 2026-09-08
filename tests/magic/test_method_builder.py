@@ -5,7 +5,42 @@ body flush-left or already at method-body indent. `_splice` must normalise
 either shape to the stub's real indent level (2026-09-08 -- pre-indented
 bodies were being double-indented and every such attempt was wasted).
 """
-from gremlin_core.magic.method_builder import find_stubs, _splice, _reindent
+from gremlin_core.magic import method_builder as MB
+from gremlin_core.magic.method_builder import find_stubs, _splice, _reindent, Stub
+
+
+class _CapModel:
+    """captures the system prompt _gen_body passes."""
+    name = "cap"
+
+    def __init__(self, reply="return 0"):
+        self.reply, self.system = reply, None
+
+    def complete(self, messages, system=None, max_tokens=4096):
+        from gremlin_core.magic.model import ModelReply
+        self.system = system
+        return ModelReply(text=self.reply)
+
+
+def _kt_stub(header="fun f(x: Int): Int"):
+    return Stub("f", 0, 0, header, "kt", indent=4)
+
+
+def test_random_hint_only_for_shuffle_methods():
+    m = _CapModel()
+    MB._gen_body(m, _kt_stub(), "assertEquals(15, Tip().tip(101, 15))", "class X {}")
+    assert "kotlin.random.Random" not in m.system
+    assert ".shuffle(rng)" not in m.system
+
+    MB._gen_body(m, _kt_stub("fun shuffle(seed: Long?): List<Card>"),
+                 "the deck must be shuffled deterministically", "class X {}")
+    assert ".shuffle(rng)" in m.system
+
+
+def test_sys_prompt_forbids_inventing_behaviour():
+    m = _CapModel()
+    MB._gen_body(m, _kt_stub(), "spec", "class X {}")
+    assert "EXACTLY what the test" in m.system
 
 
 PY_SRC = '''class Ledger:
