@@ -10,9 +10,10 @@ echo "============================================================"
 echo " GREMLIN + MAGIC  --  demo walkthrough"
 echo "============================================================"
 echo
-echo ">> stopping the chat service so the GPU is free for the agent"
-systemctl --user stop gremlin.service gremlin-watchdog.timer 2>/dev/null
-pkill -9 -f "main.py serve" 2>/dev/null; sleep 3
+echo ">> stopping the chat service + overnight loop so the GPU is free"
+systemctl --user stop gremlin.service gremlin-watchdog.timer gremlin-zoid 2>/dev/null
+pkill -9 -f "main.py serve" 2>/dev/null
+pkill -9 -f "zoid_loop.py" 2>/dev/null; sleep 3
 
 echo
 echo "------------------------------------------------------------"

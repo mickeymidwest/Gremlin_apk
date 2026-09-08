@@ -384,7 +384,8 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                     hint = ("Your last body did NOT compile:\n"
                             + _first_failure(cout, stub.lang)[:500]
                             + f"\nThat body was:\n{body}")
-                    log(f"[method_builder] {name} try {attempt+1}: COMPILE FAIL")
+                    _ce = _first_failure(cout, stub.lang).replace("\n", " ")[:180]
+                    log(f"[method_builder] {name} try {attempt+1}: COMPILE FAIL -- {_ce}")
                     tgt.write_text(cur)
                     continue
             p, f, out = _run(verify_cmd, root)
@@ -466,7 +467,8 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                         hint = ("Your last body did NOT compile:\n"
                                 + _first_failure(cout, stub.lang)[:500]
                                 + f"\nYour last body:\n{body}\nFix the syntax, return a full body.")
-                        log(f"[method_builder] pass{_pass+2} {name} try {attempt+1}: COMPILE FAIL")
+                        _ce = _first_failure(cout, stub.lang).replace("\n", " ")[:180]
+                        log(f"[method_builder] pass{_pass+2} {name} try {attempt+1}: COMPILE FAIL -- {_ce}")
                         tgt.write_text(cur)
                         continue
                 np, nf, nout = _run(verify_cmd, root)
