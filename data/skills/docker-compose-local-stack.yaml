@@ -1,6 +1,6 @@
 id: seed_77
 name: docker-compose-local-stack
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: stand up a multi-service dev stack (app + db + cache) that actually talks to itself
@@ -22,11 +22,13 @@ provenance:
 - seed
 created: 1788874289.9917696
 record:
-  uses: 3
-  wins: 2
+  uses: 5
+  wins: 4
   losses: 1
   score_deltas:
   - 1.0
   - 0.0
   - 1.0
-  last_used_battle: zoid_inifuzz_1788877159
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788878416

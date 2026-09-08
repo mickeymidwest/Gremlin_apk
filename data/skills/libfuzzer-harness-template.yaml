@@ -1,0 +1,23 @@
+id: skill_ebfc980f
+name: libfuzzer-harness-template
+status: candidate
+destination: card
+council_reviewed: false
+purpose: A template for creating a libFuzzer harness for a given target function
+trigger_when: when creating a libFuzzer harness
+trigger_matcher: null
+procedure:
+- Include the necessary headers for the target function
+- Define the `LLVMFuzzerTestOneInput` function
+- Call the target function with the input data
+- Return 0 to indicate success
+supersedes: null
+provenance:
+- zoid_inifuzz_1788878416
+created: 1788878426.9987857
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

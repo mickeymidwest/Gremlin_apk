@@ -1,0 +1,21 @@
+id: skill_6936e0fc
+name: analyze-fuzz-results
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Analyze the results of a fuzzing run to identify and report any crashes or bugs.
+trigger_when: When the agent has run a fuzzing harness and needs to analyze the results.
+trigger_matcher: null
+procedure:
+- Check the output of the fuzzing run for any crashes or errors.
+- Report any crashes or bugs found during the fuzzing run.
+supersedes: null
+provenance:
+- zoid_tlvfuzz_1788878393
+created: 1788878402.3135464
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
