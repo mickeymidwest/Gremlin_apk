@@ -14,8 +14,9 @@ def _mk_skill(**kw):
     return Skill(**d)
 
 
-def _result(battle_id, won, invoked):
-    tr = Transcript(task_id="t", skills_invoked=invoked)
+def _result(battle_id, won, invoked, available=None):
+    tr = Transcript(task_id="t", skills_invoked=invoked,
+                    skills_available=available if available is not None else invoked)
     return BattleResult(battle_id=battle_id, task_id="t", transcript=tr,
                         score=Score(1.0 if won else 0.4))
 
@@ -32,6 +33,29 @@ def test_no_promotion_without_invocation():
     for i in range(3):
         lifecycle.update_records([s], _result(f"b{i}", won=True, invoked=[]), 0.3)
     assert s.record.wins == 0 and s.status == "candidate"
+
+
+def test_stale_candidate_is_retired():
+    from gremlin_core.magic.lifecycle import STALE_CANDIDATE_BATTLES
+    s = _mk_skill(status="candidate")
+    # shown to the model every battle, never named by it
+    for i in range(STALE_CANDIDATE_BATTLES):
+        lifecycle.update_records([s], _result(f"b{i}", won=True, invoked=[],
+                                              available=["skill_x"]), 0.3)
+    assert s.record.battles_available == STALE_CANDIDATE_BATTLES
+    assert s.record.uses == 0
+    changes = lifecycle.audit([s])
+    assert s.status == "deprecated" and "never invoked" in changes[0]
+
+
+def test_used_candidate_is_not_retired_as_stale():
+    s = _mk_skill(status="candidate")
+    for i in range(50):
+        inv = ["skill_x"] if i % 20 == 0 else []
+        lifecycle.update_records([s], _result(f"b{i}", won=False, invoked=inv,
+                                              available=["skill_x"]), 0.1)
+    lifecycle.audit([s])
+    assert s.status == "candidate"        # uses > 0 -> not "stale"
 
 
 def test_deprecation_after_three_losses():

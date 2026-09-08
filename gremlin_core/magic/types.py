@@ -78,6 +78,7 @@ class SkillRecord:
     losses: int = 0
     score_deltas: list[float] = field(default_factory=list)
     last_used_battle: Optional[str] = None
+    battles_available: int = 0   # loadable-into-a-battle count (invoked or not)
 
     @property
     def avg_score_delta(self) -> float:

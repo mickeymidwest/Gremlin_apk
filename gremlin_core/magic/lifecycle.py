@@ -16,16 +16,27 @@ from .types import BattleResult, Skill
 
 PROMOTE_WINS = 3
 DEPRECATE_LOSSES = 3
+# a candidate loadable into this many battles without ever being invoked
+# (~3 full target rotations) is dead weight diluting retrieval. Retire it
+# to _deprecated/ -- recoverable, not deleted.
+STALE_CANDIDATE_BATTLES = 40
 
 
 def update_records(skills: Sequence[Skill], result: BattleResult, score_delta: float) -> None:
     invoked = set(result.transcript.skills_invoked)
+    shown = result.transcript.skills_available or []
+    # only the ReAct path does real top-N retrieval (<=~10 shown). the
+    # method_builder path reports "everything loadable" and never actually
+    # puts a card in front of the model -> not a staleness signal.
+    shown = set(shown) if 0 < len(shown) <= 12 else None
     # A skill is credited a "win" when the battle it was used in either
     # passed OR made real forward progress (score climbed a fair amount).
     # On a box where a full pass is rare, "did this skill help" is the
     # signal that should promote a card -- not only "did everything pass".
     helped = result.won or score_delta >= 0.25
     for s in skills:
+        if shown is not None and s.id in shown and s.status != "deprecated":
+            s.record.battles_available += 1
         if s.id not in invoked:
             continue
         s.record.uses += 1
@@ -48,6 +59,11 @@ def audit(skills: Sequence[Skill]) -> list[str]:
         elif s.status == "active" and s.record.losses >= DEPRECATE_LOSSES and s.record.losses > s.record.wins:
             s.status = "deprecated"
             changes.append(f"{s.name}: active -> deprecated ({s.record.wins}W/{s.record.losses}L)")
+        elif (s.status == "candidate" and s.record.uses == 0
+              and s.record.battles_available >= STALE_CANDIDATE_BATTLES):
+            s.status = "deprecated"
+            changes.append(f"{s.name}: candidate -> deprecated "
+                           f"(never invoked in {s.record.battles_available} battles)")
     return changes
 
 
