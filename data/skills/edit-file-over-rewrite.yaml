@@ -8,10 +8,10 @@ purpose: Ensure the replacement text is a complete, correctly-indented drop-in f
 trigger_when: when editing a file
 trigger_matcher: optional regex or ""
 procedure:
-- Identify the exact location and context of the code to be replaced.
+- Identify the specific issue in the code that needs to be fixed.
 - Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
   matched.
-- Test the replacement to ensure it works as expected.
+- Test the change to ensure it resolves the issue.
 supersedes: skill_0ed4e70e
 provenance:
 - seed
@@ -28,6 +28,7 @@ provenance:
 - zoid_text-utils_1788876376
 - zoid_list-ops_1788876668
 - zoid_nsfuzz_1788879221
+- zoid_csv-report_1788882612
 created: 1788851347.1443615
 record:
   uses: 0

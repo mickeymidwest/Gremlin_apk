@@ -10,8 +10,7 @@ trigger_matcher: null
 procedure:
 - Identify the failing test by examining the test output.
 - Report the specific assertion failure and the expected result.
-- Ensure the agent understands the context and can provide a comprehensive plan to fix the
-  issue.
+- Provide a plan to fix the identified bug.
 supersedes: skill_3f013648
 provenance:
 - zoid_mini-ledger_1788821188
@@ -22,6 +21,7 @@ provenance:
 - zoid_nsfuzz_1788880096
 - zoid_mb_buildalot-apk_1788880679
 - zoid_mb_bank-multi_1788881141
+- zoid_mb_buildalot-apk_1788883172
 created: 1788841931.3563323
 record:
   uses: 0
