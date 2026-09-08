@@ -216,7 +216,7 @@ def _load_jsonl(path: Path) -> list[dict]:
 
 
 def train_lora(
-    root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 3, lr: float = 2e-4,
+    root: str, base_repo: str = DEFAULT_BASE_REPO, epochs: int = 1, lr: float = 1e-4,
     model_name: Optional[str] = None,
 ) -> dict:
     """
@@ -256,6 +256,7 @@ def train_lora(
         AutoTokenizer,
         BitsAndBytesConfig,
         DataCollatorForLanguageModeling,
+        EarlyStoppingCallback,
         Trainer,
         TrainingArguments,
     )
@@ -316,10 +317,16 @@ def train_lora(
     # projections too) -- roughly a 4x smaller adapter, so its gradients
     # and (even paged) optimizer state ask for meaningfully less scratch
     # VRAM during the backward pass, which is where both prior OOMs hit.
+    # Gentle by design (mickey: "make it move slower so it don't overwhelm
+    # Gremlin"). The 3B run overcooked -- repetition loops, garbled facts --
+    # from 3 epochs at 2e-4 on ~124 examples. A small adapter (r=8) with
+    # more dropout can only *nudge* the base; combined with 1 epoch, a low
+    # LR, and a cosine decay it adds the house style without eating the
+    # model's general ability. If it's still too weak, raise r first.
     lora_config = LoraConfig(
-        r=16,
-        lora_alpha=32,
-        lora_dropout=0.05,
+        r=8,
+        lora_alpha=16,
+        lora_dropout=0.1,
         bias="none",
         task_type="CAUSAL_LM",
         # all attention projections -- the 3B (the base this box can
@@ -344,9 +351,18 @@ def train_lora(
         per_device_train_batch_size=1,
         gradient_accumulation_steps=8,
         learning_rate=lr,
+        # ease in over the first 10% of steps, then cosine-decay to ~0 --
+        # no big jolts to the weights at the start or the end
+        warmup_ratio=0.1,
+        lr_scheduler_type="cosine",
+        weight_decay=0.01,
+        max_grad_norm=0.3,          # clip -- one weird batch can't lurch the adapter
         bf16=True,
         logging_steps=5,
-        save_strategy="no",
+        save_strategy="epoch" if eval_ds is not None else "no",
+        save_total_limit=2,
+        load_best_model_at_end=eval_ds is not None,
+        metric_for_best_model="eval_loss",
         eval_strategy="epoch" if eval_ds is not None else "no",
         report_to=[],
         # Confirmed by a real CUDA OOM on this 8GB card: a plain AdamW's
@@ -364,6 +380,10 @@ def train_lora(
         train_dataset=train_ds,
         eval_dataset=eval_ds,
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        # stop the moment held-out loss stops improving -- don't keep
+        # grinding the same handful of examples into the weights
+        callbacks=([EarlyStoppingCallback(early_stopping_patience=2)]
+                   if eval_ds is not None else []),
     )
     result = trainer.train()
 

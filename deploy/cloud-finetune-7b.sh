@@ -23,7 +23,9 @@ set -euo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$PWD"
 BASE_REPO="${BASE_REPO:-Qwen/Qwen2.5-Coder-7B-Instruct}"
-EPOCHS="${EPOCHS:-3}"
+# 1 epoch, gentle -- the 3B run overcooked at 3. Raise ONLY if the A/B
+# says the adapter is too weak, and raise to 2 before 3.
+EPOCHS="${EPOCHS:-1}"
 
 echo "== gremlin cloud finetune =="
 echo "   root      $ROOT"

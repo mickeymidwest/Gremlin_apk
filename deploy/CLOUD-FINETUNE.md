@@ -80,6 +80,7 @@ that's already the primary base — no merge, like `gremlin-3b-ft`):
     display_name: "Gremlin-7B (fine-tuned)"
     model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"   # same as qwen2.5-coder-7b
     lora_path: "/home/mickey/Downloads/gremlin/data/finetunes/7b-<ts>/gremlin-7b-lora-f16.gguf"
+    lora_scale: 0.5          # blend the adapter in at HALF strength -- a nudge, not a takeover
     n_ctx: 16384
     n_gpu_layers: -1
     flash_attn: true
@@ -98,16 +99,36 @@ that's already the primary base — no merge, like `gremlin-3b-ft`):
 # ask it the same handful of things you'd ask the primary; compare.
 ```
 
-If it's clearly better, change `persona.primary_model` to `gremlin-7b-ft`.
-If it's a wash, keep the plain Coder-7B primary and re-train later with a
-bigger dataset — the adapter is cheap to redo once there's more signal.
+**Dial the strength with `lora_scale`, don't retrain.** Start at `0.5`.
+If it feels like the base with a bit more of the house style and it's
+not worse at anything — good, try `0.7`, then `1.0`. If any setting
+makes it repeat itself / garble facts / get worse at plain coding, step
+back down. `0` = the plain base. This is the "make it move slower so it
+don't overwhelm Gremlin" knob — a config change, service restart, done.
 
-## Notes
+If some scale is clearly better, set `persona.primary_model: gremlin-7b-ft`.
+If nothing beats the plain base, keep the base and redo the adapter later
+with more data — it's cheap.
 
-- `train_lora` hardcodes `max_length=512`, `r=16`, `q/k/v/o` targets —
-  tuned for the 8GB box. On a 24GB card you can raise `max_length` to
-  1024+ and `r` to 32 for a stronger adapter; edit `gremlin_core/finetune.py`
-  before step 3 if you want that.
+## Notes — the training is deliberately gentle
+
+The 3B run last time came out **worse** (repetition loops, garbled
+facts) — 3 epochs at lr 2e-4 on ~124 examples overcooked it. The
+defaults now:
+
+| knob | was | now | why |
+|---|---|---|---|
+| epochs | 3 | **1** | one clean pass, not memorising the same rows 3x |
+| learning rate | 2e-4 | **1e-4** | smaller nudges per step |
+| LoRA `r` / `alpha` | 16 / 32 | **8 / 16** | a smaller adapter can only nudge, not overwrite |
+| LoRA dropout | 0.05 | **0.1** | more regularisation |
+| LR schedule | constant | **cosine + 10% warm-up** | ease in, decay out — no jolts |
+| grad clip | — | **0.3** | one weird batch can't lurch the weights |
+| early stop | — | **on eval-loss, patience 2** | stop the moment held-out loss plateaus |
+
+Override per-run: `EPOCHS=2 bash deploy/cloud-finetune-7b.sh`. Raise
+`r`/`max_length` in `gremlin_core/finetune.py` only if the A/B says the
+adapter is too weak even at `lora_scale: 1.0`.
 - The merge step (`merge_and_export_gguf`) needs ~20GB RAM — fine on a
   cloud box, never on the desktop. That's why the adapter is the artifact
   to ship: `lora_path` applies it at load time, no merge.
