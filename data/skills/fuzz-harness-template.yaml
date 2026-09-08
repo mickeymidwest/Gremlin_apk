@@ -3,18 +3,15 @@ name: fuzz-harness-template
 status: candidate
 destination: card
 council_reviewed: false
-purpose: A template for creating a fuzz harness for a given target function
-trigger_when: when setting up a fuzzing harness
+purpose: Ensure the harness template includes necessary headers like <stdint.h>
+trigger_when: when creating a fuzz harness
 trigger_matcher: null
 procedure:
-- Create a new file named fuzz_harness.c in the root of the repository
-- Include the necessary headers for the target function
-- Declare all used identifiers
-- Implement the LLVMFuzzerTestOneInput function
-- Call the target function with the input data
+- Include <stdint.h> at the top of the harness file to define types like uint8_t.
 supersedes: null
 provenance:
 - zoid_nsfuzz_1788882646
+- zoid_inifuzz_1788885962
 created: 1788882656.3353262
 record:
   uses: 0
