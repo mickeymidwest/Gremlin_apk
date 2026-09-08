@@ -310,9 +310,14 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
         best_src, best_p, best_f = cur, base_p, base_f
         hint = ""
         _seen: list[tuple[int, int]] = []
+        _cfails = 0
         temps = [0.15, 0.5, 0.85, 0.6, 0.9]
         for attempt in range(best_of + repair_rounds):
-            body = _gen_body(model, stub, spec, cur, hint,
+            _sk = ("\n\nUse EXACTLY this shape, only fill the guard + accumulation:\n"
+                   "var acc = <start>\nfor (i in plots.indices) {\n"
+                   "    if (<cond on plots[i]>) acc += <expr using i / houseValue(i) / consts>\n"
+                   "}\nreturn acc") if (_cfails >= 2 and stub.lang == "kt") else ""
+            body = _gen_body(model, stub, spec, cur, hint + _sk,
                              temperature=temps[min(attempt, len(temps) - 1)])
             if not body:
                 continue
@@ -321,8 +326,10 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
             if compile_cmd:
                 cp, cf, cout = _run(compile_cmd, root, timeout=300)
                 if cf and not cp:
+                    _cfails += 1
                     hint = ("Your last body did NOT compile:\n"
-                            + _first_failure(cout, stub.lang)[:500])
+                            + _first_failure(cout, stub.lang)[:500]
+                            + f"\nThat body was:\n{body}")
                     log(f"[method_builder] {name} try {attempt+1}: COMPILE FAIL")
                     tgt.write_text(cur)
                     continue
@@ -384,9 +391,16 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
             asserts = _gradle_assertion_failures(root) if ext == "x.kt" else []
             hint = ("The method compiles but is logically wrong. Still failing:\n"
                     + "\n".join(a for a in asserts if name.lower() in a.lower())[:600])
-            for attempt in range(repair_rounds + 1):
+            _cfails = 0
+            for attempt in range(repair_rounds + 2):
+                if _cfails >= 2 and stub.lang == "kt":
+                    # can't get it past the compiler -- hand it a skeleton to fill
+                    hint += ("\n\nUse EXACTLY this shape, only change the guard/accumulation:\n"
+                             "var acc = <start>\nfor (i in plots.indices) {\n"
+                             "    if (<condition on plots[i]>) acc += <expr using i, "
+                             "houseValue(i), the constants>\n}\nreturn acc")
                 body = _gen_body(model, stub, spec, cur, hint,
-                                 temperature=[0.2, 0.6, 0.9, 0.7][min(attempt, 3)])
+                                 temperature=[0.2, 0.6, 0.9, 0.7, 0.5][min(attempt, 4)])
                 if not body:
                     continue
                 trial = _splice(cur, stub, body)
@@ -394,6 +408,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 if compile_cmd:
                     cp, cf, cout = _run(compile_cmd, root, timeout=300)
                     if cf and not cp:
+                        _cfails += 1
                         hint = ("Your last body did NOT compile:\n"
                                 + _first_failure(cout, stub.lang)[:500]
                                 + f"\nYour last body:\n{body}\nFix the syntax, return a full body.")
