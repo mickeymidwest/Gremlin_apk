@@ -1,6 +1,6 @@
-id: skill_6fca1698
+id: skill_28439dee
 name: identify-bug-and-fix
-status: candidate
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and fixes the failing test before declaring
@@ -11,15 +11,14 @@ procedure:
 - Identify the specific failing test and its assertion to understand the expected behavior.
 - Reproduce the bug before trying to fix it.
 - Analyze the code to understand the root cause of the bug.
-- Make a targeted fix to address the root cause of the bug.
-- Verify that the fix resolves the bug and does not introduce new bugs.
-supersedes: skill_28439dee
+- Make a targeted fix to address the root cause.
+- Run the failing test again to ensure the bug is fixed.
+supersedes: skill_6350ef6a
 provenance:
 - zoid_graph-paths_1788832397
 - zoid_graph-paths_1788834231
 - zoid_list-ops_1788844786
-- zoid_temp-convert_1788845416
-created: 1788845424.7965386
+created: 1788844796.127838
 record:
   uses: 0
   wins: 0
