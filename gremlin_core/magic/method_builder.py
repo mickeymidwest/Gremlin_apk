@@ -21,8 +21,9 @@ from pathlib import Path
 
 from .model import Model
 
-_PASS_RE = re.compile(r"(\d+)\s+(?:tests?\s+)?(?:passed|completed)", re.I)
-_FAIL_RE = re.compile(r"(\d+)\s+(?:tests?\s+)?(?:failed|error)", re.I)
+_GRADLE_RE = re.compile(r"(\d+)\s+tests?\s+completed,\s+(\d+)\s+failed", re.I)
+_PYTEST_RE = re.compile(r"(\d+)\s+passed(?:,\s+(\d+)\s+(?:failed|error))?", re.I)
+_PYTEST_FAIL = re.compile(r"(\d+)\s+(?:failed|error)s?\b", re.I)
 _KT_FAIL_LINE = re.compile(r"^\s*(\w+)(?:\([^)]*\))?\s+>?\s*(\w+).*(?:FAILED|failed)", re.M)
 _PYFAIL = re.compile(r"^(?:FAILED|ERROR)\s+\S+::(\w+)", re.M)
 
@@ -128,10 +129,32 @@ def _method_spec(name: str, target_src: str, test_src: str) -> str:
 _SYS_KT = ("You write ONE Kotlin method body. Output ONLY the statements that go "
            "between the method's { and } -- no signature, no fences, no comments, "
            "no imports, no other methods. Use the exact constant and field names "
-           "shown. Prefer early-return guards. Nothing else.")
+           "shown. Prefer early-return guards. A Kotlin { } body does NOT return "
+           "its last expression -- if the method returns a value, EVERY path must "
+           "end in an explicit `return <value>`. Nothing else.")
 _SYS_PY = ("You write ONE Python method body. Output ONLY the indented statements "
            "that go under the `def` line -- no signature, no fences, no docstring, "
            "no other methods. Use the exact names shown. Nothing else.")
+
+
+def _fix_trailing_return(body: str, stub: Stub) -> str:
+    """A common 7B slip: ending a value-returning Kotlin { } body with a bare
+    `true` / `x + 1` instead of `return true`. Patch the last statement."""
+    if stub.lang != "kt" or "): " not in stub.header and "):" not in stub.header:
+        return body
+    ret_t = re.search(r"\)\s*:\s*([\w<>?.\[\] ]+?)\s*\{?\s*$", stub.header)
+    if not ret_t or ret_t.group(1).strip() in ("Unit", ""):
+        return body
+    lines = body.rstrip().splitlines()
+    if not lines:
+        return body
+    last = lines[-1].strip()
+    if last and not re.match(r"return\b|throw\b|\}$|\{$", last) and "=" not in last.split("//")[0]:
+        # bare trailing expression -> return it
+        lines[-1] = re.sub(r"^(\s*)", r"\1return ", lines[-1], count=1) \
+            if lines[-1][:1] in " \t" else "return " + lines[-1]
+        return "\n".join(lines)
+    return body
 
 
 def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
@@ -150,7 +173,9 @@ def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
     txt = re.sub(r"^```[a-z]*\n?|\n?```$", "", txt).strip()
     txt = re.sub(rf"^\s*(?:override\s+)?(?:fun|def)\s+{re.escape(stub.name)}\b.*?[:{{]\s*\n",
                  "", txt)
-    return txt
+    # drop a trailing lone '}' the model sometimes adds (thinking it closes the fn)
+    txt = re.sub(r"\n\s*\}\s*$", "", txt)
+    return _fix_trailing_return(txt, stub)
 
 
 def _splice(src: str, stub: Stub, body: str) -> str:
@@ -171,11 +196,20 @@ def _run(verify_cmd: str, repo: Path, timeout: int = 600) -> tuple[int, int, str
     except subprocess.TimeoutExpired:
         return 0, 999, "(timed out)"
     out = (p.stdout or "") + (p.stderr or "")
-    passed = max((int(x) for x in _PASS_RE.findall(out)), default=0)
-    failed = max((int(x) for x in _FAIL_RE.findall(out)), default=0)
-    if p.returncode != 0 and passed == 0 and failed == 0:
-        failed = 1   # didn't compile / crashed
-    return passed, failed, out
+    g = _GRADLE_RE.search(out)
+    if g:
+        total, failed = int(g.group(1)), int(g.group(2))
+        return total - failed, failed, out
+    pm = _PYTEST_RE.search(out)
+    if pm:
+        passed = int(pm.group(1))
+        failed = int(pm.group(2)) if pm.group(2) else 0
+        if not failed:
+            fm = _PYTEST_FAIL.search(out)
+            failed = int(fm.group(1)) if fm else 0
+        return passed, failed, out
+    # nothing parseable -- compile error / crash
+    return 0, (1 if p.returncode != 0 else 0), out
 
 
 def _first_failure(out: str, lang: str) -> str:
