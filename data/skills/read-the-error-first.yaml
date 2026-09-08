@@ -1,6 +1,6 @@
 id: skill_5a862a71
 name: read-the-error-first
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
@@ -18,8 +18,15 @@ provenance:
 - zoid_mb_klondike-apk_1788880520
 created: 1788880527.4656603
 record:
-  uses: 0
-  wins: 0
-  losses: 0
-  score_deltas: []
-  last_used_battle: null
+  uses: 7
+  wins: 4
+  losses: 2
+  score_deltas:
+  - 0.5
+  - 0.2
+  - -0.1667
+  - -0.1429
+  - 0.5556
+  - 0.4286
+  - 0.75
+  last_used_battle: zoid_mb_bank-multi_1788881141
