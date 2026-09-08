@@ -53,6 +53,15 @@ class BuildResult:
 
 # ---- parsing the scaffold ----------------------------------------------
 
+def _decomment(s: str) -> str:
+    s = re.sub(r'"""[\s\S]*?"""', '""', s)
+    s = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', s)
+    s = re.sub(r"'(?:\\.|[^'\\\n])'", "''", s)
+    s = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
+    s = re.sub(r"//[^\n]*", "", s)
+    return s
+
+
 def _find_kt_stubs(src: str) -> list[Stub]:
     out: list[Stub] = []
     for m in re.finditer(r"(?m)^([ \t]*)(?:override\s+)?fun\s+(\w+)\s*\([^)]*\)\s*"
@@ -129,9 +138,11 @@ def _method_spec(name: str, target_src: str, test_src: str) -> str:
 _SYS_KT = ("You write ONE Kotlin method body. Output ONLY the statements that go "
            "between the method's { and } -- no signature, no fences, no comments, "
            "no imports, no other methods. Use the exact constant and field names "
-           "shown. Prefer early-return guards. A Kotlin { } body does NOT return "
-           "its last expression -- if the method returns a value, EVERY path must "
-           "end in an explicit `return <value>`. Nothing else.")
+           "shown, and the exact signatures of any helper you call (a helper that "
+           "takes an Int index wants an index -- iterate `for (i in plots.indices)`, "
+           "not `for (p in plots)`). Prefer early-return guards. Count your braces. "
+           "A Kotlin { } body does NOT return its last expression -- if the method "
+           "returns a value, EVERY path must end in an explicit `return <value>`.")
 _SYS_PY = ("You write ONE Python method body. Output ONLY the indented statements "
            "that go under the `def` line -- no signature, no fences, no docstring, "
            "no other methods. Use the exact names shown. Nothing else.")
@@ -176,8 +187,16 @@ def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
     txt = re.sub(r"^```[a-z]*\n?|\n?```$", "", txt).strip()
     txt = re.sub(rf"^\s*(?:override\s+)?(?:fun|def)\s+{re.escape(stub.name)}\b.*?[:{{]\s*\n",
                  "", txt)
-    # drop a trailing lone '}' the model sometimes adds (thinking it closes the fn)
-    txt = re.sub(r"\n\s*\}\s*$", "", txt)
+    if stub.lang == "kt":
+        clean = _decomment(txt)
+        opens, closes = clean.count("{"), clean.count("}")
+        # the model sometimes wraps the body in the fn's own braces -> 1 extra
+        while closes > opens and re.search(r"\n\s*\}\s*$", txt):
+            txt = re.sub(r"\n\s*\}\s*$", "", txt)
+            closes -= 1
+        # ...or forgets a closer on a forEach/let/if -> add the missing ones
+        if opens > closes:
+            txt = txt.rstrip() + "\n" + "\n".join("}" * (opens - closes))
     return _fix_trailing_return(txt, stub)
 
 
@@ -334,22 +353,29 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
             log("[method_builder] all green -- stopping early")
             break
 
-    # Second pass: with every method now filled, dependencies are resolved
-    # -- re-attempt the ones whose tests are still red.
-    p, f, out = _run(verify_cmd, root)
-    if f > 0:
+    # Extra passes: with every method now filled, dependencies are resolved
+    # -- re-attempt anything still red (or that never compiled in pass 1).
+    for _pass in range(2):
+        p, f, out = _run(verify_cmd, root)
+        if f == 0:
+            break
+        still_stub = {s.name for s in find_stubs(cur, ext)}   # never got a body
         fails = _gradle_assertion_failures(root) if ext == "x.kt" else list(_PYFAIL.findall(out))
         stuck_names = {a.split(":")[0] for a in fails} if ext == "x.kt" else set(fails)
         retry = []
         for n in names:
+            if n in still_stub:
+                retry.append(n); continue
             hits = [ln for ln in test_src.splitlines()
                     if re.search(rf"\b{re.escape(n)}\s*\(", ln)]
             if any(tn in ln for tn in stuck_names for ln in hits) or \
                any(n.lower() in s.lower() for s in stuck_names):
                 retry.append(n)
-        log(f"[method_builder] pass 2 -- retrying {retry}")
+        if not retry:
+            break
+        log(f"[method_builder] pass {_pass+2} -- retrying {retry}  ({p}p/{f}f)")
         base_p, base_f = p, f
-        for name in retry[:5]:
+        for name in retry[:6]:
             stub = next((s for s in find_stubs(cur, ext) if s.name == name), None)
             if stub is None:
                 continue
@@ -368,10 +394,14 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 if compile_cmd:
                     cp, cf, cout = _run(compile_cmd, root, timeout=300)
                     if cf and not cp:
+                        hint = ("Your last body did NOT compile:\n"
+                                + _first_failure(cout, stub.lang)[:500]
+                                + f"\nYour last body:\n{body}\nFix the syntax, return a full body.")
+                        log(f"[method_builder] pass{_pass+2} {name} try {attempt+1}: COMPILE FAIL")
                         tgt.write_text(cur)
                         continue
                 np, nf, nout = _run(verify_cmd, root)
-                log(f"[method_builder] pass2 {name} try {attempt+1}: {np}p/{nf}f")
+                log(f"[method_builder] pass{_pass+2} {name} try {attempt+1}: {np}p/{nf}f")
                 if np > best_p:
                     best_src, best_p, best_f = trial, np, nf
                     if nf == 0:
