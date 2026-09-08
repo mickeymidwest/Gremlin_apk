@@ -1,6 +1,6 @@
 id: seed_50
 name: c-off-by-one-and-nul
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: buffer sizes, loop bounds, and the string terminator are where C bugs live
@@ -17,10 +17,11 @@ provenance:
 - seed
 created: 1788816592.063365
 record:
-  uses: 2
-  wins: 2
+  uses: 3
+  wins: 3
   losses: 0
   score_deltas:
   - 1.0
   - 1.0
-  last_used_battle: zoid_inifuzz_1788871058
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788871763

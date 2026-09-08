@@ -1,6 +1,6 @@
 id: seed_48
 name: float-equality-and-money
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: 0.1 + 0.2 != 0.3; never == two floats, never store money as float
@@ -15,10 +15,11 @@ provenance:
 - seed
 created: 1788816592.0633621
 record:
-  uses: 2
-  wins: 2
+  uses: 3
+  wins: 3
   losses: 0
   score_deltas:
   - 0.6231
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788871407
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788872122

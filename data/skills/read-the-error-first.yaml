@@ -16,9 +16,9 @@ provenance:
 - zoid_mb_buildalot-apk_1788837991
 created: 1788837997.7942297
 record:
-  uses: 12
-  wins: 8
-  losses: 2
+  uses: 18
+  wins: 10
+  losses: 3
   score_deltas:
   - 0.5
   - 0.2
@@ -32,4 +32,10 @@ record:
   - 0.0
   - 0.2222
   - 0.4286
-  last_used_battle: zoid_csv-report_1788870981
+  - 0.5
+  - 0.2
+  - 0.1667
+  - 0.1429
+  - -0.1111
+  - 0.4286
+  last_used_battle: zoid_csv-report_1788871693
