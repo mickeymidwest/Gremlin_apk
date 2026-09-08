@@ -53,13 +53,24 @@ def _reindent(text: str, want: str, have: str) -> str:
     return "".join(out)
 
 
+def _decomment(s: str) -> str:
+    """Drop string literals + // and /* */ comments so brace-counting on a
+    line isn't thrown off by  char c = '}';  or  // end }"""
+    s = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', s)
+    s = re.sub(r"'(?:\\.|[^'\\\n])'", "''", s)
+    s = re.sub(r"/\*.*?\*/", "", s)
+    s = re.sub(r"//[^\n]*", "", s)
+    return s
+
+
 def _block_end(lines: list[str], i: int) -> int:
     """Line index one past the end of the def/class block that starts at
     line i -- brace-balanced if it opens with '{', else by indentation."""
     if lines[i].rstrip().endswith("{"):
         depth = 0
         for k in range(i, len(lines)):
-            depth += lines[k].count("{") - lines[k].count("}")
+            c = _decomment(lines[k])
+            depth += c.count("{") - c.count("}")
             if k > i and depth <= 0:
                 return k + 1
         return len(lines)
