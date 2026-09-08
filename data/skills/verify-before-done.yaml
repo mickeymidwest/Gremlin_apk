@@ -16,8 +16,8 @@ provenance:
 - zoid_csv-report_1788877053
 created: 1788877063.3770778
 record:
-  uses: 9
-  wins: 9
+  uses: 12
+  wins: 12
   losses: 0
   score_deltas:
   - 0.625
@@ -29,4 +29,7 @@ record:
   - 0.75
   - 0.5727
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788879829
+  - 0.625
+  - 0.6545
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788880679

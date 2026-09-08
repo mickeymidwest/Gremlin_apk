@@ -1,19 +1,20 @@
-id: skill_2f4a73d0
-name: indentation-check
-status: active
+id: skill_2c0258cf
+name: read-the-error-first
+status: deprecated
 destination: card
 council_reviewed: true
-purpose: Check and correct indentation in Python code
-trigger_when: when fixing Python code
-trigger_matcher: python
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test.
+trigger_when: when a test fails
+trigger_matcher: fail|error|exception|traceback|exit [1-9]
 procedure:
-- Identify the line with the syntax error.
-- Check the indentation of the line and the lines around it.
-- Ensure that the indentation is consistent with Python's syntax rules.
-supersedes: null
+- Identify the failing test and its assertion from the error output.
+- Report the specific assertion failure and the expected result.
+supersedes: seed_00
 provenance:
-- zoid_mini-ledger_1788818904
-created: 1788818913.9997346
+- seed
+- zoid_mb_buildalot-apk_1788837991
+created: 1788837997.7942297
 record:
   uses: 59
   wins: 34
