@@ -1,6 +1,6 @@
 id: seed_25
 name: apk-recon
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: 'map an Android app''s attack surface: components, data flow, native code'
@@ -21,9 +21,11 @@ provenance:
 - seed
 created: 1788803179.1005294
 record:
-  uses: 1
-  wins: 1
+  uses: 3
+  wins: 3
   losses: 0
   score_deltas:
   - 0.6429
-  last_used_battle: zoid_gen_tipcalc_1788906351
+  - 0.7714
+  - 0.7714
+  last_used_battle: zoid_gen_tipcalc_1788910254
