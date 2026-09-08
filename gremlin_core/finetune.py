@@ -323,13 +323,22 @@ def train_lora(
         # rest in CPU RAM. Steps are much slower (CPU layers in the loop)
         # but a 7B fits where it otherwise OOMs on load.
         load_kw = dict(device_map="auto",
-                       max_memory={0: f"{gpu_mem_gib:.1f}GiB", "cpu": "5GiB"})
+                       max_memory={0: f"{gpu_mem_gib:.1f}GiB", "cpu": "4GiB"},
+                       low_cpu_mem_usage=True)
     else:
         # everything on GPU 0 -- fits a 3B, or a 7B on a >=16GB card
         load_kw = dict(device_map={"": 0})
     model = AutoModelForCausalLM.from_pretrained(
         base_repo, quantization_config=bnb_config, **load_kw)
-    model = prepare_model_for_kbit_training(model)
+    if gpu_mem_gib:
+        # prepare_model_for_kbit_training upcasts every norm param to fp32
+        # IN PLACE on-device -- a ~2GB spike that OOMs an 8GB card mid-load
+        # (measured). Do its other two jobs by hand and skip the upcast;
+        # for a gentle 1-epoch LoRA the stability gain isn't worth the spike.
+        model.gradient_checkpointing_enable()
+        model.enable_input_require_grads()
+    else:
+        model = prepare_model_for_kbit_training(model)
     model.gradient_checkpointing_enable()
     model.config.use_cache = False
 

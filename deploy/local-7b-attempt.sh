@@ -64,7 +64,7 @@ r = finetune.train_lora(
     epochs=1, lr=1e-4,
     max_length=256, max_rows=120,
     lora_r=4, lora_targets=["q_proj", "v_proj"],
-    gpu_mem_gib=6.0,
+    gpu_mem_gib=3.5,
 )
 print("TRAIN:", r)
 open("data/finetunes/last_adapter.txt", "w").write(r["adapter_dir"])
