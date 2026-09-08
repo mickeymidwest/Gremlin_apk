@@ -1,22 +1,22 @@
-id: skill_d3be33ad
+id: skill_cad915b3
 name: fuzz-harness
 status: candidate
 destination: card
 council_reviewed: false
 purpose: Improve the fuzzing strategy to increase the likelihood of finding a crash
-trigger_when: when fuzzing a target that has a known memory safety bug
+trigger_when: when fuzzing a target that is known to have vulnerabilities
 trigger_matcher: fuzz|libfuzzer|afl\+\+|honggfuzz|LLVMFuzzerTestOneInput|corpus|sanitizer|ASAN
 procedure:
-- Increase the size of the input data to test larger memory allocations and more complex scenarios.
-- Use a variety of input types, including edge cases and boundary values, to increase the
-  likelihood of triggering the bug.
-- Run the fuzzer for a longer period of time to allow it to explore more input combinations.
-- Monitor the fuzzer's progress and adjust the fuzzing strategy as needed based on the results.
-supersedes: seed_22
+- Ensure the fuzzing input includes a variety of edge cases and malformed inputs.
+- Increase the number of iterations to allow for more comprehensive testing.
+- Use a targeted fuzzing approach, such as dictionary-based fuzzing, to provide specific inputs
+  that are known to trigger vulnerabilities.
+supersedes: skill_d3be33ad
 provenance:
 - seed
 - zoid_inifuzz_1788824518
-created: 1788824527.0657942
+- zoid_inifuzz_1788836283
+created: 1788836291.8202157
 record:
   uses: 0
   wins: 0
