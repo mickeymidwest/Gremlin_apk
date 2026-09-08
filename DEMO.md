@@ -40,9 +40,15 @@ method at a time, compiling and testing each against the spec until the
 suite is green.
 - `method_builder.py` — the harness owns the file, the model only writes
   one short method body against that method's own spec + the exact tests
-  that exercise it. No navigating, no guessing.
+  that exercise it. No navigating, no guessing. When a body compiles but a
+  test still fails, the harness feeds the exact JUnit assertion back and
+  the model repairs it (it has caught its own inverted guards and missing
+  braces this way).
+- **Build-a-Lot (property-tycoon game): 0 → 13/13 tests, all 7 methods.**
+  A complete, working game-logic class written by the local 7B.
 - Targets: `~/Downloads/klondike` (solitaire), `~/Downloads/buildalot`
-  (a Build-a-Lot style property game).
+  (Build-a-Lot). Wired into the nightly loop as the path for scaffold
+  builds.
 
 ### 3. Getting better on its own
 `zoid_loop.py` runs Gremlin through a rotation of ~11 practice targets,

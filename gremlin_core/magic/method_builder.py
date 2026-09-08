@@ -211,7 +211,7 @@ def _splice(src: str, stub: Stub, body: str) -> str:
 
 # ---- the test runner ----------------------------------------------------
 
-def _run(verify_cmd: str, repo: Path, timeout: int = 600) -> tuple[int, int, str]:
+def _run(verify_cmd: str, repo: Path, timeout: int = 600, _retry: bool = True) -> tuple[int, int, str]:
     try:
         p = subprocess.run(verify_cmd, shell=True, cwd=repo, capture_output=True,
                            text=True, timeout=timeout)
@@ -222,6 +222,13 @@ def _run(verify_cmd: str, repo: Path, timeout: int = 600) -> tuple[int, int, str
     if g:
         total, failed = int(g.group(1)), int(g.group(2))
         return total - failed, failed, out
+    # gradle's plain console only prints "N tests completed, M failed" when
+    # M > 0 -- an all-green run just says BUILD SUCCESSFUL. Count from the
+    # JUnit XML so a 13/13 is actually visible to the loop.
+    if "test" in verify_cmd.lower() and re.search(r"BUILD SUCCESSFUL", out):
+        tot, fail = _gradle_xml_counts(repo)
+        if tot:
+            return tot - fail, fail, out
     pm = _PYTEST_RE.search(out)
     if pm:
         passed = int(pm.group(1))
@@ -230,8 +237,28 @@ def _run(verify_cmd: str, repo: Path, timeout: int = 600) -> tuple[int, int, str
             fm = _PYTEST_FAIL.search(out)
             failed = int(fm.group(1)) if fm else 0
         return passed, failed, out
-    # nothing parseable -- compile error / crash
+    # a real compile error prints "e: file:.." / "error:"
+    if re.search(r"\be: file:|error:|FAILURE:|Compilation error", out):
+        return 0, 1, out
+    # nothing parseable and rc==0 -> a flaky gradle/daemon run; try once more
+    if _retry and "test" in verify_cmd.lower():
+        return _run(verify_cmd, repo, timeout, _retry=False)
     return 0, (1 if p.returncode != 0 else 0), out
+
+
+def _gradle_xml_counts(root: Path) -> tuple[int, int]:
+    """(total, failed+errored) across every JUnit testsuite XML. Used when
+    the gradle console prints no 'N tests completed' line (all-green runs)."""
+    import xml.etree.ElementTree as ET
+    tot = bad = 0
+    for xml in root.rglob("build/test-results/**/TEST-*.xml"):
+        try:
+            r = ET.parse(xml).getroot()
+            tot += int(r.get("tests", 0))
+            bad += int(r.get("failures", 0)) + int(r.get("errors", 0))
+        except Exception:
+            pass
+    return tot, bad
 
 
 def _gradle_assertion_failures(root: Path) -> list[str]:

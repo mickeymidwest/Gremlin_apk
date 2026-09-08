@@ -42,11 +42,12 @@ from gremlin_core.registry import ModelRegistry
 from gremlin_core.magic.model import BackendModel
 from gremlin_core.magic.store import Store
 from gremlin_core.magic.battle import run_battle
+from gremlin_core.magic.method_builder import build_from_scaffold
 from gremlin_core.magic import lifecycle, reckoning, reflexion
 from gremlin_core.magic.verifier import PytestVerifier
 from gremlin_core.magic.fuzz_verifier import FuzzVerifier
 from gremlin_core.magic.gradle_verifier import GradleVerifier
-from gremlin_core.magic.types import Task, BattleResult
+from gremlin_core.magic.types import Task, BattleResult, Transcript, StepRecord
 
 ROOT = Path(__file__).parent
 CONFIG = str(ROOT / "config" / "models.yaml")
@@ -126,6 +127,8 @@ def targets() -> list[dict]:
     if klon.is_dir() and (klon / "gradlew").exists():
         T.append(dict(name="klondike-apk", repo=klon,
             verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=38, max_tokens=4096, time_budget=2400,
+            builder="app/src/main/java/com/klondike/game/Game.kt",
+            compile_cmd="./gradlew :app:compileDebugKotlin --offline --console=plain -q",
             task=Task(id="klondike", verify_cmd="./gradlew testDebugUnitTest --offline --console=plain",
                 prompt=(
                 "Android Klondike solitaire. Implement every TODO() method body in "
@@ -139,6 +142,8 @@ def targets() -> list[dict]:
     if bal.is_dir() and (bal / "gradlew").exists():
         T.append(dict(name="buildalot-apk", repo=bal,
             verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True), step_budget=42, max_tokens=4096, time_budget=2400,
+            builder="app/src/main/java/com/buildalot/game/Game.kt",
+            compile_cmd="./gradlew :app:compileDebugKotlin --offline --console=plain -q",
             task=Task(id="buildalot", verify_cmd="./gradlew testDebugUnitTest --offline --console=plain",
                 prompt=(
                 "Build-a-Lot, a property-tycoon game. Implement every TODO() method body in "
@@ -252,6 +257,72 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
+    """method_builder path: the harness owns Game.kt and fills it one method
+    body at a time (compile + test each). Used for the Android scaffold
+    targets where the whole file is TODO() stubs -- the ReAct loop is the
+    wrong tool for 'write this file from nothing'. Still feeds the learn
+    step so Magic grows skills from what worked."""
+    task = tgt["task"]
+    repo = tgt["repo"]
+    work = Path(tempfile.mkdtemp(prefix=f"zoid-mb-{tgt['name']}-"))
+    shutil.rmtree(work); shutil.copytree(repo, work, ignore=_IGNORE)
+    try:
+        skills = store.read_skills()
+        facts = store.read_facts()
+        t0 = time.monotonic()
+        lines: list[str] = []
+        def _blog(m):
+            lines.append(str(m)); log(f"     {m}")
+        r = build_from_scaffold(str(work), tgt["builder"], task.verify_cmd, model,
+                                best_of=2, repair_rounds=3,
+                                compile_cmd=tgt.get("compile_cmd"), log=_blog)
+        mins = (time.monotonic() - t0) / 60
+        score = tgt["verifier"].score(task, str(work))
+        steps = [StepRecord(kind="note", content=ln) for ln in lines[-60:]]
+        steps.append(StepRecord(kind="note",
+            content=f"method_builder filled {r.methods_done}; final {r.passed}p/{r.failed}f"))
+        tr = Transcript(task_id=task.id, steps=steps,
+                        final_message=f"{r.passed}/{r.passed + r.failed} tests pass",
+                        skills_available=[s.id for s in lifecycle.loadable(skills)])
+        result = BattleResult(battle_id=f"zoid_mb_{tgt['name']}_{int(time.time())}",
+                              task_id=task.id, transcript=tr, score=score)
+        delta = score.value            # scaffold baseline is 0 -- every stub is TODO()
+        best[tgt["name"]] = max(best.get(tgt["name"], 0.0), score.value)
+
+        if score.value < 0.999:
+            try:
+                lesson = reflexion.distil_lesson(model, task, tr)
+                reflexion.save_lesson(str(ROOT), task, lesson)
+            except Exception:
+                lesson = ""
+        else:
+            lesson = ""
+
+        lifecycle.update_records(skills, result, delta)
+        proposals = reckoning.reckon(model, result, skills, facts)
+        kept = reckoning.gate(model, proposals, skills, facts)
+        applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
+        transitions = lifecycle.audit(skills)
+        store.write_skills(skills)
+        store.write_facts(facts)
+        try:
+            store.append_episode(result)
+        except Exception:
+            pass
+
+        from collections import Counter
+        c = Counter(s.status for s in skills)
+        log(f"  {tgt['name']:15} score={score.value:.2f} (mb) {mins:.1f}min "
+            f"proposed={len(proposals)} kept={applied} "
+            f"skills={c['candidate']}c/{c['active']}a"
+            + (f"  {'; '.join(transitions)}" if transitions else "")
+            + (f"\n     lesson: {lesson}" if lesson else ""))
+        return score.value
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def commit_progress(round_i: int, log) -> None:
     subprocess.run(["git", "-C", str(ROOT), "add", "data/skills", "data/magic/lessons.jsonl"],
                    capture_output=True)
@@ -298,7 +369,10 @@ def main() -> None:
             if stop_file.exists():
                 break
             try:
-                one_battle(store, model, tgt, best, log)
+                if tgt.get("builder"):
+                    one_scaffold_battle(store, model, tgt, best, log)
+                else:
+                    one_battle(store, model, tgt, best, log)
             except Exception as e:
                 log(f"  {tgt['name']}: ERROR {type(e).__name__}: {e}")
         commit_progress(round_i, log)
