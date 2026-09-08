@@ -949,6 +949,115 @@ _SEED = [
             "`docker compose up --build`, `docker compose logs -f <svc>`, `docker compose down -v` to wipe volumes too",
         ],
     ),
+
+    # --- Linux / Manjaro the box actually runs ---
+    dict(
+        name="arch-manjaro-specifics",
+        purpose="this box is Arch-family (Manjaro), not Debian -- the tools and rules differ",
+        trigger_when="anything about packages, updates, or system config on this machine",
+        trigger_matcher=r"pacman|makepkg|\bAUR\b|manjaro|arch linux|yay\b|PKGBUILD|/etc/pacman|mkinitcpio|pamac",
+        procedure=[
+            "packages: `pacman -Q` installed, `pacman -Qo <file>` who owns it, `pacman -Ql <pkg>` its files, `pacman -Si` info -- NO apt/dpkg",
+            "AUR is user-submitted: read the PKGBUILD and the .install before `yay -S`; an AUR package can run arbitrary code at build time",
+            "rolling release: NEVER partial-upgrade (`pacman -Sy <one pkg>`) -- it half-updates the system and breaks it; only ever `pacman -Syu` (see [[manjaro-full-upgrade-only]])",
+            "known-vulnerable installed packages: `arch-audit` lists CVEs for what's installed; `pacman -Qu` shows what an upgrade would change",
+            "config lives in /etc as plain files + systemd units; `journalctl -xe`, `systemctl --user` for user services like gremlin",
+        ],
+    ),
+    dict(
+        name="linux-privesc-enumeration",
+        purpose="the standard first sweep for a local privilege-escalation path on a Linux host",
+        trigger_when="you have a shell on a Linux box and want to know how to become root",
+        trigger_matcher=r"privesc|privilege escalation|local root|SUID|sudo -l|linpeas|GTFOBins|capabilit|become root",
+        procedure=[
+            "SUID/SGID: `find / -perm -4000 -type f 2>/dev/null` -- cross-ref each against GTFOBins for a known escape",
+            "`sudo -l` -- any NOPASSWD entry or a binary with a GTFOBins shell escape is game over; `id` for group membership (docker/lxd/disk/wheel = root-equivalent)",
+            "capabilities: `getcap -r / 2>/dev/null` -- cap_setuid / cap_dac_override on a scriptable binary is a path",
+            "writable stuff root runs: cron (`/etc/cron*`), systemd units + timers (`systemctl list-timers`, unit-file perms), PATH entries you can write",
+            "kernel + files: `uname -a` -> search LPE for that exact version; check `/etc/passwd` / `/etc/shadow` perms; run linpeas.sh to catch what a manual pass missed, then verify each hit by hand",
+        ],
+    ),
+
+    # --- bug bounty: recon + the bugs that actually pay ---
+    dict(
+        name="web-recon-map-the-target",
+        purpose="before testing anything, build the full picture of what's in scope and reachable",
+        trigger_when="starting recon on a web / API / cloud bug-bounty target",
+        trigger_matcher=r"recon|subdomain|asset discovery|attack surface|amass|subfinder|httpx|content discovery|enumerat",
+        procedure=[
+            "re-read the scope doc (see [[scope-first]]); list every in-scope domain, wildcard, IP range, mobile app, and repo -- test NOTHING outside it",
+            "subdomains: crt.sh + subfinder/amass; resolve them; `httpx` for which are live, their titles, tech, status codes",
+            "endpoints: wayback/gau + `katana`/hakrawler for URLs; pull and read every JS bundle for API routes, param names, and leaked keys",
+            "fingerprint: server, framework, CDN/WAF, auth scheme, GraphQL (`/graphql` + introspection), Swagger/OpenAPI docs",
+            "note the interesting surface: auth flows, file upload, anything that fetches a URL, admin/internal hostnames, staging, S3 buckets, `.git`/`.env`/backup files",
+        ],
+    ),
+    dict(
+        name="idor-and-broken-object-auth",
+        purpose="the single most common bounty finding -- an object reference the server doesn't authorize",
+        trigger_when="testing any endpoint that takes an id, or an app that fetches user-specific data",
+        trigger_matcher=r"\bIDOR\b|BOLA|broken (object|access)|authoriz|/api/.*/\d+|user_?id|account_?id|tenant|multi.?tenant",
+        procedure=[
+            "make two accounts (A and B). do an action as A that references an object by id (numeric, UUID, hash, filename, email)",
+            "replay A's request but swap in B's object id -- if you get B's data or change B's state, that's the bug",
+            "try it on every verb (GET/PUT/PATCH/DELETE) and on nested resources; a read-only IDOR and a write IDOR are different severities",
+            "check indirect refs too: predictable filenames, sequential invoice numbers, `?export=`, batch/GraphQL endpoints that skip the per-object check",
+            "confirm impact with B's own view (the data really changed), then stop -- don't enumerate other users' real data (see [[bounty-report]])",
+        ],
+    ),
+    dict(
+        name="android-app-attack-surface",
+        purpose="the parts of an Android app another app or a link can reach -- where the bugs are",
+        trigger_when="assessing an Android app (carrier app, Google app, any APK) for vulnerabilities",
+        trigger_matcher=r"exported|intent-filter|deep link|content provider|WebView|android:exported|am start|pending intent|content://",
+        procedure=[
+            "AndroidManifest: every `android:exported=\"true\"` activity/service/receiver/provider, and every `<intent-filter>` scheme/host (deep links) -- these take input from ANY app",
+            "hit exported activities with `adb shell am start` + crafted extras / deep-link URIs; look for auth bypass (a login-gated screen opened directly), injection, or a crash",
+            "ContentProviders: `content query --uri content://<authority>/...` for readable data; check for SQL injection in the selection arg and path traversal in file-backed providers",
+            "WebViews: `setJavaScriptEnabled` + `addJavascriptInterface` reachable from a loaded URL = RCE-ish; `file://` access + a deep-link-controlled URL = local file read",
+            "PendingIntents handed to other apps with a mutable base intent; implicit intents carrying sensitive data; check `exported` receivers for broadcast injection",
+        ],
+    ),
+    dict(
+        name="secrets-in-mobile-apps",
+        purpose="APKs ship their secrets -- pull them before doing anything dynamic",
+        trigger_when="you have an APK and want its API keys, endpoints, and hidden config",
+        trigger_matcher=r"jadx|apktool|strings .*apk|hardcoded|api key|firebase|google_api_key|BuildConfig|resources.arsc",
+        procedure=[
+            "`jadx` the apk; grep decompiled source + `res/values/strings.xml` + `assets/` for: api_key, secret, token, password, `https://` base URLs, `-----BEGIN`",
+            "Firebase: a `google-services.json` / `firebaseio.com` URL -> test `<db>.firebaseio.com/.json` for world-readable data; check Firestore/Storage rules",
+            "`BuildConfig` fields, obfuscated string tables (run the app + Frida to dump them decrypted), native `.so` strings",
+            "check the keys' scope before reporting -- a Google Maps browser key restricted to the app is not a finding; an unrestricted cloud key or a private API secret is",
+        ],
+    ),
+    dict(
+        name="hardened-targets-realism",
+        purpose="know which parts of a big target a solo researcher can realistically find bugs in",
+        trigger_when="scoping work on Pixel, Android, a carrier, or any heavily-tested product",
+        trigger_matcher=r"pixel|tensor|titan|baseband|trustzone|secure ?element|bootloader|firmware|carrier|verizon|at&t|spectrum",
+        procedure=[
+            "out of realistic reach solo: baseband, TrustZone/StrongBox, bootloader, the Linux kernel core, anything Google/Qualcomm fuzz continuously -- these need a team and years of specialization",
+            "where the wins are: app-layer bugs (see [[android-app-attack-surface]], [[secrets-in-mobile-apps]]), web/API/misconfig on the target's infra (see [[web-recon-map-the-target]], [[idor-and-broken-object-auth]]), n-day on unpatched devices",
+            "open-source components in scope with real source: write a fuzz harness (see [[fuzz-harness]]) -- that's a solo-doable memory-bug path",
+            "Android monthly bulletin: diff a recent patch (see [[patch-diff-nday]]); a device behind on updates is exploitable with that n-day",
+            "pick ONE narrow surface and go deep; a broad shallow sweep of a hardened target finds nothing",
+        ],
+    ),
+
+    # --- building small tools for the phone ---
+    dict(
+        name="termux-tool-building",
+        purpose="build a script/CLI tool that runs in Termux on the phone",
+        trigger_when="asked to build something that runs in Termux / on Android from the command line",
+        trigger_matcher=r"termux|on my phone|android cli|android shell|\$PREFIX|pkg install",
+        procedure=[
+            "Termux is a real Linux-ish userland: Python 3, bash, coreutils, git all work via `pkg install` -- a pure Python or shell tool needs no cross-compiling",
+            "paths are not FHS: home is `~` (`/data/data/com.termux/files/home`), binaries in `$PREFIX/bin`; never hardcode `/usr` or `/tmp` -- use `$PREFIX` and `$TMPDIR`",
+            "no systemd, no root by default; for scheduled runs use `termux-job-scheduler` or cron via `termux-services`; phone-specific features need the `termux-api` package + the Termux:API app",
+            "build + test it on the desktop first (it's the same Python), keep deps to the stdlib or pure-Python packages, then it drops straight into Termux",
+            "for a native (C) tool, that needs the Termux NDK cross-toolchain -- not set up here; stick to script tools unless mickey installs it",
+        ],
+    ),
 ]
 
 
