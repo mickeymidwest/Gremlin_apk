@@ -255,7 +255,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
 
         if score.value < 0.999:
             try:
-                lesson = reflexion.distil_lesson(model, task, tr)
+                lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
                 reflexion.save_lesson(str(ROOT), task, lesson)
             except Exception:
                 lesson = ""
@@ -332,7 +332,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
 
         if score.value < 0.999:
             try:
-                lesson = reflexion.distil_lesson(model, task, tr)
+                lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
                 reflexion.save_lesson(str(ROOT), task, lesson)
             except Exception:
                 lesson = ""

@@ -18,9 +18,12 @@ from .model import Model
 from .types import Task, Transcript
 
 _SYSTEM = (
-    "You are reviewing ONE failed attempt at a task. In a single sentence, "
-    "name the one mistake or wrong assumption that cost the attempt, phrased "
-    "as concrete advice for next time (\"do X, not Y\"). No preamble, no list."
+    "You are reviewing ONE failed attempt at a coding task. In a single "
+    "sentence, name the ONE specific mistake that cost it, as concrete "
+    "advice for next time: name the actual function / value / operator "
+    "involved (\"withdraw compared dollars to a cents balance -- convert "
+    "first\"), not a generality (\"be more careful\", \"don't assume\"). "
+    "If the only lesson is vague, output the single word NONE."
 )
 
 
@@ -48,7 +51,11 @@ def distil_lesson(model: Model, task: Task, transcript: Transcript) -> str:
     except Exception:
         return ""
     txt = txt.splitlines()[0].strip().strip('"').strip() if txt else ""
-    if not (8 <= len(txt) <= 240):
+    if not (8 <= len(txt) <= 240) or txt.upper().startswith("NONE"):
+        return ""
+    # a lesson with no concrete noun is noise ("be careful", "don't assume")
+    if re.search(r"^\W*(be (more )?careful|don'?t assume|pay attention|"
+                 r"take (your )?time|think (it )?through)\b", txt.lower()):
         return ""
     # Drop lessons that blame the harness's own tools -- those come from a
     # model that was confused about the interface, not about the task, and
