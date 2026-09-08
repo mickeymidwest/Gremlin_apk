@@ -44,8 +44,11 @@ suite is green.
   test still fails, the harness feeds the exact JUnit assertion back and
   the model repairs it (it has caught its own inverted guards and missing
   braces this way).
-- **Build-a-Lot (property-tycoon game): 0 → 13/13 tests, all 7 methods.**
-  A complete, working game-logic class written by the local 7B.
+- **Build-a-Lot (property-tycoon game): 0 → 13/13 tests, all 7 methods**
+  on a good run (typically 11–13/13; it's a 7B, sampling varies). A
+  complete, working game-logic class written by the local model.
+- **Klondike solitaire: 0 → ~8/11** — `deal`, stock/waste/foundation
+  moves all working; the multi-card run-move is the holdout.
 - Targets: `~/Downloads/klondike` (solitaire), `~/Downloads/buildalot`
   (Build-a-Lot). Wired into the nightly loop as the path for scaffold
   builds.

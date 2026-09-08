@@ -36,7 +36,7 @@ m = BackendModel(ModelRegistry.from_yaml("config/models.yaml").get("qwen2.5-code
 w = Path(tempfile.mkdtemp()); shutil.rmtree(w)
 shutil.copytree(Path.home()/"Downloads/buildalot-work", w, ignore=shutil.ignore_patterns(".git"))
 r = build_from_scaffold(str(w), "app/src/main/java/com/buildalot/game/Game.kt",
-    "./gradlew testDebugUnitTest --offline --console=plain", m, best_of=2, repair_rounds=3,
+    "./gradlew testDebugUnitTest --offline --console=plain", m, best_of=3, repair_rounds=4,
     compile_cmd="./gradlew :app:compileDebugKotlin --offline --console=plain -q")
 print(f"FINAL: {r.passed}/{r.passed+r.failed} tests pass  ({r.score:.0%})")
 shutil.rmtree(w, ignore_errors=True)

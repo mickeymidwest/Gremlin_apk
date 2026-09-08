@@ -275,7 +275,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         def _blog(m):
             lines.append(str(m)); log(f"     {m}")
         r = build_from_scaffold(str(work), tgt["builder"], task.verify_cmd, model,
-                                best_of=2, repair_rounds=3,
+                                best_of=3, repair_rounds=4,
                                 compile_cmd=tgt.get("compile_cmd"), log=_blog)
         mins = (time.monotonic() - t0) / 60
         score = tgt["verifier"].score(task, str(work))
