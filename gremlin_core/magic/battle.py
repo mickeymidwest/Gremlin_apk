@@ -373,11 +373,16 @@ def run_battle(task: Task, repo_path: str, model: Model,
                 if not passed:
                     transcript.steps.append(StepRecord(
                         kind="note", content=f"DONE rejected -- check still failing:\n{signal}"))
+                    _fix = ("rewrite the whole file with write_file (a compile error high "
+                            "up means the rest is guesswork)" if protect_glob or
+                            re.search(r"won't compile|undefined reference|error:|isn't exercising",
+                                      signal)
+                            else "fix exactly that -- edit_file for one line, write_file to "
+                                 "redo the file")
                     messages.append({"role": "user", "content":
                         "REJECTED -- you said DONE but the check still fails:\n\n" + signal +
-                        "\n\nYou are NOT done until the check passes. Take the FIRST failing "
-                        "case in that output, name the file and the one line that's wrong, "
-                        "and fix exactly that with edit_file. Then re-run the check."})
+                        "\n\nYou are NOT done until the check passes. Read the FIRST problem "
+                        f"in that output and {_fix}. Then re-run the check."})
                     unclear_strikes = 0
                     continue
             transcript.final_message = final
