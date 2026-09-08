@@ -109,15 +109,21 @@ def _needs_review(skill: Skill, battle_count: int) -> bool:
 
 
 def review(skills: list[Skill], voters: Sequence[Model],
-           episodes: Sequence[BattleResult] = (), battle_count: int = 0) -> list[Decision]:
+           episodes: Sequence[BattleResult] = (), battle_count: int = 0,
+           limit: int | None = None) -> list[Decision]:
     """Sweep active skills that have earned a ruling; mutate their
-    destination / council_reviewed in place. Returns the decisions made."""
+    destination / council_reviewed in place. Returns the decisions made.
+    `limit` caps how many are ruled on per call -- the voter is often a
+    rate-limited API, and the backlog gets worked down over many battles.
+    Most-proven skills (highest wins) are reviewed first."""
     if not voters:
         return []
+    due = sorted((s for s in skills if _needs_review(s, battle_count)),
+                 key=lambda s: -s.record.wins)
+    if limit is not None:
+        due = due[:limit]
     out: list[Decision] = []
-    for s in skills:
-        if not _needs_review(s, battle_count):
-            continue
+    for s in due:
         d = convene(voters, s, episodes)
         s.destination = d.choice
         s.council_reviewed = True

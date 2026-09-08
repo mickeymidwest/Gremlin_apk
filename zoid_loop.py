@@ -36,6 +36,16 @@ if _envsh.is_file():
         _v = _v.replace("$PATH", os.environ.get("PATH", "")).replace("~", _home).replace("$HOME", _home)
         os.environ[_k.strip()] = _v
 
+# .env (GEMINI_API_KEY / OPENAI_API_KEY) -- the server loads this, a bare
+# script doesn't, so the council's gemini voter would fail without it
+_envf = Path(__file__).parent / ".env"
+if _envf.is_file():
+    for _line in _envf.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _k, _, _v = _line.partition("=")
+            os.environ.setdefault(_k.strip(), _v.strip().strip('"').strip("'"))
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from gremlin_core.registry import ModelRegistry
@@ -63,7 +73,8 @@ def _council_step(store, skills, log) -> None:
         return
     try:
         rulings = council_mod.review(skills, _COUNCIL,
-                                     episodes=store.read_episodes(limit=200))
+                                     episodes=store.read_episodes(limit=120),
+                                     limit=1)      # gemini free tier = 5 req/min; backlog clears over the night
         for d in rulings:
             nm = next((s.name for s in skills if s.id == d.skill_id), d.skill_id)
             log(f"     council: {nm} -> {d.choice} {d.tally}")
