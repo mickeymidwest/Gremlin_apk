@@ -1,6 +1,6 @@
 id: skill_6c4b0972
 name: verify-before-done
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Never say DONE on code work without a green check.
@@ -16,9 +16,11 @@ provenance:
 - zoid_csv-report_1788877053
 created: 1788877063.3770778
 record:
-  uses: 1
-  wins: 1
+  uses: 3
+  wins: 3
   losses: 0
   score_deltas:
   - 0.625
-  last_used_battle: zoid_mb_bank-multi_1788877309
+  - 0.6545
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788877851
