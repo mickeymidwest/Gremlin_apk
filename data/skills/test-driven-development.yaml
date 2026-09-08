@@ -1,22 +1,23 @@
-id: skill_29eb2ca6
+id: skill_6979e12d
 name: test-driven-development
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Use test-driven development to ensure that code changes are made in a way that prevents
-  new bugs and maintains the existing test suite.
-trigger_when: when writing or refactoring code
-trigger_matcher: null
+purpose: Ensure the agent correctly identifies and fixes the failing test before declaring
+  success.
+trigger_when: when a test fails
+trigger_matcher: test failed
 procedure:
-- Write a failing test that captures the bug or the desired behavior.
-- Implement the minimum code necessary to make the test pass.
-- Refactor the code as needed to improve its structure and maintainability.
-- Run the test suite to ensure that all tests pass.
-- Repeat the process for any additional bugs or desired features.
-supersedes: null
+- Identify the specific failing test and its assertion.
+- Understand the expected behavior and the actual outcome.
+- Fix the bug in the code that causes the test to fail.
+- Run the test again to ensure it passes.
+- Repeat if necessary.
+supersedes: skill_29eb2ca6
 provenance:
 - zoid_csv-report_1788842216
-created: 1788842228.9854095
+- zoid_mb_buildalot-apk_1788844738
+created: 1788844745.9844472
 record:
   uses: 0
   wins: 0
