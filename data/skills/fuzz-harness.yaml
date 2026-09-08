@@ -1,22 +1,22 @@
-id: skill_cad915b3
+id: skill_2e294e4c
 name: fuzz-harness
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Improve the fuzzing strategy to increase the likelihood of finding a crash
-trigger_when: when fuzzing a target that is known to have vulnerabilities
+purpose: Ensure the agent correctly sets up the fuzz harness with the correct include path
+  and necessary headers.
+trigger_when: when creating a fuzz harness
 trigger_matcher: fuzz|libfuzzer|afl\+\+|honggfuzz|LLVMFuzzerTestOneInput|corpus|sanitizer|ASAN
 procedure:
-- Ensure the fuzzing input includes a variety of edge cases and malformed inputs.
-- Increase the number of iterations to allow for more comprehensive testing.
-- Use a targeted fuzzing approach, such as dictionary-based fuzzing, to provide specific inputs
-  that are known to trigger vulnerabilities.
-supersedes: skill_d3be33ad
+- Ensure the include path is correct for the header files.
+- Include all necessary headers at the top of the fuzz harness file.
+supersedes: skill_cad915b3
 provenance:
 - seed
 - zoid_inifuzz_1788824518
 - zoid_inifuzz_1788836283
-created: 1788836291.8202157
+- zoid_tlvfuzz_1788843731
+created: 1788843739.3475885
 record:
   uses: 0
   wins: 0
