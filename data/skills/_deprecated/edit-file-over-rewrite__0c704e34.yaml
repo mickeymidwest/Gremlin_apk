@@ -1,6 +1,6 @@
-id: skill_40989b4b
+id: skill_0c704e34
 name: edit-file-over-rewrite
-status: candidate
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and edits the correct function or method in
@@ -8,18 +8,17 @@ purpose: Ensure the agent correctly identifies and edits the correct function or
 trigger_when: when editing a file
 trigger_matcher: null
 procedure:
-- Identify the specific function or method to edit.
+- Identify the function or method to be edited.
 - Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
   matched.
-- Run the test again to confirm the issue is fixed.
-supersedes: skill_0c704e34
+- Apply the edit to the file.
+supersedes: skill_bbe1b576
 provenance:
 - seed
 - zoid_text-utils_1788823063
 - zoid_buildalot-apk_1788823488
 - zoid_list-ops_1788826641
-- zoid_graph-paths_1788832397
-created: 1788832408.5616963
+created: 1788826650.047454
 record:
   uses: 0
   wins: 0
