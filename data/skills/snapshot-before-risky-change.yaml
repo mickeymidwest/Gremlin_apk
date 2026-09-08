@@ -1,6 +1,6 @@
 id: seed_06
 name: snapshot-before-risky-change
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: anything hard to undo gets a rollback point first
@@ -15,10 +15,12 @@ provenance:
 - seed
 created: 1788664611.4948788
 record:
-  uses: 2
-  wins: 2
+  uses: 4
+  wins: 4
   losses: 0
   score_deltas:
   - 1.0
   - 0.6231
-  last_used_battle: zoid_mb_buildalot-apk_1788870771
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788871407

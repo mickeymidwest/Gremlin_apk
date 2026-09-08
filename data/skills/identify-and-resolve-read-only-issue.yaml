@@ -1,0 +1,22 @@
+id: skill_0ee7ad74
+name: identify-and-resolve-read-only-issue
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Handle the scenario where a file is read-only and cannot be edited.
+trigger_when: when a file is marked as read-only
+trigger_matcher: src/tlv.c is READ-ONLY for this task -- do not change it. Put your work in
+  a new file in the repo root.
+procedure:
+- Create a new file in the repo root with the same content as the original file.
+- Edit the new file instead of the original file.
+supersedes: null
+provenance:
+- zoid_tlvfuzz_1788871032
+created: 1788871042.9710436
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,6 +1,6 @@
 id: seed_21
 name: scope-first
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: only test what a program's written scope + your authorization actually covers
@@ -20,10 +20,12 @@ provenance:
 - seed
 created: 1788803179.1005232
 record:
-  uses: 2
-  wins: 2
-  losses: 0
+  uses: 4
+  wins: 3
+  losses: 1
   score_deltas:
   - 1.0
   - 1.0
-  last_used_battle: zoid_tlvfuzz_1788870300
+  - 1.0
+  - 0.0
+  last_used_battle: zoid_tlvfuzz_1788871032

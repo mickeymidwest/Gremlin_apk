@@ -1,6 +1,6 @@
 id: seed_13
 name: android-gradle-build-loop
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: build an Android feature by iterating against the compiler, not by guessing
@@ -17,10 +17,12 @@ provenance:
 - seed
 created: 1788744588.6605413
 record:
-  uses: 2
-  wins: 2
+  uses: 4
+  wins: 4
   losses: 0
   score_deltas:
   - 0.6545
   - 0.6231
-  last_used_battle: zoid_mb_buildalot-apk_1788870771
+  - 0.6545
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788871407

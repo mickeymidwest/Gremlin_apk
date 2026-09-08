@@ -1,6 +1,6 @@
 id: seed_46
 name: lock-ordering-prevents-deadlock
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: a deadlock is two code paths taking the same two locks in opposite orders
@@ -15,10 +15,12 @@ provenance:
 - seed
 created: 1788816592.0633593
 record:
-  uses: 2
-  wins: 2
+  uses: 4
+  wins: 4
   losses: 0
   score_deltas:
   - 0.6545
   - 0.6231
-  last_used_battle: zoid_mb_buildalot-apk_1788870771
+  - 0.6545
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788871407
