@@ -1,4 +1,4 @@
-id: skill_ff580c2c
+id: skill_6350ef6a
 name: identify-bug-and-fix
 status: candidate
 destination: card
@@ -7,15 +7,16 @@ purpose: Identify the specific bug in the code and make a targeted fix.
 trigger_when: when a test fails
 trigger_matcher: null
 procedure:
-- Identify the failing test and its assertion failure.
-- Read the error message and stack trace to understand the issue.
-- Locate the specific line of code causing the issue.
-- Make a targeted fix to the code.
-- Run the test again to confirm the issue is fixed.
-supersedes: null
+- Identify the specific failing test and its assertion to understand the expected behavior.
+- Read the assertion failure and the expected result to diagnose the issue.
+- Locate the code that is causing the failure.
+- Make a targeted fix to address the bug.
+- Run the failing test again to ensure the bug is fixed.
+supersedes: skill_ff580c2c
 provenance:
 - zoid_graph-paths_1788832397
-created: 1788832408.5616806
+- zoid_graph-paths_1788834231
+created: 1788834242.014711
 record:
   uses: 0
   wins: 0

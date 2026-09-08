@@ -1,0 +1,29 @@
+id: seed_18
+name: many-bugs-one-file-fix-each
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a file with several planted bugs -- each failing test is a DIFFERENT bug, not one
+trigger_when: pytest shows 2+ failing tests across different functions and you're fixing bug
+  bodies
+trigger_matcher: failing test|[0-9]+ failed|each failing test|has bugs|fix the (function|method)
+  bodies|planted
+procedure:
+- run pytest -q FIRST and list every failing test name -- there are usually 3-5, one per function
+- fix ONE function, re-run, confirm THAT test went green, then move to the NEXT failing function
+- never edit the same function a 3rd time -- if two attempts didn't fix it, re-read its test
+  and the docstring word-for-word, the bug is an off-by-one / wrong operator / missing .strip()
+- 'common planted bugs: `a+b <= w` should count the separator (`a+1+b`); `s[:n]+suffix` is
+  n+len(suffix) chars; `.split('' '')` breaks on double spaces, want `.split()`; a `return
+  s` that forgot `.strip(...)`'
+- you are NOT done until pytest prints 0 failed -- a partial fix scores partial
+supersedes: null
+provenance:
+- seed
+created: 1788833969.757066
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
