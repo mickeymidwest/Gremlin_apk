@@ -1,6 +1,6 @@
 id: seed_55
 name: c-header-hygiene
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: what goes in a .h vs a .c, and the include guard
@@ -21,8 +21,11 @@ provenance:
 - seed
 created: 1788818355.6673145
 record:
-  uses: 0
-  wins: 0
+  uses: 3
+  wins: 3
   losses: 0
-  score_deltas: []
-  last_used_battle: null
+  score_deltas:
+  - 1.0
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788870318

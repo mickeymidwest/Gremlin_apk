@@ -1,6 +1,6 @@
 id: seed_03
 name: search-before-you-guess
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: don't assume where a symbol lives or how it's used -- look
@@ -14,8 +14,17 @@ provenance:
 - seed
 created: 1788664611.494873
 record:
-  uses: 0
-  wins: 0
-  losses: 0
-  score_deltas: []
-  last_used_battle: null
+  uses: 9
+  wins: 7
+  losses: 1
+  score_deltas:
+  - 0.5
+  - 0.2
+  - 0.3333
+  - 0.0
+  - 0.5556
+  - 0.4286
+  - 1.0
+  - 0.6545
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1788870771

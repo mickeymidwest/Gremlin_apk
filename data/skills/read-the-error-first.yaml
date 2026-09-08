@@ -1,6 +1,6 @@
 id: skill_2c0258cf
 name: read-the-error-first
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
@@ -16,8 +16,14 @@ provenance:
 - zoid_mb_buildalot-apk_1788837991
 created: 1788837997.7942297
 record:
-  uses: 0
-  wins: 0
-  losses: 0
-  score_deltas: []
-  last_used_battle: null
+  uses: 6
+  wins: 4
+  losses: 1
+  score_deltas:
+  - 0.5
+  - 0.2
+  - 0.3333
+  - 0.0
+  - 0.5556
+  - 0.4286
+  last_used_battle: zoid_csv-report_1788870247

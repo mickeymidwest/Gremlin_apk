@@ -3,15 +3,17 @@ name: identify-failing-test
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Identify the specific failing test and its assertion to understand the expected behavior.
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test.
 trigger_when: when a test fails
 trigger_matcher: null
 procedure:
-- Read the failing test's assertion to understand the expected behavior.
-- Locate the corresponding function that needs fixing.
+- Identify the specific failing test and its assertion.
+- Report the assertion failure and the expected result.
 supersedes: null
 provenance:
 - zoid_text-fix_1788816828
+- zoid_temp-convert_1788870057
 created: 1788816837.7162333
 record:
   uses: 0

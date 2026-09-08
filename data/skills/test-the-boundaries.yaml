@@ -1,6 +1,6 @@
 id: seed_37
 name: test-the-boundaries
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: 'bugs cluster at the edges: 0, 1, empty, full, negative, max, off-by-one'
@@ -18,8 +18,11 @@ provenance:
 - seed
 created: 1788816592.0633461
 record:
-  uses: 0
-  wins: 0
+  uses: 3
+  wins: 3
   losses: 0
-  score_deltas: []
-  last_used_battle: null
+  score_deltas:
+  - 1.0
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788870318
