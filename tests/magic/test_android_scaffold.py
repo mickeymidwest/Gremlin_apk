@@ -152,3 +152,44 @@ def test_scaffold_from_spec_end_to_end(tmp_path):
     # build_project can discover the stub file
     from gremlin_core.magic.method_builder import discover_stub_files
     assert "app/src/main/java/com/gremlin/tipcalc/TipCalc.kt" in discover_stub_files(repo_str)
+
+
+def test_scaffold_from_spec_pinned_skips_model(tmp_path):
+    # a model that would raise if called -- pinned must not call it
+    class Boom:
+        name = "boom"
+        def complete(self, *a, **k):
+            raise AssertionError("model should not be called when pinned")
+
+    plan = A.SPECS["tipcalc"]
+    repo_str, _ = A.scaffold_from_spec("whatever", tmp_path / "t", Boom(), pinned=plan)
+    from pathlib import Path
+    repo = Path(repo_str)
+    tk = (repo / "app/src/main/java/com/gremlin/tipcalc/Tip.kt").read_text()
+    assert tk.count("TODO(") == 4
+    test = (repo / "app/src/test/java/com/gremlin/tipcalc/TipTest.kt").read_text()
+    assert "assertEquals(334, t.firstShareCents(1000, 3))" in test
+
+
+@pytest.mark.parametrize("name", sorted(A.SPECS))
+def test_pinned_specs_are_coherent(name, tmp_path):
+    """Each pinned spec's test must reference exactly the class + methods
+    the scaffold will create, and compile-parse as balanced Kotlin."""
+    plan = A.SPECS[name]
+    cls = plan.classes[0]
+    # test names the class and every method
+    assert f"{cls.name}()" in plan.tests
+    for hdr in cls.methods:
+        fn = hdr.split("fun ", 1)[1].split("(", 1)[0]
+        assert f".{fn}(" in plan.tests, f"{name}: test never calls {fn}"
+    # balanced braces/parens in the test
+    assert plan.tests.count("{") == plan.tests.count("}")
+    assert plan.tests.count("(") == plan.tests.count(")")
+    # renders + stubs discoverable
+    repo_str, _ = A.scaffold_from_spec(plan.app_name, tmp_path / name,
+                                       ScriptedModel([""]), pinned=plan)
+    from gremlin_core.magic.method_builder import find_stubs
+    kt = (tmp_path / name / "app/src/main/java"
+          / plan.package.replace(".", "/") / f"{cls.name}.kt").read_text()
+    got = [s.name for s in find_stubs(kt, f"{cls.name}.kt")]
+    assert got == [h.split("fun ", 1)[1].split("(", 1)[0] for h in cls.methods]

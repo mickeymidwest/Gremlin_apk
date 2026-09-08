@@ -15,6 +15,7 @@ the file data/zoid_stop appears.
 from __future__ import annotations
 
 import argparse
+import itertools
 import os
 import shutil
 import subprocess
@@ -95,6 +96,11 @@ _IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "venv",
 def _readme_goal(repo: Path, fallback: str) -> str:
     p = repo / "README.md"
     return p.read_text() if p.is_file() else fallback
+
+
+# pinned specs (android_scaffold.SPECS) -- trustworthy test, model fills
+# bodies only. One rotates in per round.
+_SCAFFOLD_SPECS = ["tipcalc", "salestax", "streak"]
 
 
 def targets() -> list[dict]:
@@ -199,6 +205,18 @@ def targets() -> list[dict]:
                 "all 13 tests must pass. Do buyPlot first, then build, then endTurn (turn "
                 "counter + construction countdown + rent), then houseValue/netWorth, then "
                 "upgrade and sell. Re-run the check after each method."))))
+
+    # generate-from-spec: no fixed repo -- scaffold_from_spec builds a fresh
+    # stub app each round (spec rotates), then build_project fills it. Tests
+    # the whole "one sentence -> installable APK" path on the local 7B.
+    if (Path.home() / "android-build" / "env.sh").is_file():
+        T.append(dict(name="scaffold-apk", generate=True,
+            specs=itertools.cycle(_SCAFFOLD_SPECS),
+            verifier=GradleVerifier(task_label="testDebugUnitTest", offline=True),
+            compile_cmd="./gradlew :app:compileDebugKotlin --offline --console=plain -q",
+            time_budget=2000,
+            task=Task(id="scaffold", verify_cmd="./gradlew testDebugUnitTest --offline --console=plain",
+                prompt="Scaffold and fill a small Android app from a one-line spec.")))
     return T
 
 
@@ -377,6 +395,98 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         shutil.rmtree(work, ignore_errors=True)
 
 
+def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
+    """No fixed repo: android_scaffold.scaffold_from_spec builds a fresh
+    stub app from a one-line spec (harness owns all the boilerplate), then
+    build_project fills the feature methods. On all-green, assemble the APK
+    into the Builds screen. Feeds the learn step like the others."""
+    from gremlin_core.magic import android_scaffold
+    from gremlin_core.magic.method_builder import build_project
+    from gremlin_core.magic.battle import _skill_score
+
+    sname = next(tgt["specs"])
+    pinned = android_scaffold.SPECS[sname]
+    task = tgt["task"]
+    work = Path(tempfile.mkdtemp(prefix=f"zoid-gen-{sname}-"))
+    try:
+        skills = store.read_skills()
+        facts = store.read_facts()
+        t0 = time.monotonic()
+        lines: list[str] = []
+        def _blog(m):
+            lines.append(str(m)); log(f"     {m}")
+
+        try:
+            repo, gen_verify = android_scaffold.scaffold_from_spec(
+                pinned.app_name, work, model, pinned=pinned, log=_blog)
+        except Exception as e:
+            log(f"  scaffold-apk ({sname}): scaffold step FAILED {type(e).__name__}: {e}")
+            return 0.0
+
+        vcmd = task.verify_cmd or gen_verify
+        r = build_project(repo, vcmd, model, best_of=3, repair_rounds=3,
+                          project_passes=4, compile_cmd=tgt.get("compile_cmd"), log=_blog)
+        mins = (time.monotonic() - t0) / 60
+        score = tgt["verifier"].score(task, repo)
+
+        apk_note = ""
+        if score.value >= 0.999:
+            try:
+                from gremlin_core.magic import android_build
+                b = android_build.build_apk(repo, f"scaffold_{sname}")
+                apk_note = b.get("answer", "")
+                log(f"     [apk] {apk_note}")
+            except Exception as e:
+                log(f"     [apk] assemble failed: {e}")
+
+        steps = [StepRecord(kind="note", content=ln) for ln in lines[-60:]]
+        steps.append(StepRecord(kind="note",
+            content=f"spec={sname!r}; scaffold+fill -> {r.passed}p/{r.failed}f; {apk_note}"))
+        loadable = lifecycle.loadable(skills)
+        tr = Transcript(task_id=task.id, steps=steps,
+                        final_message=f"{r.passed}/{r.passed + r.failed} tests pass",
+                        skills_available=[s.id for s in loadable],
+                        skills_invoked=[s.id for s in loadable
+                                        if _skill_score(s, task) >= 6])
+        result = BattleResult(battle_id=f"zoid_gen_{sname}_{int(time.time())}",
+                              task_id=task.id, transcript=tr, score=score)
+        delta = score.value            # baseline is 0 -- a fresh scaffold is all TODO()
+        best[tgt["name"]] = max(best.get(tgt["name"], 0.0), score.value)
+
+        if score.value < 0.999:
+            try:
+                lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
+                reflexion.save_lesson(str(ROOT), task, lesson)
+            except Exception:
+                lesson = ""
+        else:
+            lesson = ""
+
+        lifecycle.update_records(skills, result, delta)
+        proposals = reckoning.reckon(model, result, skills, facts)
+        kept = reckoning.gate(model, proposals, skills, facts)
+        applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
+        transitions = lifecycle.audit(skills)
+        _council_step(store, skills, log)
+        store.write_skills(skills)
+        store.write_facts(facts)
+        try:
+            store.append_episode(result)
+        except Exception:
+            pass
+
+        from collections import Counter
+        c = Counter(s.status for s in skills)
+        log(f"  {tgt['name']:15} score={score.value:.2f} (gen:{sname}) {mins:.1f}min "
+            f"proposed={len(proposals)} kept={applied} "
+            f"skills={c['candidate']}c/{c['active']}a"
+            + (f"  {'; '.join(transitions)}" if transitions else "")
+            + (f"\n     lesson: {lesson}" if lesson else ""))
+        return score.value
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def commit_progress(round_i: int, log) -> None:
     subprocess.run(["git", "-C", str(ROOT), "add", "data/skills", "data/magic/lessons.jsonl"],
                    capture_output=True)
@@ -430,7 +540,9 @@ def main() -> None:
             if stop_file.exists():
                 break
             try:
-                if tgt.get("builder"):
+                if tgt.get("generate"):
+                    one_generate_battle(store, model, tgt, best, log)
+                elif tgt.get("builder"):
                     one_scaffold_battle(store, model, tgt, best, log)
                 else:
                     one_battle(store, model, tgt, best, log)

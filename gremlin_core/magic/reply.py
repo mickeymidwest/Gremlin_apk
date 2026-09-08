@@ -10,8 +10,14 @@ from __future__ import annotations
 
 from .. import notes
 from ..learning_log import append_learning_log
+from . import grounding
 
 _SYSTEM = None  # persona backend already carries the system prompt
+
+# after the model answers, check any file/line/command it named against the
+# real repo; if it invented something, regenerate ONCE with that fed back.
+# Cheap (no extra model call unless a concrete reference is provably wrong).
+_GROUNDING_CHECK = True
 
 
 def _memory_block(root: str) -> str:
@@ -104,7 +110,7 @@ def _build_prompt(message: str, root: str, history: str):
         hist.append({"role": "user", "content":
                      "Earlier in this conversation:\n" + history})
         hist.append({"role": "assistant", "content": "Got it, continuing from there."})
-    return message, hist
+    return message, hist, "\n\n".join(p for p in (context, history) if p)
 
 
 async def _gen(backend, prompt: str, hist: list):
@@ -161,7 +167,7 @@ async def answer_stream(primary, message: str, root: str,
         yield "done", _reply(msg, action="remember")
         return
 
-    prompt, hist = _build_prompt(message, root, history)
+    prompt, hist, ctx = _build_prompt(message, root, history)
 
     acc = ""
     stream_broke = False
@@ -178,6 +184,17 @@ async def answer_stream(primary, message: str, root: str,
     # re-answers mid-stream; this is the same rule one layer up.)
     if acc.strip():
         text = acc.strip()
+        if _GROUNDING_CHECK and not stream_broke:
+            # tokens are already on screen -- can't regenerate; append a
+            # one-line flag if the answer named something that isn't real.
+            try:
+                bad = grounding.check(text, root, ctx)
+            except Exception:
+                bad = []
+            if bad:
+                note = grounding.caveat(bad)
+                text += note
+                yield "delta", note
         await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin")
         yield "done", _reply(text, source="gremlin", ok=not stream_broke)
         return
@@ -206,7 +223,7 @@ async def answer(primary, message: str, root: str,
         notes.remember_fact(root, f"[user] {fact}")
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
-    prompt, hist = _build_prompt(message, root, history)
+    prompt, hist, ctx = _build_prompt(message, root, history)
 
     r = await _gen(primary, prompt, hist)
     used, used_fallback = getattr(r, "model", "gremlin"), False
@@ -215,5 +232,28 @@ async def answer(primary, message: str, root: str,
         used, used_fallback = getattr(r, "model", "fallback"), True
 
     text = (r.text or "").strip() or "I couldn't get an answer just now — try again."
+
+    if _GROUNDING_CHECK and not used_fallback and text:
+        try:
+            bad = grounding.check(text, root, ctx)
+        except Exception:
+            bad = []
+        if bad:
+            retry_prompt = (prompt + "\n\n[A check of your draft found: "
+                            + "; ".join(bad)
+                            + ". Answer again. Reference only files, paths and commands "
+                            "that actually exist here; if you're not sure something "
+                            "exists, say so rather than naming it.]")
+            r2 = await _gen(primary, retry_prompt, hist)
+            t2 = (r2.text or "").strip()
+            try:
+                still = grounding.check(t2, root, ctx) if t2 else bad
+            except Exception:
+                still = bad
+            if t2 and len(still) < len(bad):
+                text = t2 + (grounding.caveat(still) if still else "")
+            else:
+                text = text + grounding.caveat(bad)
+
     await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used)
     return _reply(text, source=used, from_memory=False)

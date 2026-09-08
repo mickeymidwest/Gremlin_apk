@@ -234,10 +234,17 @@ def wire_primary_view(repo: str | Path, package: str, view_class: str) -> None:
 # ---- orchestration ------------------------------------------------
 
 def scaffold_from_spec(feature: str, dest: str | Path, model: Model,
-                       *, log=lambda m: print(m, flush=True)) -> tuple[str, str]:
+                       *, pinned: AppPlan | None = None,
+                       log=lambda m: print(m, flush=True)) -> tuple[str, str]:
     """feature spec -> a stub repo method_builder.build_project can fill.
-    Returns (repo_path, verify_cmd)."""
-    plan = plan_app(feature, model)
+    Returns (repo_path, verify_cmd).
+
+    `pinned`: skip the model's planning call and use this AppPlan verbatim
+    -- the class names, method headers and (crucially) the JUnit test are
+    then trustworthy, so build_project has a real oracle. The model still
+    fills every method body. Use for repeatable targets; leave None to let
+    the model plan from the one-liner."""
+    plan = pinned or plan_app(feature, model)
     log(f"[android_scaffold] {plan.app_name} ({plan.package}) "
         f"classes={[c.name for c in plan.classes]} view={plan.primary_view}")
     repo = render(dest, app_name=plan.app_name, package=plan.package)
@@ -254,3 +261,62 @@ def scaffold_from_spec(feature: str, dest: str | Path, model: Model,
         wire_primary_view(repo, plan.package, plan.primary_view)
     log(f"[android_scaffold] rendered -> {repo}")
     return str(repo), VERIFY_CMD
+
+
+# ---- pinned specs: trustworthy oracle, model fills bodies only ------
+
+def _plan(app: str, pkg: str, cls: str, methods: list[str], test: str) -> AppPlan:
+    return AppPlan(app_name=app, package=pkg,
+                   classes=[KotlinClass(cls, methods)], tests=test)
+
+
+SPECS: dict[str, AppPlan] = {
+    "tipcalc": _plan(
+        "Tip Calculator", "com.gremlin.tipcalc", "Tip",
+        ["fun tipCents(billCents: Int, percent: Int): Int",
+         "fun totalCents(billCents: Int, percent: Int): Int",
+         "fun shareCents(totalCents: Int, people: Int): Int",
+         "fun firstShareCents(totalCents: Int, people: Int): Int"],
+        "package com.gremlin.tipcalc\n\n"
+        "import org.junit.Assert.assertEquals\nimport org.junit.Test\n\n"
+        "class TipTest {\n"
+        "    private val t = Tip()\n"
+        "    @Test fun tip_is_percent_of_bill() { assertEquals(200, t.tipCents(1000, 20)) }\n"
+        "    @Test fun tip_truncates_fractional_cents() { assertEquals(15, t.tipCents(101, 15)) }\n"
+        "    @Test fun total_is_bill_plus_tip() { assertEquals(1200, t.totalCents(1000, 20)) }\n"
+        "    @Test fun total_with_zero_tip() { assertEquals(1000, t.totalCents(1000, 0)) }\n"
+        "    @Test fun share_splits_evenly() { assertEquals(300, t.shareCents(1200, 4)) }\n"
+        "    @Test fun share_floors_when_uneven() { assertEquals(333, t.shareCents(1000, 3)) }\n"
+        "    @Test fun first_share_carries_remainder() { assertEquals(334, t.firstShareCents(1000, 3)) }\n"
+        "}\n"),
+    "salestax": _plan(
+        "Sales Tax", "com.gremlin.salestax", "SalesTax",
+        ["fun taxCents(priceCents: Int, rateBp: Int): Int",
+         "fun grossCents(priceCents: Int, rateBp: Int): Int"],
+        "package com.gremlin.salestax\n\n"
+        "import org.junit.Assert.assertEquals\nimport org.junit.Test\n\n"
+        "class SalesTaxTest {\n"
+        "    private val s = SalesTax()\n"
+        "    @Test fun tax_800bp_of_1000() { assertEquals(80, s.taxCents(1000, 800)) }\n"
+        "    @Test fun tax_rounds_half_up() { assertEquals(1, s.taxCents(1, 5000)) }\n"
+        "    @Test fun tax_rounds_below_half_down() { assertEquals(0, s.taxCents(1, 4999)) }\n"
+        "    @Test fun gross_is_price_plus_tax() { assertEquals(1080, s.grossCents(1000, 800)) }\n"
+        "    @Test fun zero_rate_is_no_tax() { assertEquals(0, s.taxCents(1234, 0)) }\n"
+        "    @Test fun zero_rate_gross_is_price() { assertEquals(1234, s.grossCents(1234, 0)) }\n"
+        "}\n"),
+    "streak": _plan(
+        "Streak Tracker", "com.gremlin.streak", "Streak",
+        ["fun longestRun(days: IntArray): Int",
+         "fun currentRun(days: IntArray): Int"],
+        "package com.gremlin.streak\n\n"
+        "import org.junit.Assert.assertEquals\nimport org.junit.Test\n\n"
+        "class StreakTest {\n"
+        "    private val st = Streak()\n"
+        "    @Test fun longest_simple_run() { assertEquals(3, st.longestRun(intArrayOf(1, 2, 3, 5, 7, 8))) }\n"
+        "    @Test fun longest_handles_dupes_and_order() { assertEquals(4, st.longestRun(intArrayOf(10, 8, 9, 8, 7, 3))) }\n"
+        "    @Test fun longest_single_day() { assertEquals(1, st.longestRun(intArrayOf(4))) }\n"
+        "    @Test fun longest_empty_is_zero() { assertEquals(0, st.longestRun(intArrayOf())) }\n"
+        "    @Test fun current_run_ends_at_max() { assertEquals(2, st.currentRun(intArrayOf(1, 2, 5, 6))) }\n"
+        "    @Test fun current_run_isolated_max_is_one() { assertEquals(1, st.currentRun(intArrayOf(1, 2, 3, 10))) }\n"
+        "}\n"),
+}
