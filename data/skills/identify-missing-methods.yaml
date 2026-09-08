@@ -1,0 +1,22 @@
+id: skill_367a38b9
+name: identify-missing-methods
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Identify missing methods in a class based on failing tests.
+trigger_when: when a test fails due to an AttributeError
+trigger_matcher: 'AttributeError: ''Ledger'' object has no attribute ''method_name'''
+procedure:
+- List all methods called in the failing test.
+- Check if each method is defined in the class.
+- Implement missing methods.
+supersedes: null
+provenance:
+- zoid_mini-ledger_1788833280
+created: 1788833290.752394
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
