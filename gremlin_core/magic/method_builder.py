@@ -266,6 +266,13 @@ def _run(verify_cmd: str, repo: Path, timeout: int = 600, _retry: bool = True) -
     # needed "N passed" present, so an all-red run read as 0p/1f and the
     # loop could never see progress.
     if "pytest" in verify_cmd.lower():
+        # a bare `python` on PATH often has no pytest -- rerun with the
+        # interpreter that's running us (which does)
+        if _retry and re.search(r"No module named pytest|No module named '?pytest", out):
+            import sys as _sys
+            fixed = re.sub(r"\bpython3?\b", _sys.executable, verify_cmd, count=1)
+            if fixed != verify_cmd:
+                return _run(fixed, repo, timeout, _retry=False)
         _pp = re.search(r"(\d+) passed", out)
         passed = int(_pp.group(1)) if _pp else 0
         failed = sum(int(m.group(1)) for m in re.finditer(r"(\d+) (?:failed|error)s?\b", out))
