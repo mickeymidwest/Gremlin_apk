@@ -1,0 +1,22 @@
+id: skill_093f9c2c
+name: identify-read-only-file
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Identify if a file is read-only and suggest an alternative location for editing.
+trigger_when: when attempting to edit a file that is read-only
+trigger_matcher: file is read-only
+procedure:
+- Identify the read-only file.
+- Suggest creating a new file in the repo root with the same content.
+- Ensure the new file is writable.
+supersedes: null
+provenance:
+- zoid_tlvfuzz_1788883488
+created: 1788883497.228698
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
