@@ -260,16 +260,19 @@ def _run(verify_cmd: str, repo: Path, timeout: int = 600, _retry: bool = True) -
         tot, fail = _gradle_xml_counts(repo)
         if tot:
             return tot - fail, fail, out
-    pm = _PYTEST_RE.search(out)
-    if pm:
-        passed = int(pm.group(1))
-        failed = int(pm.group(2)) if pm.group(2) else 0
-        if not failed:
-            fm = _PYTEST_FAIL.search(out)
-            failed = int(fm.group(1)) if fm else 0
-        return passed, failed, out
-    # a real compile error prints "e: file:.." / "error:"
-    if re.search(r"\be: file:|error:|FAILURE:|Compilation error", out):
+    # pytest summary line comes in every order: "8 failed", "3 passed,
+    # 5 failed", "5 failed, 3 passed", "2 failed, 1 error", "1 error
+    # during collection". Scan each count independently -- the old regex
+    # needed "N passed" present, so an all-red run read as 0p/1f and the
+    # loop could never see progress.
+    if "pytest" in verify_cmd.lower():
+        _pp = re.search(r"(\d+) passed", out)
+        passed = int(_pp.group(1)) if _pp else 0
+        failed = sum(int(m.group(1)) for m in re.finditer(r"(\d+) (?:failed|error)s?\b", out))
+        if passed or failed:
+            return passed, failed, out
+        if re.search(r"no tests ran", out):
+            return 0, 0, out
         return 0, 1, out
     # nothing parseable and rc==0 -> a flaky gradle/daemon run; try once more
     if _retry and "test" in verify_cmd.lower():
@@ -508,23 +511,34 @@ _SKIP_DIR = re.compile(r"(^|/)(test|androidTest|build|\.git|__pycache__|\.gradle
 
 def discover_stub_files(repo: str) -> list[str]:
     """Every non-test source file under `repo` that still holds an
-    unimplemented stub, roughly in dependency order (fewest stubs first
-    -- a leaf/helper file tends to have fewer)."""
+    unimplemented stub, in dependency order: a file is built before any
+    file that imports it, so `_gen_body` for the importer sees a real
+    (not stubbed) callee. Ties break on stub count (leaf helpers first)."""
     root = Path(repo)
-    found: list[tuple[int, str]] = []
+    files: dict[str, str] = {}
     for p in list(root.rglob("*.kt")) + list(root.rglob("*.py")):
         rel = p.relative_to(root).as_posix()
         if _SKIP_DIR.search(rel) or rel.endswith(("Test.kt", "_test.py")) \
            or Path(rel).name.startswith("test_"):
             continue
         try:
-            n = len(find_stubs(p.read_text(), rel))
+            src = p.read_text()
         except Exception:
-            n = 0
-        if n:
-            found.append((n, rel))
-    found.sort()
-    return [rel for _, rel in found]
+            continue
+        if find_stubs(src, rel):
+            files[rel] = src
+
+    stems = {rel: Path(rel).stem for rel in files}
+
+    def dep_count(rel: str) -> int:
+        # how many of the OTHER stub files this one names / imports
+        body = files[rel]
+        return sum(1 for other, stem in stems.items()
+                   if other != rel and re.search(rf"\b{re.escape(stem)}\b", body))
+
+    order = sorted(files, key=lambda r: (dep_count(r),
+                                         len(find_stubs(files[r], r)), r))
+    return order
 
 
 _KT_SIG = re.compile(r"(?m)^[ \t]*(?:(?:public|internal|private|open|abstract|"
