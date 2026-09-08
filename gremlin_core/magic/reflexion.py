@@ -38,11 +38,13 @@ def _keywords(s: str) -> set[str]:
 def distil_lesson(model: Model, task: Task, transcript: Transcript) -> str:
     """One model call -> one sentence, or '' if nothing useful."""
     steps = []
-    for st in transcript.steps[-14:]:
+    for st in transcript.steps[-18:]:
         if st.kind == "model":
             steps.append(f"[agent] {st.content.strip()[:280]}")
         elif st.kind == "tool":
             steps.append(f"[{st.tool_name} -> {st.content}] {(st.tool_result or '')[:180]}")
+        elif st.kind == "note":
+            steps.append(f"[harness] {st.content.strip()[:220]}")
     prompt = (f"TASK: {task.prompt[:800]}\n\nOUTCOME: {transcript.final_message}\n\n"
               "LAST STEPS:\n" + "\n".join(steps))
     try:
