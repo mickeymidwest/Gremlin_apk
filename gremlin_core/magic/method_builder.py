@@ -554,19 +554,31 @@ _KT_SIG = re.compile(r"(?m)^[ \t]*(?:(?:public|internal|private|open|abstract|"
 
 
 def _api_digest(sources: dict[str, str], *, max_lines_per_file: int = 40) -> str:
-    """Signatures a sibling file might call: class/fun/val declaration
-    lines, no bodies. Keeps the multi-file context small."""
+    """Signatures a sibling file might call: class / fun / val / const
+    declarations AND the instance attributes set in a constructor -- no
+    bodies. The attributes matter: without them the model guesses
+    `ledger._accounts` when the field is `ledger.accounts`."""
     out: list[str] = []
     for rel, src in sources.items():
         if rel.endswith((".kt", ".kts")):
             sigs = [m.group(0).strip().rstrip("{").strip()
                     for m in _KT_SIG.finditer(src)]
+            # `self.x`-equivalent in kotlin is a class-body `val x` -- already
+            # caught by _KT_SIG. Also grab constructor `val`/`var` params.
         else:
-            sigs = [ln.strip() for ln in src.splitlines()
-                    if re.match(r"^[ \t]*(class |def |[A-Z_][A-Z0-9_]* *=)", ln)]
-        sigs = [s for s in sigs if s][:max_lines_per_file]
+            sigs = []
+            for ln in src.splitlines():
+                s = ln.strip()
+                if re.match(r"(class |def |[A-Z_][A-Z0-9_]* *=)", s):
+                    sigs.append(s.rstrip(":"))
+                elif re.match(r"self\.\w+\s*[:=]", s):
+                    # instance attribute set in __init__ -> "self.accounts: dict"
+                    sigs.append(s.split("=")[0].strip() if "=" in s else s)
+        # dedupe, keep order
+        seen: set[str] = set()
+        sigs = [x for x in sigs if x and not (x in seen or seen.add(x))][:max_lines_per_file]
         if sigs:
-            out.append(f"// {rel}\n" + "\n".join(sigs))
+            out.append(f"# {rel}\n" + "\n".join(sigs))
     return "\n\n".join(out)
 
 
