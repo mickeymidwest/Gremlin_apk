@@ -530,11 +530,20 @@ def run_battle(task: Task, repo_path: str, model: Model,
     for s in skills:
         if s.id not in available_skill_ids:
             continue
+        # (a) the model named the card, or paraphrased a step closely enough
         if s.name.lower() in model_text:
             invoked.add(s.id)
             continue
         phrases = [str(st).lower() for st in (s.procedure or []) if len(str(st)) >= 14]
         if any(ph in model_text for ph in phrases):
+            invoked.add(s.id)
+            continue
+        # (b) a 7B rarely cites a card. If a skill was a HIGH-confidence
+        # match for this task (its regex trigger fired) and it was loaded
+        # into context, count it as in play -- update_records still decides
+        # win vs loss from the score. Without this, skills_invoked is almost
+        # always empty and nothing ever promotes.
+        if _skill_score(s, task) >= 6:
             invoked.add(s.id)
     transcript.skills_invoked = sorted(invoked)
     return transcript

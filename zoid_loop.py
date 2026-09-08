@@ -282,9 +282,13 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         steps = [StepRecord(kind="note", content=ln) for ln in lines[-60:]]
         steps.append(StepRecord(kind="note",
             content=f"method_builder filled {r.methods_done}; final {r.passed}p/{r.failed}f"))
+        from gremlin_core.magic.battle import _skill_score
+        loadable = lifecycle.loadable(skills)
         tr = Transcript(task_id=task.id, steps=steps,
                         final_message=f"{r.passed}/{r.passed + r.failed} tests pass",
-                        skills_available=[s.id for s in lifecycle.loadable(skills)])
+                        skills_available=[s.id for s in loadable],
+                        skills_invoked=[s.id for s in loadable
+                                        if _skill_score(s, task) >= 6])
         result = BattleResult(battle_id=f"zoid_mb_{tgt['name']}_{int(time.time())}",
                               task_id=task.id, transcript=tr, score=score)
         delta = score.value            # scaffold baseline is 0 -- every stub is TODO()
