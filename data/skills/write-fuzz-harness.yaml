@@ -3,19 +3,18 @@ name: write-fuzz-harness
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Create a fuzz harness for a given target function
-trigger_when: when a fuzzing task is assigned
+purpose: Ensure the agent correctly sets up and runs the fuzzing harness with the correct
+  parameters and corpus.
+trigger_when: when setting up a fuzzing harness
 trigger_matcher: null
 procedure:
-- Identify the target function to fuzz
-- Create a new file named 'fuzz_target.c' in the root of the repository
-- Include all necessary headers and declare all used identifiers
-- Write the fuzz harness template for the target function
-- Compile the fuzz harness with libFuzzer and run it with a corpus to identify memory safety
-  bugs
+- Ensure the harness includes all necessary headers.
+- Ensure the harness links all necessary source files.
+- Run the harness with a corpus to identify memory safety bugs.
 supersedes: null
 provenance:
 - zoid_nsfuzz_1788889243
+- zoid_inifuzz_1788901572
 created: 1788889252.8131425
 record:
   uses: 0
