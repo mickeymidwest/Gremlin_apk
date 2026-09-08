@@ -2,7 +2,7 @@ id: seed_35
 name: when-stuck-widen-then-narrow
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: repeating the same failing move is not progress -- change the altitude
 trigger_when: the same action or edit has failed 2+ times
 trigger_matcher: stuck|loop|again|same (error|result)|third time|going in circles|not converging
@@ -17,9 +17,9 @@ provenance:
 - seed
 created: 1788816592.0633433
 record:
-  uses: 29
-  wins: 16
-  losses: 5
+  uses: 36
+  wins: 21
+  losses: 6
   score_deltas:
   - 0.5
   - 0.2
@@ -50,4 +50,11 @@ record:
   - 0.0
   - 0.5
   - 0.0
-  last_used_battle: zoid_list-ops_1788876668
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.1429
+  - 0.5556
+  - 0.4286
+  last_used_battle: zoid_csv-report_1788877053

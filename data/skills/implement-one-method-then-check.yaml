@@ -2,7 +2,7 @@ id: seed_17
 name: implement-one-method-then-check
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: on a scaffold with many stubbed methods, do them one at a time
 trigger_when: a file has several TODO()/NotImplementedError stubs to fill in against tests
 trigger_matcher: TODO\(\)|implement (every|all|each)|stub|NotImplementedError|method bod|scaffold|failing
@@ -19,9 +19,9 @@ provenance:
 - seed
 created: 1788817915.63095
 record:
-  uses: 32
-  wins: 19
-  losses: 5
+  uses: 40
+  wins: 25
+  losses: 6
   score_deltas:
   - 0.5
   - 0.2
@@ -55,4 +55,12 @@ record:
   - 0.0
   - 0.5
   - 0.0
-  last_used_battle: zoid_list-ops_1788876668
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.1429
+  - 0.5556
+  - 0.4286
+  - 0.625
+  last_used_battle: zoid_mb_bank-multi_1788877309

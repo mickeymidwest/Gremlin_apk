@@ -1,6 +1,6 @@
 id: seed_24
 name: binary-recon
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: first pass on an unknown native binary -- what it is and where the attack surface
@@ -21,12 +21,13 @@ provenance:
 - seed
 created: 1788803179.1005278
 record:
-  uses: 4
-  wins: 2
+  uses: 5
+  wins: 3
   losses: 2
   score_deltas:
   - 1.0
   - 0.0
   - 1.0
   - 0.0
-  last_used_battle: zoid_tlvfuzz_1788876494
+  - 1.0
+  last_used_battle: zoid_tlvfuzz_1788877134

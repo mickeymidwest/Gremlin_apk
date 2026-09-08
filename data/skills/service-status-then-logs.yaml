@@ -1,6 +1,6 @@
 id: seed_07
 name: service-status-then-logs
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: the fix for a broken service is in its logs, not in guessing
@@ -15,12 +15,13 @@ provenance:
 - seed
 created: 1788664611.49488
 record:
-  uses: 4
-  wins: 2
+  uses: 5
+  wins: 3
   losses: 2
   score_deltas:
   - 1.0
   - 0.0
   - 1.0
   - 0.0
-  last_used_battle: zoid_tlvfuzz_1788876494
+  - 1.0
+  last_used_battle: zoid_tlvfuzz_1788877134

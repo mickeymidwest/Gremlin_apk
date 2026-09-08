@@ -2,7 +2,7 @@ id: skill_2f4a73d0
 name: indentation-check
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Check and correct indentation in Python code
 trigger_when: when fixing Python code
 trigger_matcher: python
@@ -15,9 +15,9 @@ provenance:
 - zoid_mini-ledger_1788818904
 created: 1788818913.9997346
 record:
-  uses: 26
-  wins: 13
-  losses: 5
+  uses: 34
+  wins: 19
+  losses: 6
   score_deltas:
   - 0.5
   - 0.2
@@ -45,4 +45,12 @@ record:
   - 0.0
   - 0.5
   - 0.0
-  last_used_battle: zoid_list-ops_1788876668
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.1429
+  - 0.5556
+  - 0.4286
+  - 0.625
+  last_used_battle: zoid_mb_bank-multi_1788877309

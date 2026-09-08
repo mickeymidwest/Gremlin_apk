@@ -2,7 +2,7 @@ id: seed_18
 name: android-debug-apk-install
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: assembleDebug produces a signed, installable APK -- no manual signing
 trigger_when: producing an APK to install on a phone
 trigger_matcher: assembleDebug|app-debug\.apk|apksigner|install .*apk|debug keystore|unsigned
@@ -18,9 +18,9 @@ provenance:
 - seed
 created: 1788744588.6605494
 record:
-  uses: 26
-  wins: 13
-  losses: 5
+  uses: 33
+  wins: 18
+  losses: 6
   score_deltas:
   - 0.5
   - 0.2
@@ -48,4 +48,11 @@ record:
   - 0.0
   - 0.5
   - 0.0
-  last_used_battle: zoid_list-ops_1788876668
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.1429
+  - 0.5556
+  - 0.4286
+  last_used_battle: zoid_csv-report_1788877053

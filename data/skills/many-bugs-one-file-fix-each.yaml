@@ -2,7 +2,7 @@ id: seed_18
 name: many-bugs-one-file-fix-each
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: a file with several planted bugs -- each failing test is a DIFFERENT bug, not one
 trigger_when: pytest shows 2+ failing tests across different functions and you're fixing bug
   bodies
@@ -22,9 +22,9 @@ provenance:
 - seed
 created: 1788833969.757066
 record:
-  uses: 26
-  wins: 13
-  losses: 5
+  uses: 33
+  wins: 18
+  losses: 6
   score_deltas:
   - 0.5
   - 0.2
@@ -52,4 +52,11 @@ record:
   - 0.0
   - 0.5
   - 0.0
-  last_used_battle: zoid_list-ops_1788876668
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.1429
+  - 0.5556
+  - 0.4286
+  last_used_battle: zoid_csv-report_1788877053

@@ -455,10 +455,20 @@ class ShellToolHost:
         if self._protected(rel):
             return ToolResult(False, f"{rel} is READ-ONLY for this task -- do not change it. "
                                      "Put your work in a new file in the repo root.")
-        if not p.is_file():
-            return ToolResult(False, f"no such file: {rel or '(empty path)'} (use write_file to create it)")
         search = args.get("search", args.get("old", args.get("find", "")))
         replace = args.get("replace", args.get("new", args.get("with", "")))
+        if not p.is_file():
+            # a 7B often calls edit_file to CREATE a new file (empty search +
+            # the whole body in replace). Treat that as write_file rather
+            # than dead-ending it -- it's what it meant.
+            if replace and not search:
+                rej = _precheck(str(p), replace)
+                if rej:
+                    return ToolResult(False, f"NOT WRITTEN -- {rej}\nFix the syntax and try again.")
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(replace if replace.endswith("\n") else replace + "\n")
+                return ToolResult(True, f"created {rel} ({len(replace)} chars)")
+            return ToolResult(False, f"no such file: {rel or '(empty path)'} (use write_file to create it)")
         original = p.read_text()
         if not search:
             if replace:   # empty search + real replace = prepend

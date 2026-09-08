@@ -1,28 +1,24 @@
-id: seed_04
+id: skill_6c4b0972
 name: verify-before-done
-status: active
+status: candidate
 destination: card
 council_reviewed: false
-purpose: never say DONE on code work without a green check
-trigger_when: you think the task is finished
+purpose: Never say DONE on code work without a green check.
+trigger_when: when code changes are made
 trigger_matcher: fix|bug|implement|add|change|test
 procedure:
-- run the task's tests (or compile / lint if there are none)
-- if red, read the error and iterate
-- say DONE only when the check is green
-supersedes: null
+- Run all tests to ensure they pass.
+- Check for any new failures introduced by the changes.
+- Verify that the changes do not introduce new bugs.
+supersedes: seed_04
 provenance:
 - seed
-created: 1788664611.4948752
+- zoid_csv-report_1788877053
+created: 1788877063.3770778
 record:
-  uses: 6
-  wins: 6
+  uses: 1
+  wins: 1
   losses: 0
   score_deltas:
-  - 0.6545
-  - 0.6231
-  - 0.6545
-  - 1.0
-  - 0.7364
-  - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788872122
+  - 0.625
+  last_used_battle: zoid_mb_bank-multi_1788877309
