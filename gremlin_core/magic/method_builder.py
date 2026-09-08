@@ -249,13 +249,46 @@ def _ensure_kt_imports(src: str, body: str) -> str:
     return src[:at] + "\n\n" + "\n".join(dict.fromkeys(add)) + src[at:]
 
 
-def _reindent(body: str, n: int) -> str:
-    """Normalise the model's body to indent level `n`. The 7B is inconsistent
-    about whether it writes the body flush-left or already at method-body
-    indent -- strip whatever common indent it used, then re-apply ours."""
-    body = textwrap.dedent(body.replace("\t", "    ")).strip("\n")
+def _apply_indent(lines: list[str], n: int) -> str:
     pad = " " * n
-    return "\n".join(pad + ln if ln.strip() else "" for ln in body.split("\n"))
+    return "\n".join(pad + ln if ln.strip() else "" for ln in lines)
+
+
+def _reindent(body: str, n: int, *, _strategy: str = "mode") -> str:
+    """Normalise the model's body to indent level `n`. The 7B is
+    inconsistent about how it indents a body -- flush-left, already at
+    method depth, or a mix (guard line at 0, its `raise` at 12, the rest
+    at 8). `_strategy`:
+      mode    -- treat the most common non-blank indent as the base, shift
+                 base->n, clamp anything shallower up to n
+      common  -- strip the common leading indent (textwrap.dedent)
+      first   -- strip the first non-blank line's indent from every line
+      lstrip  -- strip ALL leading whitespace from every line
+    _splice() tries these in order and keeps the first that parses."""
+    src = body.replace("\t", "    ").strip("\n")
+    lines = src.split("\n")
+    if _strategy == "mode":
+        from collections import Counter
+        indents = [len(ln) - len(ln.lstrip()) for ln in lines if ln.strip()]
+        base = Counter(indents).most_common(1)[0][0] if indents else 0
+        shift = n - base
+        out = []
+        for ln in lines:
+            if not ln.strip():
+                out.append("")
+                continue
+            cur = len(ln) - len(ln.lstrip())
+            out.append(" " * max(n, cur + shift) + ln.lstrip())
+        return "\n".join(out)
+    if _strategy == "lstrip":
+        lines = [ln.lstrip() for ln in lines]
+    elif _strategy == "first":
+        first = next((ln for ln in lines if ln.strip()), "")
+        b = len(first) - len(first.lstrip())
+        lines = [ln[b:] if ln[:b].strip() == "" else ln.lstrip() for ln in lines]
+    else:
+        lines = textwrap.dedent(src).split("\n")
+    return _apply_indent(lines, n)
 
 
 def _splice(src: str, stub: Stub, body: str) -> str:
@@ -263,8 +296,19 @@ def _splice(src: str, stub: Stub, body: str) -> str:
         ind = _reindent(body, stub.indent + 4)
         return _ensure_kt_imports(
             src[:stub.start] + "\n" + ind + "\n" + " " * stub.indent + src[stub.end:], body)
-    body = _reindent(body, stub.indent + 4)
-    return src[:stub.start] + body + "\n" + src[stub.end:]
+    # python: the 7B's indentation is often internally inconsistent -- try
+    # each normalisation and keep the first that yields a parseable file.
+    fallback = ""
+    for strat in ("mode", "common", "first", "lstrip"):
+        ind = _reindent(body, stub.indent + 4, _strategy=strat)
+        cand = src[:stub.start] + ind + "\n" + src[stub.end:]
+        fallback = fallback or cand
+        try:
+            compile(cand, "<splice>", "exec")
+            return cand
+        except SyntaxError:
+            continue
+    return fallback
 
 
 # ---- the test runner ----------------------------------------------------

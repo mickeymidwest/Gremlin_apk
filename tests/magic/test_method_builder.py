@@ -96,6 +96,32 @@ def test_splice_pre_indented_body():
     ]
 
 
+def test_splice_mixed_indent_body_still_parses():
+    """The 7B often writes a guard at col 0, its `raise` at col 12, and
+    the rest at col 8 -- a naive shift leaves post-guard statements
+    nested inside the `if`. _splice tries strategies until one parses."""
+    src = ("class Ledger:\n"
+           "    def __init__(self):\n"
+           "        self.accounts = {}\n\n"
+           "    def transfer(self, s, d, cents):\n"
+           "        raise NotImplementedError\n\n"
+           "    def total(self):\n"
+           "        raise NotImplementedError\n")
+    stub = find_stubs(src, "ledger.py")[0]
+    body = ("if s not in self.accounts:\n"
+            "            raise KeyError('x')\n"
+            "        a = self.accounts[s]\n"
+            "        a['bal'] -= cents")
+    out = _splice(src, stub, body)
+    compile(out, "<t>", "exec")
+    lines = out.splitlines()
+    i = lines.index("    def transfer(self, s, d, cents):")
+    assert lines[i + 1] == "        if s not in self.accounts:"
+    assert lines[i + 2] == "            raise KeyError('x')"
+    assert lines[i + 3] == "        a = self.accounts[s]"       # NOT nested in the if
+    assert "    def total(self):" in out
+
+
 def test_splice_nested_stub_indent():
     src = ("class Outer:\n"
            "    class Inner:\n"
