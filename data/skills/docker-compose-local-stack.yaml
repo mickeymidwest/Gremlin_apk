@@ -1,0 +1,29 @@
+id: seed_77
+name: docker-compose-local-stack
+status: candidate
+destination: card
+council_reviewed: false
+purpose: stand up a multi-service dev stack (app + db + cache) that actually talks to itself
+trigger_when: you need more than one service running together locally for a test or demo
+trigger_matcher: docker[- ]compose|compose\.ya?ml|multi-service|app \+ (db|database|redis|postgres)|stack
+procedure:
+- 'one service per block; `depends_on` orders startup but does NOT wait for readiness -- add
+  a healthcheck and `condition: service_healthy` if the app needs the db up'
+- services reach each other at `http://<service-name>:<internal-port>` on the default compose
+  network -- no `ports:` needed for internal-only traffic
+- '`ports:` is host:container and only for what YOU hit from the host; keep the db''s off
+  unless you need a client'
+- config via `environment:` / `env_file:`; persist data with a named `volumes:` entry, not
+  a bind mount, for db state
+- '`docker compose up --build`, `docker compose logs -f <svc>`, `docker compose down -v` to
+  wipe volumes too'
+supersedes: null
+provenance:
+- seed
+created: 1788874289.9917696
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -1,0 +1,31 @@
+id: seed_76
+name: docker-debug-a-failing-container
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a container that exits, hangs, or can't reach a service -- find out why fast
+trigger_when: '`docker run` / `docker compose up` exits non-zero, restarts, or the app inside
+  is unreachable'
+trigger_matcher: docker (run|compose|logs|exec|ps)|container (exit|restart|crash|unhealthy)|Exited
+  \(\d+\)|CrashLoopBackOff|cannot connect|connection refused.*container
+procedure:
+- '`docker ps -a` -> the STATUS column: ''Exited (0)'' = it finished on purpose (wrong CMD,
+  or a one-shot); ''Exited (1/137/139)'' = crash/OOM-kill/segfault'
+- '`docker logs <name>` (add `--tail 50 -f`) for the actual error -- the run command usually
+  swallows it'
+- 'shell in on a running one: `docker exec -it <name> sh`; on a dead one: `docker run --rm
+  -it --entrypoint sh <image>` and reproduce by hand'
+- '''connection refused'' between containers: they must share a user-defined network and you
+  connect by SERVICE NAME + the container''s INTERNAL port, not localhost, not the published
+  port'
+- 137 = OOM-killed -> raise `--memory` or fix the leak; 139 = segfault in the process
+supersedes: null
+provenance:
+- seed
+created: 1788874289.991768
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

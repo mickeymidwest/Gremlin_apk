@@ -1,0 +1,29 @@
+id: seed_74
+name: docker-sandbox-untrusted-code
+status: candidate
+destination: card
+council_reviewed: false
+purpose: run a bug-bounty target / unknown binary / scraped repo without giving it your box
+trigger_when: about to build or execute code from an external target, sample, or untrusted
+  repo
+trigger_matcher: untrusted|sandbox|target (binary|app|apk|sample)|isolate|run (it|this) safely|scraped|unknown
+  (code|binary)|malware|sample
+procedure:
+- '`docker run --rm -it --network none -v "$PWD":/work:ro -w /work <image> <cmd>` -- --rm
+  throws the container away, --network none cuts it off, :ro keeps it from writing your files'
+- 'for a build that must write, mount a scratch dir: `-v "$PWD/out":/out` and write only there'
+- add `--pids-limit 512 --memory 2g --cpus 2` so a fork bomb / OOM in the target can't take
+  the host down
+- never `-v /:/host` or `--privileged` or `-v /var/run/docker.sock` for untrusted code --
+  that's a full escape
+- 'when done: `docker image rm <image>` if you pulled it just for this'
+supersedes: null
+provenance:
+- seed
+created: 1788874289.9917645
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null

@@ -897,6 +897,58 @@ _SEED = [
             "say plainly what's done and what's left -- don't claim done when a check is red",
         ],
     ),
+    dict(
+        name="docker-sandbox-untrusted-code",
+        purpose="run a bug-bounty target / unknown binary / scraped repo without giving it your box",
+        trigger_when="about to build or execute code from an external target, sample, or untrusted repo",
+        trigger_matcher=r"untrusted|sandbox|target (binary|app|apk|sample)|isolate|run (it|this) safely|scraped|unknown (code|binary)|malware|sample",
+        procedure=[
+            "`docker run --rm -it --network none -v \"$PWD\":/work:ro -w /work <image> <cmd>` -- --rm throws the container away, --network none cuts it off, :ro keeps it from writing your files",
+            "for a build that must write, mount a scratch dir: `-v \"$PWD/out\":/out` and write only there",
+            "add `--pids-limit 512 --memory 2g --cpus 2` so a fork bomb / OOM in the target can't take the host down",
+            "never `-v /:/host` or `--privileged` or `-v /var/run/docker.sock` for untrusted code -- that's a full escape",
+            "when done: `docker image rm <image>` if you pulled it just for this",
+        ],
+    ),
+    dict(
+        name="dockerfile-reproducible-build",
+        purpose="a Dockerfile that builds the same next month and doesn't rebuild the world on every edit",
+        trigger_when="writing or fixing a Dockerfile",
+        trigger_matcher=r"Dockerfile|FROM \w|docker build|base image|multi-stage|layer cache",
+        procedure=[
+            "pin the base image by digest or an exact tag (`python:3.12.7-slim`, not `python:latest` or `python:3`)",
+            "COPY the dependency manifest and install deps BEFORE COPYing the source -- an app-code change then reuses the cached deps layer",
+            "one logical step per RUN, chained with `&&`, cleaning up in the SAME RUN (`apt-get ... && rm -rf /var/lib/apt/lists/*`) or the cruft is baked into the layer",
+            "multi-stage: a `builder` stage with the toolchain, then `COPY --from=builder` only the artifact into a slim runtime stage that runs as a non-root `USER`",
+            "add a .dockerignore (.git, node_modules, __pycache__, build/) so the build context isn't huge",
+        ],
+    ),
+    dict(
+        name="docker-debug-a-failing-container",
+        purpose="a container that exits, hangs, or can't reach a service -- find out why fast",
+        trigger_when="`docker run` / `docker compose up` exits non-zero, restarts, or the app inside is unreachable",
+        trigger_matcher=r"docker (run|compose|logs|exec|ps)|container (exit|restart|crash|unhealthy)|Exited \(\d+\)|CrashLoopBackOff|cannot connect|connection refused.*container",
+        procedure=[
+            "`docker ps -a` -> the STATUS column: 'Exited (0)' = it finished on purpose (wrong CMD, or a one-shot); 'Exited (1/137/139)' = crash/OOM-kill/segfault",
+            "`docker logs <name>` (add `--tail 50 -f`) for the actual error -- the run command usually swallows it",
+            "shell in on a running one: `docker exec -it <name> sh`; on a dead one: `docker run --rm -it --entrypoint sh <image>` and reproduce by hand",
+            "'connection refused' between containers: they must share a user-defined network and you connect by SERVICE NAME + the container's INTERNAL port, not localhost, not the published port",
+            "137 = OOM-killed -> raise `--memory` or fix the leak; 139 = segfault in the process",
+        ],
+    ),
+    dict(
+        name="docker-compose-local-stack",
+        purpose="stand up a multi-service dev stack (app + db + cache) that actually talks to itself",
+        trigger_when="you need more than one service running together locally for a test or demo",
+        trigger_matcher=r"docker[- ]compose|compose\.ya?ml|multi-service|app \+ (db|database|redis|postgres)|stack",
+        procedure=[
+            "one service per block; `depends_on` orders startup but does NOT wait for readiness -- add a healthcheck and `condition: service_healthy` if the app needs the db up",
+            "services reach each other at `http://<service-name>:<internal-port>` on the default compose network -- no `ports:` needed for internal-only traffic",
+            "`ports:` is host:container and only for what YOU hit from the host; keep the db's off unless you need a client",
+            "config via `environment:` / `env_file:`; persist data with a named `volumes:` entry, not a bind mount, for db state",
+            "`docker compose up --build`, `docker compose logs -f <svc>`, `docker compose down -v` to wipe volumes too",
+        ],
+    ),
 ]
 
 

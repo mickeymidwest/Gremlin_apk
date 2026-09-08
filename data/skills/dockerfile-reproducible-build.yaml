@@ -1,0 +1,31 @@
+id: seed_75
+name: dockerfile-reproducible-build
+status: candidate
+destination: card
+council_reviewed: false
+purpose: a Dockerfile that builds the same next month and doesn't rebuild the world on every
+  edit
+trigger_when: writing or fixing a Dockerfile
+trigger_matcher: Dockerfile|FROM \w|docker build|base image|multi-stage|layer cache
+procedure:
+- pin the base image by digest or an exact tag (`python:3.12.7-slim`, not `python:latest`
+  or `python:3`)
+- COPY the dependency manifest and install deps BEFORE COPYing the source -- an app-code change
+  then reuses the cached deps layer
+- one logical step per RUN, chained with `&&`, and clean up in the SAME RUN (`apt-get ...
+  && rm -rf /var/lib/apt/lists/*`) or the cruft is baked into the layer
+- 'multi-stage: a `builder` stage with the toolchain, then `COPY --from=builder` only the
+  artifact into a slim runtime stage'
+- add a .dockerignore (.git, node_modules, __pycache__, build/) so the build context isn't
+  huge
+- run as a non-root user in the final stage (`USER app`)
+supersedes: null
+provenance:
+- seed
+created: 1788874289.991766
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
