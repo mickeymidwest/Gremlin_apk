@@ -59,6 +59,26 @@ def test_reckon_parses_proposals():
     assert props[0].kind == "new_skill" and props[0].payload["name"] == "check-loop-boundaries"
 
 
+def test_reckon_drops_skill_with_confabulated_path(tmp_path):
+    reply = json.dumps({
+        "diagnosis": "d",
+        "proposals": [
+            {"kind": "new_skill", "name": "portable-one",
+             "purpose": "read the failing test then fix the body",
+             "trigger_when": "a failing pytest",
+             "procedure": ["read the failing test", "fix the function body", "re-run the tests"]},
+            {"kind": "new_skill", "name": "confabulated-one",
+             "purpose": "run the project's fix helper",
+             "trigger_when": "any failure",
+             "procedure": ["run `scripts/autofix.sh --all`", "commit"]},
+        ],
+    })
+    props = reckon(ScriptedModel([reply]), _result("b1", False, []), [], [], str(tmp_path))
+    names = [p.payload["name"] for p in props]
+    assert "portable-one" in names
+    assert "confabulated-one" not in names  # scripts/autofix.sh is nowhere real
+
+
 def test_gate_filters():
     good = json.dumps({"accept": True, "reason": "novel and actionable"})
     bad = json.dumps({"accept": False, "reason": "duplicate"})

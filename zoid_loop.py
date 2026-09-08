@@ -294,7 +294,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
             lesson = ""
 
         lifecycle.update_records(skills, result, delta)
-        proposals = reckoning.reckon(model, result, skills, facts)
+        proposals = reckoning.reckon(model, result, skills, facts, str(ROOT))
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
@@ -371,7 +371,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
             lesson = ""
 
         lifecycle.update_records(skills, result, delta)
-        proposals = reckoning.reckon(model, result, skills, facts)
+        proposals = reckoning.reckon(model, result, skills, facts, str(ROOT))
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
@@ -463,7 +463,7 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
             lesson = ""
 
         lifecycle.update_records(skills, result, delta)
-        proposals = reckoning.reckon(model, result, skills, facts)
+        proposals = reckoning.reckon(model, result, skills, facts, str(ROOT))
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)

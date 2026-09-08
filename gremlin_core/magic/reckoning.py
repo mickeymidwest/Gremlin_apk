@@ -13,6 +13,7 @@ import re
 import uuid
 from typing import Sequence
 
+from . import grounding
 from ._jsonx import extract_json as _extract_json
 from .model import Model
 from .types import BattleResult, Fact, Proposal, Skill
@@ -76,12 +77,27 @@ def _transcript_digest(result: BattleResult, limit: int = 6000) -> str:
     return "\n".join(lines)[:limit]
 
 
+def _procedure_grounded(p: Proposal, root: str, transcript: str) -> bool:
+    """Reject a skill whose procedure names a concrete file or script that
+    is neither in the repo nor anywhere in the battle it came from -- that
+    is a confabulated step. (A portable skill says 'run the tests', not
+    'run ./scripts/x.sh', so this also nudges skills to stay portable.)"""
+    if p.kind == "new_fact":
+        return True
+    proc = " ".join(p.payload.get("procedure", [])) + " " + p.payload.get("purpose", "")
+    bad = grounding.check(proc, root, context=transcript)
+    return not any(("not in this project" in b or "does not exist here" in b)
+                   for b in bad)
+
+
 def reckon(model: Model, result: BattleResult,
-           skills: Sequence[Skill], facts: Sequence[Fact]) -> list[Proposal]:
+           skills: Sequence[Skill], facts: Sequence[Fact],
+           root: str = ".") -> list[Proposal]:
+    tdigest = _transcript_digest(result)
     prompt = (
         _render_context(skills, facts)
         + "\n\n---\nAN ATTEMPT TO REVIEW:\n"
-        + _transcript_digest(result)
+        + tdigest
     )
     reply = model.complete([{"role": "user", "content": prompt}],
                            system=_PROPOSE_SYSTEM, max_tokens=2000)
@@ -112,7 +128,7 @@ def reckon(model: Model, result: BattleResult,
         elif kind == "new_fact" and raw.get("text"):
             out.append(Proposal(kind="new_fact", payload={"text": raw["text"].strip()},
                                 rationale=data.get("diagnosis", "")))
-    return out
+    return [p for p in out if _procedure_grounded(p, root, tdigest)]
 
 
 _GENERIC_SKILL_NAMES = re.compile(
