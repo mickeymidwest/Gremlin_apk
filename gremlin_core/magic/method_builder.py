@@ -254,8 +254,10 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
         res.final_source = src0
         return res
 
-    base_p, base_f, _ = _run(verify_cmd, root)
-    log(f"[method_builder] baseline {base_p}p/{base_f}f")
+    # a fresh scaffold has every stub as TODO() -> nothing passes; skip the
+    # (slow, cold) baseline run and start from 0
+    base_p, base_f = 0, len(re.findall(r"@Test\b|def test_", test_src)) or 1
+    log(f"[method_builder] {len(names)} stubs, assume baseline 0p/{base_f}f")
     cur = src0
 
     for name in names:
