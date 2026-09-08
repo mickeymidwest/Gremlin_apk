@@ -1,6 +1,6 @@
-id: skill_3f013648
+id: skill_5f295165
 name: read-failing-test-output
-status: candidate
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
@@ -8,15 +8,14 @@ purpose: Ensure the agent correctly identifies and reports the specific assertio
 trigger_when: when a test fails
 trigger_matcher: null
 procedure:
-- Identify the specific failing test and its assertion.
-- Report the assertion failure and the expected result.
-supersedes: skill_5f295165
+- Identify the failing test and its assertion to understand the expected behavior.
+- Report the specific assertion failure and the expected result.
+supersedes: skill_51fc3b7c
 provenance:
 - zoid_mini-ledger_1788821188
 - zoid_text-utils_1788823063
 - zoid_mini-ledger_1788838055
-- zoid_mb_klondike-apk_1788840429
-created: 1788840438.100257
+created: 1788838065.3090143
 record:
   uses: 0
   wins: 0
