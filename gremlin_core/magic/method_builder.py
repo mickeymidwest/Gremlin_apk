@@ -277,10 +277,12 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 cp, cf, cout = _run(compile_cmd, root, timeout=300)
                 if cf and not cp:
                     hint = "does not compile:\n" + _first_failure(cout, stub.lang)[:500]
+                    log(f"[method_builder] {name} try {attempt+1}: COMPILE FAIL")
                     tgt.write_text(cur)
                     continue
             p, f, out = _run(verify_cmd, root)
-            log(f"[method_builder] {name} try {attempt+1}: {p}p/{f}f")
+            log(f"[method_builder] {name} try {attempt+1}: {p}p/{f}f"
+                + ("" if (p, f) != (0, 0) else "  ||" + out.strip().splitlines()[-1][:120]))
             if p > best_p or (p == best_p and f < best_f):
                 best_src, best_p, best_f = trial, p, f
                 if f == 0:
