@@ -10,8 +10,9 @@ trigger_matcher: null
 procedure:
 - Identify the specific assertion failure in the failing test.
 - Analyze the code to understand the root cause of the bug.
-- Make the necessary changes to fix the bug.
-- Run the tests again to ensure the bug is fixed and no new bugs are introduced.
+- Make targeted changes to fix the bug.
+- Run the test again to ensure the bug is resolved.
+- Repeat steps 2-4 for all failing tests.
 supersedes: skill_28439dee
 provenance:
 - zoid_graph-paths_1788832397
@@ -20,6 +21,7 @@ provenance:
 - zoid_temp-convert_1788845416
 - zoid_mb_bank-multi_1788882838
 - zoid_mb_bank-multi_1788929744
+- zoid_mb_bank-multi_1788949948
 created: 1788845424.7965386
 record:
   uses: 0
