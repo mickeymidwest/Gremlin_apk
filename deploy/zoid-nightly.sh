@@ -25,7 +25,7 @@ sleep 4
 nvidia-smi --query-gpu=memory.free --format=csv,noheader || true
 
 echo "-- zoid loop --"
-venv/bin/python zoid_loop.py --minutes "$MINUTES" --rounds 200
+venv/bin/python zoid_loop.py --minutes "$MINUTES" --rounds "${ZOID_ROUNDS:-200}"
 
 echo "-- restoring service + timers --"
 for u in gremlin-watchdog.timer gremlin-update.timer gremlin-distill.timer gremlin.service; do
