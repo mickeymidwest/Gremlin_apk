@@ -17,8 +17,8 @@ provenance:
 - seed
 created: 1788816592.063365
 record:
-  uses: 51
-  wins: 44
+  uses: 52
+  wins: 45
   losses: 7
   score_deltas:
   - 1.0
@@ -72,5 +72,6 @@ record:
   - 1.0
   - 1.0
   - 1.0
-  last_used_battle: zoid_inifuzz_1788941331
-  battles_available: 22
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788942270
+  battles_available: 23
