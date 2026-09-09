@@ -8,16 +8,16 @@ purpose: Ensure the agent makes one change at a time to avoid introducing new bu
 trigger_when: when fixing bugs
 trigger_matcher: null
 procedure:
-- Identify the specific failing test and its assertion to understand the expected behavior.
-- Read the failing test output to understand the assertion failure and the expected result.
-- Reproduce the bug before trying to fix it.
-- Fix one bug at a time in a failing test suite.
-- Verify that the fix resolves the issue before moving on to the next bug.
+- Identify the specific failure and the expected result.
+- Make one targeted change to resolve the issue.
+- Run the tests again to verify the fix.
+- Repeat the process for each failing test.
 supersedes: skill_a19769ec
 provenance:
 - seed
 - zoid_csv-report_1788839444
 - zoid_mini-ledger_1788851247
+- zoid_text-utils_1788934422
 created: 1788851262.5630953
 record:
   uses: 0

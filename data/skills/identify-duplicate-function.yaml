@@ -1,0 +1,23 @@
+id: skill_16f61924
+name: identify-duplicate-function
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Identify if a function is already defined in another file and suggest a new name
+  for the function in the current file.
+trigger_when: when a function is already defined in another file
+trigger_matcher: function_name
+procedure:
+- Check if the function is already defined in another file.
+- Suggest a new name for the function in the current file.
+supersedes: null
+provenance:
+- zoid_inifuzz_1788934597
+created: 1788934609.0506194
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

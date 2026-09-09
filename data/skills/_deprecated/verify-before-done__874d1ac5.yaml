@@ -1,15 +1,16 @@
-id: skill_1ad3d7fd
+id: skill_874d1ac5
 name: verify-before-done
-status: active
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Ensure the agent verifies the correctness of changes before declaring success.
 trigger_when: after each change
 trigger_matcher: fix|bug|implement|add|change|test
 procedure:
-- Run the tests again to ensure all failing tests are now passing.
-- If any tests are still failing, identify the root cause and make further changes.
-supersedes: skill_874d1ac5
+- Run the tests after each change to verify the correctness of the changes.
+- If the tests pass, declare success. If they fail, identify the specific failure and make
+  the necessary changes.
+supersedes: skill_64980d9f
 provenance:
 - seed
 - zoid_csv-report_1788877053
@@ -17,15 +18,26 @@ provenance:
 - zoid_mini-ledger_1788887316
 - zoid_graph-paths_1788929496
 - zoid_mini-ledger_1788930298
-- zoid_mini-ledger_1788934369
-created: 1788934378.885018
+created: 1788930307.2018065
 record:
-  uses: 3
-  wins: 3
+  uses: 15
+  wins: 15
   losses: 0
   score_deltas:
+  - 0.625
+  - 0.6545
+  - 0.6231
+  - 0.625
+  - 0.7364
+  - 0.8308
+  - 0.75
+  - 0.6545
+  - 0.6231
   - 0.75
   - 0.7364
   - 0.6231
-  last_used_battle: zoid_mb_buildalot-apk_1788935063
+  - 0.5
+  - 0.7364
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788934215
   battles_available: 0
