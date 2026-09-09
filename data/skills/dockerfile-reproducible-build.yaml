@@ -24,9 +24,9 @@ provenance:
 - seed
 created: 1788874289.991766
 record:
-  uses: 197
-  wins: 89
-  losses: 64
+  uses: 204
+  wins: 93
+  losses: 66
   score_deltas:
   - 0.5
   - 0.2
@@ -225,5 +225,12 @@ record:
   - -0.1111
   - 0.0
   - 0.7714
-  last_used_battle: zoid_gen_tipcalc_1788924017
-  battles_available: 11
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.1429
+  - 0.0
+  - 0.4286
+  - 1.0
+  last_used_battle: zoid_gen_salestax_1788924764
+  battles_available: 17

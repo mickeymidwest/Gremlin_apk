@@ -1,6 +1,6 @@
 id: seed_93
 name: kotlin-stdlib-that-exists
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: don't invent Kotlin functions -- use the real collection/return idioms
@@ -21,11 +21,13 @@ provenance:
 - seed
 created: 1788922860.0785706
 record:
-  uses: 2
-  wins: 2
+  uses: 4
+  wins: 4
   losses: 0
   score_deltas:
   - 0.7364
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788923940
+  - 0.7364
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788924718
   battles_available: 0
