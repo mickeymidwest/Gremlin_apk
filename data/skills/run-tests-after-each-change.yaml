@@ -3,17 +3,18 @@ name: run-tests-after-each-change
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Run the tests after each change to verify the correctness of the changes.
+purpose: Ensure the agent runs tests after each change to verify the correctness of the changes.
 trigger_when: after each change
 trigger_matcher: null
 procedure:
-- Run the tests to ensure they pass.
-- If tests fail, identify the failing test and report the specific assertion failure.
+- Run the tests after each change.
+- Verify that the tests pass before making the next change.
 supersedes: null
 provenance:
 - zoid_csv-report_1788929528
 - zoid_mini-ledger_1788931172
 - zoid_mb_klondike-apk_1788931666
+- zoid_mini-ledger_1788933566
 created: 1788929539.7372832
 record:
   uses: 0
