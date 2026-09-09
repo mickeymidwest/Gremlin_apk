@@ -213,6 +213,117 @@ def _fallback_test(package: str, class_name: str) -> str:
             "}\n")
 
 
+_KT_PARSE = {
+    "Int": "{v}.toInt()",
+    "Long": "{v}.toLong()",
+    "Double": "{v}.toDouble()",
+    "Float": "{v}.toFloat()",
+    "String": '{v}',
+    "Boolean": "{v}.toBoolean()",
+    "IntArray": '{v}.split(",").filter {{ it.isNotBlank() }}.map {{ it.trim().toInt() }}.toIntArray()',
+}
+_KT_HINT = {"IntArray": "comma-separated ints", "String": "text"}
+
+
+def _parse_method(hdr: str):
+    m = re.match(r"\s*fun\s+(\w+)\s*\((.*)\)\s*(?::\s*([\w<>?.\[\]]+))?\s*$", hdr.strip())
+    if not m:
+        return None
+    raw = m.group(2).strip()
+    if "->" in raw or "(" in raw:          # lambda / functional param -- no input field for that
+        return None
+    params = []
+    for p in [x for x in raw.split(",") if x.strip()]:
+        pm = re.match(r"\s*(?:vararg\s+)?(\w+)\s*:\s*([\w<>?.\[\]]+)\s*$", p.strip())
+        if not pm:
+            return None                    # a param shape we can't render
+        params.append((pm.group(1), pm.group(2)))
+    return m.group(1), params, (m.group(3) or "Unit")
+
+
+def build_form_ui(package: str, classes: list[KotlinClass]) -> str | None:
+    """A programmatic-View MainActivity: one input row per method
+    parameter, a Run button, a result label -- so the installed app is
+    actually usable, calling the (method_builder-filled) logic class.
+    Returns None if no method has a UI-representable signature."""
+    body: list[str] = []
+    have_ui = False
+    for cls in classes:
+        inst = cls.name[0].lower() + cls.name[1:]
+        body.append(f'        add(header("{cls.name}", 20f))')
+        body.append(f"        val {inst} = {cls.name}()")
+        for hdr in cls.methods:
+            parsed = _parse_method(hdr)
+            if not parsed:
+                continue
+            name, params, _ret = parsed
+            if any(t.rstrip("?") not in _KT_PARSE for _, t in params):
+                continue          # a param type we can't render an input for
+            have_ui = True
+            body.append(f'        add(header("{name}", 16f))')
+            args = []
+            for pn, pt in params:
+                fid = f"in_{name}_{pn}"
+                hint = _KT_HINT.get(pt.rstrip("?"), pt)
+                numeric = pt.rstrip("?") in ("Int", "Long", "Double", "Float")
+                body.append(f'        val {fid} = field("{pn}: {hint}", {str(numeric).lower()})')
+                body.append(f"        add({fid})")
+                args.append(_KT_PARSE[pt.rstrip("?")].format(v=f"{fid}.text.toString()"))
+            body.append(f"        val out_{name} = result()")
+            body.append(f'        add(button("Run {name}") {{')
+            body.append(f"            out_{name}.text = runResult {{ {inst}.{name}("
+                        + ", ".join(args) + ").toString() }")
+            body.append("        })")
+            body.append(f"        add(out_{name})")
+    if not have_ui:
+        return None
+    return (
+        f"package {package}\n\n"
+        "import android.app.Activity\n"
+        "import android.os.Bundle\n"
+        "import android.text.InputType\n"
+        "import android.view.View\n"
+        "import android.view.ViewGroup\n"
+        "import android.widget.*\n\n"
+        "class MainActivity : Activity() {\n"
+        "    private lateinit var col: LinearLayout\n"
+        "    private fun add(v: View) { col.addView(v) }\n"
+        "    private fun header(t: String, s: Float) = TextView(this).apply {\n"
+        "        text = t; textSize = s; setPadding(0, 24, 0, 8) }\n"
+        "    private fun field(h: String, numeric: Boolean) = EditText(this).apply {\n"
+        "        hint = h\n"
+        "        if (numeric) inputType =\n"
+        "            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED or\n"
+        "            InputType.TYPE_NUMBER_FLAG_DECIMAL }\n"
+        "    private fun result() = TextView(this).apply { setPadding(0, 8, 0, 8); textSize = 16f }\n"
+        "    private fun button(t: String, onTap: () -> Unit) = Button(this).apply {\n"
+        "        text = t; setOnClickListener { onTap() } }\n"
+        "    private inline fun runResult(f: () -> String): String =\n"
+        '        try { "= " + f() } catch (e: Exception) {\n'
+        '            "error: " + (e.message ?: e.javaClass.simpleName) }\n\n'
+        "    override fun onCreate(savedInstanceState: Bundle?) {\n"
+        "        super.onCreate(savedInstanceState)\n"
+        "        col = LinearLayout(this).apply {\n"
+        "            orientation = LinearLayout.VERTICAL\n"
+        "            setPadding(40, 40, 40, 40) }\n"
+        + "\n".join(body) + "\n"
+        "        val scroll = ScrollView(this)\n"
+        "        scroll.addView(col, ViewGroup.LayoutParams(\n"
+        "            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))\n"
+        "        setContentView(scroll)\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def write_form_ui(repo: str | Path, package: str, classes: list[KotlinClass]) -> bool:
+    src = build_form_ui(package, classes)
+    if src is None:
+        return False
+    (_pkg_dir(Path(repo), package, test=False) / "MainActivity.kt").write_text(src)
+    return True
+
+
 def wire_primary_view(repo: str | Path, package: str, view_class: str) -> None:
     """Point MainActivity at a custom View the plan named, instead of the
     default TextView."""
@@ -259,6 +370,8 @@ def scaffold_from_spec(feature: str, dest: str | Path, model: Model,
                                     ["fun render(): Unit"]))
     if plan.primary_view:
         wire_primary_view(repo, plan.package, plan.primary_view)
+    elif write_form_ui(repo, plan.package, plan.classes):
+        log("[android_scaffold] generated a form UI over the logic classes")
     log(f"[android_scaffold] rendered -> {repo}")
     return str(repo), VERIFY_CMD
 

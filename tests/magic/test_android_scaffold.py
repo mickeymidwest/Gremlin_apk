@@ -96,6 +96,43 @@ def test_write_test_falls_back_on_junk(tmp_path):
     assert "@Test" in out.read_text()
 
 
+def test_build_form_ui_shape():
+    plan = A.SPECS["salestax"]
+    src = A.build_form_ui(plan.package, plan.classes)
+    assert src.startswith("package com.gremlin.salestax\n")
+    # one input per param, a Run button + result per method
+    assert 'field("priceCents: Int", true)' in src
+    assert 'field("rateBp: Int", true)' in src
+    assert 'button("Run taxCents")' in src
+    assert 'button("Run grossCents")' in src
+    assert "runResult { salesTax.taxCents(" in src
+    assert src.count("{") == src.count("}")
+    assert src.count("(") == src.count(")")
+
+
+def test_build_form_ui_intarray_param():
+    plan = A.SPECS["streak"]
+    src = A.build_form_ui(plan.package, plan.classes)
+    assert 'field("days: comma-separated ints", false)' in src
+    assert '.split(",").filter { it.isNotBlank() }.map { it.trim().toInt() }.toIntArray()' in src
+
+
+def test_build_form_ui_none_when_no_renderable_method():
+    from gremlin_core.magic.android_scaffold import KotlinClass
+    cls = KotlinClass("Weird", ["fun go(cb: (Int) -> Unit): Unit"])
+    assert A.build_form_ui("com.x.y", [cls]) is None
+
+
+def test_scaffold_from_spec_writes_form_ui(tmp_path):
+    plan = A.SPECS["salestax"]
+    repo_str, _ = A.scaffold_from_spec(plan.app_name, tmp_path / "s",
+                                       ScriptedModel([""]), pinned=plan)
+    from pathlib import Path
+    main = (Path(repo_str) / "app/src/main/java/com/gremlin/salestax/MainActivity.kt").read_text()
+    assert 'button("Run taxCents")' in main
+    assert "TextView(this)" in main and "getString(R.string.app_name)" not in main
+
+
 def test_wire_primary_view(tmp_path):
     repo = A.render(tmp_path / "a", app_name="Tip", package="com.gremlin.tip")
     A.wire_primary_view(repo, "com.gremlin.tip", "TipView")
