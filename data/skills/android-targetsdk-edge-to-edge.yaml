@@ -2,7 +2,7 @@ id: seed_16
 name: android-targetsdk-edge-to-edge
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: targetSdk 35 force-enables edge-to-edge -- content draws under the status/nav bars
 trigger_when: setting targetSdk, or the top/bottom of the UI is hidden or clipped
 trigger_matcher: targetSdk|edge.to.edge|status bar|nav bar|inset|WindowInsets|hidden behind|clipped|fitsSystemWindows
@@ -18,8 +18,8 @@ provenance:
 - seed
 created: 1788744588.6605463
 record:
-  uses: 90
-  wins: 90
+  uses: 92
+  wins: 92
   losses: 0
   score_deltas:
   - 0.6545
@@ -112,5 +112,7 @@ record:
   - 0.6231
   - 0.6545
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788937647
+  - 0.5727
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1788938617
   battles_available: 0

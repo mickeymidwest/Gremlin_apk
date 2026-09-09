@@ -2,7 +2,7 @@ id: seed_57
 name: toctou-in-web-logic
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: check-then-act with a gap lets a concurrent request slip between the two
 trigger_when: auditing balance checks, coupon/quota redemption, or 'first one wins' logic
 trigger_matcher: race condition|TOCTOU|check.*then|balance|coupon|quota|redeem|withdraw|double.spend|limit.*exceeded
@@ -17,8 +17,8 @@ provenance:
 - seed
 created: 1788816592.0633743
 record:
-  uses: 90
-  wins: 90
+  uses: 92
+  wins: 92
   losses: 0
   score_deltas:
   - 0.6545
@@ -111,5 +111,7 @@ record:
   - 0.6231
   - 0.6545
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788937647
+  - 0.5727
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1788938617
   battles_available: 0

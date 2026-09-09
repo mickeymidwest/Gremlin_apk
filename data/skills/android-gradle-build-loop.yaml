@@ -2,7 +2,7 @@ id: seed_13
 name: android-gradle-build-loop
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: build an Android feature by iterating against the compiler, not by guessing
 trigger_when: implementing or fixing Kotlin in an Android project
 trigger_matcher: android|\.kt\b|gradle|assembleDebug|testDebugUnitTest|compileDebugKotlin|kotlin
@@ -17,8 +17,8 @@ provenance:
 - seed
 created: 1788744588.6605413
 record:
-  uses: 111
-  wins: 111
+  uses: 114
+  wins: 114
   losses: 0
   score_deltas:
   - 0.6545
@@ -132,5 +132,8 @@ record:
   - 0.6545
   - 1.0
   - 1.0
-  last_used_battle: zoid_gen_salestax_1788937704
+  - 0.5727
+  - 0.6231
+  - 0.6
+  last_used_battle: zoid_gen_streak_1788938672
   battles_available: 0

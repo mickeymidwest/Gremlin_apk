@@ -2,7 +2,7 @@ id: seed_12
 name: android-project-layout
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: where every file goes in a single-module Android/Gradle project
 trigger_when: creating, reading, or editing an Android app project
 trigger_matcher: android|\.kt\b|gradle|kotlin|apk|activity|manifest|jetpack|compose
@@ -19,8 +19,8 @@ provenance:
 - seed
 created: 1788744588.6605396
 record:
-  uses: 111
-  wins: 111
+  uses: 114
+  wins: 114
   losses: 0
   score_deltas:
   - 0.6545
@@ -134,5 +134,8 @@ record:
   - 0.6545
   - 1.0
   - 1.0
-  last_used_battle: zoid_gen_salestax_1788937704
+  - 0.5727
+  - 0.6231
+  - 0.6
+  last_used_battle: zoid_gen_streak_1788938672
   battles_available: 0

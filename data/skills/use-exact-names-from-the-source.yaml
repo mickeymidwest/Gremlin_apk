@@ -2,7 +2,7 @@ id: seed_65
 name: use-exact-names-from-the-source
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: guessing an identifier wastes a compile cycle -- copy it from the file
 trigger_when: calling a function, constructing a type, or importing from code you've read
 trigger_matcher: undeclared|undefined|not defined|no attribute|unresolved reference|cannot
@@ -18,8 +18,8 @@ provenance:
 - seed
 created: 1788816592.0633852
 record:
-  uses: 140
-  wins: 121
+  uses: 143
+  wins: 124
   losses: 19
   score_deltas:
   - 1.0
@@ -162,5 +162,8 @@ record:
   - 1.0
   - 1.0
   - 1.0
-  last_used_battle: zoid_inifuzz_1788937179
-  battles_available: 51
+  - 1.0
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788938094
+  battles_available: 54

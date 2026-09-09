@@ -2,7 +2,7 @@ id: seed_46
 name: lock-ordering-prevents-deadlock
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: a deadlock is two code paths taking the same two locks in opposite orders
 trigger_when: the program hangs with no CPU use, or you're adding a second lock
 trigger_matcher: deadlock|hang|frozen|stuck (waiting|acquiring)|two locks|lock order|mutex.*mutex
@@ -15,8 +15,8 @@ provenance:
 - seed
 created: 1788816592.0633593
 record:
-  uses: 90
-  wins: 90
+  uses: 92
+  wins: 92
   losses: 0
   score_deltas:
   - 0.6545
@@ -109,5 +109,7 @@ record:
   - 0.6231
   - 0.6545
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788937647
+  - 0.5727
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1788938617
   battles_available: 0

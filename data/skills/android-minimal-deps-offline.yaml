@@ -2,7 +2,7 @@ id: seed_15
 name: android-minimal-deps-offline
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: on this box gradle runs --offline; only what's already cached resolves
 trigger_when: choosing dependencies for an Android project on this machine
 trigger_matcher: dependencies|implementation\(|androidx|appcompat|--offline|Could not resolve|No
@@ -20,8 +20,8 @@ provenance:
 - seed
 created: 1788744588.6605444
 record:
-  uses: 90
-  wins: 90
+  uses: 92
+  wins: 92
   losses: 0
   score_deltas:
   - 0.6545
@@ -114,5 +114,7 @@ record:
   - 0.6231
   - 0.6545
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1788937647
+  - 0.5727
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1788938617
   battles_available: 0
