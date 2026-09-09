@@ -1,0 +1,27 @@
+id: seed_92
+name: similar-names-different-jobs
+status: candidate
+destination: card
+council_reviewed: false
+purpose: near-twin methods (x / firstX, deposit / withdraw) do DIFFERENT things -- pin the
+  difference first
+trigger_when: a class has two methods with related names and you're implementing them
+trigger_matcher: (deposit|withdraw|credit|debit)|first[A-Z]\w+|base.?share|remainder|per.?person|\bgross\b.*\bnet\b
+procedure:
+- 'for each near-twin, write ONE line: what makes this one different from its sibling'
+- e.g. `shareCents` = total / people (the floor share everyone pays); `firstShareCents` =
+  that PLUS total % people (carries the leftover cents)
+- '`deposit` adds; `withdraw` subtracts AND guards against overdraft -- opposite sign, extra
+  check'
+- implement the simpler twin, then define the other in terms of it where you can
+supersedes: null
+provenance:
+- seed
+created: 1788922860.078569
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

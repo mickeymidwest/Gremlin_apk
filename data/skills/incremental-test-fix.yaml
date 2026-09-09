@@ -4,15 +4,17 @@ status: candidate
 destination: card
 council_reviewed: false
 purpose: Fix one bug at a time in a failing test suite.
-trigger_when: when fixing a bug in a test
+trigger_when: when multiple tests are failing
 trigger_matcher: null
 procedure:
-- Fix the identified bug in the code.
-- Run the failing test again to ensure the bug is fixed.
-- Repeat the process for any remaining failing tests.
+- Identify the first failing test.
+- Fix the bug in that test.
+- Re-run the test to ensure it passes.
+- Move on to the next failing test and repeat the process.
 supersedes: null
 provenance:
 - zoid_mini-ledger_1788821188
+- zoid_mb_bank-multi_1788923457
 created: 1788821197.9795203
 record:
   uses: 0

@@ -1,0 +1,27 @@
+id: seed_90
+name: integer-math-multiply-before-divide
+status: candidate
+destination: card
+council_reviewed: false
+purpose: in whole-number / cents math, multiply before you divide -- a/c*b loses everything
+trigger_when: a method does percent, rate, tax, tip, or any x-of-y arithmetic in integers
+trigger_matcher: percent|\bcents\b|basis point|\bbp\b|/ ?100|integer division|\btax\b|\btip\b|\brate\b|round|floor|\bratio\b
+procedure:
+- '`x percent of n` in whole units is `n * percent / 100` -- NEVER `n / 100 * percent` (n/100
+  floors to 0 for small n, e.g. 101/100 -> 1)'
+- integer division already floors toward zero -- do NOT add `.round()`, `- (x % 10)`, or 'nearest
+  dollar' logic unless a test asserts it
+- 'half-up rounding only when a test wants it: `(a * b + c / 2) / c`'
+- before running, plug the SMALLEST test input into your formula by hand and check it matches
+  the expected value
+supersedes: null
+provenance:
+- seed
+created: 1788922860.0785663
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

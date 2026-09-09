@@ -1,0 +1,31 @@
+id: seed_91
+name: the-assertions-are-the-spec
+status: active
+destination: card
+council_reviewed: false
+purpose: assertEquals lines define the exact output required -- produce those numbers, add
+  nothing
+trigger_when: implementing a method body that a test suite pins
+trigger_matcher: assertEquals|assert .*==|expected:.*but was|implement|TODO\(|NotImplementedError|method
+  body|stub
+procedure:
+- list every test line that calls this method and the exact expected value for each input
+- work out the formula/logic that turns each input into its expected output -- on paper
+- 'write exactly that: no extra clamping, rounding, defaults, randomness, or ''sensible''
+  behaviour the tests don''t check'
+- if two assertions seem to contradict, you've misread one -- re-read before coding around
+  it
+supersedes: null
+provenance:
+- seed
+created: 1788922860.0785677
+record:
+  uses: 3
+  wins: 3
+  losses: 0
+  score_deltas:
+  - 0.625
+  - 0.7364
+  - 1.0
+  last_used_battle: zoid_mb_buildalot-apk_1788923940
+  battles_available: 0
