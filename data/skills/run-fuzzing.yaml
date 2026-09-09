@@ -3,13 +3,12 @@ name: run-fuzzing
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Ensure the agent correctly sets up and runs the fuzzing harness with the correct
-  parameters and corpus, and reports the crash output.
-trigger_when: when running a fuzzing harness
+purpose: Ensure the agent correctly identifies whether a crash was found or not.
+trigger_when: after fuzzing completes
 trigger_matcher: libFuzzer harness file exists
 procedure:
-- Run the fuzzing harness with the correct parameters and corpus.
-- Report the crash output to determine the task outcome.
+- Check the output for crash messages or the presence of a crash file.
+- If a crash is found, report it as a success. If no crash is found, report it as a failure.
 supersedes: skill_11404f78
 provenance:
 - zoid_inifuzz_1788832513
@@ -17,6 +16,7 @@ provenance:
 - zoid_tlvfuzz_1788852718
 - zoid_nsfuzz_1788853320
 - zoid_inifuzz_1788932160
+- zoid_inifuzz_1788938973
 created: 1788853332.1688368
 record:
   uses: 0

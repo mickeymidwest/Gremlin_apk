@@ -6,12 +6,12 @@ council_reviewed: false
 purpose: Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
   matched.
 trigger_when: when editing a file
-trigger_matcher: optional regex or ""
+trigger_matcher: edit file|edit-file
 procedure:
-- Identify the specific part of the file that needs to be changed.
+- Identify the search pattern and the replacement text.
 - Ensure the replacement text is a complete, correctly-indented drop-in for what 'search'
   matched.
-- Verify the correctness of the change before saving.
+- Verify that the replacement text does not introduce new bugs or change the intended functionality.
 supersedes: skill_0ed4e70e
 provenance:
 - seed
@@ -46,6 +46,8 @@ provenance:
 - zoid_mini-ledger_1788935229
 - zoid_temp-convert_1788936905
 - zoid_text-utils_1788937023
+- zoid_graph-paths_1788938840
+- zoid_nsfuzz_1788938898
 created: 1788851347.1443615
 record:
   uses: 0
