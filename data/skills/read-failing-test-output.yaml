@@ -8,9 +8,9 @@ purpose: Ensure the agent correctly identifies and reports the specific assertio
 trigger_when: when a test fails
 trigger_matcher: null
 procedure:
-- Identify the specific assertion failure and the expected result.
-- Understand the root cause of the failure.
-- Make targeted changes to resolve the issue.
+- Identify the failing test by examining the test output.
+- Report the specific assertion failure and the expected result.
+- Verify the correctness of the reported issue.
 supersedes: skill_3f013648
 provenance:
 - zoid_mini-ledger_1788821188
@@ -23,6 +23,7 @@ provenance:
 - zoid_mb_bank-multi_1788881141
 - zoid_mb_buildalot-apk_1788883172
 - zoid_graph-paths_1788925876
+- zoid_gen_tipcalc_1788941981
 created: 1788841931.3563323
 record:
   uses: 0

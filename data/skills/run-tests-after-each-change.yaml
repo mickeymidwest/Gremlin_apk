@@ -7,14 +7,16 @@ purpose: Ensure the agent runs tests after each change to verify the correctness
 trigger_when: after each change
 trigger_matcher: null
 procedure:
-- Run the tests after each change.
-- Verify that the tests pass before making the next change.
+- Run all tests after each change.
+- Identify and fix any failing tests.
+- Repeat steps 1-2 until all tests pass.
 supersedes: null
 provenance:
 - zoid_csv-report_1788929528
 - zoid_mini-ledger_1788931172
 - zoid_mb_klondike-apk_1788931666
 - zoid_mini-ledger_1788933566
+- zoid_mb_bank-multi_1788941453
 created: 1788929539.7372832
 record:
   uses: 0
