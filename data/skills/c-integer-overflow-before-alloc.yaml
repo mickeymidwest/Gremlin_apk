@@ -2,7 +2,7 @@ id: seed_51
 name: c-integer-overflow-before-alloc
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: len1 + len2 or count * size can wrap, then you allocate too little
 trigger_when: a size/length for malloc/memcpy is computed from input values
 trigger_matcher: malloc\(|calloc\(|alloca|\* size|len \+|count \*|size_t|integer overflow|realloc
@@ -16,8 +16,8 @@ provenance:
 - seed
 created: 1788816592.0633662
 record:
-  uses: 137
-  wins: 118
+  uses: 140
+  wins: 121
   losses: 19
   score_deltas:
   - 1.0
@@ -157,5 +157,8 @@ record:
   - 1.0
   - 1.0
   - 1.0
-  last_used_battle: zoid_inifuzz_1788936237
-  battles_available: 48
+  - 1.0
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788937179
+  battles_available: 51

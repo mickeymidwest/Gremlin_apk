@@ -2,7 +2,7 @@ id: seed_55
 name: c-header-hygiene
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: what goes in a .h vs a .c, and the include guard
 trigger_when: creating or editing a C/C++ header, or hitting redefinition / incomplete-type
   errors
@@ -21,8 +21,8 @@ provenance:
 - seed
 created: 1788818355.6673145
 record:
-  uses: 137
-  wins: 118
+  uses: 140
+  wins: 121
   losses: 19
   score_deltas:
   - 1.0
@@ -162,5 +162,8 @@ record:
   - 1.0
   - 1.0
   - 1.0
-  last_used_battle: zoid_inifuzz_1788936237
-  battles_available: 48
+  - 1.0
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_inifuzz_1788937179
+  battles_available: 51
