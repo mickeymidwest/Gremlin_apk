@@ -1111,6 +1111,56 @@ _SEED = [
             "record IOCs (C2 domains/IPs, dropped files, package names, cert hashes) and revert the snapshot when done",
         ],
     ),
+
+    # --- the 7B's recurring coding misses (from the zoid loop) ---
+    dict(
+        name="integer-math-multiply-before-divide",
+        purpose="in whole-number / cents math, multiply before you divide -- a/c*b loses everything",
+        trigger_when="a method does percent, rate, tax, tip, or any x-of-y arithmetic in integers",
+        trigger_matcher=r"percent|\bcents\b|basis point|\bbp\b|/ ?100|integer division|\btax\b|\btip\b|\brate\b|round|floor|\bratio\b",
+        procedure=[
+            "`x percent of n` in whole units is `n * percent / 100` -- NEVER `n / 100 * percent` (n/100 floors to 0 for small n, e.g. 101/100 -> 1)",
+            "integer division already floors toward zero -- do NOT add `.round()`, `- (x % 10)`, or 'nearest dollar' logic unless a test asserts it",
+            "half-up rounding only when a test wants it: `(a * b + c / 2) / c`",
+            "before running, plug the SMALLEST test input into your formula by hand and check it matches the expected value",
+        ],
+    ),
+    dict(
+        name="the-assertions-are-the-spec",
+        purpose="assertEquals lines define the exact output required -- produce those numbers, add nothing",
+        trigger_when="implementing a method body that a test suite pins",
+        trigger_matcher=r"assertEquals|assert .*==|expected:.*but was|implement|TODO\(|NotImplementedError|method body|stub",
+        procedure=[
+            "list every test line that calls this method and the exact expected value for each input",
+            "work out the formula/logic that turns each input into its expected output -- on paper",
+            "write exactly that: no extra clamping, rounding, defaults, randomness, or 'sensible' behaviour the tests don't check",
+            "if two assertions seem to contradict, you've misread one -- re-read before coding around it",
+        ],
+    ),
+    dict(
+        name="similar-names-different-jobs",
+        purpose="near-twin methods (x / firstX, deposit / withdraw) do DIFFERENT things -- pin the difference first",
+        trigger_when="a class has two methods with related names and you're implementing them",
+        trigger_matcher=r"(deposit|withdraw|credit|debit)|first[A-Z]\w+|base.?share|remainder|per.?person|\bgross\b.*\bnet\b",
+        procedure=[
+            "for each near-twin, write ONE line: what makes this one different from its sibling",
+            "e.g. `shareCents` = total / people (the floor share everyone pays); `firstShareCents` = that PLUS total % people (carries the leftover cents)",
+            "`deposit` adds; `withdraw` subtracts AND guards against overdraft -- opposite sign, extra check",
+            "implement the simpler twin, then define the other in terms of it where you can",
+        ],
+    ),
+    dict(
+        name="kotlin-stdlib-that-exists",
+        purpose="don't invent Kotlin functions -- use the real collection/return idioms",
+        trigger_when="writing Kotlin that iterates, indexes, or builds a collection",
+        trigger_matcher=r"\.kt\b|kotlin|allIndexed|anyIndexed|Unresolved reference|forEachIndexed|mutableListOf|MutableList|withIndex",
+        procedure=[
+            "indexed iteration: `for ((i, x) in list.withIndex())`, `list.forEachIndexed { i, x -> }`, `list.mapIndexed`, `list.indices` -- there is NO `allIndexed`/`anyIndexed`, use `list.withIndex().all { (i, x) -> ... }`",
+            "mutable list: `mutableListOf<T>()` + `.add()`, or `MutableList(n) { i -> ... }`; `listOf` / `List(n){}` are read-only",
+            "no `?:`-as-ternary for logic: `if (c) a else b` IS an expression; a value-returning method needs an explicit `return` on every path",
+            "before finishing, count `{` vs `}` -- a missing brace is the 7B's most common Kotlin compile error",
+        ],
+    ),
 ]
 
 
