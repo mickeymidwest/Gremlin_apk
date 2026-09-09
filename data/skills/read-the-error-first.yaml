@@ -1,6 +1,6 @@
 id: skill_f37aa652
 name: read-the-error-first
-status: candidate
+status: active
 destination: card
 council_reviewed: true
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
@@ -20,10 +20,17 @@ provenance:
 - zoid_csv-report_1788943316
 created: 1788943327.3056629
 record:
-  uses: 1
-  wins: 1
-  losses: 0
+  uses: 8
+  wins: 5
+  losses: 1
   score_deltas:
   - 0.625
-  last_used_battle: zoid_mb_bank-multi_1788943551
-  battles_available: 0
+  - 0.5
+  - 0.2
+  - 0.5
+  - 0.1429
+  - -0.1111
+  - 0.4286
+  - 0.75
+  last_used_battle: zoid_mb_bank-multi_1788944427
+  battles_available: 6
