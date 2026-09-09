@@ -4,19 +4,19 @@ status: candidate
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly sets up and runs the fuzzing harness with the correct
-  parameters and corpus.
-trigger_when: when running a fuzzing process
+  parameters and corpus, and reports the crash output.
+trigger_when: when running a fuzzing harness
 trigger_matcher: libFuzzer harness file exists
 procedure:
-- Ensure the fuzzing harness is correctly set up with the necessary include path and headers.
-- Create a corpus directory if one does not exist and populate it with initial test cases.
-- Run the fuzzing process with the corpus using the appropriate flags.
+- Run the fuzzing harness with the correct parameters and corpus.
+- Report the crash output to determine the task outcome.
 supersedes: skill_11404f78
 provenance:
 - zoid_inifuzz_1788832513
 - zoid_tlvfuzz_1788838238
 - zoid_tlvfuzz_1788852718
 - zoid_nsfuzz_1788853320
+- zoid_inifuzz_1788932160
 created: 1788853332.1688368
 record:
   uses: 0
