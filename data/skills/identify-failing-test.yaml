@@ -4,16 +4,17 @@ status: candidate
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
-  in a failing test.
+  in a failing test before declaring success.
 trigger_when: when a test fails
 trigger_matcher: null
 procedure:
-- Identify the specific failing test and its assertion.
-- Report the assertion failure and the expected result.
+- Identify the failing test by examining the test output.
+- Report the specific assertion failure and the expected result.
 supersedes: null
 provenance:
 - zoid_text-fix_1788816828
 - zoid_temp-convert_1788870057
+- zoid_mb_klondike-apk_1788945706
 created: 1788816837.7162333
 record:
   uses: 0

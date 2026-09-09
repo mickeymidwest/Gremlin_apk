@@ -4,12 +4,11 @@ status: candidate
 destination: card
 council_reviewed: false
 purpose: Ensure the agent runs tests after each change to verify the correctness of the changes.
-trigger_when: after each change
+trigger_when: after each code change
 trigger_matcher: null
 procedure:
-- Run all tests after each change.
-- Identify and fix any failing tests.
-- Repeat steps 1-2 until all tests pass.
+- Run the tests to verify the change does not introduce new bugs.
+- If tests fail, identify and fix the issues before proceeding.
 supersedes: null
 provenance:
 - zoid_csv-report_1788929528
@@ -17,6 +16,7 @@ provenance:
 - zoid_mb_klondike-apk_1788931666
 - zoid_mini-ledger_1788933566
 - zoid_mb_bank-multi_1788941453
+- zoid_mb_bank-multi_1788945426
 created: 1788929539.7372832
 record:
   uses: 0
