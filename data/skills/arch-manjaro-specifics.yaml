@@ -1,0 +1,30 @@
+id: seed_78
+name: arch-manjaro-specifics
+status: candidate
+destination: card
+council_reviewed: false
+purpose: this box is Arch-family (Manjaro), not Debian -- the tools and rules differ
+trigger_when: anything about packages, updates, or system config on this machine
+trigger_matcher: pacman|makepkg|\bAUR\b|manjaro|arch linux|yay\b|PKGBUILD|/etc/pacman|mkinitcpio|pamac
+procedure:
+- 'packages: `pacman -Q` installed, `pacman -Qo <file>` who owns it, `pacman -Ql <pkg>` its
+  files, `pacman -Si` info -- NO apt/dpkg'
+- 'AUR is user-submitted: read the PKGBUILD and the .install before `yay -S`; an AUR package
+  can run arbitrary code at build time'
+- 'rolling release: NEVER partial-upgrade (`pacman -Sy <one pkg>`) -- it half-updates the
+  system and breaks it; only ever `pacman -Syu` (see [[manjaro-full-upgrade-only]])'
+- 'known-vulnerable installed packages: `arch-audit` lists CVEs for what''s installed; `pacman
+  -Qu` shows what an upgrade would change'
+- config lives in /etc as plain files + systemd units; `journalctl -xe`, `systemctl --user`
+  for user services like gremlin
+supersedes: null
+provenance:
+- seed
+created: 1788911622.9391296
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

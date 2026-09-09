@@ -1,0 +1,31 @@
+id: seed_80
+name: web-recon-map-the-target
+status: candidate
+destination: card
+council_reviewed: false
+purpose: before testing anything, build the full picture of what's in scope and reachable
+trigger_when: starting recon on a web / API / cloud bug-bounty target
+trigger_matcher: recon|subdomain|asset discovery|attack surface|amass|subfinder|httpx|content
+  discovery|enumerat
+procedure:
+- re-read the scope doc (see [[scope-first]]); list every in-scope domain, wildcard, IP range,
+  mobile app, and repo -- test NOTHING outside it
+- 'subdomains: crt.sh + subfinder/amass; resolve them; `httpx` for which are live, their titles,
+  tech, status codes'
+- 'endpoints: wayback/gau + `katana`/hakrawler for URLs; pull and read every JS bundle for
+  API routes, param names, and leaked keys'
+- 'fingerprint: server, framework, CDN/WAF, auth scheme, GraphQL (`/graphql` + introspection),
+  Swagger/OpenAPI docs'
+- 'note the interesting surface: auth flows, file upload, anything that fetches a URL, admin/internal
+  hostnames, staging, S3 buckets, `.git`/`.env`/backup files'
+supersedes: null
+provenance:
+- seed
+created: 1788911622.9391325
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

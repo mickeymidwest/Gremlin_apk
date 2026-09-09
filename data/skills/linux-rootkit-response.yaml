@@ -1,0 +1,32 @@
+id: seed_87
+name: linux-rootkit-response
+status: candidate
+destination: card
+council_reviewed: false
+purpose: what to actually do once a Linux compromise is confirmed
+trigger_when: a rootkit or persistent backdoor on Linux has been confirmed
+trigger_matcher: confirmed (compromise|rootkit)|incident response|remediat|reimage|clean(ing)?
+  .*(rootkit|infect)|persistence
+procedure:
+- 'FIRST: forensic image (dd/dc3dd) + a memory capture before touching anything -- you only
+  get one shot at the evidence'
+- isolate the box from the network; do NOT reboot yet (loses memory-only artifacts) unless
+  it's actively causing harm
+- 'map persistence from the image: kernel modules, initramfs, systemd units + timers, cron,
+  ~/.*rc, ld.so.preload, authorized_keys, PAM modules, package post-install hooks'
+- userland-only + you can enumerate every persistence point -> targeted removal + rotate all
+  creds is possible; kernel-level or any doubt -> reimage from trusted media, restore data
+  (not binaries) from backup
+- 'after: rotate every credential that touched the box, review what the attacker could have
+  reached, patch the entry vector'
+supersedes: null
+provenance:
+- seed
+created: 1788911622.9391422
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

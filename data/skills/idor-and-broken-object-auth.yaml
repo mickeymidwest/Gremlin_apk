@@ -1,0 +1,31 @@
+id: seed_81
+name: idor-and-broken-object-auth
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the single most common bounty finding -- an object reference the server doesn't authorize
+trigger_when: testing any endpoint that takes an id, or an app that fetches user-specific
+  data
+trigger_matcher: \bIDOR\b|BOLA|broken (object|access)|authoriz|/api/.*/\d+|user_?id|account_?id|tenant|multi.?tenant
+procedure:
+- make two accounts (A and B). do an action as A that references an object by id (numeric,
+  UUID, hash, filename, email)
+- replay A's request but swap in B's object id -- if you get B's data or change B's state,
+  that's the bug
+- try it on every verb (GET/PUT/PATCH/DELETE) and on nested resources; a read-only IDOR and
+  a write IDOR are different severities
+- 'check indirect refs too: predictable filenames, sequential invoice numbers, `?export=`,
+  batch/GraphQL endpoints that skip the per-object check'
+- confirm impact with B's own view (the data really changed), then stop -- don't enumerate
+  other users' real data (see [[bounty-report]])
+supersedes: null
+provenance:
+- seed
+created: 1788911622.9391336
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

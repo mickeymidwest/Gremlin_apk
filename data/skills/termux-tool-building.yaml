@@ -1,0 +1,31 @@
+id: seed_85
+name: termux-tool-building
+status: candidate
+destination: card
+council_reviewed: false
+purpose: build a script/CLI tool that runs in Termux on the phone
+trigger_when: asked to build something that runs in Termux / on Android from the command line
+trigger_matcher: termux|on my phone|android cli|android shell|\$PREFIX|pkg install
+procedure:
+- 'Termux is a real Linux-ish userland: Python 3, bash, coreutils, git all work via `pkg install`
+  -- a pure Python or shell tool needs no cross-compiling'
+- 'paths are not FHS: home is `~` (`/data/data/com.termux/files/home`), binaries in `$PREFIX/bin`;
+  never hardcode `/usr` or `/tmp` -- use `$PREFIX` and `$TMPDIR`'
+- no systemd, no root by default; for scheduled runs use `termux-job-scheduler` or cron via
+  `termux-services`; phone-specific features need the `termux-api` package + the Termux:API
+  app
+- build + test it on the desktop first (it's the same Python), keep deps to the stdlib or
+  pure-Python packages, then it drops straight into Termux
+- for a native (C) tool, that needs the Termux NDK cross-toolchain -- not set up here; stick
+  to script tools unless mickey installs it
+supersedes: null
+provenance:
+- seed
+created: 1788911622.9391396
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

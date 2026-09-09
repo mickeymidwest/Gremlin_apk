@@ -1,0 +1,30 @@
+id: seed_84
+name: hardened-targets-realism
+status: candidate
+destination: card
+council_reviewed: false
+purpose: know which parts of a big target a solo researcher can realistically find bugs in
+trigger_when: scoping work on Pixel, Android, a carrier, or any heavily-tested product
+trigger_matcher: pixel|tensor|titan|baseband|trustzone|secure ?element|bootloader|firmware|carrier|verizon|at&t|spectrum
+procedure:
+- 'out of realistic reach solo: baseband, TrustZone/StrongBox, bootloader, the Linux kernel
+  core, anything Google/Qualcomm fuzz continuously -- these need a team and years of specialization'
+- 'where the wins are: app-layer bugs (see [[android-app-attack-surface]], [[secrets-in-mobile-apps]]),
+  web/API/misconfig on the target''s infra (see [[web-recon-map-the-target]], [[idor-and-broken-object-auth]]),
+  n-day on unpatched devices'
+- 'open-source components in scope with real source: write a fuzz harness (see [[fuzz-harness]])
+  -- that''s a solo-doable memory-bug path'
+- 'Android monthly bulletin: diff a recent patch (see [[patch-diff-nday]]); a device behind
+  on updates is exploitable with that n-day'
+- pick ONE narrow surface and go deep; a broad shallow sweep of a hardened target finds nothing
+supersedes: null
+provenance:
+- seed
+created: 1788911622.939138
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

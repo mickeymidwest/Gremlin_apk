@@ -1,0 +1,30 @@
+id: seed_89
+name: analyze-untrusted-apk-safely
+status: candidate
+destination: card
+council_reviewed: false
+purpose: run a possibly-malicious APK without risking your own device or data
+trigger_when: you need to observe what an unknown or suspected-malicious APK actually does
+trigger_matcher: dynamic analysis|sandbox .*apk|detonat|run .*(malware|untrusted).*apk|emulator.*analysis|behavioou?r.*apk
+procedure:
+- static FIRST (apk-recon, secrets-in-mobile-apps, YARA) -- never run it before you've read
+  it
+- use a throwaway AVD emulator (or a spare device you'll wipe), no real Google account, no
+  personal data, a fresh snapshot to revert to
+- route traffic through mitmproxy/PCAP; consider offline / fake-services so it can't phone
+  home for real
+- install, snapshot, exercise it; diff filesystem + `pm list packages` + granted perms before/after;
+  `frida-trace` or `strace` the process; watch logcat
+- record IOCs (C2 domains/IPs, dropped files, package names, cert hashes) and revert the snapshot
+  when done
+supersedes: null
+provenance:
+- seed
+created: 1788911622.9391448
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

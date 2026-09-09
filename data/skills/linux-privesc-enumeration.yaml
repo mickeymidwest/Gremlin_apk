@@ -1,0 +1,32 @@
+id: seed_79
+name: linux-privesc-enumeration
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the standard first sweep for a local privilege-escalation path on a Linux host
+trigger_when: you have a shell on a Linux box and want to know how to become root
+trigger_matcher: privesc|privilege escalation|local root|SUID|sudo -l|linpeas|GTFOBins|capabilit|become
+  root
+procedure:
+- 'SUID/SGID: `find / -perm -4000 -type f 2>/dev/null` -- cross-ref each against GTFOBins
+  for a known escape'
+- '`sudo -l` -- any NOPASSWD entry or a binary with a GTFOBins shell escape is game over;
+  `id` for group membership (docker/lxd/disk/wheel = root-equivalent)'
+- 'capabilities: `getcap -r / 2>/dev/null` -- cap_setuid / cap_dac_override on a scriptable
+  binary is a path'
+- 'writable stuff root runs: cron (`/etc/cron*`), systemd units + timers (`systemctl list-timers`,
+  unit-file perms), PATH entries you can write'
+- 'kernel + files: `uname -a` -> search LPE for that exact version; check `/etc/passwd` /
+  `/etc/shadow` perms; run linpeas.sh to catch what a manual pass missed, then verify each
+  hit by hand'
+supersedes: null
+provenance:
+- seed
+created: 1788911622.939131
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

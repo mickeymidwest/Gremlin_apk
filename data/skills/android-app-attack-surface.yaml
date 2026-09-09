@@ -1,0 +1,31 @@
+id: seed_82
+name: android-app-attack-surface
+status: candidate
+destination: card
+council_reviewed: false
+purpose: the parts of an Android app another app or a link can reach -- where the bugs are
+trigger_when: assessing an Android app (carrier app, Google app, any APK) for vulnerabilities
+trigger_matcher: exported|intent-filter|deep link|content provider|WebView|android:exported|am
+  start|pending intent|content://
+procedure:
+- 'AndroidManifest: every `android:exported="true"` activity/service/receiver/provider, and
+  every `<intent-filter>` scheme/host (deep links) -- these take input from ANY app'
+- hit exported activities with `adb shell am start` + crafted extras / deep-link URIs; look
+  for auth bypass (a login-gated screen opened directly), injection, or a crash
+- 'ContentProviders: `content query --uri content://<authority>/...` for readable data; check
+  for SQL injection in the selection arg and path traversal in file-backed providers'
+- 'WebViews: `setJavaScriptEnabled` + `addJavascriptInterface` reachable from a loaded URL
+  = RCE-ish; `file://` access + a deep-link-controlled URL = local file read'
+- PendingIntents handed to other apps with a mutable base intent; implicit intents carrying
+  sensitive data; check `exported` receivers for broadcast injection
+supersedes: null
+provenance:
+- seed
+created: 1788911622.939135
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -2,7 +2,7 @@ id: skill_5a862a71
 name: read-the-error-first
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
   in a failing test before declaring success.
 trigger_when: when a test fails
@@ -18,9 +18,9 @@ provenance:
 - zoid_mb_klondike-apk_1788880520
 created: 1788880527.4656603
 record:
-  uses: 162
-  wins: 77
-  losses: 55
+  uses: 170
+  wins: 83
+  losses: 56
   score_deltas:
   - 0.5
   - 0.2
@@ -184,4 +184,13 @@ record:
   - 0.0
   - 0.4286
   - 0.75
-  last_used_battle: zoid_mb_bank-multi_1788910672
+  - 0.5
+  - 0.4
+  - 0.0
+  - 0.5
+  - 0.4
+  - 0.3333
+  - 0.1429
+  - 0.5556
+  last_used_battle: zoid_graph-paths_1788911977
+  battles_available: 5
