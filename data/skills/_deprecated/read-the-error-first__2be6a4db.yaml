@@ -1,0 +1,139 @@
+id: skill_2be6a4db
+name: read-the-error-first
+status: deprecated
+destination: card
+council_reviewed: true
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test before declaring success.
+trigger_when: when a test fails
+trigger_matcher: fail|error|exception|traceback|exit [1-9]
+procedure:
+- Read the error message to understand the specific failure.
+- Identify the root cause of the failure and make targeted changes.
+supersedes: skill_5a862a71
+provenance:
+- seed
+- zoid_mb_buildalot-apk_1788837991
+- zoid_mb_klondike-apk_1788880520
+- zoid_graph-paths_1788929496
+created: 1788929507.5660224
+record:
+  uses: 113
+  wins: 67
+  losses: 23
+  score_deltas:
+  - 0.4286
+  - 0.625
+  - 0.5
+  - 0.2
+  - 0.3333
+  - 0.1429
+  - 0.4444
+  - 0.0
+  - 0.625
+  - 0.5
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.5556
+  - 0.4286
+  - 0.625
+  - 0.5
+  - 0.0
+  - 0.0
+  - 0.1429
+  - 0.0
+  - 0.4286
+  - 0.75
+  - 0.5
+  - 0.4
+  - 0.1667
+  - 0.0
+  - 0.1111
+  - 0.4286
+  - 0.75
+  - 0.5
+  - 0.4
+  - 0.3333
+  - 0.2857
+  - -0.3333
+  - 0.4286
+  - 0.5
+  - 0.5
+  - 0.4
+  - 0.1667
+  - 0.1429
+  - 0.0
+  - 0.4286
+  - 0.75
+  - 0.5
+  - 0.4
+  - 0.3333
+  - 0.1429
+  - 0.0
+  - 0.4286
+  - 0.75
+  - 0.5
+  - 0.0
+  - 0.3333
+  - 0.2857
+  - 0.0
+  - 0.4286
+  - 0.625
+  - 0.5
+  - 0.2
+  - 0.0
+  - 0.1429
+  - -0.4444
+  - 0.4286
+  - 0.625
+  - 0.5
+  - 0.4
+  - 0.5
+  - 0.0
+  - 0.3333
+  - 0.1429
+  - 0.75
+  - 0.5
+  - 0.2
+  - 0.0
+  - 0.1429
+  - 0.0
+  - 0.4286
+  - 0.625
+  - 0.5
+  - 0.2
+  - 0.0
+  - 0.1429
+  - 0.3333
+  - 0.0
+  - 0.75
+  - 0.5
+  - 0.4
+  - 0.5
+  - -0.1429
+  - 0.2222
+  - 0.4286
+  - 0.625
+  - 0.5
+  - 0.4
+  - 0.1667
+  - 0.1429
+  - 0.2222
+  - 0.2857
+  - 0.625
+  - 0.5
+  - 0.2
+  - 0.3333
+  - 0.1429
+  - 0.3333
+  - 0.4286
+  - 0.5
+  - 0.5
+  - 0.2
+  - 0.1667
+  - -0.1429
+  - -0.2222
+  - 0.2857
+  last_used_battle: zoid_csv-report_1788943316
+  battles_available: 97

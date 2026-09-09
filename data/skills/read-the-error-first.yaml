@@ -1,6 +1,6 @@
-id: skill_2be6a4db
+id: skill_f37aa652
 name: read-the-error-first
-status: active
+status: candidate
 destination: card
 council_reviewed: true
 purpose: Ensure the agent correctly identifies and reports the specific assertion failure
@@ -8,126 +8,22 @@ purpose: Ensure the agent correctly identifies and reports the specific assertio
 trigger_when: when a test fails
 trigger_matcher: fail|error|exception|traceback|exit [1-9]
 procedure:
-- Read the error message to understand the specific failure.
-- Identify the root cause of the failure and make targeted changes.
-supersedes: skill_5a862a71
+- Identify the specific assertion failure and the expected result.
+- Understand the specific error message and make targeted changes to resolve the issue.
+- Run the tests after each change to verify the correctness of the changes.
+supersedes: skill_2be6a4db
 provenance:
 - seed
 - zoid_mb_buildalot-apk_1788837991
 - zoid_mb_klondike-apk_1788880520
 - zoid_graph-paths_1788929496
-created: 1788929507.5660224
+- zoid_csv-report_1788943316
+created: 1788943327.3056629
 record:
-  uses: 107
-  wins: 65
-  losses: 21
+  uses: 1
+  wins: 1
+  losses: 0
   score_deltas:
-  - 0.4286
   - 0.625
-  - 0.5
-  - 0.2
-  - 0.3333
-  - 0.1429
-  - 0.4444
-  - 0.0
-  - 0.625
-  - 0.5
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5556
-  - 0.4286
-  - 0.625
-  - 0.5
-  - 0.0
-  - 0.0
-  - 0.1429
-  - 0.0
-  - 0.4286
-  - 0.75
-  - 0.5
-  - 0.4
-  - 0.1667
-  - 0.0
-  - 0.1111
-  - 0.4286
-  - 0.75
-  - 0.5
-  - 0.4
-  - 0.3333
-  - 0.2857
-  - -0.3333
-  - 0.4286
-  - 0.5
-  - 0.5
-  - 0.4
-  - 0.1667
-  - 0.1429
-  - 0.0
-  - 0.4286
-  - 0.75
-  - 0.5
-  - 0.4
-  - 0.3333
-  - 0.1429
-  - 0.0
-  - 0.4286
-  - 0.75
-  - 0.5
-  - 0.0
-  - 0.3333
-  - 0.2857
-  - 0.0
-  - 0.4286
-  - 0.625
-  - 0.5
-  - 0.2
-  - 0.0
-  - 0.1429
-  - -0.4444
-  - 0.4286
-  - 0.625
-  - 0.5
-  - 0.4
-  - 0.5
-  - 0.0
-  - 0.3333
-  - 0.1429
-  - 0.75
-  - 0.5
-  - 0.2
-  - 0.0
-  - 0.1429
-  - 0.0
-  - 0.4286
-  - 0.625
-  - 0.5
-  - 0.2
-  - 0.0
-  - 0.1429
-  - 0.3333
-  - 0.0
-  - 0.75
-  - 0.5
-  - 0.4
-  - 0.5
-  - -0.1429
-  - 0.2222
-  - 0.4286
-  - 0.625
-  - 0.5
-  - 0.4
-  - 0.1667
-  - 0.1429
-  - 0.2222
-  - 0.2857
-  - 0.625
-  - 0.5
-  - 0.2
-  - 0.3333
-  - 0.1429
-  - 0.3333
-  - 0.4286
-  - 0.5
-  last_used_battle: zoid_mb_bank-multi_1788942407
-  battles_available: 91
+  last_used_battle: zoid_mb_bank-multi_1788943551
+  battles_available: 0
