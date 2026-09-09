@@ -8,11 +8,10 @@ purpose: Ensure the agent correctly identifies and fixes the failing test before
 trigger_when: when a test fails
 trigger_matcher: null
 procedure:
-- Identify the failing test by its name or description.
-- Read the assertion failure message and the expected result.
-- Analyze the code to understand the root cause of the failure.
-- Fix the identified bug.
-- Verify that the fix resolves the failing test.
+- Identify the specific assertion failure in the failing test.
+- Analyze the code to understand the root cause of the bug.
+- Make the necessary changes to fix the bug.
+- Run the tests again to ensure the bug is fixed and no new bugs are introduced.
 supersedes: skill_28439dee
 provenance:
 - zoid_graph-paths_1788832397
@@ -20,6 +19,7 @@ provenance:
 - zoid_list-ops_1788844786
 - zoid_temp-convert_1788845416
 - zoid_mb_bank-multi_1788882838
+- zoid_mb_bank-multi_1788929744
 created: 1788845424.7965386
 record:
   uses: 0

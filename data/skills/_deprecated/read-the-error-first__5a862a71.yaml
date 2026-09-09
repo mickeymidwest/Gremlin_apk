@@ -1,174 +1,132 @@
-id: seed_35
-name: when-stuck-widen-then-narrow
-status: active
+id: skill_5a862a71
+name: read-the-error-first
+status: deprecated
 destination: card
 council_reviewed: true
-purpose: repeating the same failing move is not progress -- change the altitude
-trigger_when: the same action or edit has failed 2+ times
-trigger_matcher: stuck|loop|again|same (error|result)|third time|going in circles|not converging
+purpose: Ensure the agent correctly identifies and reports the specific assertion failure
+  in a failing test before declaring success.
+trigger_when: when a test fails
+trigger_matcher: fail|error|exception|traceback|exit [1-9]
 procedure:
-- stop editing; re-read the actual error and the code around the failure site fresh
-- state the assumption that must be wrong for this to keep failing, then check it directly
-  (grep, a print, the docs)
-- if still stuck, try the SMALLEST possible version of the change, verify that, then grow
-  it
-supersedes: null
+- Identify the failing test by name.
+- Read the assertion failure message and the expected result.
+- Report the specific assertion failure and the expected result.
+supersedes: skill_2c0258cf
 provenance:
 - seed
-created: 1788816592.0633433
+- zoid_mb_buildalot-apk_1788837991
+- zoid_mb_klondike-apk_1788880520
+created: 1788880527.4656603
 record:
-  uses: 254
-  wins: 116
-  losses: 79
+  uses: 224
+  wins: 110
+  losses: 71
   score_deltas:
-  - 0.5
-  - 0.2
-  - 0.3333
-  - 0.0
-  - 0.5556
-  - 0.4286
-  - 1.0
-  - 0.5
-  - 0.4
-  - 0.5
-  - 0.0
-  - 0.2222
-  - 0.4286
-  - 1.0
-  - 0.5
-  - 0.2
-  - 0.1667
-  - 0.1429
-  - -0.1111
-  - 0.4286
-  - 1.0
-  - 0.5
-  - 0.2
-  - 0.5
-  - 0.1429
-  - 0.2222
-  - 0.0
-  - 0.5
-  - 0.0
-  - 0.5
-  - 0.5
-  - 0.4
-  - 0.0
-  - 0.1429
-  - 0.5556
-  - 0.4286
-  - 0.5
-  - 0.2
-  - 0.1667
-  - 0.1429
-  - 0.5
-  - 0.4
-  - 0.3333
-  - 0.4286
-  - 0.2222
-  - 0.4286
-  - 0.5
-  - 0.4
-  - 0.3333
-  - 0.0
-  - 0.2222
-  - 0.4286
-  - 0.5
-  - 0.2
-  - 0.6667
-  - -0.1429
-  - 0.0
-  - 0.1429
   - 0.5
   - 0.2
   - -0.1667
   - -0.1429
   - 0.5556
   - 0.4286
+  - 0.75
   - 0.5
   - 0.2
   - 0.3333
   - -0.2857
   - -0.3333
   - 0.0
+  - 0.75
   - 0.5
   - 0.4
   - 0.6667
   - 0.1429
   - 0.4444
   - 0.1429
+  - 0.625
   - 0.5
   - 0.0
   - 0.0
   - 0.1429
   - 0.4444
   - 0.4286
+  - 0.75
   - 0.5
   - 0.2
   - 0.3333
   - -0.2857
   - 0.0
   - 0.4286
+  - 0.875
   - 0.5
   - 0.2
   - 0.3333
   - 0.0
   - 0.2222
   - 0.0
+  - 0.625
   - 0.5
   - 0.2
   - 0.1667
   - -0.1429
   - 0.0
   - 0.4286
+  - 0.75
   - 0.5
   - 0.4
   - 0.0
   - 0.2857
   - 0.5556
   - 0.0
+  - 0.625
   - 0.5
   - 0.4
   - 0.3333
   - 0.1429
   - 0.1111
   - -0.5714
+  - 0.75
   - 0.5
   - 0.0
   - 0.1667
   - 0.1429
   - 0.3333
   - 0.0
+  - 0.75
   - 0.5
   - 0.0
   - 0.1667
   - 0.0
   - 0.0
   - 0.1429
+  - 0.75
   - 0.5
   - 0.2
   - 0.5
   - 0.0
   - -0.4444
   - 0.2857
+  - 0.875
   - 0.5
   - 0.2
   - 0.0
   - -0.1429
   - 0.2222
   - 0.4286
+  - 0.625
   - 0.0
   - 0.0
   - 0.1667
   - 0.0
   - 0.3333
   - 0.4286
+  - 0.75
   - 0.5
   - 0.4
   - 0.3333
   - 0.0
   - 0.0
   - 0.0
+  - 0.875
   - 0.5
   - 0.4
   - -0.1667
@@ -181,24 +139,28 @@ record:
   - 0.1429
   - 0.0
   - 0.4286
+  - 0.75
   - 0.5
   - 0.0
   - 0.5
   - 0.0
   - -0.2222
   - 0.1429
+  - 0.75
   - 0.0
   - 0.2
   - 0.3333
   - 0.0
   - 0.5556
   - 0.0
+  - 0.875
   - 0.5
   - 0.2
   - 0.1667
   - -0.1429
   - 0.0
   - 0.1429
+  - 0.75
   - 0.5
   - 0.0
   - 0.0
@@ -207,18 +169,21 @@ record:
   - 0.0
   - -0.1111
   - -0.1429
+  - 0.0
   - 0.5
   - 0.4
   - 0.3333
   - 0.1429
   - 0.0
   - 0.4286
+  - 0.75
   - 0.5
   - 0.2
   - 0.0
   - 0.0
   - 0.0
   - 0.4286
+  - 0.75
   - 0.5
   - 0.4
   - 0.0
@@ -233,12 +198,14 @@ record:
   - 0.1429
   - -0.1111
   - 0.0
+  - 0.625
   - 0.5
   - 0.4
   - 0.0
   - 0.1429
   - 0.0
   - 0.4286
+  - 0.625
   - 0.5
   - 0.2
   - 0.0
@@ -246,34 +213,38 @@ record:
   - 0.3333
   - 0.4286
   - 0.5
+  - 0.5
   - 0.2
   - 0.3333
   - 0.1429
   - 0.5556
   - 0.0
+  - 0.625
   - 0.5
   - 0.0
   - 0.1667
   - 0.0
   - -0.1111
   - 0.0
+  - 0.75
   - 0.5
   - 0.0
   - 0.3333
   - 0.0
   - 0.3333
   - 0.4286
+  - 0.75
   - 0.5
   - 0.2
   - 0.0
   - 0.0
   - 0.2222
   - 0.0
+  - 0.75
   - 0.5
   - 0.4
   - 0.1667
   - 0.1429
   - 0.5556
-  - 0.4286
-  last_used_battle: zoid_csv-report_1788929528
-  battles_available: 53
+  last_used_battle: zoid_graph-paths_1788929496
+  battles_available: 52
