@@ -18,9 +18,9 @@ provenance:
 - zoid_graph-paths_1788929496
 created: 1788929507.5660224
 record:
-  uses: 79
-  wins: 48
-  losses: 18
+  uses: 86
+  wins: 51
+  losses: 20
   score_deltas:
   - 0.4286
   - 0.625
@@ -101,5 +101,12 @@ record:
   - 0.0
   - 0.4286
   - 0.625
-  last_used_battle: zoid_mb_bank-multi_1788939108
-  battles_available: 67
+  - 0.5
+  - 0.2
+  - 0.0
+  - 0.1429
+  - 0.3333
+  - 0.0
+  - 0.75
+  last_used_battle: zoid_mb_bank-multi_1788939882
+  battles_available: 73
