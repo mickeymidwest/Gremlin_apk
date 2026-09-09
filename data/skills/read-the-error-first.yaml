@@ -20,9 +20,9 @@ provenance:
 - zoid_csv-report_1788943316
 created: 1788943327.3056629
 record:
-  uses: 43
-  wins: 21
-  losses: 11
+  uses: 50
+  wins: 24
+  losses: 14
   score_deltas:
   - 0.625
   - 0.5
@@ -67,5 +67,12 @@ record:
   - 0.0
   - 0.4286
   - 0.75
-  last_used_battle: zoid_mb_bank-multi_1788949948
-  battles_available: 36
+  - 0.5
+  - 0.2
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.4286
+  - 0.75
+  last_used_battle: zoid_mb_bank-multi_1788951082
+  battles_available: 42
