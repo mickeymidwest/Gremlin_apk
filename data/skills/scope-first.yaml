@@ -2,7 +2,7 @@ id: seed_21
 name: scope-first
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: only test what a program's written scope + your authorization actually covers
 trigger_when: starting any security testing, recon, fuzzing, or exploitation
 trigger_matcher: bug bounty|bounty|pentest|fuzz|exploit|recon|target|in.?scope|authorization|CTF|vuln
@@ -20,8 +20,8 @@ provenance:
 - seed
 created: 1788803179.1005232
 record:
-  uses: 124
-  wins: 105
+  uses: 126
+  wins: 107
   losses: 19
   score_deltas:
   - 1.0
@@ -148,5 +148,7 @@ record:
   - 1.0
   - 1.0
   - 1.0
-  last_used_battle: zoid_tlvfuzz_1789009794
-  battles_available: 64
+  - 1.0
+  - 1.0
+  last_used_battle: zoid_tlvfuzz_1789010796
+  battles_available: 66
