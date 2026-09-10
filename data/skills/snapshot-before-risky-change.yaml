@@ -2,7 +2,7 @@ id: seed_06
 name: snapshot-before-risky-change
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: anything hard to undo gets a rollback point first
 trigger_when: about to change a system config, run a package op, or edit outside a git repo
 trigger_matcher: config|/etc|pacman|systemctl|install|upgrade|sysctl|firewall
@@ -15,8 +15,8 @@ provenance:
 - seed
 created: 1788664611.4948788
 record:
-  uses: 119
-  wins: 111
+  uses: 121
+  wins: 113
   losses: 8
   score_deltas:
   - 1.0
@@ -138,5 +138,7 @@ record:
   - 0.5538
   - 1.0
   - 0.6231
-  last_used_battle: zoid_mb_buildalot-apk_1788951658
-  battles_available: 31
+  - 1.0
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1789010369
+  battles_available: 32
