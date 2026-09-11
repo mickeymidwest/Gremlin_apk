@@ -59,3 +59,9 @@ scratch_*.py
 # zoid loop
 data/zoid/
 data/zoid_stop
+
+# per-battle transcripts -- local debugging fuel for reflexion, not
+# something the nightly commit stages (only data/skills is); left
+# untracked they piled up to 500+ files / 34MB uncommitted. Regenerable
+# by re-running the battle, not backup-worthy.
+data/magic/episodes/
