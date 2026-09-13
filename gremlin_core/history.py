@@ -203,6 +203,14 @@ class ConversationHistory:
     def has_history(self, key: str) -> bool:
         return bool(self._fresh(self._load(key)))
 
+    def last_assistant(self, key: str) -> Optional[str]:
+        """The most recent assistant reply in this conversation, or None.
+        Used by "remember that"/"save that" with no fact restated --
+        e.g. right after a web_search answer -- so mickey doesn't have
+        to retype what Gremlin just told him just to keep it."""
+        dq = self._fresh(self._load(key))
+        return dq[-1].assistant if dq else None
+
     def render(self, key: str) -> str:
         """Recent exchanges as a labelled transcript, or '' if none.
 

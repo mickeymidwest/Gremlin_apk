@@ -350,7 +350,9 @@ def create_app(
 
         body = request.get_json(silent=True) or {}
         message = body.get("message", "").strip()
-        if not message:
+        image_b64 = body.get("image")
+        image_mime = body.get("image_mime") or "image/jpeg"
+        if not message and not image_b64:
             return jsonify({"error": "empty message"}), 400
 
         # Away-mode exchanges the phone couldn't deliver until now --
@@ -360,6 +362,34 @@ def create_app(
         synced_count = 0
         if pending_sync:
             synced_count = away_sync.append_away_session(str(project_root), pending_sync)
+
+        conv_key = request.headers.get("Authorization", "") or "default"
+
+        # An attached image can't be seen by the local text-only models --
+        # straight to Gemini's real multimodal path, no action-classifying
+        # (a photo is never a command) and no memory/skill-block dance.
+        if image_b64:
+            history = conversation_history.render(conv_key)
+            try:
+                result = run_coro(
+                    loop,
+                    _in_phase(agent_state.AgentState.REASONING, magic_reply.answer_vision(
+                        registry.get("gemini"), message, str(project_root),
+                        image_b64, image_mime, history=history,
+                    )),
+                    timeout=120.0,
+                )
+            except Exception as e:
+                health["consec_fail"] += 1
+                return jsonify({
+                    "answer": "That took too long or hit an error -- try again in a moment.",
+                    "consulted": False, "from_memory": False, "contributors": [],
+                    "error": str(e), "synced_count": synced_count,
+                }), 200
+            result["synced_count"] = synced_count
+            with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+                conversation_history.record(conv_key, message or "[image]", result.get("answer", ""))
+            return jsonify(result)
 
         gremlin_backend = registry.get("gremlin")
 
@@ -378,9 +408,31 @@ def create_app(
             conversation_history.clear(conv_key)
             return jsonify(_chat_reply("Cleared -- fresh start. I won't reference anything from before this."))
 
+        # "remember that" / "save that" with nothing restated -- keep
+        # Gremlin's own last reply (typically a web_search answer) as a
+        # durable fact, no retyping needed. Checked before action
+        # classification for the same reason is_clear_command is: this
+        # is never a real action request even though "remember" isn't
+        # itself in the action-hint list.
+        from . import notes as notes_mod
+        if notes_mod.is_remember_last_reply_command(message):
+            last = conversation_history.last_assistant(conv_key)
+            if not last:
+                return jsonify(_chat_reply("There's nothing recent to remember yet -- ask me something first."))
+            notes_mod.remember_fact(str(project_root), last)
+            return jsonify(_chat_reply(f"Got it — I'll remember that: {last}"))
+
         action_result = _handle_possible_action(message)
         if action_result is not None:
             action_result["synced_count"] = synced_count
+            # A tool action (web_search, run_command, ...) is a real
+            # exchange too -- was never recorded here before, so a
+            # search result vanished from context the instant this
+            # request returned: no "tell me more about the second one"
+            # follow-up, no "remember that" (see notes.is_remember_last_
+            # reply_command above) could ever see it. record() itself
+            # no-ops on an empty answer, so this is safe unconditionally.
+            conversation_history.record(conv_key, message, action_result.get("answer", ""))
             return jsonify(action_result)
 
         # Fold the last few turns of THIS conversation in, so Gremlin
@@ -567,8 +619,20 @@ def create_app(
             return Response(_sse({"type": "done", **done}),
                             mimetype="text/event-stream", headers=_SSE_HEADERS)
 
+        from . import notes as notes_mod
+        if notes_mod.is_remember_last_reply_command(message):
+            last = conversation_history.last_assistant(conv_key)
+            if not last:
+                done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
+            else:
+                notes_mod.remember_fact(str(project_root), last)
+                done = _chat_reply(f"Got it — I'll remember that: {last}")
+            return Response(_sse({"type": "done", **done}),
+                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+
         action_result = _handle_possible_action(message)
         if action_result is not None:
+            conversation_history.record(conv_key, message, action_result.get("answer", ""))
             return Response(_sse({"type": "done", **action_result}),
                             mimetype="text/event-stream", headers=_SSE_HEADERS)
 

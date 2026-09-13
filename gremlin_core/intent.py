@@ -103,9 +103,12 @@ _ACTION_HINT = re.compile(
         clone|pull|push|commit|checkout|
         broken|crashing|crashed|failing|erroring|not\s+working|doesn.?t\s+work|
         stuck|hung|hanging|
-        your\s+(own\s+)?(code|source|repo|config|self)|yourself
+        your\s+(own\s+)?(code|source|repo|config|self)|yourself|
+        search|google|look\s*up|latest|news|current\s+(price|events|version)|
+        what.s\s+(happening|going\s+on|new)|read\s+(this|that)\s+(page|link|url|article)
       )\b
     | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|go|rs|c|cpp|h)\b
+    | https?://\S+
     | \b(pacman|systemd|systemctl|docker|compose|cron|udev|grub)\b
     | \bpackages?\b | \bservices?\b | \bcontainers?\b
     """,

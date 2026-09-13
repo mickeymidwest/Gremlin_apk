@@ -160,6 +160,19 @@ def extract_remember_command(prompt: str) -> Optional[str]:
     return None
 
 
+# "remember that" / "save that" with nothing else -- not "remember
+# <fact>" (that's REMEMBER_PREFIXES above), this is "keep what you
+# JUST told me" with nothing restated. Real use case: Gremlin answers
+# a web_search question, mickey doesn't want to retype the answer just
+# to keep it. Server.py resolves this against the conversation's last
+# assistant reply, not this module (notes.py has no access to history).
+_REMEMBER_LAST_RE = re.compile(r"^(remember|save|keep)\s+(that|this|it)[.!]?$", re.IGNORECASE)
+
+
+def is_remember_last_reply_command(message: str) -> bool:
+    return bool(_REMEMBER_LAST_RE.match((message or "").strip()))
+
+
 # -- automatic long-term notes ----------------------------------
 
 _PERSONAL_FACT_HINT = re.compile(

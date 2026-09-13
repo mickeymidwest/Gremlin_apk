@@ -180,6 +180,28 @@ async def _tool_reboot(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]
     }
 
 
+async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    from . import web_search
+    query = str(args.get("query") or "").strip()
+    if not query:
+        return {"answer": "What do you want me to search for?", "action": "web_search", "ok": False}
+    results = web_search.search(query, limit=5)
+    if not results:
+        return {"answer": f'No results for "{query}" -- either nothing came back or the '
+                 f"desktop's internet is down.", "action": "web_search", "ok": False}
+    lines = [f"{i + 1}. {r['title']}\n   {r['url']}\n   {r['snippet']}"
+             for i, r in enumerate(results)]
+    return {"answer": "\n\n".join(lines), "action": "web_search", "ok": True}
+
+
+async def _tool_web_fetch(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    from . import web_search
+    url = str(args.get("url") or "").strip()
+    if not url:
+        return {"answer": "What URL should I read?", "action": "web_fetch", "ok": False}
+    return {"answer": web_search.fetch_text(url), "action": "web_fetch", "ok": True}
+
+
 async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
     command = str(args.get("command") or "").strip()
     if not command:
@@ -292,6 +314,40 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
 # --------------------------------------------------------------- registry
 
 REGISTRY = ToolRegistry()
+
+REGISTRY.register(Tool(
+    name="web_search",
+    description=(
+        "search the live web for current/external information Gremlin cannot already know "
+        '("what\'s the latest on X", news, prices, current events, docs for something new, '
+        "anything time-sensitive or outside its own training). Different from `do` -- "
+        "that only checks THIS desktop's own local state, never the internet. "
+        'args: {"query": "<search query>"}'
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"query": {"type": "string", "description": "search query"}},
+        "required": ["query"],
+    },
+    handler=_tool_web_search,
+    destructive=False,
+))
+
+REGISTRY.register(Tool(
+    name="web_fetch",
+    description=(
+        "read the actual text of one specific web page/URL -- typically after web_search turned "
+        "up a promising result and the snippet alone isn't enough to answer accurately. "
+        'args: {"url": "<the page URL>"}'
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"url": {"type": "string", "description": "the page URL to read"}},
+        "required": ["url"],
+    },
+    handler=_tool_web_fetch,
+    destructive=False,
+))
 
 REGISTRY.register(Tool(
     name="update_check",
