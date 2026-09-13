@@ -20,6 +20,14 @@ __pycache__/
 venv/
 .venv/
 
+# isolated venv + scratch (TMPDIR, HF cache, raw training output) for
+# deploy/local-finetune-unsloth.py -- unsloth's own deps would conflict
+# with the production venv's torch/transformers pins if installed there,
+# so this is a separate, disposable venv. The real script + doc live in
+# deploy/; only this scratch working directory is excluded.
+.finetune-venv/
+.finetune-venv-scripts/
+
 # android/ is part of this same repo now, tracked alongside the
 # desktop files -- only its generated build artifacts are excluded,
 # same as the desktop side's own venv/__pycache__ exclusions above.
@@ -65,3 +73,4 @@ data/zoid_stop
 # untracked they piled up to 500+ files / 34MB uncommitted. Regenerable
 # by re-running the battle, not backup-worthy.
 data/magic/episodes/
+unsloth_compiled_cache/
