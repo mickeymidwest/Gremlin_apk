@@ -5,27 +5,6 @@ models:
   # this one warm model. The 2026-09-05 shortlist that also ran here
   # (plain qwen2.5-7b, qwen3-8b, granite-3.1-8b) was pruned 2026-09-07 --
   # unused menu options, and the box has no room to run two 7Bs anyway.
-  - name: qwen2.5-coder-7b
-    type: local_gguf
-    display_name: "Qwen2.5-Coder-7B-Instruct"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
-    n_ctx: 32768
-    n_gpu_layers: -1
-    flash_attn: true
-    kv_cache_type: q8_0   # q4_0 KV makes Qwen2.5 degenerate (tested); q8_0 is clean
-    chat_format: chatml
-
-  # Bigger brain, big-model VRAM profile. IQ3_XS (~6.4GB) of a 14B is
-  # right at this 8GB card's ceiling: 8k ctx, q4_0 KV (mandatory), and it
-  # MUST be the only resident model (vram.ensure_only enforces this hard
-  # for a >=7000MB footprint).
-  #
-  # bench/quality 2026-09-06 (8-task suite):
-  #   qwen2.5-14b IQ3_XS  8/8  load 85s  23 tok/s
-  #   qwen2.5-7b   Q4_K_M  8/8  load 46s  65 tok/s
-  # 3-bit quant loss cancels the extra params on easy tasks and it's ~3x
-  # slower -- NOT worth it as the chat primary. Keep for /fix + build
-  # battles where agentic capability matters more than latency.
   - name: qwen2.5-14b
     type: local_gguf
     display_name: "Qwen2.5-14B-Instruct (IQ3_XS)"
@@ -83,17 +62,11 @@ models:
 # behind it only for when the local model errors. No consult council -- that
 # machinery (consult.py / specialists.py / council.py) was removed 2026-09-05;
 # Gremlin is one model now, and Magic is the harness around it.
-  - name: qwen2-5-coder-7b-instruct-abliterated-iq2-m
-    type: local_gguf
-    display_name: "Qwen2.5-Coder-7B-Instruct-abliterated-IQ2_M.gguf"
-    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-7B-Instruct-abliterated-IQ2_M.gguf"
-    n_ctx: 8192
-    n_gpu_layers: -1
-    flash_attn: true
-    kv_cache_type: q4_0
-    footprint_mb: 3049
-    chat_format: chatml   # check this matches the model's actual prompt template
-
+  # kv_cache_type: q4_0 caused pure token-repetition garbage on this
+  # model (confirmed live 2026-09-12, diagnostic script -- q4_0 KV
+  # degenerates Qwen2.5-family GGUFs, same lesson qwen2.5-coder-7b's
+  # entry above already carries). Fixed to q8_0; build_entry_block_hf
+  # now defaults new HF downloads to q8_0 too.
 persona:
   name: gremlin
   display_name: "Gremlin"
@@ -103,7 +76,7 @@ persona:
   # Qwen2.5-Coder is a strong generalist (code + math + reasoning), not
   # narrow -- it passed the long-context sum and the duration parser the
   # plain 7B botched. Chat + /build + /fix now all share one warm model.
-  primary_model: qwen2.5-coder-7b
+  primary_model: llama-3.1-8b-abliterated
   fallback_models: [gemini]
   # HF full-precision repo the primary was quantized from -- what
   # `gremlin finetune` needs (QLoRA loads it via transformers).

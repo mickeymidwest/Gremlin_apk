@@ -77,7 +77,19 @@ def build_entry_block_hf(name: str, path: str, display_name: str,
     fields the VRAM governor and the rest of the harness actually read
     (footprint_mb, flash_attn, kv_cache_type) that the older
     local-folder-scan block above leaves out, because that flow
-    predates the governor and was never updated."""
+    predates the governor and was never updated.
+
+    kv_cache_type defaults to q8_0, NOT q4_0: confirmed live 2026-09-12
+    (diagnostic script, not guessed) that q4_0 makes a Qwen2.5-family
+    GGUF degenerate into pure token-repetition ("Man Man Man Man...")
+    on this exact llama-cpp-python build, regardless of quant size --
+    reproduced on both an IQ2_M and a Q4_K_M file of the same model,
+    fixed instantly by switching to q8_0. The registered primary
+    (qwen2.5-coder-7b) already carries this exact lesson in a comment
+    next to its own entry; this download path just hadn't inherited
+    it. q8_0 costs a bit more VRAM than q4_0 but is what the working
+    primary already runs on this same 8GB card, so it's a proven-safe
+    default here, not a guess."""
     return (
         f"  - name: {name}\n"
         f"    type: local_gguf\n"
@@ -86,7 +98,7 @@ def build_entry_block_hf(name: str, path: str, display_name: str,
         f"    n_ctx: {n_ctx}\n"
         f"    n_gpu_layers: -1\n"
         f"    flash_attn: true\n"
-        f"    kv_cache_type: q4_0\n"
+        f"    kv_cache_type: q8_0   # q4_0 confirmed to degenerate Qwen2.5-family GGUFs -- see comment above\n"
         f"    footprint_mb: {footprint_mb}\n"
         f"    chat_format: chatml   # check this matches the model's actual prompt template\n"
         f"\n"

@@ -12,7 +12,7 @@ def test_build_entry_block_hf_carries_governor_fields():
     assert 'model_path: "/home/mickey/Downloads/gremlin/models/some-7b.gguf"' in block
     assert "footprint_mb: 5600" in block
     assert "flash_attn: true" in block
-    assert "kv_cache_type: q4_0" in block
+    assert "kv_cache_type: q8_0" in block  # q4_0 confirmed to degenerate Qwen2.5-family GGUFs
     assert "n_ctx: 8192" in block
 
 

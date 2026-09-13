@@ -153,6 +153,61 @@ def test_model_switch_reports_set_primary_model_failure(tmp_path, monkeypatch):
     assert not r["ok"] and r["answer"] == "config would break"
 
 
+class _FakeOverrideBackend:
+    def __init__(self, text="uncensored answer", error=None):
+        self._text, self._error = text, error
+        self.calls = []
+
+    async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.6, history=None):
+        self.calls.append({"prompt": prompt, "system": system})
+        return FakeResult(text=self._text, error=self._error)
+
+
+class _OverrideRegistry:
+    def __init__(self, backend=None, system_prompt="You are Gremlin."):
+        self._backend = backend
+        self.raw_config = {"persona": {"primary_model": "qwen2.5-coder-7b",
+                                       "system_prompt": system_prompt}}
+
+    def get(self, name):
+        if name == "llama-3.1-8b-abliterated":
+            return self._backend
+        return None
+
+
+def test_override_needs_an_argument(tmp_path):
+    ctx = CommandContext(registry=_OverrideRegistry(), project_root=str(tmp_path),
+                         config_path=str(tmp_path / "models.yaml"))
+    r = asyncio.run(dispatch("/override", ctx))
+    assert not r["ok"] and "Usage" in r["answer"]
+
+
+def test_override_answers_directly_with_the_persona_system_prompt(tmp_path):
+    backend = _FakeOverrideBackend(text="here's the straight answer")
+    ctx = CommandContext(registry=_OverrideRegistry(backend, system_prompt="talk like mickey"),
+                         project_root=str(tmp_path), config_path=str(tmp_path / "models.yaml"))
+    r = asyncio.run(dispatch("/override whats the fuck up homie", ctx))
+    assert r["ok"] and r["action"] == "override"
+    assert r["answer"] == "here's the straight answer"
+    assert backend.calls[0]["prompt"] == "whats the fuck up homie"
+    assert backend.calls[0]["system"] == "talk like mickey"
+
+
+def test_override_reports_missing_model(tmp_path):
+    ctx = CommandContext(registry=_OverrideRegistry(backend=None), project_root=str(tmp_path),
+                         config_path=str(tmp_path / "models.yaml"))
+    r = asyncio.run(dispatch("/override hey", ctx))
+    assert not r["ok"] and "isn't registered" in r["answer"]
+
+
+def test_override_reports_backend_error(tmp_path):
+    backend = _FakeOverrideBackend(text="", error="OOM")
+    ctx = CommandContext(registry=_OverrideRegistry(backend), project_root=str(tmp_path),
+                         config_path=str(tmp_path / "models.yaml"))
+    r = asyncio.run(dispatch("/override hey", ctx))
+    assert not r["ok"] and "OOM" in r["answer"]
+
+
 def test_build_android_new_needs_a_spec(tmp_path):
     r = asyncio.run(dispatch("/build android new", _ctx(tmp_path)))
     assert not r["ok"] and "Usage" in r["answer"]

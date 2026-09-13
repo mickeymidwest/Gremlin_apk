@@ -125,7 +125,13 @@ def _build_classify_prompt() -> str:
         "",
         "Actions:",
         "- chat: ordinary conversation, questions, explanations. THE DEFAULT. Use this unless "
-        "the user is clearly asking for something to be DONE to the machine or to your own code.",
+        "the user is clearly asking for something to be DONE to the machine or to your own code. "
+        "IMPORTANT: \"write me a function/script/snippet that does X\", \"how would I code Y\", "
+        "\"show me an example of Z\" are chat -- the user wants the CODE TEXT in your reply, not a "
+        "file created or a command run. Only use build_project/script_fix/run_command when the "
+        "user explicitly wants a real file saved, an existing file changed, or a command actually "
+        "executed on the machine (words like \"save it\", \"make the file\", \"run it\", \"create "
+        "a project\" -- not just \"write\").",
     ]
     for tool in tools_mod.REGISTRY.all():
         if tool.classifier_visible:

@@ -327,7 +327,7 @@ def create_app(
                     pass
             asyncio.run_coroutine_threadsafe(_w(), loop)
 
-        heavy = cmd in ("fix", "build")
+        heavy = cmd in ("fix", "build", "override")
         try:
             result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=900.0)
         except Exception as e:
@@ -337,7 +337,7 @@ def create_app(
             return jsonify({"ok": False, "answer": "That errored or timed out -- try again.",
                             "error": str(e) or type(e).__name__}), 200
 
-        if heavy or result.get("action") in ("fix", "build"):
+        if heavy or result.get("action") in ("fix", "build", "override"):
             _rewarm_chat()
 
         return jsonify(_note_answer(result) if (result.get("action") == "chat") else result)

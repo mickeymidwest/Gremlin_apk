@@ -394,6 +394,50 @@ async def _model(args: str, ctx: CommandContext) -> dict:
     return {"ok": False, "answer": "Usage: /model [list | search <q> | download <repo> [file] | switch <name>]"}
 
 
+# The uncensored model to answer through on /override -- see that
+# command's docstring. Not user-configurable from the command itself on
+# purpose: which model this points at is a config-file decision
+# (config/models.yaml), not something to type mid-chat.
+_OVERRIDE_MODEL = "llama-3.1-8b-abliterated"
+
+
+async def _override(args: str, ctx: CommandContext) -> dict:
+    """Answer ONE message through the uncensored model directly, no
+    action-classifying, no memory/skill-block injection, no persona
+    fallback chain -- just the system prompt (so it's still Gremlin, in
+    mickey's voice) and the raw question. This exists because mickey
+    kept hitting the primary model moralizing on ordinary profanity
+    ("ethical guidelines" text he never asked for) and the only
+    workaround had been asking a completely different assistant
+    instead of Gremlin -- not a real fix. This is the real fix: a
+    first-class command, not a workaround.
+
+    Costs a model swap on this 8GB card (the primary has to unload so
+    the override model fits) -- same tradeoff /fix and /build already
+    pay, same vram.ensure_only mechanism. The command surface marks
+    "override" as heavy so the caller reloads the normal primary
+    afterward in the background, same as those two."""
+    if not args.strip():
+        return {"ok": False, "answer": "Usage: /override <message> -- "
+                 "answers through the uncensored model directly, no filtering, no detours."}
+
+    from . import vram
+    backend = ctx.registry.get(_OVERRIDE_MODEL)
+    if backend is None:
+        return {"ok": False, "answer": f"'{_OVERRIDE_MODEL}' isn't registered in config/models.yaml"}
+
+    if ctx.loop is not None:
+        await vram.ensure_only(ctx.registry, keep=_OVERRIDE_MODEL)
+    system_prompt = (ctx.registry.raw_config.get("persona", {}) or {}).get("system_prompt", "")
+
+    r = await backend.generate(args, system=system_prompt, max_tokens=1024, temperature=0.75)
+    text = (r.text or "").strip() if getattr(r, "ok", True) else ""
+    if not text:
+        return {"ok": False, "action": "override",
+                "answer": f"'{_OVERRIDE_MODEL}' errored: {getattr(r, 'error', None) or 'no output'}"}
+    return {"ok": True, "action": "override", "answer": text}
+
+
 def _model_for(ctx: CommandContext, name: str = "gremlin"):
     from .model import BackendModel
     be = ctx.registry.get(name) or ctx.registry.get(
@@ -648,6 +692,7 @@ COMMANDS: dict[str, Command] = {
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
                    "and shows the diff.", _fix),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
+    "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }
 
 
