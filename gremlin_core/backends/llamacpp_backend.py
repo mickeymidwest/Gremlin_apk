@@ -69,6 +69,17 @@ class LlamaCppBackend(ModelBackend):
         no_think: bool = False,  # Qwen3: append "/no_think" to suppress the think phase
         lora_path: Optional[str] = None,   # a GGUF LoRA adapter applied on top of the base
         lora_scale: float = 1.0,
+        # llama-cpp-python's own default is 1.0 -- a no-op multiplier,
+        # meaning NO anti-repetition pressure at all unless a caller sets
+        # this explicitly, which nothing here ever did. Confirmed live
+        # 2026-09-13: a conversation got stuck echoing a single word
+        # ("Finally!") from the model's own prior reply on every turn
+        # after, with no repeat_penalty in play to discourage it. 1.1 is
+        # llama.cpp's own CLI default (most frontends ship this, only the
+        # raw Python bindings default to off) -- mild, doesn't suppress
+        # normal word reuse, does discourage a model latching onto and
+        # replaying a phrase from its own recent output.
+        repeat_penalty: float = 1.1,
     ):
         super().__init__(info)
         self.model_path = model_path
@@ -81,6 +92,7 @@ class LlamaCppBackend(ModelBackend):
         self.no_think = no_think
         self.lora_path = lora_path
         self.lora_scale = lora_scale
+        self.repeat_penalty = repeat_penalty
         # A quantized KV cache only works with flash attention on in
         # llama.cpp (the non-FA path has no quantized-V kernel), so asking
         # for one implies the other rather than erroring at load time.
@@ -203,6 +215,7 @@ class LlamaCppBackend(ModelBackend):
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
+                        repeat_penalty=self.repeat_penalty,
                     )
 
                 result = await loop.run_in_executor(self._executor, _run)

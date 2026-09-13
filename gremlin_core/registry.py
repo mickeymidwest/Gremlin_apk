@@ -54,6 +54,7 @@ class ModelRegistry:
                     no_think=entry.get("no_think", False),
                     lora_path=entry.get("lora_path"),
                     lora_scale=entry.get("lora_scale", 1.0),
+                    repeat_penalty=entry.get("repeat_penalty", 1.1),
                 )
             elif entry["type"] == "local_vlm":
                 # A vision-language model: two files, weights + mmproj
