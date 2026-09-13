@@ -276,8 +276,16 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     }
 
 
+_VRAM_CEILING_MB = 7800  # 8GB card; leaves ~400MB for OS/desktop -- the
+                          # largest model this box has ever run (qwen2.5-14b,
+                          # ~7600MB) fits under this, absurd HF picks don't.
+
+
 async def _model(args: str, ctx: CommandContext) -> dict:
     from .. import model_scan
+    from . import vram
+    import asyncio
+
     parts = shlex.split(args) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1:]
@@ -291,19 +299,99 @@ async def _model(args: str, ctx: CommandContext) -> dict:
 
     if sub == "search":
         from .. import hf_hub
-        hits = hf_hub.search_models(" ".join(rest), limit=8)
+        loop = asyncio.get_event_loop()
+        hits = await loop.run_in_executor(None, lambda: hf_hub.search_models(" ".join(rest), limit=8))
         return {"ok": True, "action": "model",
                 "answer": "hits:\n" + "\n".join(
-                    f"  {h.get('id')}  ({h.get('downloads', 0)} dl)" for h in hits)}
+                    f"  {h.get('id')}  ({h.get('downloads', 0)} dl)" for h in hits)
+                + "\n\n/model download <repo> to see quant files"}
 
-    if sub == "use":
+    if sub == "download":
+        from .. import hf_hub
         if not rest:
-            return {"ok": False, "answer": "Usage: /model use <name>"}
-        ok, err = model_scan.set_primary_model(ctx.config_path, rest[0])
-        return {"ok": ok, "action": "model",
-                "answer": f"primary -> {rest[0]}" if ok else (err or "failed")}
+            return {"ok": False, "answer": "Usage: /model download <hf-repo> [filename]"}
+        repo = rest[0]
+        loop = asyncio.get_event_loop()
+        try:
+            files = await loop.run_in_executor(None, lambda: hf_hub.list_gguf_files(repo))
+        except Exception as e:
+            return {"ok": False, "answer": f"couldn't reach '{repo}' on Hugging Face: {e}"}
+        if not files:
+            return {"ok": False, "answer": f"no .gguf files found in '{repo}' -- "
+                     f"check the repo id from /model search"}
 
-    return {"ok": False, "answer": "Usage: /model [list | search <q> | use <name>]"}
+        def _est_mb(f):
+            return vram.footprint_mb(f["filename"], configured=int(f["size"] / (1024 * 1024) * 1.15))
+
+        if len(rest) < 2:
+            lines = []
+            for f in sorted(files, key=lambda x: x["size"]):
+                fp = _est_mb(f)
+                fit = "fits" if fp <= _VRAM_CEILING_MB else "TOO BIG for this 8GB card"
+                lines.append(f"  {f['filename']}  ({model_scan.human_size(f['size'])}, ~{fp}MB VRAM, {fit})")
+            return {"ok": True, "action": "model",
+                    "answer": f"files in {repo}:\n" + "\n".join(lines)
+                    + f"\n\n/model download {repo} <filename> to grab one"}
+
+        filename = rest[1]
+        match = next((f for f in files if f["filename"] == filename), None)
+        if match is None:
+            return {"ok": False, "answer": f"'{filename}' isn't in {repo} -- "
+                     f"/model download {repo} to see the list"}
+
+        fp = _est_mb(match)
+        if fp > _VRAM_CEILING_MB:
+            return {"ok": False, "answer":
+                     f"'{filename}' is ~{fp}MB once loaded -- won't fit this 8GB card, "
+                     f"refusing to download it. Pick a smaller quant."}
+
+        config_text = Path(ctx.config_path).read_text()
+        taken = model_scan.existing_model_names(config_text)
+        name = model_scan.unique_name(model_scan.slugify(filename), taken)
+        dest = str(Path(ctx.project_root) / "models" / filename)
+
+        def _download_and_register():
+            try:
+                hf_hub.download_file(repo, filename, dest)
+                block = model_scan.build_entry_block_hf(name, str(Path(dest).resolve()), filename, fp)
+                model_scan.insert_entries(ctx.config_path, [block])
+                model_scan.add_to_flow_list(ctx.config_path, "consult_models", name)
+            except Exception:
+                pass  # best-effort background job -- /model list shows whether it landed
+
+        import threading
+        threading.Thread(target=_download_and_register, daemon=True).start()
+        return {"ok": True, "action": "model",
+                "answer": f"downloading {filename} ({model_scan.human_size(match['size'])}) from {repo} "
+                f"in the background as '{name}'. This can take a few minutes -- check back with "
+                f"/model list, then /model switch {name} once it shows up there."}
+
+    if sub in ("use", "switch"):
+        if not rest:
+            return {"ok": False, "answer": "Usage: /model switch <name>"}
+        name = rest[0]
+        config_text = Path(ctx.config_path).read_text()
+        entry = next((e for e in model_scan.list_all_entries(config_text)
+                      if e.get("name") == name), None)
+        if entry is None:
+            return {"ok": False, "answer": f"no model named '{name}' registered -- "
+                     f"/model list to see what's there, or /model download to add one"}
+
+        fp = vram.footprint_mb(entry.get("model_path"), entry.get("footprint_mb"))
+        if fp > _VRAM_CEILING_MB:
+            return {"ok": False, "answer":
+                     f"'{name}' is ~{fp}MB VRAM -- too big to be gremlin's always-on primary "
+                     f"on this 8GB card. (It can still be used as an occasional consult model.)"}
+
+        ok, err = model_scan.set_primary_model(ctx.config_path, name)
+        if not ok:
+            return {"ok": False, "action": "model", "answer": err or "failed"}
+        return {"ok": True, "action": "model",
+                "answer": f"primary -> {name} in config. This only takes effect after a restart -- "
+                f"`systemctl --user restart gremlin.service`. If it turns out to be bad, "
+                f"/model switch back to the old name and restart again."}
+
+    return {"ok": False, "answer": "Usage: /model [list | search <q> | download <repo> [file] | switch <name>]"}
 
 
 def _model_for(ctx: CommandContext, name: str = "gremlin"):
@@ -559,7 +647,7 @@ COMMANDS: dict[str, Command] = {
                      "it does>` scaffolds a whole Android app from one sentence.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
                    "and shows the diff.", _fix),
-    "model": Command("model", "Base model: list | search <q> | use <name>.", _model),
+    "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
 }
 
 

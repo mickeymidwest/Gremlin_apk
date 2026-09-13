@@ -77,6 +77,82 @@ def test_model_bad_subcommand(tmp_path):
     assert not r["ok"] and "Usage" in r["answer"]
 
 
+def test_model_download_lists_files_with_vram_estimate(tmp_path, monkeypatch):
+    import gremlin_core.hf_hub as hf
+    monkeypatch.setattr(hf, "list_gguf_files", lambda repo: [
+        {"filename": "tiny.Q4_K_M.gguf", "size": 2_000_000_000},
+        {"filename": "huge.Q8_0.gguf", "size": 40_000_000_000},
+    ])
+    r = asyncio.run(dispatch("/model download some/repo", _ctx(tmp_path)))
+    assert r["ok"]
+    assert "tiny.Q4_K_M.gguf" in r["answer"] and "fits" in r["answer"]
+    assert "huge.Q8_0.gguf" in r["answer"] and "TOO BIG" in r["answer"]
+
+
+def test_model_download_refuses_oversized_file(tmp_path, monkeypatch):
+    import gremlin_core.hf_hub as hf
+    monkeypatch.setattr(hf, "list_gguf_files", lambda repo: [
+        {"filename": "huge.Q8_0.gguf", "size": 40_000_000_000},
+    ])
+    called = []
+    monkeypatch.setattr(hf, "download_file", lambda *a, **kw: called.append(a))
+    r = asyncio.run(dispatch("/model download some/repo huge.Q8_0.gguf", _ctx(tmp_path)))
+    assert not r["ok"]
+    assert "won't fit" in r["answer"]
+    assert not called  # never started the download
+
+
+def test_model_download_unknown_file(tmp_path, monkeypatch):
+    import gremlin_core.hf_hub as hf
+    monkeypatch.setattr(hf, "list_gguf_files", lambda repo: [
+        {"filename": "real.gguf", "size": 1_000_000},
+    ])
+    r = asyncio.run(dispatch("/model download some/repo nope.gguf", _ctx(tmp_path)))
+    assert not r["ok"] and "isn't in" in r["answer"]
+
+
+def test_model_switch_unknown_name(tmp_path, monkeypatch):
+    import gremlin_core.model_scan as ms
+    monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [{"name": "qwen3-8b"}])
+    r = asyncio.run(dispatch("/model switch nope", _ctx(tmp_path)))
+    assert not r["ok"] and "no model named" in r["answer"]
+
+
+def test_model_switch_refuses_when_too_big_for_the_card(tmp_path, monkeypatch):
+    import gremlin_core.model_scan as ms
+    monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [
+        {"name": "monster-70b", "model_path": "monster-70b.gguf", "footprint_mb": 40000},
+    ])
+    called = []
+    monkeypatch.setattr(ms, "set_primary_model", lambda *a: called.append(a) or (True, None))
+    r = asyncio.run(dispatch("/model switch monster-70b", _ctx(tmp_path)))
+    assert not r["ok"]
+    assert "too big" in r["answer"]
+    assert not called  # never actually touched the config
+
+
+def test_model_switch_succeeds_and_says_restart_is_needed(tmp_path, monkeypatch):
+    import gremlin_core.model_scan as ms
+    monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [
+        {"name": "qwen3-8b", "model_path": "qwen3-8b.gguf"},
+    ])
+    monkeypatch.setattr(ms, "set_primary_model", lambda *a: (True, None))
+    r = asyncio.run(dispatch("/model switch qwen3-8b", _ctx(tmp_path)))
+    assert r["ok"]
+    assert "primary -> qwen3-8b" in r["answer"]
+    assert "restart" in r["answer"].lower()
+
+
+def test_model_switch_reports_set_primary_model_failure(tmp_path, monkeypatch):
+    import gremlin_core.model_scan as ms
+    monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [
+        {"name": "qwen3-8b", "model_path": "qwen3-8b.gguf"},
+    ])
+    monkeypatch.setattr(ms, "set_primary_model", lambda *a: (False, "config would break"))
+    r = asyncio.run(dispatch("/model switch qwen3-8b", _ctx(tmp_path)))
+    assert not r["ok"] and r["answer"] == "config would break"
+
+
 def test_build_android_new_needs_a_spec(tmp_path):
     r = asyncio.run(dispatch("/build android new", _ctx(tmp_path)))
     assert not r["ok"] and "Usage" in r["answer"]

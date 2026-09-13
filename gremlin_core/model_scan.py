@@ -70,6 +70,29 @@ def build_entry_block(name: str, path: str, display_name: str) -> str:
     )
 
 
+def build_entry_block_hf(name: str, path: str, display_name: str,
+                          footprint_mb: int, n_ctx: int = 8192) -> str:
+    """Same job as build_entry_block above, but for a model pulled
+    straight from Hugging Face by `/model download` -- carries the
+    fields the VRAM governor and the rest of the harness actually read
+    (footprint_mb, flash_attn, kv_cache_type) that the older
+    local-folder-scan block above leaves out, because that flow
+    predates the governor and was never updated."""
+    return (
+        f"  - name: {name}\n"
+        f"    type: local_gguf\n"
+        f'    display_name: "{display_name}"\n'
+        f'    model_path: "{path}"\n'
+        f"    n_ctx: {n_ctx}\n"
+        f"    n_gpu_layers: -1\n"
+        f"    flash_attn: true\n"
+        f"    kv_cache_type: q4_0\n"
+        f"    footprint_mb: {footprint_mb}\n"
+        f"    chat_format: chatml   # check this matches the model's actual prompt template\n"
+        f"\n"
+    )
+
+
 def list_all_entries(config_text: str) -> list[dict]:
     """Parsed view of every registered model, in file order, for display
     purposes only -- removal itself uses the raw text, not this."""
