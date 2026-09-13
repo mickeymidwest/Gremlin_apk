@@ -8,6 +8,8 @@ the local backend errors outright.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from .. import notes
 from ..learning_log import append_learning_log
 from . import grounding
@@ -46,9 +48,12 @@ def _memory_block(root: str) -> str:
 
 
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,
-           from_memory: bool = False, source: str = "") -> dict:
-    return {"answer": answer, "consulted": False, "from_memory": from_memory,
-            "contributors": [], "action": action, "action_ok": ok, "source": source}
+           from_memory: bool = False, source: str = "", usage: Optional[dict] = None) -> dict:
+    d = {"answer": answer, "consulted": False, "from_memory": from_memory,
+         "contributors": [], "action": action, "action_ok": ok, "source": source}
+    if usage:
+        d["usage"] = usage
+    return d
 
 
 def _skills_block(root: str, message: str, limit: int = 3) -> str:
@@ -145,12 +150,32 @@ async def _post_answer_bookkeeping(primary, message: str, root: str,
         await notes.maybe_autosave_note(primary, message, root)
     except Exception:
         pass
+    # The other half of "does talking to him help him grow": a
+    # correction about HOW Gremlin should behave/talk (not a fact about
+    # mickey) is noticed and saved the same automatic way, so it's a
+    # real durable change from this point forward, not a one-turn
+    # apology that evaporates the moment the reply is sent.
+    try:
+        await notes.maybe_autosave_correction(primary, message, root)
+    except Exception:
+        pass
     if used_fallback:
         try:
             append_learning_log(root, {"prompt": message, "final_answer": text,
                                        "consulted_models": [used], "source": used})
         except Exception:
             pass
+
+
+def _stream_usage(backend) -> Optional[dict]:
+    """generate_stream has no return value to carry usage on (it's a
+    plain async generator of str deltas, same contract every backend
+    implements) -- LlamaCppBackend stashes its last stream's usage on
+    itself instead (see generate_stream's usage note) and this reads
+    it back, unwrapping a PersonaBackend to the real backend under it."""
+    real = getattr(backend, "primary", backend)
+    usage = getattr(real, "_last_stream_usage", None)
+    return dict(usage) if usage else None
 
 
 async def answer_stream(primary, message: str, root: str,
@@ -196,7 +221,7 @@ async def answer_stream(primary, message: str, root: str,
                 text += note
                 yield "delta", note
         await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin")
-        yield "done", _reply(text, source="gremlin", ok=not stream_broke)
+        yield "done", _reply(text, source="gremlin", ok=not stream_broke, usage=_stream_usage(primary))
         return
 
     if fallback is not None:
@@ -232,6 +257,10 @@ async def answer(primary, message: str, root: str,
         used, used_fallback = getattr(r, "model", "fallback"), True
 
     text = (r.text or "").strip() or "I couldn't get an answer just now — try again."
+    # Real token usage from the backend's own response (LlamaCppBackend
+    # puts it in .meta; a fallback API backend that doesn't set this
+    # just contributes nothing, not a wrong number).
+    usage = dict((getattr(r, "meta", None) or {}).get("usage") or {})
 
     if _GROUNDING_CHECK and not used_fallback and text:
         try:
@@ -246,6 +275,8 @@ async def answer(primary, message: str, root: str,
                             "exists, say so rather than naming it.]")
             r2 = await _gen(primary, retry_prompt, hist)
             t2 = (r2.text or "").strip()
+            for k, v in ((getattr(r2, "meta", None) or {}).get("usage") or {}).items():
+                usage[k] = usage.get(k, 0) + v
             try:
                 still = grounding.check(t2, root, ctx) if t2 else bad
             except Exception:
@@ -256,4 +287,4 @@ async def answer(primary, message: str, root: str,
                 text = text + grounding.caveat(bad)
 
     await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used)
-    return _reply(text, source=used, from_memory=False)
+    return _reply(text, source=used, from_memory=False, usage=usage or None)

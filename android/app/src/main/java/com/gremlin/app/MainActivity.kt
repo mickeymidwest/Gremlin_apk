@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var voiceOutput: VoiceOutput
 
     private lateinit var connectionLabel: TextView
+    private lateinit var tokenUsageLabel: TextView
     private lateinit var chatLog: TextView
     private lateinit var thinkingStatus: TextView
     private lateinit var messageInput: EditText
@@ -90,6 +91,10 @@ class MainActivity : AppCompatActivity() {
             chatLog.text = ""
             historyFile.writeText("")
             appendSystemTurn("— $ttl —", false)
+            // this thread's own running total isn't known until its next
+            // reply comes back -- showing the PREVIOUS thread's count
+            // here would be actively wrong, not just stale.
+            updateTokenUsageLabel(null)
         }
 
     private val downloadLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -122,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         voiceOutput = VoiceOutput(applicationContext, prefs)
 
         connectionLabel = findViewById(R.id.connection_label)
+        tokenUsageLabel = findViewById(R.id.token_usage_label)
         chatLog = findViewById(R.id.chat_log)
         chatLog.movementMethod = ScrollingMovementMethod()
         if (historyFile.exists()) {
@@ -252,6 +258,7 @@ class MainActivity : AppCompatActivity() {
                 voiceOutput.speak(result.answer)
                 thinkingStatus.visibility = View.GONE
                 hologramView.evaluateJavascript("setTalking(false)", null)
+                updateTokenUsageLabel(result.tokenUsage)
             }
         }.start()
     }
@@ -325,6 +332,21 @@ class MainActivity : AppCompatActivity() {
             hasAnthropicKey || hasGeminiKey -> "Standalone mode -- not paired with a desktop"
             else -> "Not set up yet -- tap the hologram for Settings, or pair with a desktop below"
         }
+    }
+
+    /** Running token total for this whole conversation thread -- "like
+     * Claude". The desktop computes it from the FULL on-disk transcript
+     * (gremlin_core/history.py), so it's a real cumulative count, not a
+     * per-message stat. Hidden entirely when there's nothing to show
+     * (away-mode, an old server, a backend that doesn't report usage)
+     * rather than showing a confusing "0 tokens". */
+    private fun updateTokenUsageLabel(usage: TokenUsage?) {
+        if (usage == null || usage.totalTokens <= 0) {
+            tokenUsageLabel.visibility = View.GONE
+            return
+        }
+        tokenUsageLabel.text = "${"%,d".format(usage.totalTokens)} tokens this conversation"
+        tokenUsageLabel.visibility = View.VISIBLE
     }
 
     private fun startQrScan() {
@@ -498,6 +520,7 @@ class MainActivity : AppCompatActivity() {
                         voiceOutput.speak(result.answer)
                         hologramView.evaluateJavascript("setTalking(false)", null)
                         thinkingStatus.visibility = View.GONE
+                        updateTokenUsageLabel(result.tokenUsage)
                     }
                 },
             )

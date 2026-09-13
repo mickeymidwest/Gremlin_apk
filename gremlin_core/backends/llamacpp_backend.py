@@ -99,6 +99,7 @@ class LlamaCppBackend(ModelBackend):
         self.flash_attn = flash_attn or kv_cache_type != "f16"
         self._llm: Optional["Llama"] = None
         self._last_used: float = 0.0
+        self._last_stream_usage: dict = {}  # see generate_stream's usage note
         self._lock = asyncio.Lock()  # llama.cpp isn't safely reentrant per-instance --
         # also now the one thing serializing load/generate/unload against
         # each other, so unload() can never race a generate() that's
@@ -224,12 +225,13 @@ class LlamaCppBackend(ModelBackend):
                 self._lock.release()
 
             text = result["choices"][0]["message"]["content"]
+            usage = result.get("usage") or {}
+            meta = {"usage": usage} if usage else {}
             if self.strip_reasoning:
                 text, reasoning = split_reasoning(text)
                 if reasoning:
-                    return GenerationResult(model=self.info.name, text=text,
-                                            meta={"reasoning": reasoning})
-            return GenerationResult(model=self.info.name, text=text)
+                    meta["reasoning"] = reasoning
+            return GenerationResult(model=self.info.name, text=text, meta=meta)
         except Exception as e:
             return GenerationResult(model=self.info.name, text="", error=str(e))
 
@@ -299,6 +301,7 @@ class LlamaCppBackend(ModelBackend):
             fut = loop.run_in_executor(self._executor, _run)
             full = ""
             emitted = 0
+            completion_tokens = 0
             while True:
                 item = await q.get()
                 if item is _DONE:
@@ -306,6 +309,10 @@ class LlamaCppBackend(ModelBackend):
                 if isinstance(item, BaseException):
                     raise item
                 full += item
+                # one streamed chunk == one generated token in llama.cpp's
+                # token-by-token streaming, so this is an exact completion
+                # count -- unlike prompt_tokens below, no tokenizer re-run.
+                completion_tokens += 1
                 if self.strip_reasoning:
                     visible, _ = split_reasoning(full)
                 else:
@@ -314,6 +321,22 @@ class LlamaCppBackend(ModelBackend):
                     yield visible[emitted:]
                     emitted = len(visible)
             self._last_used = time.monotonic()
+            # A streaming create_chat_completion never reports usage the
+            # way the non-streaming call does (checked: llama-cpp-python
+            # has no per-chunk or final usage field here). prompt_tokens
+            # is an approximation -- the raw message text tokenized
+            # directly, not through the model's real chat template, so
+            # it misses template overhead (role markers etc). Good enough
+            # for a running usage counter, not a billing-precision figure.
+            try:
+                prompt_text = "\n".join(m.get("content", "") for m in messages)
+                prompt_tokens = len(self._llm.tokenize(prompt_text.encode("utf-8")))
+            except Exception:
+                prompt_tokens = 0
+            self._last_stream_usage = {
+                "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            }
         finally:
             stop.set()
             if fut is not None:

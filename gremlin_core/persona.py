@@ -88,11 +88,14 @@ class PersonaBackend(ModelBackend):
                 )
             if result.ok:
                 # Always answer AS Gremlin -- the caller shouldn't need to
-                # know or care which underlying model actually ran.
+                # know or care which underlying model actually ran. Keep
+                # the underlying backend's own meta (e.g. token usage
+                # from LlamaCppBackend) rather than discarding it here.
                 return GenerationResult(
                     model=self.info.name,
                     text=result.text,
-                    meta={"backed_by": backend.info.name, "failover": backend is not self.primary},
+                    meta={**(result.meta or {}),
+                          "backed_by": backend.info.name, "failover": backend is not self.primary},
                 )
             errors.append(f"{backend.info.name}: {result.error}")
 

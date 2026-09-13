@@ -389,6 +389,7 @@ def create_app(
             result["synced_count"] = synced_count
             with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
                 conversation_history.record(conv_key, message or "[image]", result.get("answer", ""))
+            result["conversation_usage"] = conversation_history.usage_totals(conv_key)
             return jsonify(result)
 
         gremlin_backend = registry.get("gremlin")
@@ -433,6 +434,7 @@ def create_app(
             # reply_command above) could ever see it. record() itself
             # no-ops on an empty answer, so this is safe unconditionally.
             conversation_history.record(conv_key, message, action_result.get("answer", ""))
+            action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
             return jsonify(action_result)
 
         # Fold the last few turns of THIS conversation in, so Gremlin
@@ -465,9 +467,15 @@ def create_app(
                 "error": str(e), "synced_count": synced_count,
             }), 200
         _note_answer(result)
+        turn_usage = result.get("usage") or {}
         with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
-            conversation_history.record(conv_key, message, result.get("answer", ""))
+            conversation_history.record(conv_key, message, result.get("answer", ""),
+                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                        completion_tokens=turn_usage.get("completion_tokens", 0))
         result["synced_count"] = synced_count
+        # Cumulative usage for the WHOLE conversation, not just this turn --
+        # "like Claude Code" means a running total, not a per-message stat.
+        result["conversation_usage"] = conversation_history.usage_totals(conv_key)
         return jsonify(result)
 
     def _chat_reply(answer: str, action: str = "chat", ok: bool = True) -> dict:
@@ -633,6 +641,7 @@ def create_app(
         action_result = _handle_possible_action(message)
         if action_result is not None:
             conversation_history.record(conv_key, message, action_result.get("answer", ""))
+            action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
             return Response(_sse({"type": "done", **action_result}),
                             mimetype="text/event-stream", headers=_SSE_HEADERS)
 
@@ -658,6 +667,21 @@ def create_app(
                     ):
                         if kind == "done":
                             final = payload
+                            # Record + compute the running total BEFORE
+                            # this frame goes out -- the client needs to
+                            # see conversation_usage in the SAME "done"
+                            # frame it gets over SSE, not a beat later
+                            # (this frame is the only thing that reaches
+                            # the client; the finally block below only
+                            # ever runs after it's already been sent).
+                            _note_answer(final)
+                            turn_usage = final.get("usage") or {}
+                            with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+                                conversation_history.record(
+                                    conv_key, message, final.get("answer", ""),
+                                    prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                    completion_tokens=turn_usage.get("completion_tokens", 0))
+                            final["conversation_usage"] = conversation_history.usage_totals(conv_key)
                         try:
                             bridge.put_nowait((kind, payload))
                         except _queue.Full:
@@ -669,10 +693,6 @@ def create_app(
                 except _queue.Full:
                     pass
             finally:
-                if final is not None:
-                    _note_answer(final)
-                    with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
-                        conversation_history.record(conv_key, message, final.get("answer", ""))
                 # make room for the stop marker if we have to
                 while True:
                     try:

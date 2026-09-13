@@ -264,6 +264,73 @@ async def maybe_autosave_note(backend, message: str, root: str) -> Optional[str]
     return note
 
 
+# Ordinary conversation "growing" Gremlin was previously one-directional:
+# maybe_autosave_note captures facts about the USER, but its own system
+# prompt explicitly excludes "anything about you the assistant" -- so a
+# real-time correction like "stop saying X" / "talk like a normal person"
+# got answered once and then evaporated the moment the turn ended, same
+# as any other reply, unless mickey happened to say the magic word
+# "remember" (see 2026-09-13's "Finally" tic -- it took an explicit
+# remember_fact call from outside this pipeline to actually stick).
+# This is the other half: a correction about HOW GREMLIN SHOULD BEHAVE,
+# noticed and saved the same automatic way, so telling it off in normal
+# conversation is real, durable growth, not a one-turn apology.
+_BEHAVIOR_CORRECTION_HINT = re.compile(
+    r"\b("
+    r"stop\s+(saying|doing|being|starting|talking)|"
+    r"don.?t\s+(say|do|be|start|talk)|"
+    r"quit\s+(saying|doing)|"
+    r"talk\s+(like|to\s+me\s+like)|"
+    r"you.?re\s+not\s+(\w+\s+){1,3}enough|"
+    r"that.?s\s+not\s+how\s+(i|you)|"
+    r"why\s+(did|would)\s+you\s+say|"
+    r"you\s+(need|gotta|got\s+to|have)\s+to\s+(talk|act|be|sound)|"
+    r"i\s+want\s+you\s+to\s+(talk|act|be|sound)|"
+    r"be\s+more\s+\w+"
+    r")",
+    re.IGNORECASE,
+)
+
+_AUTOCORRECTION_SYSTEM = (
+    "The user is correcting how the assistant (Gremlin) should behave, talk, or "
+    "respond -- NOT stating a fact about themselves. Extract at most ONE durable "
+    "behavioral instruction from their message, as a short instruction Gremlin "
+    "should always follow from now on (e.g. \"Don't start replies with 'Finally'\", "
+    "\"Curse naturally when asked -- don't dodge direct requests to curse\", \"Keep "
+    "answers short unless asked for more detail\"). Reply with ONLY the "
+    "instruction, or exactly NONE if there's no real behavioral correction here "
+    "(a question, a one-off request, or praise is NOT a correction). No preamble, "
+    "no quotes."
+)
+
+
+def looks_like_behavior_correction(message: str) -> bool:
+    m = (message or "").strip()
+    if len(m) < 6:
+        return False
+    return bool(_BEHAVIOR_CORRECTION_HINT.search(m))
+
+
+async def maybe_autosave_correction(backend, message: str, root: str) -> Optional[str]:
+    """Notice and save a durable behavioral instruction from the user's
+    message -- the assistant-behavior counterpart to maybe_autosave_note
+    (which only ever captures facts about the user). Best-effort -- never
+    raises, returns the saved instruction or None."""
+    if not looks_like_behavior_correction(message):
+        return None
+    try:
+        result = await backend.generate(message, system=_AUTOCORRECTION_SYSTEM, max_tokens=60)
+    except Exception:
+        return None
+    if not getattr(result, "ok", True):
+        return None
+    note = parse_autonote(getattr(result, "text", ""))
+    if not note or note_already_saved(root, note):
+        return None
+    remember_fact(root, f"[behavior] {note}")
+    return note
+
+
 # -- away-mode context ----------------------------------------
 
 def recent_away_context(root: str, limit: int = 5) -> str:

@@ -21,7 +21,16 @@ class _FakeLlm:
 
     def create_chat_completion(self, **kwargs):
         self.chat_calls.append(kwargs)
-        return {"choices": [{"message": {"content": "ok"}}]}
+        if kwargs.get("stream"):
+            def _chunks():
+                for word in ("hel", "lo "):
+                    yield {"choices": [{"delta": {"content": word}}]}
+            return _chunks()
+        return {"choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 42, "completion_tokens": 7, "total_tokens": 49}}
+
+    def tokenize(self, data: bytes):
+        return list(range(len(data.split())))  # one "token" per word, good enough for a test
 
 
 def _backend(monkeypatch, **overrides):
@@ -51,3 +60,25 @@ def test_repeat_penalty_is_configurable(monkeypatch):
     be, captured = _backend(monkeypatch, repeat_penalty=1.3)
     asyncio.run(be.generate("hi"))
     assert captured["llm"].chat_calls[0]["repeat_penalty"] == 1.3
+
+
+def test_generate_reports_real_token_usage(monkeypatch):
+    be, _ = _backend(monkeypatch)
+    result = asyncio.run(be.generate("hi"))
+    assert result.meta["usage"] == {"prompt_tokens": 42, "completion_tokens": 7, "total_tokens": 49}
+
+
+async def _consume(agen):
+    out = []
+    async for delta in agen:
+        out.append(delta)
+    return out
+
+
+def test_generate_stream_tracks_completion_and_prompt_tokens(monkeypatch):
+    be, _ = _backend(monkeypatch)
+    asyncio.run(_consume(be.generate_stream("what is up")))
+    usage = be._last_stream_usage
+    assert usage["completion_tokens"] == 2  # two chunks yielded by the fake
+    assert usage["prompt_tokens"] == 3       # "what is up" tokenized -> 3 words
+    assert usage["total_tokens"] == 5

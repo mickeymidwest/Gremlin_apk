@@ -49,6 +49,8 @@ class Turn:
     user: str
     assistant: str
     at: float
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 # How many recent exchanges to keep resident and eligible for replay.
@@ -169,7 +171,9 @@ class ConversationHistory:
                         d = json.loads(line)
                     except ValueError:
                         continue
-                    dq.append(Turn(user=d.get("user", ""), assistant=d.get("assistant", ""), at=d.get("at", 0.0)))
+                    dq.append(Turn(user=d.get("user", ""), assistant=d.get("assistant", ""),
+                                   at=d.get("at", 0.0), prompt_tokens=d.get("prompt_tokens", 0),
+                                   completion_tokens=d.get("completion_tokens", 0)))
             except OSError:
                 pass
         self._cache[key] = dq
@@ -184,21 +188,56 @@ class ConversationHistory:
             dq.popleft()
         return dq
 
-    def record(self, key: str, user: str, assistant: str) -> None:
-        """Append one completed exchange, to memory and to disk."""
+    def record(self, key: str, user: str, assistant: str,
+              prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
+        """Append one completed exchange, to memory and to disk. Token
+        counts are real usage from the backend's own response (see
+        LlamaCppBackend.generate) when the caller has them, else 0 --
+        a message with no token data just doesn't add to the running
+        total, it never breaks it."""
         if not (user or "").strip() or not (assistant or "").strip():
             return
-        turn = Turn(user=user.strip(), assistant=assistant.strip(), at=time.time())
+        turn = Turn(user=user.strip(), assistant=assistant.strip(), at=time.time(),
+                   prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
         dq = self._load(key)
         dq.append(turn)
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
             with open(self._path(key), "a", encoding="utf-8") as f:
-                f.write(json.dumps({"user": turn.user, "assistant": turn.assistant, "at": turn.at}) + "\n")
+                f.write(json.dumps({
+                    "user": turn.user, "assistant": turn.assistant, "at": turn.at,
+                    "prompt_tokens": turn.prompt_tokens, "completion_tokens": turn.completion_tokens,
+                }) + "\n")
         except OSError:
             # In-memory copy still works for this session even if the disk
             # write fails; losing durability is better than dropping the turn.
             pass
+
+    def usage_totals(self, key: str) -> dict:
+        """Cumulative token usage for this ENTIRE conversation -- reads
+        the full on-disk file, not just the capped in-memory/render
+        window, since "how many tokens has this conversation used" means
+        the whole thing, not just the recent slice that gets replayed
+        into a prompt. 0s if the file has no usage data (a fallback/API
+        model answered, or this predates token tracking)."""
+        path = self._path(key)
+        prompt_total = completion_total = 0
+        if path.exists():
+            try:
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    prompt_total += int(d.get("prompt_tokens", 0) or 0)
+                    completion_total += int(d.get("completion_tokens", 0) or 0)
+            except OSError:
+                pass
+        return {"prompt_tokens": prompt_total, "completion_tokens": completion_total,
+                "total_tokens": prompt_total + completion_total}
 
     def has_history(self, key: str) -> bool:
         return bool(self._fresh(self._load(key)))

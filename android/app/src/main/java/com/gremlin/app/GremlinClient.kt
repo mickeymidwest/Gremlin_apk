@@ -24,7 +24,14 @@ import java.net.URLEncoder
  * one place (gremlin_core), and the phone either borrows it over the
  * network or falls back to a much simpler direct call.
  */
-data class ChatResult(val answer: String, val source: String)
+/** Running token total for the WHOLE conversation (not just this
+ * turn) -- the desktop computes this from the full on-disk transcript,
+ * see gremlin_core/history.py ConversationHistory.usage_totals. Null
+ * when the desktop didn't send one (away-mode, an old server, or a
+ * backend that doesn't report usage). */
+data class TokenUsage(val promptTokens: Int, val completionTokens: Int, val totalTokens: Int)
+
+data class ChatResult(val answer: String, val source: String, val tokenUsage: TokenUsage? = null)
 
 /** One project Gremlin has built on the desktop (build_project ->
  * ~/Downloads/<name>/), as listed by GET /builds. */
@@ -124,10 +131,10 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         if (hasAnyNetwork() && host != null && port != 0 && token != null) {
             try {
                 val pending = readPendingSync()
-                val answer = postToDesktop(host, port, token, message, pending)
+                val reply = postToDesktop(host, port, token, message, pending)
                 if (pending.length() > 0) clearPendingSync() // only after the server actually got them
                 refreshCachedPersonaVoice(host, port, token) // best-effort, keeps away-mode voice current
-                return ChatResult(answer, "desktop")
+                return ChatResult(reply.answer, "desktop", reply.usage)
             } catch (e: Exception) {
                 // Desktop configured but unreachable -- fall through to away-mode.
             }
@@ -187,6 +194,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
 
             var answer = StringBuilder()
             var source = "desktop"
+            var tokenUsage: TokenUsage? = null
             connection.inputStream.bufferedReader().useLines { lines ->
                 for (line in lines) {
                     if (!line.startsWith("data:")) continue
@@ -203,13 +211,14 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
                             answer = StringBuilder(full)
                             val s = obj.optString("source", "")
                             if (s.isNotEmpty() && s != "gremlin") source = s
+                            tokenUsage = parseTokenUsage(obj)
                         }
                     }
                 }
             }
             connection.disconnect(); connection = null
             refreshCachedPersonaVoice(host, port, token) // keep away-mode voice current, same as chat()
-            onDone(ChatResult(answer.toString(), source))
+            onDone(ChatResult(answer.toString(), source, tokenUsage))
         } catch (e: Exception) {
             try { connection?.disconnect() } catch (_: Exception) {}
             onDone(chat(message)) // any streaming trouble -> the reliable path
@@ -825,7 +834,18 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         return "Set the admin token in Settings first"
     }
 
-    private fun postToDesktop(host: String, port: Int, token: String, message: String, pendingSync: JSONArray? = null): String {
+    private fun parseTokenUsage(json: JSONObject): TokenUsage? {
+        val u = json.optJSONObject("conversation_usage") ?: return null
+        return TokenUsage(
+            promptTokens = u.optInt("prompt_tokens", 0),
+            completionTokens = u.optInt("completion_tokens", 0),
+            totalTokens = u.optInt("total_tokens", 0),
+        )
+    }
+
+    private data class DesktopReply(val answer: String, val usage: TokenUsage?)
+
+    private fun postToDesktop(host: String, port: Int, token: String, message: String, pendingSync: JSONArray? = null): DesktopReply {
         val url = URL("http://$host:$port/chat")
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
@@ -851,7 +871,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         if (responseCode !in 200..299) {
             throw RuntimeException(json.optString("error", "HTTP $responseCode"))
         }
-        return json.optString("answer", "[empty response]")
+        return DesktopReply(json.optString("answer", "[empty response]"), parseTokenUsage(json))
     }
 
     private fun callClaude(apiKey: String, systemPrompt: String, message: String): String {

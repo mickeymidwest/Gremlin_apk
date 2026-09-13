@@ -20,8 +20,16 @@
         android:layout_height="wrap_content"
         android:textSize="11sp"
         android:alpha="0.7"
-        android:paddingTop="4dp"
-        android:paddingBottom="6dp" />
+        android:paddingTop="4dp" />
+
+    <TextView
+        android:id="@+id/token_usage_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:alpha="0.7"
+        android:paddingBottom="6dp"
+        android:visibility="gone" />
 
     <ScrollView
         android:id="@+id/chat_scroll"

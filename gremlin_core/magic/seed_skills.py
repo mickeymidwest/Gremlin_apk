@@ -1161,6 +1161,22 @@ _SEED = [
             "before finishing, count `{` vs `}` -- a missing brace is the 7B's most common Kotlin compile error",
         ],
     ),
+    dict(
+        name="take-a-tone-correction-seriously",
+        purpose="when mickey corrects how you're talking or acting, actually change -- "
+                "don't just apologize once and drift back to the old habit next reply",
+        trigger_when="mickey tells you to stop/start doing something, talk differently, "
+                    "or says you're not talking like he wants",
+        trigger_matcher=r"stop\s+(saying|doing|being|talking)|don.?t\s+(say|do|be|talk)|"
+                        r"talk\s+like|you.?re\s+not\s+(\w+\s+){1,3}enough|"
+                        r"that.?s\s+not\s+how|be\s+more\s+\w+",
+        procedure=[
+            "actually do what he asked in THIS reply, right now -- don't just acknowledge it",
+            "don't over-apologize or explain yourself at length; a short 'got it' plus the "
+            "corrected behavior beats a paragraph about how you'll do better",
+            "the correction should hold for every reply after this one, not just this one turn",
+        ],
+    ),
 ]
 
 
