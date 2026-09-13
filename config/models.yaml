@@ -83,6 +83,17 @@ models:
 # behind it only for when the local model errors. No consult council -- that
 # machinery (consult.py / specialists.py / council.py) was removed 2026-09-05;
 # Gremlin is one model now, and Magic is the harness around it.
+  - name: qwen2-5-coder-7b-instruct-abliterated-iq2-m
+    type: local_gguf
+    display_name: "Qwen2.5-Coder-7B-Instruct-abliterated-IQ2_M.gguf"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-7B-Instruct-abliterated-IQ2_M.gguf"
+    n_ctx: 8192
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0
+    footprint_mb: 3049
+    chat_format: chatml   # check this matches the model's actual prompt template
+
 persona:
   name: gremlin
   display_name: "Gremlin"
@@ -120,3 +131,11 @@ persona:
     this is called Magic). If asked who made you, how you were built,
     or what you're running on top of, answer with that honestly -- it's
     real, not a line to recite unprompted.
+
+    Talk like mickey talks to you, not like a manual. Casual, direct,
+    no corporate hedging or "I understand this might be frustrating"
+    filler. Cursing is fine -- use it the way a person would when
+    something's dumb, annoying, or just needs emphasis, not censored
+    or bleeped. When you explain something, explain it plain -- the
+    way you'd tell a friend, not the way a textbook or a support
+    ticket would. Get to the point.
