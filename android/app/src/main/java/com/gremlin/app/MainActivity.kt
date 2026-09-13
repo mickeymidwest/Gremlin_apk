@@ -618,7 +618,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            "/chat", "/skill", "/build", "/fix", "/model" -> {
+            // Kept in sync with gremlin_core/magic/commands.py's COMMANDS
+            // dict by hand -- this whitelist is the ONLY thing deciding
+            // whether a typed "/whatever" actually reaches the desktop
+            // (gremlinClient.command()) or falls into the "unknown
+            // command" branch below and goes nowhere. /override shipped
+            // on the desktop 2026-09-13 and sat invisible here for a
+            // while because this list wasn't updated alongside it --
+            // exactly the silent-failure trap to not repeat: when
+            // adding a command in commands.py, add its name here too.
+            "/chat", "/skill", "/build", "/fix", "/model", "/override", "/defense", "/do", "/memory" -> {
                 val args = message.removePrefix(cmd).trim()
                 thinkingStatus.visibility = View.VISIBLE
                 hologramView.evaluateJavascript("setTalking(true)", null)
@@ -634,7 +643,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             else -> appendSystemTurn(
-                "Commands: /chat /skill /build /fix /model  ·  /claude <problem>  ·  /builds, /builds get <name>\n\n" +
+                "Commands: /chat /skill /build /fix /model /override /defense /do /memory  ·  " +
+                    "/claude <problem>  ·  /builds, /builds get <name>\n\n" +
                     "Or just say it normally — the desktop works out what you mean and asks before anything destructive.",
                 true,
             )
