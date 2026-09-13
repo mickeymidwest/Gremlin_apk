@@ -34,6 +34,23 @@ models:
   # payoff run is the 7B on a rented GPU (deploy/CLOUD-FINETUNE.md). The
   # adapter still exists at data/finetunes/20260907-124946/ for reference.
 
+  # Second fine-tune attempt (2026-09-13): local Unsloth QLoRA, GPU-only,
+  # zero CPU offload -- the PIPELINE is proven safe on this box (real
+  # run, no crash, see deploy/LOCAL-FINETUNE.md), but the RESULT was
+  # A/B'd same-day against the plain base and unregistered: on a clean
+  # conversation it misrouted a plain "write me a function" request
+  # into an unwanted build_project offer (a regression -- the plain
+  # base answered it directly), and it confabulated "notes from our
+  # previous convo" on a freshly-cleared thread. Identity/personality
+  # were roughly a wash. Likely cause: only 107 training examples,
+  # heavy on scaffolding/battle transcripts relative to real
+  # conversation, biasing it toward "this is a build task." Worth
+  # retrying once data/conversations/ has accumulated more real usage
+  # (mickey's own back-and-forth, not cleared mid-session) -- the
+  # adapter + GGUF still exist at data/finetunes/local-unsloth/ to
+  # register again, same block shape, once a richer dataset justifies
+  # another run.
+
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   - name: gemini
     type: gemini
