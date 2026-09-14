@@ -299,8 +299,8 @@ def _confirmation_text(intent: Intent, original_message: str) -> str:
         name = a.get("name") or "a new folder"
         goal = a.get("goal") or original_message
         return (
-            f"I'd build this in ~/Downloads/{name}/: \"{goal}\". Two other models review it "
-            "before anything's written, and it's its own git repo so it's revertible either way. "
+            f"I'd build this in ~/Downloads/{name}/: \"{goal}\". No review step -- it writes "
+            "straight in, but it's its own git repo so it's revertible either way. "
             "Want me to go ahead?"
         )
     if intent.action == "run_command":

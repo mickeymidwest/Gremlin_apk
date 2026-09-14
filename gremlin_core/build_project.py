@@ -465,6 +465,7 @@ async def run_build(
     patch: Optional[str] = None,
     teacher_model: str = "gemini",
     used_teacher: bool = False,
+    skip_review: bool = False,
 ) -> dict:
     """Same propose -> two-reviewer gate -> apply pipeline as
     self_improve.run_self_edit, retargeted at an arbitrary new project
@@ -480,7 +481,15 @@ async def run_build(
     times if it fails -- `teacher_model` only steps in if they still
     can't produce anything usable, and that hand-off is logged as
     teaching material (see _log_teacher_assist) rather than becoming a
-    permanent crutch."""
+    permanent crutch.
+
+    `skip_review` (mickey, 2026-09-13): build_project only ever writes
+    to a throwaway ~/Downloads/<name>/ folder, its own revertible git
+    repo -- low stakes, unlike self_improve.run_self_edit rewriting
+    Gremlin's own live source, which keeps the review gate always on.
+    When True, the proposed patch is applied directly with no reviewer
+    calls at all (not even a rubber-stamp) -- faster, and doesn't burn
+    a review round on something mickey's fine deciding himself."""
     Path(target_root).mkdir(parents=True, exist_ok=True)
     bootstrap = _is_bootstrap(target_root)
 
@@ -501,18 +510,23 @@ async def run_build(
         except Exception:
             pass
 
-    fixer = model_names[0]
-    review_system = BOOTSTRAP_REVIEW_SYSTEM_PROMPT if bootstrap else review_mod.REVIEW_SYSTEM_PROMPT
-    revise_system = BOOTSTRAP_REVISE_SYSTEM_PROMPT if bootstrap else review_mod.REVISE_SYSTEM_PROMPT
-    outcome = await review_mod.review_and_revise(
-        router, patch, goal, reviewer_a=reviewer_a, reviewer_b=reviewer_b, fixer=fixer,
-        review_system=review_system, revise_system=revise_system,
-    )
-    review_history = [
-        {"reviewer": r.reviewer, "approved": r.approved, "feedback": r.feedback}
-        for r in outcome.history
-    ]
-    applied_by = f"{','.join(model_names)} (reviewed by {reviewer_a},{reviewer_b})"
+    if skip_review:
+        outcome = review_mod.ReviewOutcome(approved=True, patch=patch, rounds_used=0, history=[])
+        review_history: list[dict] = []
+        applied_by = f"{','.join(model_names)} (review skipped)"
+    else:
+        fixer = model_names[0]
+        review_system = BOOTSTRAP_REVIEW_SYSTEM_PROMPT if bootstrap else review_mod.REVIEW_SYSTEM_PROMPT
+        revise_system = BOOTSTRAP_REVISE_SYSTEM_PROMPT if bootstrap else review_mod.REVISE_SYSTEM_PROMPT
+        outcome = await review_mod.review_and_revise(
+            router, patch, goal, reviewer_a=reviewer_a, reviewer_b=reviewer_b, fixer=fixer,
+            review_system=review_system, revise_system=revise_system,
+        )
+        review_history = [
+            {"reviewer": r.reviewer, "approved": r.approved, "feedback": r.feedback}
+            for r in outcome.history
+        ]
+        applied_by = f"{','.join(model_names)} (reviewed by {reviewer_a},{reviewer_b})"
 
     if not outcome.approved:
         if not (allow_consult_override and consult_models):

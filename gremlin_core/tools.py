@@ -248,6 +248,21 @@ async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str,
     return {"answer": _fmt_exec(result), "action": "run_command", "ok": result.ok}
 
 
+def _last_review_feedback(result: dict[str, Any]) -> str:
+    """"Didn't apply it: gemini and qwen2.5-14b did not both approve
+    within 4 rounds" told mickey THAT it failed but never WHY -- the
+    real reviewer feedback was sitting unused in result["review_history"]
+    the whole time. Appends the last round's actual feedback text, if
+    there was any, so a rejection carries real information instead of
+    just a dead end."""
+    history = result.get("review_history") or []
+    for round_ in reversed(history):
+        feedback = (round_.get("feedback") or "").strip()
+        if feedback and not round_.get("approved"):
+            return f"\n\nLast feedback ({round_.get('reviewer', 'reviewer')}): {feedback}"
+    return ""
+
+
 async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
     goal = str(args.get("goal") or "").strip()
     if not goal:
@@ -272,7 +287,8 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
             "action": "self_edit",
             "ok": True,
         }
-    return {"answer": f"Didn't apply it: {result.get('reason')}", "action": "self_edit", "ok": False}
+    return {"answer": f"Didn't apply it: {result.get('reason')}{_last_review_feedback(result)}",
+            "action": "self_edit", "ok": False}
 
 
 async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
@@ -296,10 +312,17 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
     model_names = [primary_name] if primary_name else [
         n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"
     ]
-    reviewer_a, reviewer_b = _review_models(ctx)
+    # build_project only ever writes to this throwaway, revertible
+    # ~/Downloads/ folder (its own git repo) -- mickey (2026-09-13)
+    # decided the two-reviewer gate isn't worth the friction here, only
+    # for self_edit (Gremlin rewriting its own live source, which keeps
+    # it). teacher_model is unrelated to review -- it's the fallback
+    # proposer when the local model(s) can't produce anything usable --
+    # so it still reuses the same "best available" pick.
+    teacher_model, _ = _review_models(ctx)
     result = await build_project.run_build(
         ctx.router, ctx.project_root, target_root, goal, model_names,
-        reviewer_a=reviewer_a, reviewer_b=reviewer_b, teacher_model=reviewer_a,
+        teacher_model=teacher_model, skip_review=True,
         consult_models=ctx.registry.consult_models(),
     )
     if result.get("applied") and result.get("committed"):
