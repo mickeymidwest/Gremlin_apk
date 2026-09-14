@@ -322,7 +322,15 @@ def _confirmation_text(intent: Intent, original_message: str) -> str:
 # proposed, so pending intents are stored per conversation and expire --
 # a "yeah do it" twenty minutes after the fact almost certainly refers to
 # something else, and executing a stale reboot then would be awful.
-_PENDING_TTL_SECONDS = 300.0
+# Confirmed live 2026-09-13: a real "should I build this?" proposal sat
+# for 7m15s before mickey replied "yes" -- past the old 300s (5min)
+# window, so his confirmation silently expired and fell through to
+# ordinary chat instead of actually running the build. The model then
+# improvised "Alright, let's get this done!" (nothing had started) and
+# later fabricated "Yeah, I finished it" when asked -- a real, ordinary
+# human decision-making pace broke the whole confirmation flow. 30
+# minutes is a much more realistic window for "let me think about it".
+_PENDING_TTL_SECONDS = 1800.0
 
 _AFFIRMATIVE = re.compile(
     r"^\s*(y|ya|yes+|yeah|yep|yup|sure|ok|okay|do it|go|go ahead|please do|"
@@ -365,6 +373,18 @@ class PendingConfirmations:
 
 def is_affirmative(message: str) -> bool:
     return bool(_AFFIRMATIVE.match(message or ""))
+
+
+def is_bare_affirmative(message: str) -> bool:
+    """True only for a confirmation with nothing else riding on it --
+    "yes", "do it", "sure." -- not "yes build it now" (that carries
+    enough of its own content that classify() should get a real shot
+    at it as a standalone request). Used to catch a "yes" that arrives
+    with NOTHING pending to confirm (expired, or never asked) so it
+    gets an honest answer instead of falling through to ordinary chat,
+    which has nothing real to say and will improvise something that
+    sounds like progress but isn't."""
+    return bool(_AFFIRMATIVE.fullmatch((message or "").strip()))
 
 
 def is_negative(message: str) -> bool:

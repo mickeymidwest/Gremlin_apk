@@ -529,6 +529,18 @@ def create_app(
             # and drop the stale proposal, rather than half-remembering
             # something the user has clearly moved on from.
             pending_confirmations.clear(key)
+        elif intent_mod.is_bare_affirmative(message):
+            # A bare "yes"/"do it" with NOTHING pending to confirm --
+            # either it already expired or nothing was ever proposed.
+            # Confirmed live 2026-09-13: this fell through to ordinary
+            # chat, which improvised "Alright, let's get this done!"
+            # and started nothing at all, then later fabricated "Yeah,
+            # I finished it" when asked. Say the truth instead.
+            return _chat_reply(
+                "I don't have anything pending to confirm right now -- if you "
+                "meant to say yes to something, it may have expired, or I "
+                "never actually asked. What do you want me to do?"
+            )
 
         # A slow/failed classification (timeout, or the primary erroring)
         # must never crash the whole request -- this check is a courtesy
@@ -942,11 +954,14 @@ def create_app(
         allow_consult_override = bool(body.get("allow_consult_override", False))
 
         model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+        from . import tools as tools_mod
+        reviewer_a, reviewer_b = tools_mod._review_models(
+            tools_mod.ExecContext(router=router, registry=registry, project_root=str(project_root)))
         result = run_coro(
             loop,
             self_improve.run_self_edit(
                 router, str(project_root), goal, model_names,
-                reviewer_a="gemini", reviewer_b="gemini", run_tests=run_tests,
+                reviewer_a=reviewer_a, reviewer_b=reviewer_b, run_tests=run_tests,
                 allow_consult_override=allow_consult_override,
                 consult_models=registry.consult_models(),
             ),

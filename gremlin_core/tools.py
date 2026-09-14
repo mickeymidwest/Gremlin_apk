@@ -96,6 +96,40 @@ def _review_model(ctx: "ExecContext") -> str:
     return ctx.registry.primary_model_name() or "gemini"
 
 
+def _review_models(ctx: "ExecContext") -> tuple[str, str]:
+    """Two GENUINELY DIFFERENT reviewers for a build/self-edit patch.
+
+    Before this, _tool_self_edit/_tool_build_project called _review_model()
+    once and passed the SAME name as both reviewer_a and reviewer_b --
+    the build pipeline's own API has two reviewer slots, but wiring them
+    to one model meant "two reviewers" was really one opinion counted
+    twice, not two independent checks. Confirmed live 2026-09-13: mickey
+    caught Gremlin telling him "two other models review it" and asked
+    whether that was actually true.
+
+    No GPT here on purpose (mickey, same conversation): he doesn't want
+    a running API cost for this, and if he ever does pay for one it's to
+    stop using Claude, not to review Gremlin's own homework. So the
+    second reviewer is the biggest distinct LOCAL model instead --
+    qwen2.5-14b, already kept registered specifically for build/fix
+    battles "where agentic capability matters more than latency." Costs
+    a model swap (VRAM governor unloads/reloads around it, same as any
+    other battle), not a subscription.
+
+    Degrades to one real reviewer counted twice only when nothing else
+    distinct is actually available (e.g. gemini down AND qwen2.5-14b
+    unregistered) -- an honest fallback, not a silent lie about it."""
+    candidates = [n for n in ("gemini", "qwen2.5-14b") if ctx.registry.get(n) is not None]
+    primary = ctx.registry.primary_model_name()
+    if primary and primary not in candidates:
+        candidates.append(primary)
+    if not candidates:
+        return "gemini", "gemini"
+    if len(candidates) == 1:
+        return candidates[0], candidates[0]
+    return candidates[0], candidates[1]
+
+
 def _fmt_exec(result: SandboxResult) -> str:
     """One shape for both sandboxed and root command output -- mirrors
     what the /admin/execute route already returns to the phone."""
@@ -219,10 +253,10 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     if not goal:
         return {"answer": "What do you want me to change about myself?", "action": "self_edit", "ok": False}
     model_names = [n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"]
-    reviewer = _review_model(ctx)
+    reviewer_a, reviewer_b = _review_models(ctx)
     result = await self_improve.run_self_edit(
         ctx.router, ctx.project_root, goal, model_names,
-        reviewer_a=reviewer, reviewer_b=reviewer,
+        reviewer_a=reviewer_a, reviewer_b=reviewer_b,
         run_tests=True,
         consult_models=ctx.registry.consult_models(),
     )
@@ -262,10 +296,10 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
     model_names = [primary_name] if primary_name else [
         n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"
     ]
-    reviewer = _review_model(ctx)
+    reviewer_a, reviewer_b = _review_models(ctx)
     result = await build_project.run_build(
         ctx.router, ctx.project_root, target_root, goal, model_names,
-        reviewer_a=reviewer, reviewer_b=reviewer, teacher_model=reviewer,
+        reviewer_a=reviewer_a, reviewer_b=reviewer_b, teacher_model=reviewer_a,
         consult_models=ctx.registry.consult_models(),
     )
     if result.get("applied") and result.get("committed"):
