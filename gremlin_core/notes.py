@@ -85,6 +85,18 @@ def load_memory_notes(root: str, max_chars: int = 6000) -> str:
 
 
 def remember_fact(root: str, text: str) -> None:
+    """Append one fact/instruction, `- [timestamp] text`, one line.
+
+    Confirmed live 2026-09-15: "remember that" (see
+    is_remember_last_reply_command) once saved a multi-paragraph web
+    search result verbatim. Every line after the first had no `- [...]`
+    prefix at all, so /memory forget (which only recognizes fact-START
+    lines) could remove the first line and leave the rest stranded in
+    the file forever -- orphaned raw text with no tag, sitting in
+    context on every future prompt. Collapsing embedded newlines to
+    spaces here means a fact can ALWAYS be found and removed as one
+    complete unit, no matter what produced it."""
+    text = " ".join((text or "").split())
     path = memory_file_path(root)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     stamp = time.strftime("%Y-%m-%d %H:%M")
@@ -223,14 +235,29 @@ def note_already_saved(root: str, note: str) -> bool:
     return _normalize_note(note) in _normalize_note(existing)
 
 
-# a weak model sometimes "extracts" its own reply or a paraphrase of the
-# ask instead of a durable third-person fact -- reject those shapes.
+# A weak model sometimes just continues the conversation instead of
+# extracting a durable third-person fact -- reject those shapes. This
+# blocklist alone was NOT enough: confirmed live 2026-09-15, gremlin_
+# memory.txt had accumulated a dozen entries that were plainly
+# Gremlin's own small-talk ("Whoa, sorry about that! I'm Gremlin, by
+# the way.", "No worries, dude! I got it. So, what's up?", "So, what's
+# on your mind?") saved as if they were facts, because none of them
+# happened to start with one of these specific prefixes. See
+# parse_autonote's extra structural checks below for the real fix.
 _BAD_AUTONOTE = re.compile(
     r"^(i'?m |i'?ll |i will |i can |i'?ve |let me |sure|okay|got it|on it|"
     r"you'?re (trying|looking|asking|working)|you want|the user (wants|is|asked)|"
-    r"here'?s |this is a )",
+    r"here'?s |this is a |whoa|no worries|fair enough|alright,?\s|not gonna\b)",
     re.IGNORECASE,
 )
+
+# A real third-person fact is phrased ABOUT the user ("User's ..." /
+# "Mickey ..." -- every genuine entry in gremlin_memory.txt already
+# follows this, it's literally what _AUTONOTE_SYSTEM's own example
+# shows). Small talk essentially never does. Requiring it is a much
+# stronger signal than trying to blocklist every possible chatty
+# opener.
+_MENTIONS_USER = re.compile(r"\b(user|mickey)\b", re.IGNORECASE)
 
 
 def parse_autonote(raw: str) -> Optional[str]:
@@ -241,6 +268,34 @@ def parse_autonote(raw: str) -> Optional[str]:
     if not text or text.upper().startswith("NONE") or len(text) < 4:
         return None
     if _BAD_AUTONOTE.match(text):
+        return None
+    # A real fact is never phrased as a question back at the user --
+    # this alone caught most of the small-talk that slipped through
+    # the prefix blocklist above.
+    if "?" in text:
+        return None
+    if not _MENTIONS_USER.search(text):
+        return None
+    return text
+
+
+def parse_correction(raw: str) -> Optional[str]:
+    """Same job as parse_autonote, for a behavioral instruction rather
+    than a fact about the user -- kept separate because the shape is
+    legitimately different: "Curse naturally when asked" is a real,
+    correctly-extracted instruction that does NOT mention "user" or
+    "mickey" at all, so parse_autonote's _MENTIONS_USER requirement
+    would wrongly reject it. Still rejects the same chatty-opener
+    shapes and any question, since neither is ever a real instruction."""
+    if not raw:
+        return None
+    text = raw.strip().strip('"').strip()
+    text = text.splitlines()[0].strip() if text else ""
+    if not text or text.upper().startswith("NONE") or len(text) < 4:
+        return None
+    if _BAD_AUTONOTE.match(text):
+        return None
+    if "?" in text:
         return None
     return text
 
@@ -300,7 +355,15 @@ _AUTOCORRECTION_SYSTEM = (
     "answers short unless asked for more detail\"). Reply with ONLY the "
     "instruction, or exactly NONE if there's no real behavioral correction here "
     "(a question, a one-off request, or praise is NOT a correction). No preamble, "
-    "no quotes."
+    "no quotes.\n\n"
+    "Get the DIRECTION right -- this is the part that's gone wrong before. If the "
+    "user is complaining that Gremlin already keeps doing something (lecturing, "
+    "correcting their tone, being preachy, policing their language), the "
+    "instruction is to STOP that -- never write an instruction telling Gremlin to "
+    "keep doing the thing the user is complaining about. Example: user says \"why "
+    "do you keep telling me how to talk, I talk how I talk\" -> correct extraction "
+    "is \"Don't correct or comment on the user's language/tone/slang -- let them "
+    "talk how they talk\", NOT an instruction about proper language or tone."
 )
 
 
@@ -324,7 +387,7 @@ async def maybe_autosave_correction(backend, message: str, root: str) -> Optiona
         return None
     if not getattr(result, "ok", True):
         return None
-    note = parse_autonote(getattr(result, "text", ""))
+    note = parse_correction(getattr(result, "text", ""))
     if not note or note_already_saved(root, note):
         return None
     remember_fact(root, f"[behavior] {note}")
