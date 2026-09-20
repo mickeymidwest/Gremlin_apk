@@ -103,3 +103,37 @@ def test_ground_keeps_first_if_retry_no_better(tmp_path):
 def test_caveat_string():
     assert grounding.caveat([]) == ""
     assert "Heads up" in grounding.caveat(["refers to `x.py`"])
+
+
+def test_flags_real_mid_action_claim(tmp_path):
+    r = _repo(tmp_path)
+    out = grounding.check(
+        "Mickey, I am restarting the robofuse container now, hang on.", r)
+    assert any("restarting" in f for f in out)
+
+
+def test_flags_real_action_with_object(tmp_path):
+    r = _repo(tmp_path)
+    out = grounding.check(
+        "I am running the test suite right now to check it.", r)
+    assert any("running" in f for f in out)
+
+
+def test_ignores_self_description_running_on(tmp_path):
+    """Real false positive found live 2026-09-20 (mickey: "it stoped and
+    hung mid reply"): Gremlin's real reply said "That's where I'm
+    running, and I'll give you a straight answer" -- describing what it
+    runs ON TOP OF (Magic), not claiming to be mid-action. The verb
+    alone used to be enough to flag it; now it needs an object right
+    after, not a clause boundary or "on"."""
+    r = _repo(tmp_path)
+    txt = ("So, Magic is the codebase maintained by Claude, right? "
+           "That's where I'm running, and I'll give you a straight answer.")
+    assert grounding.check(txt, r) == []
+
+
+def test_ignores_running_on_hardware_description(tmp_path):
+    r = _repo(tmp_path)
+    out = grounding.check(
+        "I'm running on Manjaro Linux with an RTX 2070 Super.", r)
+    assert out == []

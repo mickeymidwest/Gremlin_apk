@@ -66,7 +66,16 @@ _ACTION_PROGRESS_RE = re.compile(
     r"\bi(?:'m| am) (?:already |just )?"
     r"(?:checking|verifying|confirming|testing|reviewing|inspecting|examining"
     r"|looking (?:at|into|over)|searching|fetching|downloading|executing|running"
-    r"|restarting|installing|fixing|building|writing|creating|setting up)\b",
+    r"|restarting|installing|fixing|building|writing|creating|setting up)\b"
+    # Real false positive found live 2026-09-20 (mickey: "it stoped and
+    # hung mid reply"): "That's where I'm running" (Gremlin describing
+    # what it runs ON TOP OF -- Magic/this desktop) matched the same as
+    # "I'm running the tests" (an actual mid-action claim). The verb
+    # alone isn't the tell; a genuine action claim has an object right
+    # after it. Exclude the stative "I'm running on X" / "I'm running,"
+    # / "I'm running." shape -- no object follows, just a location or a
+    # clause boundary.
+    r"(?!\s*(?:on\b|here\b|,|\.|$))",
     re.IGNORECASE)
 
 # repo-relative only: a leading / or a system prefix means "not claiming a
