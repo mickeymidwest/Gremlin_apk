@@ -2,7 +2,7 @@ id: seed_24
 name: binary-recon
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: first pass on an unknown native binary -- what it is and where the attack surface
   is
 trigger_when: reversing an ELF / Mach-O / PE, or handed a binary to analyze
@@ -21,9 +21,9 @@ provenance:
 - seed
 created: 1788803179.1005278
 record:
-  uses: 66
+  uses: 67
   wins: 59
-  losses: 7
+  losses: 8
   score_deltas:
   - 1.0
   - 0.0
@@ -91,5 +91,6 @@ record:
   - 1.0
   - 1.0
   - 0.0
-  last_used_battle: battle_0002_tlvfuzz
-  battles_available: 36
+  - -1.0
+  last_used_battle: battle_0003_tlvfuzz
+  battles_available: 37

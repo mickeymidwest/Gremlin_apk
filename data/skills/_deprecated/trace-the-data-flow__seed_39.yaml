@@ -1,6 +1,6 @@
 id: seed_39
 name: trace-the-data-flow
-status: active
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: follow one value from where it enters to where it's used -- bugs live on that path
@@ -19,9 +19,9 @@ provenance:
 - seed
 created: 1788816592.0633492
 record:
-  uses: 25
+  uses: 26
   wins: 10
-  losses: 10
+  losses: 11
   score_deltas:
   - 0.5
   - 0.2
@@ -48,5 +48,6 @@ record:
   - 0.0
   - 0.0
   - 0.0
-  last_used_battle: battle_0004_csvreport
-  battles_available: 7
+  - 0.0
+  last_used_battle: battle_0005_convert
+  battles_available: 8
