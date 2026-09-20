@@ -328,7 +328,25 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     goal = str(args.get("goal") or "").strip()
     if not goal:
         return {"answer": "What do you want me to change about myself?", "action": "self_edit", "ok": False}
-    model_names = [n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"]
+    # Just the primary, not every registered model -- confirmed live
+    # 2026-09-20: propose_patch() broadcasts to every name in this list
+    # (2 local GGUFs, each needing its own VRAM swap, plus 2 API calls),
+    # THEN does a SEPARATE model call to merge all 4 proposals into one
+    # diff -- repeated up to 3 times before falling back to a teacher
+    # call. A real test with a small, well-specified goal was still
+    # stuck 20+ minutes in before this fix, with zero successful
+    # self-edits anywhere in this project's actual history (no
+    # "self-improve (...)" commit, no gremlin@localhost committer, ever).
+    # build_project's own call site already had this exact fix (see its
+    # own comment: "broadcasting... would mean loading each one in turn
+    # ... the same 'took hours' problem") -- it just never got ported
+    # to self_edit until now. The two-reviewer gate right below is the
+    # real quality check; the proposal itself doesn't need to also be
+    # an ensemble.
+    primary_name = ctx.registry.primary_model_name()
+    model_names = [primary_name] if primary_name else [
+        n for n in ctx.registry.names() if ctx.registry.get(n).info.kind != "persona"
+    ]
     reviewer_a, reviewer_b = _review_models(ctx)
     result = await self_improve.run_self_edit(
         ctx.router, ctx.project_root, goal, model_names,

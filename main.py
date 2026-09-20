@@ -885,11 +885,21 @@ async def cmd_auto_fix(registry: ModelRegistry, router: Router):
         print("Cancelled -- nothing to do.")
         return
 
-    model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+    # Just the primary -- see tools.py's _tool_self_edit for why
+    # (broadcasting to every registered model, incl. a VRAM-swapping
+    # second local GGUF plus a merge call, is what had a real self-edit
+    # test still running 20+ minutes in; fixed 2026-09-20).
+    primary_name = registry.primary_model_name()
+    model_names = [primary_name] if primary_name else [
+        n for n in registry.names() if registry.get(n).info.kind != "persona"
+    ]
     print(f"Using: {', '.join(model_names)}")
+    from gremlin_core import tools as tools_mod
+    reviewer_a, reviewer_b = tools_mod._review_models(
+        tools_mod.ExecContext(router=router, registry=registry, project_root=str(PROJECT_ROOT)))
     run_tests_input = input("Also run pytest before committing? (y/N): ").strip().lower()
     override_input = input(
-        "If gemini/deepseek-r1-distill-8b don't both approve, allow the 4 local consult models "
+        f"If {reviewer_a}/{reviewer_b} don't both approve, allow the 4 local consult models "
         "to approve it instead if they unanimously agree? (y/N): "
     ).strip().lower()
     teach_input = input(
@@ -903,7 +913,7 @@ async def cmd_auto_fix(registry: ModelRegistry, router: Router):
     # are both opt-in per run, never silent.
     await cmd_improve(
         router, model_names, goal, do_apply=True, run_tests=(run_tests_input == "y"),
-        reviewer_a="gpt-oss-20b", reviewer_b="deepseek-r1-distill-8b",
+        reviewer_a=reviewer_a, reviewer_b=reviewer_b,
         allow_consult_override=(override_input == "y"),
         teach_on_failure=(teach_input == "y"), teacher_model="gemini",
         consult_models=registry.consult_models(),
@@ -1083,8 +1093,15 @@ async def main():
             run_tests = "--test" in extra_args
             allow_consult_override = "--allow-consult-override" in extra_args
             teach_on_failure = "--teach-on-failure" in extra_args
-            reviewer_a = "gpt-oss-20b"
-            reviewer_b = "deepseek-r1-distill-8b"
+            # Defaults matching tools.py's _review_models(): gpt-oss-20b/
+            # deepseek-r1-distill-8b were pruned from config/models.yaml
+            # in the 5-model migration and no longer exist -- using them
+            # as a default here would hard-error the whole command
+            # unless a caller always remembers to override both with
+            # --reviewer-a=/--reviewer-b=.
+            from gremlin_core import tools as tools_mod
+            reviewer_a, reviewer_b = tools_mod._review_models(
+                tools_mod.ExecContext(router=router, registry=registry, project_root=str(PROJECT_ROOT)))
             teacher_model = "gemini"
             for arg in extra_args:
                 if arg.startswith("--reviewer-a="):

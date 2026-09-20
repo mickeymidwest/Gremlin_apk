@@ -954,7 +954,15 @@ def create_app(
         run_tests = bool(body.get("run_tests", True))
         allow_consult_override = bool(body.get("allow_consult_override", False))
 
-        model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+        # Just the primary -- see tools.py's _tool_self_edit for why
+        # (broadcasting the proposal to every registered model, incl. a
+        # VRAM-swapping second local GGUF, is what had a real self-edit
+        # test still running 20+ minutes in; fixed there 2026-09-20,
+        # this route had the identical bug).
+        primary_name = registry.primary_model_name()
+        model_names = [primary_name] if primary_name else [
+            n for n in registry.names() if registry.get(n).info.kind != "persona"
+        ]
         from . import tools as tools_mod
         reviewer_a, reviewer_b = tools_mod._review_models(
             tools_mod.ExecContext(router=router, registry=registry, project_root=str(project_root)))
