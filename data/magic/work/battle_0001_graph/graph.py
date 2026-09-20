@@ -18,7 +18,7 @@ class Graph:
         return list(self._adj.get(u, []))
 
     def nodes(self) -> set[str]:
-        return set(self._adj)
+        return self.nodes()
 
     def bfs_path(self, start: str, goal: str) -> list[str] | None:
         """Shortest path (fewest edges) from start to goal as a list of
