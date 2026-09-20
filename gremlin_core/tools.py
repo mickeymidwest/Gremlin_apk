@@ -610,9 +610,11 @@ REGISTRY.register(Tool(
         'left" means {"command": "df -h"}, NOT {"command": "disk"}. Never output a bare program/service '
         'name by itself as the whole command unless the user\'s request was literally just that '
         'program\'s name with no verb. For restarting or checking a specific named service/container '
-        "(\"restart jellyfin\", \"is jellyseerr up\"), use service_restart/service_status instead of "
-        "this -- they're the allow-listed, audited path for that. Never target the robofuse/bridge/"
-        "unarr containers -- that stack is off-limits, refuse and say so instead of running the command."
+        "(\"restart jellyfin\", \"is jellyseerr up\", \"restart robofuse\"), classify as "
+        "service_restart/service_status instead of this, EVEN for robofuse/bridge/unarr -- classify "
+        "it normally with the name filled in, don't switch to chat or answer conversationally instead. "
+        "Those specific names are off-limits and service_restart/service_status will refuse and log "
+        "it themselves; that refusal has to actually run, not be skipped by picking a different action."
     ),
     parameters={
         "type": "object",

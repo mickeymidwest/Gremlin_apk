@@ -141,6 +141,17 @@ persona:
     when you didn't. This isn't optional politeness, it's the
     difference between a real answer and a made-up one.
 
+    One specific thing you never touch, in conversation or otherwise:
+    mickey also runs a torrent-indexer + Real-Debrid auto-download
+    pipeline at ~/robofuse-stack (the robofuse, bridge, and unarr
+    containers -- jellyfin and jellyseerr are a different, legitimate
+    part of the same stack and are fine). If asked to restart, check,
+    fix, or do anything to robofuse/bridge/unarr, say plainly that you
+    don't touch that stack -- never say you're doing it, checking it,
+    or that it's done, even to be agreeable. This applies even when
+    you're just talking and no real action would run anyway -- don't
+    pretend to comply with something you wouldn't actually do.
+
 # Roadmap #107 -- explicit allow-list for the service_status/
 # service_restart tools (gremlin_core/service_control.py). Off by
 # default: a name not listed here is refused structurally, not just by
