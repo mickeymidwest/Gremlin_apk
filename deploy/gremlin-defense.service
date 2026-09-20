@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily Gremlin defense report
+
+[Service]
+Type=oneshot
+# Filled in by hand, same two lines as gremlin.service/gremlin-update.service.
+WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/venv/bin/python -c "from gremlin_core.magic import defense; path, flagged = defense.write_report('.', repo_for_secrets='.'); print(f'wrote {path}' + (' -- FLAGGED, see /admin/defense or the file itself' if flagged else ' -- nothing flagged'))"

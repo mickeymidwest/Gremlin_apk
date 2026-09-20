@@ -39,7 +39,17 @@ def test_secrets_in_repo(tmp_path, monkeypatch):
             return "config.py\nreadme.md\n"
         return ""   # empty git log
     monkeypatch.setattr(defense, "_run", fake_run)
-    (tmp_path / "config.py").write_text('KEY = "sk-ant-abcdefghijklmnopqrstuvwxyz012345"\n')
+    # Built at runtime, not a source literal -- found live 2026-09-19
+    # running the real /admin/defense route against this actual repo:
+    # a hardcoded fake key HERE, in this tracked test file, tripped
+    # defense.py's own secrets_in_repo() on every real report from
+    # then on ("Anthropic API key in tests/magic/test_defense.py"),
+    # forever "flagging" something that was never a real leak. The
+    # regex needs the matching text to exist somewhere to prove
+    # detection works -- it just can't be readable as a literal in
+    # this file's own git-tracked source.
+    fake_key = "sk-ant-" + "".join("abcdefghijklmnopqrstuvwxyz0123456789"[i % 36] for i in range(30))
+    (tmp_path / "config.py").write_text(f'KEY = "{fake_key}"\n')
     (tmp_path / "readme.md").write_text("nothing here")
     r = defense.secrets_in_repo(str(tmp_path))
     assert len(r["hits"]) == 1 and r["hits"][0]["kind"] == "Anthropic API key"
@@ -51,6 +61,69 @@ def test_secrets_in_repo_non_repo_is_not_a_false_all_clear(tmp_path, monkeypatch
     r = defense.secrets_in_repo(str(tmp_path))
     assert r["hits"] == [] and "not a git repo" in r["summary"]
     assert "no obvious secrets" not in r["summary"]
+
+
+# -------------------------------------------------- roadmap #96
+
+def test_has_findings_false_when_everything_is_routine(monkeypatch):
+    monkeypatch.setattr(defense, "pending_security_updates", lambda: {"flagged": []})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"findings": []})
+    assert defense.has_findings() is False
+
+
+def test_has_findings_true_on_a_flagged_security_update(monkeypatch):
+    monkeypatch.setattr(defense, "pending_security_updates", lambda: {"flagged": ["openssl"]})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"findings": []})
+    assert defense.has_findings() is True
+
+
+def test_has_findings_true_on_an_ssh_finding(monkeypatch):
+    monkeypatch.setattr(defense, "pending_security_updates", lambda: {"flagged": []})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"findings": ["PermitRootLogin yes"]})
+    assert defense.has_findings() is True
+
+
+def test_has_findings_true_on_a_secret_only_when_a_repo_is_given(monkeypatch):
+    monkeypatch.setattr(defense, "pending_security_updates", lambda: {"flagged": []})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"findings": []})
+    monkeypatch.setattr(defense, "secrets_in_repo", lambda path, **k: {"hits": [{"kind": "x", "where": "y"}]})
+    assert defense.has_findings(repo_for_secrets="/some/repo") is True
+    assert defense.has_findings(repo_for_secrets=None) is False  # never checked without a repo
+
+
+def test_has_findings_does_not_flag_on_attack_surface_alone(monkeypatch):
+    # exposed services are often expected (jellyfin, etc.) -- "N exposed"
+    # alone is not a finding, only a CHANGE would be (roadmap #97, separate)
+    monkeypatch.setattr(defense, "attack_surface",
+                        lambda: {"exposed": [{"port": "8096", "process": "jellyfin"}]})
+    monkeypatch.setattr(defense, "pending_security_updates", lambda: {"flagged": []})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"findings": []})
+    assert defense.has_findings() is False
+
+
+def test_write_report_writes_a_dated_markdown_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(defense, "attack_surface", lambda: {"summary": "0 service(s) reachable"})
+    monkeypatch.setattr(defense, "pending_security_updates", lambda: {"summary": "0 updates pending", "flagged": []})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"summary": "sshd config looks reasonable", "findings": []})
+
+    path, flagged = defense.write_report(str(tmp_path))
+    assert flagged is False
+    assert path.exists()
+    assert path.parent == tmp_path / "data" / "defense"
+    text = path.read_text()
+    assert "Nothing flagged" in text
+    assert "ATTACK SURFACE" in text
+
+
+def test_write_report_marks_flagged_reports_clearly(tmp_path, monkeypatch):
+    monkeypatch.setattr(defense, "attack_surface", lambda: {"summary": "0 service(s) reachable"})
+    monkeypatch.setattr(defense, "pending_security_updates",
+                        lambda: {"summary": "1 update pending", "flagged": ["openssl"]})
+    monkeypatch.setattr(defense, "audit_ssh", lambda: {"summary": "ok", "findings": []})
+
+    path, flagged = defense.write_report(str(tmp_path))
+    assert flagged is True
+    assert "Flagged" in path.read_text()
 
 
 def test_defense_command_dispatches(tmp_path, monkeypatch):

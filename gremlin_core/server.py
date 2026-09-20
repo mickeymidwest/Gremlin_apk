@@ -1138,6 +1138,28 @@ def create_app(
             "busy": state_machine.state.value != "idle",
         })
 
+    @app.route("/admin/defense", methods=["GET"])
+    def admin_defense():
+        """Roadmap #96 -- the app-facing half of gremlin-defense.timer.
+        Reads the most recent data/defense/<date>.md the timer already
+        wrote (or generates one on the spot if none exists yet, e.g.
+        right after a fresh install before the timer's first run) and
+        returns its text plus a `flagged` boolean -- this is what a
+        badge in the app would poll instead of parsing markdown."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+        from .magic import defense as defense_mod
+        defense_dir = project_root / "data" / "defense"
+        latest = max(defense_dir.glob("*.md"), default=None, key=lambda p: p.name) \
+            if defense_dir.is_dir() else None
+        if latest is None:
+            path, flagged = defense_mod.write_report(str(project_root), repo_for_secrets=str(project_root))
+            latest = path
+        else:
+            flagged = "**Flagged" in latest.read_text()
+        return jsonify({"date": latest.stem, "flagged": flagged, "report": latest.read_text()})
+
     return app
 
 

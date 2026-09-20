@@ -237,8 +237,13 @@ instead of waiting on that decision — see its note below.
 
 ## I. Defense — own-box security  (96–100)
 
-96. **[P1]** `/defense report` on a schedule — a `gremlin-defense.timer` writes
-    `data/defense/<date>.md`; the app shows a badge if anything new is flagged.
+96. **[done]** ~~`/defense report` on a schedule~~ — `gremlin-defense.timer`
+    (04:00 daily) writes `data/defense/<date>.md` via `defense.write_report()`.
+    `GET /admin/defense` serves the latest + a `flagged` bool for an app
+    badge — badge UI itself not built (that's an Android app change, not
+    the harness backend). `flagged` is real findings (security updates,
+    sshd, secrets) only, deliberately not attack-surface count alone — see
+    #97 for the "changed since yesterday" signal that would actually need.
 97. **[P2]** Baseline diff — "attack surface changed since yesterday: port
     9091 now listening (transmission)". Store yesterday's `attack_surface()`.
 98. **[P2]** journald anomaly summary — count log lines per unit per hour, flag

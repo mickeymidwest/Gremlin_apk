@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import time
 from pathlib import Path
 
 _KEY_PATTERNS = [
@@ -166,3 +167,42 @@ def report(repo_for_secrets: str | None = None) -> str:
     if repo_for_secrets:
         parts.append("SECRETS\n  " + secrets_in_repo(repo_for_secrets)["summary"])
     return "\n".join(parts)
+
+
+def has_findings(repo_for_secrets: str | None = None) -> bool:
+    """Roadmap #96 -- whether this run's report has anything actually
+    worth mickey's attention, as opposed to routine/expected state.
+    Deliberately excludes attack_surface(): jellyfin et al. are
+    SUPPOSED to be reachable from the LAN, so "N services exposed"
+    alone isn't a finding -- "exposed set CHANGED since yesterday"
+    would be (that's #97's baseline-diff, a separate item), not
+    something this function can know from one point-in-time check."""
+    updates = pending_security_updates()
+    if updates.get("flagged"):
+        return True
+    if audit_ssh()["findings"]:
+        return True
+    if repo_for_secrets and secrets_in_repo(repo_for_secrets)["hits"]:
+        return True
+    return False
+
+
+def write_report(root: str, repo_for_secrets: str | None = None) -> tuple[Path, bool]:
+    """Writes data/defense/<date>.md, returns (path, flagged). Roadmap
+    #96 -- gremlin-defense.timer calls this daily; flagged is what a
+    caller (the app, a log line) uses to decide whether to make noise
+    about it."""
+    out_dir = Path(root) / "data" / "defense"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    date = time.strftime("%Y-%m-%d")
+    path = out_dir / f"{date}.md"
+    flagged = has_findings(repo_for_secrets)
+    body = (
+        f"# Defense report -- {date}\n\n"
+        + ("**Flagged: something here is worth a look.**\n\n" if flagged
+           else "Nothing flagged -- routine state.\n\n")
+        + report(repo_for_secrets=repo_for_secrets)
+        + "\n"
+    )
+    path.write_text(body)
+    return path, flagged

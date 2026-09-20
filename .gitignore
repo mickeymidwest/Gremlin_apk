@@ -74,3 +74,10 @@ data/zoid_stop
 # by re-running the battle, not backup-worthy.
 data/magic/episodes/
 unsloth_compiled_cache/
+
+# Daily defense reports (roadmap #96): open ports, unpatched CVEs,
+# sshd hardening gaps. Real host security posture -- never belongs in
+# git history, pushed to a remote or not. Regenerated daily anyway, so
+# nothing lost by not tracking it; the weekly backup (#74) doesn't
+# include this directory either, same reasoning.
+data/defense/

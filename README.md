@@ -804,6 +804,23 @@ systemctl --user enable --now gremlin-backup.timer
 Check it: `systemctl --user status gremlin-backup.timer`, or run
 `deploy/backup.sh` directly for an on-demand backup.
 
+### Defense report (roadmap #96)
+
+Daily attack-surface/updates/sshd/secrets check, written to
+`data/defense/<date>.md`. `GET /admin/defense` (admin token) returns
+the latest one plus a `flagged` boolean, for an app badge or just
+checking from your phone.
+```bash
+cp deploy/gremlin-defense.service ~/.config/systemd/user/gremlin-defense.service
+sed -i "s|/home/YOUR_USERNAME/Downloads/gremlin|$(pwd)|g" \
+    ~/.config/systemd/user/gremlin-defense.service
+cp deploy/gremlin-defense.timer ~/.config/systemd/user/gremlin-defense.timer
+systemctl --user daemon-reload
+systemctl --user enable --now gremlin-defense.timer
+```
+Check it: `systemctl --user status gremlin-defense.timer`, or `/defense
+report` in chat for an on-demand check.
+
 ## Desktop hologram widget
 
 ```bash
