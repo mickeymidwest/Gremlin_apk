@@ -39,7 +39,7 @@ def test_top_product_none_when_empty():
 
 
 def test_average_price_is_mean_of_that_products_rows():
-    # gadget rows: 10.00 and 9.00 -> 9.50
+    # gadget rows: 10.00 and 9.00 -> pytest.approx(9.5)
     assert average_price(parse(CSV), "gadget") == pytest.approx(9.50)
 
 
