@@ -28,7 +28,7 @@ def truncate(text: str, limit: int) -> str:
     RESULT (including the ellipsis) is exactly `limit` chars. Otherwise
     return text unchanged.
     """
-    if text.length() <= limit:
+    if len(text) <= limit:
         return text
     return text[:limit] + "…"
 
