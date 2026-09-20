@@ -2,7 +2,7 @@ id: seed_93
 name: kotlin-stdlib-that-exists
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: don't invent Kotlin functions -- use the real collection/return idioms
 trigger_when: writing Kotlin that iterates, indexes, or builds a collection
 trigger_matcher: \.kt\b|kotlin|allIndexed|anyIndexed|Unresolved reference|forEachIndexed|mutableListOf|MutableList|withIndex
@@ -21,9 +21,9 @@ provenance:
 - seed
 created: 1788922860.0785706
 record:
-  uses: 68
-  wins: 68
-  losses: 0
+  uses: 70
+  wins: 69
+  losses: 1
   score_deltas:
   - 0.7364
   - 1.0
@@ -93,5 +93,7 @@ record:
   - 0.6231
   - 0.7364
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1789012742
+  - 0.0
+  - 0.4846
+  last_used_battle: zoid_mb_buildalot-apk_1789875350
   battles_available: 0

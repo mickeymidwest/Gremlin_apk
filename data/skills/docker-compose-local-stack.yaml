@@ -2,7 +2,7 @@ id: seed_77
 name: docker-compose-local-stack
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: stand up a multi-service dev stack (app + db + cache) that actually talks to itself
 trigger_when: you need more than one service running together locally for a test or demo
 trigger_matcher: docker[- ]compose|compose\.ya?ml|multi-service|app \+ (db|database|redis|postgres)|stack
@@ -22,9 +22,9 @@ provenance:
 - seed
 created: 1788874289.9917696
 record:
-  uses: 122
+  uses: 123
   wins: 100
-  losses: 22
+  losses: 23
   score_deltas:
   - 1.0
   - 0.0
@@ -148,5 +148,6 @@ record:
   - 1.0
   - 1.0
   - 0.0
-  last_used_battle: battle_0001_nsfuzz
-  battles_available: 69
+  - 0.0
+  last_used_battle: battle_0001_inifuzz
+  battles_available: 70

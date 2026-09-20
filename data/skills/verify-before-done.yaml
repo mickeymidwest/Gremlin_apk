@@ -2,7 +2,7 @@ id: skill_1ad3d7fd
 name: verify-before-done
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Ensure the agent verifies the correctness of changes before declaring success.
 trigger_when: after each change
 trigger_matcher: fix|bug|implement|add|change|test
@@ -20,9 +20,9 @@ provenance:
 - zoid_mini-ledger_1788934369
 created: 1788934378.885018
 record:
-  uses: 63
-  wins: 63
-  losses: 0
+  uses: 66
+  wins: 64
+  losses: 2
   score_deltas:
   - 0.75
   - 0.7364
@@ -87,5 +87,8 @@ record:
   - 0.625
   - 0.7364
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1789012742
+  - 0.0
+  - 0.0
+  - 0.4846
+  last_used_battle: zoid_mb_buildalot-apk_1789875350
   battles_available: 0

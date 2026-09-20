@@ -2,7 +2,7 @@ id: seed_91
 name: the-assertions-are-the-spec
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: assertEquals lines define the exact output required -- produce those numbers, add
   nothing
 trigger_when: implementing a method body that a test suite pins
@@ -20,9 +20,9 @@ provenance:
 - seed
 created: 1788922860.0785677
 record:
-  uses: 102
-  wins: 102
-  losses: 0
+  uses: 105
+  wins: 103
+  losses: 2
   score_deltas:
   - 0.625
   - 0.7364
@@ -126,5 +126,8 @@ record:
   - 0.625
   - 0.7364
   - 1.0
-  last_used_battle: zoid_mb_buildalot-apk_1789012742
+  - 0.0
+  - 0.0
+  - 0.4846
+  last_used_battle: zoid_mb_buildalot-apk_1789875350
   battles_available: 0
