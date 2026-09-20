@@ -132,6 +132,20 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 
 ## E. Magic — campaigns & self-improvement  (59–68)
 
+**Found during the 2026-09-19 harness audit: `Campaign`
+(`gremlin_core/magic/campaign.py` — train/holdout split, trial curve,
+convergence detection) has zero real callers anywhere in the repo.**
+What actually runs nightly is `zoid_loop.py`'s `one_battle`/
+`one_scaffold_battle`/`one_generate_battle` against the fixed target
+list in `targets()` — a simpler, different design that was apparently
+never reconciled with this section's "campaign" framing. Every item
+below that assumes `Campaign` is live (59, 60, 61, 65, 66, 68) is
+building on top of dead code until/unless that's decided one way or
+the other: either wire `Campaign` in for real, or delete it and rewrite
+this section around what zoid_loop.py actually does. #64 was the one
+exception worth doing regardless, so it got adapted to the real system
+instead of waiting on that decision — see its note below.
+
 59. **[P2]** `/campaign status` — battle count, the trial curve, skills
     accepted, tasks solved, overfit note.
 60. **[P3]** Campaign checkpoint/resume (see #40).
@@ -141,9 +155,14 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
     the battle count.
 63. **[P3]** A/B a candidate skill — run the same task with and without it,
     keep only if it moved the score.
-64. **[P1]** Regression suite — every battle win becomes a permanent task in
-    `data/magic/regression/`; a campaign re-runs them and fails loudly on a
-    regression.
+64. **[done]** ~~Regression suite~~ — adapted to the real system: zoid_loop.py's
+    fixed targets already re-run every night by construction, so the gap was
+    memory, not re-running. `gremlin_core/magic/regression.py` persists each
+    target's best-ever win to `data/magic/regression/<name>.json` (git-
+    committed nightly alongside skills) and `one_battle`/`one_scaffold_battle`
+    now check + log loudly BEFORE overwriting that evidence when a target
+    that used to win doesn't anymore. `one_generate_battle` (rotating spec,
+    no stable task identity) deliberately excluded.
 65. **[P2]** Campaign report written to `data/magic/reports/<date>.md` and
     committed, not just printed.
 66. **[P3]** Multi-model campaign — run the same campaign on qwen2.5-7b vs

@@ -56,7 +56,7 @@ from gremlin_core.magic.model import BackendModel
 from gremlin_core.magic.store import Store
 from gremlin_core.magic.battle import run_battle
 from gremlin_core.magic.method_builder import build_from_scaffold
-from gremlin_core.magic import lifecycle, reckoning, reflexion, council as council_mod
+from gremlin_core.magic import lifecycle, reckoning, reflexion, regression, council as council_mod
 from gremlin_core.magic.verifier import PytestVerifier
 from gremlin_core.magic.fuzz_verifier import FuzzVerifier
 from gremlin_core.magic.gradle_verifier import GradleVerifier
@@ -324,6 +324,16 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         prev = best.get(tgt["name"], 0.0)
         best[tgt["name"]] = max(prev, score.value)
 
+        # roadmap #64: `best` above is only this PROCESS's memory, gone
+        # the moment tonight's loop exits -- this is the part that
+        # persists across nights and actually flags "this used to win
+        # and now doesn't", which reading a single night's score/log
+        # line never would on its own.
+        regression_msg = regression.check_regression(str(ROOT), tgt["name"], score.value)
+        if regression_msg:
+            log(f"  {regression_msg}")
+        regression.record_if_win(str(ROOT), tgt["name"], task.id, result.battle_id, score.value)
+
         if score.value < 0.999:
             try:
                 lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
@@ -401,6 +411,12 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         delta = score.value            # scaffold baseline is 0 -- every stub is TODO()
         best[tgt["name"]] = max(best.get(tgt["name"], 0.0), score.value)
 
+        # roadmap #64 -- see the matching comment in one_battle()
+        regression_msg = regression.check_regression(str(ROOT), tgt["name"], score.value)
+        if regression_msg:
+            log(f"  {regression_msg}")
+        regression.record_if_win(str(ROOT), tgt["name"], task.id, result.battle_id, score.value)
+
         if score.value < 0.999:
             try:
                 lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
@@ -439,7 +455,14 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
     """No fixed repo: android_scaffold.scaffold_from_spec builds a fresh
     stub app from a one-line spec (harness owns all the boilerplate), then
     build_project fills the feature methods. On all-green, assemble the APK
-    into the Builds screen. Feeds the learn step like the others."""
+    into the Builds screen. Feeds the learn step like the others.
+
+    No regression.check_regression()/record_if_win() here, unlike the
+    other two -- the spec rotates every round (itertools.cycle in
+    targets()), so there's no single stable task identity for this
+    target name to regress against; "score dropped" could just as
+    easily mean this round's spec is a harder app, not that anything
+    broke."""
     from gremlin_core.magic import android_scaffold
     from gremlin_core.magic.method_builder import build_project
     from gremlin_core.magic.battle import _skill_score
@@ -528,8 +551,15 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
 
 
 def commit_progress(round_i: int, log) -> None:
-    subprocess.run(["git", "-C", str(ROOT), "add", "data/skills", "data/magic/lessons.jsonl"],
-                   capture_output=True)
+    # Explicit paths, not `git add -A` -- the episodes leak (500+
+    # untracked files, 34MB) happened because a new data/magic/
+    # subdirectory silently had nothing staging it; data/magic/
+    # regression/ (roadmap #64) is added here so the same mistake
+    # doesn't repeat, and so it actually gets pushed each night --
+    # cross-night regression evidence is exactly the kind of thing
+    # worth real git history for, unlike the (gitignored) episodes.
+    subprocess.run(["git", "-C", str(ROOT), "add", "data/skills", "data/magic/lessons.jsonl",
+                    "data/magic/regression"], capture_output=True)
     r = subprocess.run(["git", "-C", str(ROOT), "commit", "-q", "-m",
                         f"zoid loop: skills after round {round_i}",
                         "--author=mickey <mickeymidwest@gmail.com>"], capture_output=True, text=True)
