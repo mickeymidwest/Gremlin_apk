@@ -34,6 +34,8 @@ class GeminiBackend(ModelBackend):
         max_tokens: int = 1536,
         temperature: float = 0.7,
         history: Optional[list] = None,
+        image_b64: Optional[str] = None,
+        image_mime: Optional[str] = None,
     ) -> GenerationResult:
         try:
             await self.warmup()
@@ -43,13 +45,25 @@ class GeminiBackend(ModelBackend):
             }
             if system:
                 config["system_instruction"] = system
-            contents = prompt
+            # The final user turn's parts -- text plus, when there's an
+            # attached image, an inline_data part so Gemini actually
+            # looks at it (this is the only backend Gremlin has that can;
+            # the local GGUF models are text-only). Gemini's multimodal
+            # input is base64 image bytes + a mime type, same shape the
+            # REST API takes -- the SDK accepts plain dicts here too.
+            final_parts = [{"text": prompt}]
+            if image_b64:
+                final_parts.append({"inline_data": {
+                    "mime_type": image_mime or "image/jpeg",
+                    "data": image_b64,
+                }})
+            contents = prompt if len(final_parts) == 1 else [{"role": "user", "parts": final_parts}]
             if history:
                 contents = [
                     {"role": "model" if m.get("role") == "assistant" else "user",
                      "parts": [{"text": str(m.get("content", ""))}]}
                     for m in history
-                ] + [{"role": "user", "parts": [{"text": prompt}]}]
+                ] + [{"role": "user", "parts": final_parts}]
 
             # google-genai's client is sync-only; run it off the event loop
             # thread so it doesn't block other models running in parallel.

@@ -642,7 +642,21 @@ def main() -> None:
     def log(m): print(m, flush=True)
 
     reg = ModelRegistry.from_yaml(CONFIG)
-    coder = reg.get("qwen2.5-coder-7b")
+    # Real bug found live 2026-09-19: qwen2.5-coder-7b was pruned from
+    # config/models.yaml at some point (the "5-model migration" other
+    # comments in this repo reference) and this line was never updated
+    # -- the whole nightly loop has been crashing at startup, silently,
+    # every single night since 2026-09-13 (6 nights straight, confirmed
+    # by reading every data/zoid/nightly-*.log; zoid-nightly.sh has no
+    # `set -e` so the crash never surfaced as a failed systemd unit).
+    # llama-3.1-8b-abliterated over qwen2.5-14b on purpose, not just for
+    # the safer VRAM margin (7.6GB footprint left ~160MB headroom after
+    # stopping the service; this one measures ~5.4GB in real use, ~2.4GB
+    # spare): it's mickey's actual, final, permanent primary/persona
+    # model, so skills this loop builds get practiced on the exact model
+    # that will use them in real chat, not a different one that never
+    # otherwise runs.
+    coder = reg.get("llama-3.1-8b-abliterated")
     model = BackendModel(coder, temperature=0.2)
     # council voter: gemini if configured (API, no VRAM) -- rules on whether a
     # proven skill should be baked into the finetune vs stay a card
