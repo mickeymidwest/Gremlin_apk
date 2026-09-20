@@ -96,20 +96,6 @@ class ToolRegistry:
         ]
 
 
-def _review_model(ctx: "ExecContext") -> str:
-    """Which model reviews a proposed build / self-edit patch. The old
-    hardcoded reviewers (gpt-oss-20b, deepseek-r1-distill-8b) were pruned
-    in the 5-model migration -- routing to a name the registry no longer
-    knows hard-errors the whole action (this is what wedged a solitaire
-    build). Prefer gemini: it's the API model, so a review costs no VRAM
-    and never fights the primary for the card. Fall back to the coder,
-    then the primary."""
-    for name in ("gemini", "qwen2.5-coder-7b"):
-        if ctx.registry.get(name) is not None:
-            return name
-    return ctx.registry.primary_model_name() or "gemini"
-
-
 def _review_models(ctx: "ExecContext") -> tuple[str, str]:
     """Two GENUINELY DIFFERENT reviewers for a build/self-edit patch.
 

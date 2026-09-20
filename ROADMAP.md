@@ -155,20 +155,22 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 
 ## F. Server & operations  (69–80)
 
-69. **[P1]** `_review_model` diversity — when the box can afford it (service
-    down, or post-SSD), use gemini + a local model as the two reviewers, not
-    gemini twice.
-70. **[P1]** Config hot-reload — `POST /admin/reload` re-reads `models.yaml`
-    without a restart (and its 90s cold start).
+69. **[done]** ~~`_review_model` diversity~~ — `_review_models()` in `tools.py`
+    (gemini + qwen2.5-14b, no GPT). Dead single-reviewer `_review_model()`
+    removed 2026-09-19.
+70. **[done]** ~~Config hot-reload~~ — `POST /admin/reload` re-reads
+    `models.yaml` and pushes the new system prompt into the live persona,
+    no restart. Deliberately doesn't cover `primary_model`/`model_path` --
+    use `/model switch` for those.
 71. **[P2]** `/admin/logs?n=100` — tail `journalctl --user -u gremlin` through
     the app, so mickey doesn't need SSH to see why it broke.
 72. **[P2]** Request queue with priority — a chat message shouldn't wait behind
     a `/build android`.
 73. **[P2]** "Degraded" banner — if the primary is down and only gemini is
     answering, the app says so instead of silently switching voice.
-74. **[P1]** `deploy/backup.sh` — tar `data/skills`, `gremlin_memory.txt`,
-    `data/magic`, `config/` to `~/Downloads/gremlin-backups/`; a timer runs it
-    weekly.
+74. **[done]** ~~`deploy/backup.sh`~~ — tars `data/skills`, `gremlin_memory.txt`,
+    `data/magic`, `config/` to `~/Downloads/gremlin-backups/` (keeps newest
+    12); `gremlin-backup.timer` runs it Sunday 03:00, installed and enabled.
 75. **[P2]** Health metrics endpoint (`/metrics`, Prometheus text) — tok/s,
     VRAM, queue depth, consec failures.
 76. **[P2]** Warm-keep — if the model's been idle >8 min and RAM is fine, run a
@@ -239,35 +241,29 @@ one person actually needs. Skip anything that duplicates a mechanism Gremlin
 already has (the review gate, `mutation_log.py`, `data/zoid_stop`,
 `agent_state`) — extend those instead of building parallel systems.
 
-101. **[P1]** Hard system-prompt rule: plain chat has zero tool access this
-     turn — never say "I checked/looked at/ran X" unless a real tool call
-     backs it. (The libFuzzer-lie bug, root cause.)
-102. **[P1]** Extend `grounding.check()` to flag fabricated action-claim
-     language ("I checked", "I finished", "I ran") when no tool actually
-     executed that turn — same one-shot regenerate-with-feedback path it
-     already uses for invented file paths.
-103. **[P1]** Post-action verification before claiming success in
-     `build_project`/`self_edit` — re-check the actual result (build output,
-     git log) instead of trusting the model's own "done" claim. (The
-     fabricated "Yeah, I finished it" bug.)
-104. **[P2]** A small declarative capability list per tool (reuse the
-     existing `Tool`/`ToolRegistry` shape in `tools.py`) — tags each tool as
-     `read_only` / `mutates_gremlin` / `mutates_external`. `mutates_external`
-     tools require an explicit allow entry in `config/models.yaml`, off by
-     default. This is the actual gate for "can Gremlin touch X" — no
-     separate permission-engine subsystem needed.
-105. **[P2]** Audit trail: every `mutates_*` tool call appends to the
-     existing `mutation_log.py`, not a new event bus — timestamp, tool,
-     args, outcome. `/admin/log?n=50` to read it back.
-106. **[P1]** Emergency stop already exists (`data/zoid_stop`, the systemd
-     timers, `agent_state`) — document it in MAGIC.md and expose it as a
-     single `/stop` admin command instead of building a new kill switch.
-107. **[P2]** Generic systemd/docker status+restart tool, scoped to units
-     mickey explicitly names in config (own Gremlin units, anything else he
-     adds) — `mutates_external`, logged, and it only ever acts on units on
-     the allow-list. Deliberately does **not** include `robofuse-stack`'s
-     `robofuse`/`bridge`/`unarr` containers — see the standing boundary on
-     that stack; Jellyfin itself is fine to add to the allow-list.
+101. **[done]** ~~Hard system-prompt rule~~ — persona system prompt states
+     plain chat has zero tool access, never claim "I checked/ran/verified X".
+102. **[done]** ~~Extend `grounding.check()`~~ — `_ACTION_CLAIM_RE` (past-
+     tense: "I checked/finished/ran X") and `_ACTION_PROGRESS_RE` (present-
+     progressive: "I'm restarting X") both wired in.
+103. **[done]** ~~Post-action verification~~ — turned out already true for
+     the real tool path (`apply_patch`'s git apply/compile/pytest/commit
+     chain); the actual gap was chat improvising when routing missed. 101/
+     102/the classifier-wording fix below are the real backstop.
+104. **[done]** ~~Capability list per tool~~ — `Tool.capability` (`read_only`
+     / `mutates_gremlin` / `mutates_external`), all 13 tools tagged.
+105. **[done]** ~~Audit trail~~ — `actions.execute()` logs any non-read_only
+     tool call to `mutation_log.jsonl` generically; `GET /admin/log?n=`.
+106. **[done]** ~~Emergency stop~~ — `POST /admin/stop` wraps `data/zoid_stop`
+     over HTTP, documented in MAGIC.md with its real (partial) scope.
+107. **[done]** ~~Generic systemd/docker status+restart tool~~ —
+     `service_status`/`service_restart`, allow-listed via
+     `config/models.yaml`'s `service_control:` block, robofuse never on it.
+     Also found + fixed live: `run_command`'s own description used to list
+     robofuse/bridge/unarr as normal `docker restart` examples, and the
+     classifier was routing a robofuse-named request to chat (which then
+     improvised "restarting..." with nothing actually running) instead of
+     to the tool that would refuse it structurally — both fixed 2026-09-19.
 108. **[P3]** Scoped/one-time grants ("do X once, don't keep the capability")
      for anything risky enough to want a leash even after #104 — only worth
      it once #104 is actually in use and something on the allow-list turns
