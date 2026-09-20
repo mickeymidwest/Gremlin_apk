@@ -2,7 +2,7 @@ id: seed_48
 name: float-equality-and-money
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: 0.1 + 0.2 != 0.3; never == two floats, never store money as float
 trigger_when: comparing non-integer numbers or handling currency
 trigger_matcher: float|0\.1|round|== .*\d\.\d|money|currency|price|cents|decimal|approx
@@ -15,8 +15,8 @@ provenance:
 - seed
 created: 1788816592.0633621
 record:
-  uses: 63
-  wins: 63
+  uses: 64
+  wins: 64
   losses: 0
   score_deltas:
   - 0.6231
@@ -82,5 +82,6 @@ record:
   - 0.6231
   - 1.0
   - 0.4846
-  last_used_battle: zoid_mb_buildalot-apk_1789875350
+  - 0.5538
+  last_used_battle: zoid_mb_buildalot-apk_1789877844
   battles_available: 0

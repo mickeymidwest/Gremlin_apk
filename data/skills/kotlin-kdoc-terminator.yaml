@@ -2,7 +2,7 @@ id: seed_19
 name: kotlin-kdoc-terminator
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: a bare */ anywhere inside a /** ... */ comment body ends the comment early
 trigger_when: writing a KDoc / block comment that mentions a path, a glob, or math
 trigger_matcher: /\*\*|kdoc|block comment|Expecting a top level declaration
@@ -18,8 +18,8 @@ provenance:
 - seed
 created: 1788744588.660553
 record:
-  uses: 63
-  wins: 63
+  uses: 64
+  wins: 64
   losses: 0
   score_deltas:
   - 0.6231
@@ -85,5 +85,6 @@ record:
   - 0.6231
   - 1.0
   - 0.4846
-  last_used_battle: zoid_mb_buildalot-apk_1789875350
+  - 0.5538
+  last_used_battle: zoid_mb_buildalot-apk_1789877844
   battles_available: 0
