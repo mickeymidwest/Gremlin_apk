@@ -202,13 +202,25 @@ class Store:
 
     # -- campaign state -------------------------------------------
 
-    def get_state(self) -> CampaignState:
-        return (from_dict(CampaignState, self._read_json(self.magic_dir / "campaign.json", {}))
+    def _campaign_path(self, name: str) -> Path:
+        return self.magic_dir / f"campaign_{slug(name)}.json"
+
+    def get_state(self, name: str) -> CampaignState:
+        """`name` -- roadmap #64/campaign-wiring: Campaign has zero real
+        callers as of 2026-09-19, so this used to be a single fixed
+        campaign.json with no namespacing at all. Wiring it in for real
+        means running one Campaign per zoid_loop.py target (9+ different
+        repos) against the SAME Store (skills/facts are meant to be
+        shared across all of them) -- an unkeyed single file would have
+        each target's Campaign silently clobber the last one's state on
+        every write. Required, not defaulted, so a caller can't
+        accidentally fall back to a shared file by omitting it."""
+        return (from_dict(CampaignState, self._read_json(self._campaign_path(name), {}))
                 or CampaignState())
 
-    def set_state(self, state: CampaignState) -> None:
+    def set_state(self, name: str, state: CampaignState) -> None:
         self.magic_dir.mkdir(parents=True, exist_ok=True)
-        self._write_json(self.magic_dir / "campaign.json", to_dict(state))
+        self._write_json(self._campaign_path(name), to_dict(state))
 
     # -- battle working dir --------------------------------------
 

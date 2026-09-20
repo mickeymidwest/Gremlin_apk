@@ -70,8 +70,11 @@ def test_facts_episodes_campaign_roundtrip(tmp_path):
     got = st.read_episodes()
     assert len(got) == 1 and got[0].won and got[0].transcript.skills_invoked == ["skill_abc"]
 
-    st.set_state(CampaignState(battle_count=3, accepted_history=[1, 0, 2]))
-    assert st.get_state().battle_count == 3
+    st.set_state("mytarget", CampaignState(battle_count=3, accepted_history=[1, 0, 2]))
+    assert st.get_state("mytarget").battle_count == 3
+    # a different name is a genuinely separate state -- the whole point
+    # of namespacing this (see Store._campaign_path's docstring)
+    assert st.get_state("othertarget").battle_count == 0
 
 
 def test_slug():

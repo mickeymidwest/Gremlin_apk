@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import random
 import shutil
+import subprocess
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import Optional, Sequence
 
 from . import council as council_mod
-from . import lifecycle, reckoning, reflexion
+from . import lifecycle, reckoning, reflexion, regression
 from .model import Model, QuotaExhausted
 from .store import Store
 from .types import BattleResult, CampaignState, Task, Transcript
@@ -49,7 +50,10 @@ class Campaign:
                  tasks: Sequence[Task], verifier: PytestVerifier | None = None,
                  budget: int = 50, trial_every: int = 10, converge_run: int = 2,
                  step_budget: int = 12, seed: int = 0, log=print,
-                 council_voters: Sequence[Model] | None = None):
+                 council_voters: Sequence[Model] | None = None,
+                 name: str = "default", max_tokens: int = 4096,
+                 phase_gate: bool = True, time_budget_s: float = 600.0,
+                 protect_glob: Optional[str] = None):
         self.store = store
         self.model = model
         # The Council rules on where a proven skill lives (weights vs card).
@@ -65,6 +69,24 @@ class Campaign:
         self.step_budget = step_budget
         self.rng = random.Random(seed)
         self.log = log if log is not print else (lambda *a: print(*a, flush=True))
+        # `name` keys this Campaign's persisted state (Store.get_state/
+        # set_state) and its regression evidence -- wiring Campaign into
+        # zoid_loop.py's real targets means one Store backs several
+        # Campaigns (one per target repo, all sharing the same skills/
+        # facts), so each needs its own state file, not the single
+        # unnamed campaign.json this class used to assume when it had
+        # zero real callers.
+        self.name = name
+        # run_battle() options that used to just be zoid_loop.py's
+        # one_battle()-only concern (this class's _battle() always used
+        # run_battle's bare defaults: 600s time budget, no protect_glob,
+        # no on_done) -- real targets need their own values here (a
+        # fuzz target's src/ must stay protected, klondike needs way
+        # more than 600s). Defaults match run_battle's own.
+        self.max_tokens = max_tokens
+        self.phase_gate = phase_gate
+        self.time_budget_s = time_budget_s
+        self.protect_glob = protect_glob
 
     # -- one battle -------------------------------------------------
 
@@ -72,11 +94,29 @@ class Campaign:
         work = _fresh_workdir(self.target_repo, self.store.battle_workdir(battle_id))
         root = str(self.store.root)
         lessons = reflexion.load_lessons(root, task)
+
+        def _restore_protected():
+            # a fuzz target must be scored against its ORIGINAL (buggy)
+            # src, even if the model found a way to patch it instead of
+            # writing a harness -- same reasoning as zoid_loop.py's
+            # one_battle(), which this mirrors.
+            if self.protect_glob and (Path(work) / ".git").exists():
+                subprocess.run(["git", "-C", str(work), "checkout", "--",
+                                self.protect_glob.split("/")[0]], capture_output=True)
+
+        def on_done():
+            _restore_protected()
+            s = self.verifier.score(task, str(work))
+            return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
+
         transcript = run_battle(
             task, str(work), self.model,
             lifecycle.loadable(skills), facts, step_budget=self.step_budget,
-            lessons=lessons,
+            max_tokens=self.max_tokens, phase_gate=self.phase_gate,
+            time_budget_s=self.time_budget_s, on_done=on_done,
+            lessons=lessons, protect_glob=self.protect_glob,
         )
+        _restore_protected()
         score = self.verifier.score(task, str(work), transcript)
         # Reflexion: a lost battle leaves a one-line lesson for next time.
         if score.value < 0.999:
@@ -100,7 +140,7 @@ class Campaign:
     # -- the loop --------------------------------------------------
 
     def run(self) -> CampaignState:
-        state = self.store.get_state()
+        state = self.store.get_state(self.name)
         skills = self.store.read_skills()
         facts = self.store.read_facts()
 
@@ -112,7 +152,7 @@ class Campaign:
             for t in self.tasks.values():
                 work = _fresh_workdir(self.target_repo, self.store.work_dir / f"baseline_{t.id}")
                 state.best_by_task[t.id] = self.verifier.score(t, str(work)).value
-            self.store.set_state(state)
+            self.store.set_state(self.name, state)
             self.log("baselines: " + ", ".join(f"{k}={v:.2f}" for k, v in state.best_by_task.items()))
 
         # trial at the current point so the curve has a "before"
@@ -120,7 +160,7 @@ class Campaign:
             t0 = self._trial(holdout, skills, facts, tag=f"trial{state.battle_count}")
             state.trial_curve.append({"battle": state.battle_count, "score": round(t0, 3)})
             self.log(f"[trial @ {state.battle_count}] holdout={t0:.3f}")
-            self.store.set_state(state)
+            self.store.set_state(self.name, state)
 
         order = list(train)
         self.rng.shuffle(order)
@@ -140,6 +180,21 @@ class Campaign:
                 delta = result.score.value - prev_best
                 state.best_by_task[task.id] = max(prev_best, result.score.value)
 
+                # roadmap #64, same module zoid_loop.py's one_battle/
+                # one_scaffold_battle use -- best_by_task above tracks
+                # the max WITHIN this campaign.json (already a real
+                # improvement over zoid_loop's old in-memory-only `best`
+                # dict), but doesn't loudly call out "used to win, now
+                # doesn't"; check BEFORE record so a bad round's score
+                # never overwrites the win evidence it should be
+                # compared against.
+                regression_msg = regression.check_regression(
+                    str(self.store.root), self.name, result.score.value)
+                if regression_msg:
+                    self.log(f"  {regression_msg}")
+                regression.record_if_win(
+                    str(self.store.root), self.name, task.id, bid, result.score.value)
+
                 lifecycle.update_records(skills, result, delta)
 
                 proposals = reckoning.reckon(self.model, result, skills, facts)
@@ -158,14 +213,14 @@ class Campaign:
                     transitions.append(f"council: {nm} -> {d.choice} {d.tally}")
             except QuotaExhausted as e:
                 state.battle_count -= 1                       # this battle didn't complete
-                self.store.set_state(state)
+                self.store.set_state(self.name, state)
                 self.log(f"\n!! stopping: {e}")
                 self.log(f"   {state.battle_count} battles completed -- state saved, run `report` to see it")
                 return state
 
             self.store.write_skills(skills)
             self.store.write_facts(facts)
-            self.store.set_state(state)
+            self.store.set_state(self.name, state)
 
             self.log(
                 f"[{state.battle_count}/{self.budget}] {task.id} "
@@ -178,7 +233,7 @@ class Campaign:
             if state.battle_count % self.trial_every == 0:
                 tr = self._trial(holdout, skills, facts, tag=f"trial{state.battle_count}")
                 state.trial_curve.append({"battle": state.battle_count, "score": round(tr, 3)})
-                self.store.set_state(state)
+                self.store.set_state(self.name, state)
                 self.log(f"[trial @ {state.battle_count}] holdout={tr:.3f}  {_overfit_note(state)}")
 
             # Converge only when BOTH: nothing new is being learned AND the
@@ -200,7 +255,7 @@ class Campaign:
         # final full-holdout trial
         final = self._trial(holdout, skills, facts, tag=f"final{state.battle_count}")
         state.trial_curve.append({"battle": state.battle_count, "score": round(final, 3)})
-        self.store.set_state(state)
+        self.store.set_state(self.name, state)
         self.log(f"[final trial] holdout={final:.3f}")
         return state
 
