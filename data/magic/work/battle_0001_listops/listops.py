@@ -16,17 +16,7 @@ def chunk(items: list, size: int) -> list[list]:
 def dedupe(items: list) -> list:
     return items
 def flatten_once(nested: list) -> list:
-    """Flatten one level: flatten_once([[1,2],[3],[4,5]]) == [1,2,3,4,5].
-    Non-list elements pass through unchanged."""
-    out = []
-    for x in nested:
-        if isinstance(x, list):
-            out.extend(x)
-        else:
-            out.append(x)
-    return out
-
-
+    return []
 def running_max(nums: list[int]) -> list[int]:
     """running_max([1,3,2,5,4]) == [1,3,3,5,5]."""
     out = []
