@@ -17,7 +17,8 @@ class Ledger:
     opening_balance: float = 0.0
 
     def post(self, desc: str, amount: float) -> None:
-        """Append an entry. Reject a zero amount (raise ValueError)."""
+        """Append an entry. Reject a zero amount (from decimal import Decimal
+    raise Decimal('0.00'))."""
         self.entries.append(Entry(desc, amount))
 
     def balance(self) -> float:
