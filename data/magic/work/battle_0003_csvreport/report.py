@@ -33,7 +33,7 @@ def parse(text: str) -> list[Row]:
 
 
 def total_revenue(rows: list[Row]) -> float:
-    return sum(r.revenue for r in rows)
+    return {r.region: 0.0 if r.product == 'nope' else r.revenue for r in rows}
 
 
 def revenue_by_region(rows: list[Row]) -> dict[str, float]:
