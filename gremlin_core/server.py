@@ -1048,6 +1048,51 @@ def create_app(
 
         return jsonify({"ok": True, "note": "reboot triggered, connection will drop shortly"})
 
+    @app.route("/admin/log", methods=["GET"])
+    def admin_log():
+        """Roadmap #105 -- read back the audit trail every mutating tool
+        call (self_edit, script_fix, and now every other mutates_gremlin/
+        mutates_external tool via actions.execute()) already writes to
+        data/mutation_log.jsonl. mickey wanted to be able to see what
+        Gremlin actually did without SSHing in to grep a file."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+        try:
+            n = int(request.args.get("n", 50))
+        except (TypeError, ValueError):
+            n = 50
+        n = max(1, min(n, 500))
+        return jsonify({"entries": mutation_log.read_mutations(str(project_root), n)})
+
+    @app.route("/admin/stop", methods=["POST"])
+    def admin_stop():
+        """Roadmap #106. Honest about what this actually is: the nightly
+        zoid_loop.py practice loop already checks data/zoid_stop between
+        rounds and halts cleanly (see deploy/zoid-nightly.sh) -- this
+        just makes that reachable over HTTP instead of `touch`ing the
+        file over SSH. There is NO real way to abort a self_edit/
+        build_project that's already mid-flight (git_mutation_lock only
+        stops a SECOND one from starting concurrently) -- reporting
+        agent_state here so the caller can see whether something like
+        that is actually running right now, rather than this endpoint
+        silently pretending to cancel it."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+        stop_path = project_root / "data" / "zoid_stop"
+        stop_path.parent.mkdir(parents=True, exist_ok=True)
+        stop_path.touch()
+        mutation_log.append_mutation(str(project_root), {"kind": "admin_stop_requested"})
+        return jsonify({
+            "ok": True,
+            "note": "zoid_stop set -- the nightly practice loop will halt at its next check. "
+                    "This does NOT abort an in-flight self_edit/build_project; see agent_state below "
+                    "for whether one is actually running.",
+            "agent_state": state_machine.state.value,
+            "busy": state_machine.state.value != "idle",
+        })
+
     return app
 
 

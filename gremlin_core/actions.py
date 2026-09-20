@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from . import intent as intent_mod
+from . import mutation_log
 from . import tools
 from .intent import Intent
 from .registry import ModelRegistry
@@ -42,7 +43,31 @@ async def execute(
     if tool is None:
         return {"answer": "", "action": "chat", "ok": True}
     ctx = tools.ExecContext(router=router, registry=registry, project_root=project_root)
-    return await tool.handler(intent.args or {}, ctx)
+    result = await tool.handler(intent.args or {}, ctx)
+    # Roadmap #105: this is the one place every classified/confirmed
+    # action actually runs, chat-triggered or otherwise -- self_edit and
+    # script_fix already logged themselves (self_improve.py,
+    # script_edit.py), but run_command/build_project/reboot/rollback/
+    # apply_updates reached via chat never did; only the separate
+    # /admin/* HTTP routes did. Using tool.capability (set at
+    # registration) means a future mutating tool gets logged for free
+    # just by NOT tagging it read_only, instead of remembering to add
+    # this call inside every new handler.
+    # self_edit and script_fix already log themselves, with more detail
+    # (commit message, files changed) than is available here -- skip so
+    # one real change doesn't produce two log entries.
+    if tool.capability != "read_only" and tool.name not in ("self_edit", "script_fix"):
+        try:
+            mutation_log.append_mutation(project_root, {
+                "kind": "action",
+                "tool": tool.name,
+                "capability": tool.capability,
+                "args": intent.args or {},
+                "ok": bool(result.get("ok", True)),
+            })
+        except Exception:
+            pass
+    return result
 
 
 def prepare(intent: Intent, project_root: str) -> tuple[Intent, Optional[str]]:

@@ -23,3 +23,24 @@ def append_mutation(root: str, entry: dict) -> None:
     entry = {"timestamp": time.time(), **entry}
     with open(_log_path(root), "a") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+def read_mutations(root: str, n: int = 50) -> list[dict]:
+    """Last n entries, newest first -- roadmap #105/#106's /admin/log.
+    Reads the whole file rather than seeking from the end: this log is a
+    personal desktop's audit trail, not a firehose, so simplicity wins
+    over a tail-from-the-end optimization that isn't needed yet."""
+    path = _log_path(root)
+    if not os.path.exists(path):
+        return []
+    out: list[dict] = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return list(reversed(out[-max(1, n):]))

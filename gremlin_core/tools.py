@@ -19,6 +19,7 @@ existing, already-reviewed machinery, not a second implementation of it.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
@@ -53,6 +54,18 @@ class Tool:
     # False for actions the classifier must never guess at directly
     # (currently just apply_updates -- see its registration below for why).
     classifier_visible: bool = True
+    # Roadmap #104: what kind of thing this tool can touch, so a single
+    # choke point (actions.execute()) can decide what needs an audit-log
+    # entry without every handler remembering to call mutation_log itself.
+    #   read_only       -- looks, never changes anything (web_search, snapshots)
+    #   mutates_gremlin -- changes Gremlin's own repo (self_edit) -- already
+    #                      gated by the two-reviewer gate, git-committed,
+    #                      trivially revertible
+    #   mutates_external -- changes something outside Gremlin's own repo:
+    #                      the user's filesystem, the desktop OS, a running
+    #                      service (run_command, script_fix, build_project,
+    #                      reboot, rollback, apply_updates)
+    capability: str = "read_only"
 
 
 class ToolRegistry:
@@ -236,10 +249,37 @@ async def _tool_web_fetch(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     return {"answer": web_search.fetch_text(url), "action": "web_fetch", "ok": True}
 
 
+# mickey runs a torrent-indexer + Real-Debrid auto-download pipeline at
+# ~/robofuse-stack (docker-compose services: robofuse, bridge, unarr --
+# NOT jellyfin/jellyseerr, which are the legitimate media-server side of
+# the same compose file and stay fine to touch). Declined to extend or
+# control that specific pipeline (see the standing boundary) -- this is
+# the structural half of that: even if a prompt or a bad classification
+# gets run_command to try, the actual command never executes. Prompt
+# text alone (the tool description above) isn't enforcement, just a
+# hint the model can ignore; this is the real gate.
+_ROBOFUSE_CONTAINERS = ("robofuse", "bridge", "unarr")
+_ROBOFUSE_PATH_HINT = "robofuse-stack"
+
+
+def _targets_robofuse_stack(command: str) -> bool:
+    low = command.lower()
+    if _ROBOFUSE_PATH_HINT in low:
+        return True
+    return any(re.search(rf"\b{re.escape(name)}\b", low) for name in _ROBOFUSE_CONTAINERS)
+
+
 async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
     command = str(args.get("command") or "").strip()
     if not command:
         return {"answer": "What command do you want me to run?", "action": "run_command", "ok": False}
+    if _targets_robofuse_stack(command):
+        return {
+            "answer": "Not touching the robofuse-stack containers (robofuse/bridge/unarr) -- "
+                      "that pipeline's off-limits. Jellyfin itself is fine.",
+            "action": "run_command",
+            "ok": False,
+        }
     if bool(args.get("as_root")):
         result = await root_exec.run_as_root(command, ctx.project_root)
     else:
@@ -388,6 +428,7 @@ REGISTRY.register(Tool(
     },
     handler=_tool_web_search,
     destructive=False,
+    capability="read_only",
 ))
 
 REGISTRY.register(Tool(
@@ -404,6 +445,7 @@ REGISTRY.register(Tool(
     },
     handler=_tool_web_fetch,
     destructive=False,
+    capability="read_only",
 ))
 
 REGISTRY.register(Tool(
@@ -412,6 +454,7 @@ REGISTRY.register(Tool(
     parameters={"type": "object", "properties": {}, "required": []},
     handler=_tool_update_check,
     destructive=False,
+    capability="read_only",
 ))
 
 REGISTRY.register(Tool(
@@ -430,6 +473,7 @@ REGISTRY.register(Tool(
     handler=_tool_apply_updates,
     destructive=True,
     classifier_visible=False,
+    capability="mutates_external",
 ))
 
 REGISTRY.register(Tool(
@@ -438,6 +482,7 @@ REGISTRY.register(Tool(
     parameters={"type": "object", "properties": {}, "required": []},
     handler=_tool_snapshots,
     destructive=False,
+    capability="read_only",
 ))
 
 REGISTRY.register(Tool(
@@ -450,6 +495,7 @@ REGISTRY.register(Tool(
     },
     handler=_tool_rollback,
     destructive=True,
+    capability="mutates_external",
 ))
 
 REGISTRY.register(Tool(
@@ -458,6 +504,7 @@ REGISTRY.register(Tool(
     parameters={"type": "object", "properties": {}, "required": []},
     handler=_tool_reboot,
     destructive=True,
+    capability="mutates_external",
 ))
 
 REGISTRY.register(Tool(
@@ -473,6 +520,7 @@ REGISTRY.register(Tool(
     },
     handler=_tool_self_edit,
     destructive=True,
+    capability="mutates_gremlin",
 ))
 
 REGISTRY.register(Tool(
@@ -492,6 +540,7 @@ REGISTRY.register(Tool(
     },
     handler=_tool_script_fix,
     destructive=True,
+    capability="mutates_external",
 ))
 
 REGISTRY.register(Tool(
@@ -513,6 +562,7 @@ REGISTRY.register(Tool(
     },
     handler=_tool_build_project,
     destructive=True,
+    capability="mutates_external",
 ))
 
 REGISTRY.register(Tool(
@@ -524,9 +574,10 @@ REGISTRY.register(Tool(
         '{"command": "systemctl restart docker"}, NOT {"command": "docker"}; "how much disk space is '
         'left" means {"command": "df -h"}, NOT {"command": "disk"}. Never output a bare program/service '
         'name by itself as the whole command unless the user\'s request was literally just that '
-        'program\'s name with no verb. These specific names are docker CONTAINERS on this machine, not '
-        'systemd services -- "restart jellyfin"/"restart bridge"/etc means {"command": "docker restart '
-        '<name>"}, NOT systemctl: jellyfin, jellyseerr, robofuse, bridge, unarr.'
+        'program\'s name with no verb. jellyfin and jellyseerr are docker CONTAINERS on this '
+        'machine, not systemd services -- "restart jellyfin" means {"command": "docker restart '
+        'jellyfin"}, NOT systemctl. Never target the robofuse/bridge/unarr containers -- that '
+        "stack is off-limits, refuse and say so instead of running the command."
     ),
     parameters={
         "type": "object",
@@ -538,4 +589,5 @@ REGISTRY.register(Tool(
     },
     handler=_tool_run_command,
     destructive=True,
+    capability="mutates_external",
 ))

@@ -323,6 +323,43 @@ The grey middle (fire a known exploit at your *own* box to confirm a patch, fuzz
 your *own* app) stays **interactive, mickey-driven, case by case** — never a
 baked-in autonomous skill.
 
+## 7a. Trust & capability model
+
+Roadmap #104-106. Scaled-down version of the permission-engine idea from a
+much bigger proposed architecture — reuses what already existed instead of
+building a parallel system.
+
+- **Capability tags** (`gremlin_core/tools.py`, `Tool.capability`): every
+  registered tool is `read_only`, `mutates_gremlin` (touches Gremlin's own
+  repo — currently just `self_edit`, already gated by the two-reviewer
+  approval and a real git commit), or `mutates_external` (touches anything
+  else — the filesystem, the desktop OS, a running service: `run_command`,
+  `script_fix`, `build_project`, `reboot`, `rollback`, `apply_updates`).
+- **Audit log** (`gremlin_core/mutation_log.py`, `data/mutation_log.jsonl`):
+  `actions.execute()` is the one place every classified/confirmed action
+  actually runs, so it logs any non-`read_only` tool call there generically
+  (tool name, capability, args, ok) — `self_edit`/`script_fix` keep their
+  own more detailed entries instead of a duplicate generic one. Read it
+  back with `GET /admin/log?n=50` (admin token required).
+- **Stop** (`POST /admin/stop`, admin token required): sets `data/zoid_stop`,
+  which `zoid_loop.py`'s nightly practice loop already checks between
+  rounds and halts on — this just makes that reachable over HTTP instead of
+  `touch`ing the file over SSH. Be honest about what it *isn't*: there is
+  no real way to abort a `self_edit`/`build_project` that's already
+  mid-flight (`git_mutation_lock` only stops a second one from starting
+  concurrently) — the response includes `agent_state` so a caller can see
+  whether one is actually running rather than assume this cancelled it.
+- **robofuse-stack boundary, enforced structurally, not just in the prompt**
+  (`gremlin_core/tools.py`, `_tool_run_command`): mickey runs a torrent-
+  indexer + Real-Debrid auto-download pipeline at `~/robofuse-stack`
+  (`robofuse`/`bridge`/`unarr` containers — `jellyfin`/`jellyseerr` are the
+  legitimate media-server side of the same compose file and stay fine to
+  touch). Declined to extend or control that pipeline. `run_command`
+  refuses any command naming those containers or the stack's path before
+  it ever reaches the sandbox, regardless of what the model outputs — the
+  tool description alone was confirmed to not be enough (it used to list
+  `robofuse`/`bridge`/`unarr` as ordinary `docker restart` examples).
+
 ## 8. Patterns to adopt from other harnesses
 
 Survey of open agent harnesses (Aider, SWE-agent, OpenHands, TaskWeaver, +
