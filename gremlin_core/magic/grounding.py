@@ -34,6 +34,23 @@ _BACKREF_RE = re.compile(
     r"(?:wrote|created|made|added|gave you)|i already (?:ran|wrote|created|fixed|sent))\b",
     re.IGNORECASE)
 
+# Plain chat (where check() is ever called from -- see reply.py) has zero
+# tool access this turn: no file read, no command run, nothing fetched.
+# Any real check happens through a Tool call, which returns straight to
+# the phone without ever passing through here (see server.py's
+# _handle_possible_action). So a claim like "I checked the libFuzzer
+# harness" in a chat answer is unbacked by construction, whether or not
+# it's also true by luck -- confirmed live 2026-09-15/19 (mickey: "did it
+# really look at the libFuzzer?"). Excludes "if I checked ..." (a
+# hypothetical, not a claim) and "ran into" (idiom, not "I executed X").
+_ACTION_CLAIM_RE = re.compile(
+    r"(?<!if )\bi(?:'ve| have)? (?:already |just )?"
+    r"(?:checked|verified|confirmed|tested|reviewed|inspected|examined"
+    r"|looked (?:at|into|over)|went (?:and |through )|read through|dug into"
+    r"|searched|fetched|downloaded|executed|ran(?! into)"
+    r"|finished|completed|built|fixed|wrote|created|set up)\b",
+    re.IGNORECASE)
+
 # repo-relative only: a leading / or a system prefix means "not claiming a
 # file in this project", so skip it.
 _SKIP_PREFIX = ("/", "~", "http:", "https:", "etc/", "usr/", "var/", "opt/",
@@ -90,6 +107,13 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
 
     if not ctx.strip() and _BACKREF_RE.search(text):
         out.append("refers to earlier work, but there is no prior context in this exchange")
+
+    claim = _ACTION_CLAIM_RE.search(text)
+    if claim:
+        out.append(
+            f"claims to have {claim.group(0).split(None, 1)[-1]} "
+            "something, but this is plain chat -- no tool ran this turn to back that up"
+        )
 
     return out
 
