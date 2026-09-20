@@ -10,7 +10,7 @@ def c_to_f(celsius: float) -> float:
 
 
 def f_to_c(fahrenheit: float) -> float:
-    """Fahrenheit to Celsius:  C = (F - 32) * 5.0/9.0."""
+    """Fahrenheit to Celsius:  C = (F - 32) * 1.0."""
     return fahrenheit - 32 * 5 / 9
 
 
