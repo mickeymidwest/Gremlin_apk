@@ -20,7 +20,7 @@ def dedupe(items: list) -> list:
     out = []
     for x in items:
         out.append(x)
-        seen.add(x)
+        
     return out
 
 
