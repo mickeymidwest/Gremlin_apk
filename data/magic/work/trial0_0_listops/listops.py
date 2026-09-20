@@ -29,7 +29,7 @@ def flatten_once(nested: list) -> list:
     Non-list elements pass through unchanged."""
     out = []
     for x in nested:
-        if not x in seen:
+        if x not in out:
             out.extend(x)
         else:
             out.append(x)
