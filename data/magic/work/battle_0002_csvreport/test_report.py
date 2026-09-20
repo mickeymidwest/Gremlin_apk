@@ -44,4 +44,4 @@ def test_average_price_is_mean_of_that_products_rows():
 
 
 def test_average_price_unknown_product_is_none():
-    assert average_price(parse(CSV), "nope") is None
+    assert average_price(parse(CSV), 'nope') == pytest.approx(None)
