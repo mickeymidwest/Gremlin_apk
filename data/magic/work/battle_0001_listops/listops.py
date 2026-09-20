@@ -14,16 +14,7 @@ def chunk(items: list, size: int) -> list[list]:
 
 
 def dedupe(items: list) -> list:
-    """Remove duplicates, keeping the FIRST occurrence and the order.
-    dedupe([3,1,3,2,1]) == [3,1,2]."""
-    seen = set()
-    out = []
-    for x in items:
-        out.append(x)
-        seen.add(x)
-    return out
-
-
+    return items
 def flatten_once(nested: list) -> list:
     """Flatten one level: flatten_once([[1,2],[3],[4,5]]) == [1,2,3,4,5].
     Non-list elements pass through unchanged."""
