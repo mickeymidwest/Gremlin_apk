@@ -2,7 +2,7 @@ id: seed_07
 name: service-status-then-logs
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: the fix for a broken service is in its logs, not in guessing
 trigger_when: a systemd service or container is misbehaving
 trigger_matcher: service|systemd|jellyfin|docker|container|daemon|not running|crashed
@@ -15,9 +15,9 @@ provenance:
 - seed
 created: 1788664611.49488
 record:
-  uses: 67
+  uses: 68
   wins: 59
-  losses: 8
+  losses: 9
   score_deltas:
   - 1.0
   - 0.0
@@ -86,5 +86,6 @@ record:
   - 1.0
   - 0.0
   - -1.0
-  last_used_battle: battle_0003_tlvfuzz
-  battles_available: 37
+  - -1.0
+  last_used_battle: battle_0004_tlvfuzz
+  battles_available: 38
