@@ -1,8 +1,0 @@
-harness
-*.o
-crash-*
-
-# battle-written harnesses -- not part of the target
-*fuzz*.c
-harness*.c
-/h

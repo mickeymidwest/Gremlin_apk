@@ -19,6 +19,7 @@ until DONE or the step budget runs out. Model-agnostic by construction.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 import re
@@ -42,10 +43,23 @@ def _git_begin(repo: str) -> bool:
     """git-init the battle's working copy if needed and take a starting
     snapshot, so every edit the agent makes is its own commit -- the
     battle becomes a readable, revertible history. Returns True if
-    snapshotting is on for this battle."""
+    snapshotting is on for this battle.
+
+    Real bug found live 2026-09-19: this used to check
+    "rev-parse --is-inside-work-tree", which is true for ANY
+    subdirectory of an existing repo -- including one it doesn't own.
+    Every battle workdir lives under this project's own
+    data/magic/work/, itself inside the real gremlin git repo, so that
+    check always said "true", skipped git init, and every _git_snapshot
+    below landed straight in the REAL repo's history instead of an
+    isolated one -- 108 junk "step N: edit_file X" commits deep by the
+    time this was caught, 99 of them already pushed. The actual
+    question is whether `repo` IS a repo root of its own, not whether
+    it's inside someone else's."""
     try:
-        inside = _git(repo, "rev-parse", "--is-inside-work-tree").stdout.strip()
-        if inside != "true":
+        top = _git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+        is_own_repo = bool(top) and os.path.realpath(top) == os.path.realpath(repo)
+        if not is_own_repo:
             if _git(repo, "init", "-q").returncode != 0:
                 return False
         _git(repo, "add", "-A")

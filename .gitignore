@@ -75,6 +75,15 @@ data/zoid_stop
 data/magic/episodes/
 unsloth_compiled_cache/
 
+# Battle working copies -- confirmed live 2026-09-19 to have leaked
+# 108 junk commits ("magic: battle start", "step N: edit_file X") into
+# THIS repo's real history via a _git_begin() bug (fixed in battle.py,
+# see its docstring). Gitignored too, as defense in depth: nothing
+# that walks into this directory should ever be able to add its
+# contents to the outer repo again, bug or no bug. Regenerable by
+# re-running the battle, not backup-worthy.
+data/magic/work/
+
 # Daily defense reports (roadmap #96): open ports, unpatched CVEs,
 # sshd hardening gaps. Real host security posture -- never belongs in
 # git history, pushed to a remote or not. Regenerated daily anyway, so
