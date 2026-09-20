@@ -1,0 +1,13 @@
+[Unit]
+Description=Weekly Gremlin skills/memory/config backup trigger
+
+[Timer]
+# Sunday 03:00, clear of the nightly zoid (22:00) and distill (02:00)
+# windows. Persistent=true catches up (runs shortly after boot) if the
+# machine was off/asleep at the scheduled time instead of silently
+# skipping that week entirely.
+OnCalendar=Sun *-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

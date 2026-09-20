@@ -786,6 +786,24 @@ systemctl --user enable --now gremlin-update.timer
 Check it: `systemctl --user status gremlin-update.timer`, logs via
 `journalctl --user -u gremlin-update -f`.
 
+### Backups (roadmap #74)
+
+Weekly tar of `data/skills`, `gremlin_memory.txt`, `data/magic`, and
+`config/` to `~/Downloads/gremlin-backups/` (keeps the newest 12) --
+the only things Gremlin has that aren't reproducible from git or a
+re-downloadable model file.
+```bash
+chmod +x deploy/backup.sh
+sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$(pwd)|" \
+    -e "s|^ExecStart=.*|ExecStart=$(pwd)/deploy/backup.sh|" \
+    deploy/gremlin-backup.service > ~/.config/systemd/user/gremlin-backup.service
+cp deploy/gremlin-backup.timer ~/.config/systemd/user/gremlin-backup.timer
+systemctl --user daemon-reload
+systemctl --user enable --now gremlin-backup.timer
+```
+Check it: `systemctl --user status gremlin-backup.timer`, or run
+`deploy/backup.sh` directly for an on-demand backup.
+
 ## Desktop hologram widget
 
 ```bash

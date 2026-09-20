@@ -28,6 +28,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 import socket
 import subprocess
 import threading
+import yaml
 from pathlib import Path
 from typing import Optional
 
@@ -1047,6 +1048,50 @@ def create_app(
             return jsonify({"error": f"couldn't trigger reboot: {e}"}), 500
 
         return jsonify({"ok": True, "note": "reboot triggered, connection will drop shortly"})
+
+    @app.route("/admin/reload", methods=["POST"])
+    def admin_reload():
+        """Roadmap #70. Every config edit this session (the system
+        prompt, the service_control allow-list) needed a full service
+        restart to take effect -- a ~90s cold read of a multi-GB GGUF
+        off disk just to pick up a few lines of YAML. service_control's
+        allow-list already reads config/models.yaml fresh on every call
+        (see service_control._load_allowlist), so nothing to do there.
+        This closes the other gap: the persona's system_prompt, which
+        registry.py only ever read once at process start into a plain
+        mutable attribute on the live PersonaBackend.
+
+        Deliberately narrow -- does NOT touch model_path, primary_model,
+        or anything that would mean unloading/reloading a GGUF (that's
+        what /model switch is for, and doing it here would risk a VRAM
+        state this route can't safely manage). Says plainly what it
+        reloaded so a caller isn't left guessing whether some other
+        edit actually took effect."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+        try:
+            cfg = yaml.safe_load(config_path.read_text()) or {}
+        except Exception as e:
+            return jsonify({"error": f"couldn't read/parse config/models.yaml: {e}"}), 400
+        persona_cfg = cfg.get("persona") or {}
+        new_prompt = persona_cfg.get("system_prompt", "")
+        gremlin_backend = registry.get("gremlin")
+        if gremlin_backend is None:
+            return jsonify({"error": "no persona backend registered"}), 500
+        changed = new_prompt != gremlin_backend.system_prompt
+        gremlin_backend.system_prompt = new_prompt
+        mutation_log.append_mutation(str(project_root), {
+            "kind": "admin_reload", "changed_system_prompt": changed,
+        })
+        return jsonify({
+            "ok": True,
+            "reloaded": ["persona.system_prompt"],
+            "changed": changed,
+            "note": "model_path/primary_model/fallback_models are NOT reloadable this way -- "
+                    "use /model switch for those; a docker/systemd allow-list edit needs no reload "
+                    "at all, service_control reads config/models.yaml fresh every call.",
+        })
 
     @app.route("/admin/log", methods=["GET"])
     def admin_log():

@@ -1,0 +1,8 @@
+[Unit]
+Description=Weekly Gremlin skills/memory/config backup
+
+[Service]
+Type=oneshot
+# Filled in by hand, same two lines as gremlin.service/gremlin-update.service.
+WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/deploy/backup.sh
