@@ -137,7 +137,110 @@ class Campaign:
             scores.append(r.score.value)
         return sum(scores) / len(scores) if scores else 0.0
 
-    # -- the loop --------------------------------------------------
+    # -- shared by run() and step() ---------------------------------
+
+    def _ensure_setup(self, state: CampaignState, skills, facts,
+                      holdout: Sequence[Task]) -> CampaignState:
+        """Baseline-every-task + the "before" trial -- idempotent
+        (checked via state.best_by_task/trial_curve being empty), so
+        step() can call this on every invocation without redoing it."""
+        if not state.best_by_task:
+            for t in self.tasks.values():
+                work = _fresh_workdir(self.target_repo, self.store.work_dir / f"baseline_{t.id}")
+                state.best_by_task[t.id] = self.verifier.score(t, str(work)).value
+            self.store.set_state(self.name, state)
+            self.log("baselines: " + ", ".join(f"{k}={v:.2f}" for k, v in state.best_by_task.items()))
+
+        if not state.trial_curve:
+            t0 = self._trial(holdout, skills, facts, tag=f"trial{state.battle_count}")
+            state.trial_curve.append({"battle": state.battle_count, "score": round(t0, 3)})
+            self.log(f"[trial @ {state.battle_count}] holdout={t0:.3f}")
+            self.store.set_state(self.name, state)
+        return state
+
+    def _converged(self, state: CampaignState) -> bool:
+        # Converge only when BOTH: nothing new is being learned AND the
+        # held-out score has actually plateaued. "No new skills" alone
+        # is not convergence when most tasks are still failing -- that
+        # is being stuck, and the loop should keep trying to the budget.
+        tail = state.accepted_history[-self.converge_run:]
+        stalled_skills = len(tail) == self.converge_run and sum(tail) == 0
+        curve = [c["score"] for c in state.trial_curve]
+        plateaued = len(curve) >= 2 and abs(curve[-1] - curve[-2]) < 0.02
+        solved = sum(1 for v in state.best_by_task.values() if v >= 0.999)
+        return stalled_skills and plateaued and solved >= len(self.tasks) * 0.6
+
+    def _battle_and_bookkeep(self, state: CampaignState, skills, facts,
+                             task: Task, bid: str) -> tuple[CampaignState, bool]:
+        """One battle plus everything that happens after it: episode
+        logging, best-score tracking, regression check, skill
+        lifecycle, reckoning/gating, council review, persistence, and
+        the progress log line. Shared by run()'s loop and step() so
+        they can never drift into different behavior for "what a
+        battle actually does" -- only "how many, and when to stop"
+        differs between them. Returns (state, ok) -- ok=False on
+        QuotaExhausted (battle_count already rolled back and state
+        already saved; caller should stop calling for now)."""
+        try:
+            result = self._battle(task, bid, skills, facts)
+        except QuotaExhausted as e:
+            state.battle_count -= 1                       # this battle didn't complete
+            self.store.set_state(self.name, state)
+            self.log(f"\n!! stopping: {e}")
+            self.log(f"   {state.battle_count} battles completed -- state saved, run `report` to see it")
+            return state, False
+
+        self.store.append_episode(result)
+
+        prev_best = state.best_by_task.get(task.id, 0.0)
+        delta = result.score.value - prev_best
+        state.best_by_task[task.id] = max(prev_best, result.score.value)
+
+        # roadmap #64, same module zoid_loop.py's one_battle/
+        # one_scaffold_battle use -- best_by_task above tracks the max
+        # WITHIN this campaign_<name>.json (already a real improvement
+        # over zoid_loop's old in-memory-only `best` dict), but doesn't
+        # loudly call out "used to win, now doesn't"; check BEFORE
+        # record so a bad round's score never overwrites the win
+        # evidence it should be compared against.
+        regression_msg = regression.check_regression(
+            str(self.store.root), self.name, result.score.value)
+        if regression_msg:
+            self.log(f"  {regression_msg}")
+        regression.record_if_win(
+            str(self.store.root), self.name, task.id, bid, result.score.value)
+
+        lifecycle.update_records(skills, result, delta)
+
+        proposals = reckoning.reckon(self.model, result, skills, facts)
+        kept = reckoning.gate(self.model, proposals, skills, facts)
+        applied = reckoning.apply_proposals(kept, bid, skills, facts)
+        state.accepted_history.append(applied)
+        transitions = lifecycle.audit(skills)
+
+        rulings = council_mod.review(
+            skills, self.council_voters,
+            episodes=self.store.read_episodes(limit=200),
+            battle_count=state.battle_count,
+        )
+        for d in rulings:
+            nm = next((s.name for s in skills if s.id == d.skill_id), d.skill_id)
+            transitions.append(f"council: {nm} -> {d.choice} {d.tally}")
+
+        self.store.write_skills(skills)
+        self.store.write_facts(facts)
+        self.store.set_state(self.name, state)
+
+        self.log(
+            f"[{state.battle_count}/{self.budget}] {task.id} "
+            f"score={result.score.value:.2f} (d{delta:+.2f}) "
+            f"proposed={len(proposals)} accepted={applied} "
+            f"skills={_skill_counts(skills)}"
+            + (f"  {'; '.join(transitions)}" if transitions else "")
+        )
+        return state, True
+
+    # -- run to completion -------------------------------------------
 
     def run(self) -> CampaignState:
         state = self.store.get_state(self.name)
@@ -146,21 +249,7 @@ class Campaign:
 
         train, holdout = _split(list(self.tasks.values()), random.Random(0))
         self.log(f"train={[t.id for t in train]}  holdout={[t.id for t in holdout]}")
-
-        # baseline every task once (§4 needs a delta; §7 needs the anchor)
-        if not state.best_by_task:
-            for t in self.tasks.values():
-                work = _fresh_workdir(self.target_repo, self.store.work_dir / f"baseline_{t.id}")
-                state.best_by_task[t.id] = self.verifier.score(t, str(work)).value
-            self.store.set_state(self.name, state)
-            self.log("baselines: " + ", ".join(f"{k}={v:.2f}" for k, v in state.best_by_task.items()))
-
-        # trial at the current point so the curve has a "before"
-        if not state.trial_curve:
-            t0 = self._trial(holdout, skills, facts, tag=f"trial{state.battle_count}")
-            state.trial_curve.append({"battle": state.battle_count, "score": round(t0, 3)})
-            self.log(f"[trial @ {state.battle_count}] holdout={t0:.3f}")
-            self.store.set_state(self.name, state)
+        state = self._ensure_setup(state, skills, facts, holdout)
 
         order = list(train)
         self.rng.shuffle(order)
@@ -172,63 +261,9 @@ class Campaign:
             state.battle_count += 1
             bid = f"battle_{state.battle_count:04d}_{task.id}"
 
-            try:
-                result = self._battle(task, bid, skills, facts)
-                self.store.append_episode(result)
-
-                prev_best = state.best_by_task.get(task.id, 0.0)
-                delta = result.score.value - prev_best
-                state.best_by_task[task.id] = max(prev_best, result.score.value)
-
-                # roadmap #64, same module zoid_loop.py's one_battle/
-                # one_scaffold_battle use -- best_by_task above tracks
-                # the max WITHIN this campaign.json (already a real
-                # improvement over zoid_loop's old in-memory-only `best`
-                # dict), but doesn't loudly call out "used to win, now
-                # doesn't"; check BEFORE record so a bad round's score
-                # never overwrites the win evidence it should be
-                # compared against.
-                regression_msg = regression.check_regression(
-                    str(self.store.root), self.name, result.score.value)
-                if regression_msg:
-                    self.log(f"  {regression_msg}")
-                regression.record_if_win(
-                    str(self.store.root), self.name, task.id, bid, result.score.value)
-
-                lifecycle.update_records(skills, result, delta)
-
-                proposals = reckoning.reckon(self.model, result, skills, facts)
-                kept = reckoning.gate(self.model, proposals, skills, facts)
-                applied = reckoning.apply_proposals(kept, bid, skills, facts)
-                state.accepted_history.append(applied)
-                transitions = lifecycle.audit(skills)
-
-                rulings = council_mod.review(
-                    skills, self.council_voters,
-                    episodes=self.store.read_episodes(limit=200),
-                    battle_count=state.battle_count,
-                )
-                for d in rulings:
-                    nm = next((s.name for s in skills if s.id == d.skill_id), d.skill_id)
-                    transitions.append(f"council: {nm} -> {d.choice} {d.tally}")
-            except QuotaExhausted as e:
-                state.battle_count -= 1                       # this battle didn't complete
-                self.store.set_state(self.name, state)
-                self.log(f"\n!! stopping: {e}")
-                self.log(f"   {state.battle_count} battles completed -- state saved, run `report` to see it")
+            state, ok = self._battle_and_bookkeep(state, skills, facts, task, bid)
+            if not ok:
                 return state
-
-            self.store.write_skills(skills)
-            self.store.write_facts(facts)
-            self.store.set_state(self.name, state)
-
-            self.log(
-                f"[{state.battle_count}/{self.budget}] {task.id} "
-                f"score={result.score.value:.2f} (d{delta:+.2f}) "
-                f"proposed={len(proposals)} accepted={applied} "
-                f"skills={_skill_counts(skills)}"
-                + (f"  {'; '.join(transitions)}" if transitions else "")
-            )
 
             if state.battle_count % self.trial_every == 0:
                 tr = self._trial(holdout, skills, facts, tag=f"trial{state.battle_count}")
@@ -236,19 +271,15 @@ class Campaign:
                 self.store.set_state(self.name, state)
                 self.log(f"[trial @ {state.battle_count}] holdout={tr:.3f}  {_overfit_note(state)}")
 
-            # Converge only when BOTH: nothing new is being learned AND the
-            # held-out score has actually plateaued. "No new skills" alone
-            # is not convergence when most tasks are still failing -- that
-            # is being stuck, and the loop should keep trying to the budget.
+            if self._converged(state):
+                solved = sum(1 for v in state.best_by_task.values() if v >= 0.999)
+                self.log(f"converged: {solved}/{len(self.tasks)} tasks solved, "
+                         f"skills + holdout both flat")
+                break
             tail = state.accepted_history[-self.converge_run:]
             stalled_skills = len(tail) == self.converge_run and sum(tail) == 0
             curve = [c["score"] for c in state.trial_curve]
             plateaued = len(curve) >= 2 and abs(curve[-1] - curve[-2]) < 0.02
-            solved = sum(1 for v in state.best_by_task.values() if v >= 0.999)
-            if stalled_skills and plateaued and solved >= len(self.tasks) * 0.6:
-                self.log(f"converged: {solved}/{len(self.tasks)} tasks solved, "
-                         f"skills + holdout both flat")
-                break
             if stalled_skills and not plateaued:
                 self.log(f"  (no new skills, but holdout still moving -- continuing)")
 
@@ -258,6 +289,54 @@ class Campaign:
         self.store.set_state(self.name, state)
         self.log(f"[final trial] holdout={final:.3f}")
         return state
+
+    # -- one battle, for a round-robin caller --------------------------
+
+    def step(self) -> bool:
+        """zoid_loop.py's real nightly loop round-robins across many
+        DIFFERENT target repos, giving each one attempt per round so no
+        single target can hog the whole night's GPU time -- run()'s
+        run-to-full-budget-or-convergence loop doesn't fit that; it
+        would exhaust one target before ever touching the next.
+
+        step() runs exactly ONE training battle (after ensuring
+        baseline/initial-trial setup, idempotently) and returns
+        immediately -- the caller holds one Campaign instance per
+        target and calls step() once per round. Returns True if
+        there's more work to do (call again next round), False once
+        this target has hit its battle budget or converged, so the
+        caller can drop it from rotation.
+
+        Task order here is a fixed cycle (train[battle_count %
+        len(train)]), not run()'s shuffle-once-then-cycle -- simpler,
+        no extra state to persist across restarts, and equivalent
+        coverage for the common case of 1-2 tasks per target that
+        zoid_loop.py's real targets actually have."""
+        state = self.store.get_state(self.name)
+        skills = self.store.read_skills()
+        facts = self.store.read_facts()
+        train, holdout = _split(list(self.tasks.values()), random.Random(0))
+
+        state = self._ensure_setup(state, skills, facts, holdout)
+
+        if self._converged(state) or state.battle_count >= self.budget:
+            return False
+
+        task = train[state.battle_count % len(train)]
+        state.battle_count += 1
+        bid = f"battle_{state.battle_count:04d}_{task.id}"
+
+        state, ok = self._battle_and_bookkeep(state, skills, facts, task, bid)
+        if not ok:
+            return False
+
+        if state.battle_count % self.trial_every == 0:
+            tr = self._trial(holdout, skills, facts, tag=f"trial{state.battle_count}")
+            state.trial_curve.append({"battle": state.battle_count, "score": round(tr, 3)})
+            self.store.set_state(self.name, state)
+            self.log(f"[trial @ {state.battle_count}] holdout={tr:.3f}  {_overfit_note(state)}")
+
+        return not (self._converged(state) or state.battle_count >= self.budget)
 
 
 def _skill_counts(skills) -> str:

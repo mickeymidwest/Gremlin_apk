@@ -55,6 +55,7 @@ from gremlin_core.registry import ModelRegistry
 from gremlin_core.magic.model import BackendModel
 from gremlin_core.magic.store import Store
 from gremlin_core.magic.battle import run_battle
+from gremlin_core.magic.campaign import Campaign
 from gremlin_core.magic.method_builder import build_from_scaffold
 from gremlin_core.magic import lifecycle, reckoning, reflexion, regression, council as council_mod
 from gremlin_core.magic.verifier import PytestVerifier
@@ -368,6 +369,70 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _build_campaign(store: Store, model, tgt: dict, log=lambda *a: None) -> Campaign:
+    """One Campaign per one_battle()-style target, built once (not per
+    round) so its rng/skills/persisted state stay coherent across the
+    whole run -- see main()'s campaigns dict. budget/trial_every are
+    effectively unbounded: these targets are practiced indefinitely
+    across many nights (this box has been doing that with the plain
+    in-memory `best` dict for a long time), not run to completion in
+    one call the way Campaign.run() assumes. trial_every especially:
+    zoid_loop.py's real targets are 1-2 tasks each, so a train/holdout
+    trial would just re-battle the same task again for no real signal
+    -- skip that overhead, rely on regression.py's check instead
+    (already wired into Campaign.step() itself)."""
+    return Campaign(
+        store, model, str(tgt["repo"]), [tgt["task"]],
+        verifier=tgt["verifier"],
+        budget=100_000, trial_every=100_000,
+        step_budget=tgt["step_budget"],
+        name=tgt["name"],
+        max_tokens=tgt.get("max_tokens", 3072),
+        phase_gate=True,
+        time_budget_s=tgt.get("time_budget", 1500.0),
+        protect_glob=tgt.get("protect_glob"),
+        log=log,
+    )
+
+
+def one_campaign_battle(campaign: Campaign, model, best: dict, log) -> float:
+    """Campaign.step()-backed replacement for one_battle() -- same live
+    per-turn trace (a battle can run many minutes and mickey watches
+    journalctl live), but the skill lifecycle / reckoning / regression
+    check / state persistence are now Campaign's own job (see
+    Campaign._battle_and_bookkeep), not duplicated here."""
+    import gremlin_core.magic.battle as _b
+    turn = [0]
+    _oc = model.complete
+
+    def _traced(msgs, system=None, max_tokens=4096):
+        turn[0] += 1
+        tt = time.monotonic()
+        r = _oc(msgs, system=system, max_tokens=max_tokens)
+        log(f"     t{turn[0]} {time.monotonic()-tt:.0f}s :: "
+            f"{(r.text or '')[:120].replace(chr(10), ' ')}")
+        return r
+    model.complete = _traced
+    _orun = _b.ShellToolHost.run
+
+    def _trun(self, call):
+        r = _orun(self, call)
+        log(f"       [{call.name}] {str(call.args)[:70]} -> {'ok' if r.ok else 'ERR'}")
+        return r
+    _b.ShellToolHost.run = _trun
+
+    try:
+        campaign.step()
+    finally:
+        model.complete = _oc
+        _b.ShellToolHost.run = _orun
+
+    state = campaign.store.get_state(campaign.name)
+    score = max(state.best_by_task.values()) if state.best_by_task else 0.0
+    best[campaign.name] = max(best.get(campaign.name, 0.0), score)
+    return score
+
+
 def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
     """method_builder path: the harness owns Game.kt and fills it one method
     body at a time (compile + test each). Used for the Android scaffold
@@ -594,6 +659,16 @@ def main() -> None:
     T = targets()
     log(f"zoid loop: {len(T)} targets {[t['name'] for t in T]}  budget {args.minutes:.0f}min / {args.rounds} rounds")
 
+    # one_battle()-style targets (not generate/builder) now run through
+    # Campaign.step() instead -- built once here, not per round, so
+    # each target's Campaign keeps its own rng/state coherent across
+    # this whole process run. See _build_campaign()'s docstring for why
+    # budget/trial_every are effectively unbounded.
+    campaigns = {
+        t["name"]: _build_campaign(store, model, t, log)
+        for t in T if not t.get("generate") and not t.get("builder")
+    }
+
     best: dict = {}
     stop_file = ROOT / "data" / "zoid_stop"
     deadline = time.monotonic() + args.minutes * 60
@@ -616,7 +691,7 @@ def main() -> None:
                 elif tgt.get("builder"):
                     one_scaffold_battle(store, model, tgt, best, log)
                 else:
-                    one_battle(store, model, tgt, best, log)
+                    one_campaign_battle(campaigns[tgt["name"]], model, best, log)
             except Exception as e:
                 log(f"  {tgt['name']}: ERROR {type(e).__name__}: {e}")
         commit_progress(round_i, log)
