@@ -16,7 +16,7 @@ def f_to_c(fahrenheit: float) -> float:
 
 def km_to_miles(km: float) -> float:
     """1 km = 1.609344 miles."""
-    return km * 0.621371
+    return km * 1.609344
 
 
 def miles_to_km(miles: float) -> float:
