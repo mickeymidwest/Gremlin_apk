@@ -51,6 +51,24 @@ _ACTION_CLAIM_RE = re.compile(
     r"|finished|completed|built|fixed|wrote|created|set up)\b",
     re.IGNORECASE)
 
+# The present-progressive twin of the same bug, confirmed live
+# 2026-09-19: asked to restart a container the classifier routed to
+# chat instead of a tool (a separate, real classifier gap -- see
+# MAGIC.md), and chat answered "Mickey, restarting the robofuse
+# container..." as if it were actually doing that. Nothing ran; chat
+# can't run anything. Same "I'm/I am + verb-ing" shape covers the
+# common phrasing of this without trying to catch every third-person
+# narrated form ("restarting X..." with no pronoun) -- that's a known
+# remaining gap, harder to distinguish from a general statement
+# ("running low on disk space is annoying") without more false
+# positives than this cheap a check is worth.
+_ACTION_PROGRESS_RE = re.compile(
+    r"\bi(?:'m| am) (?:already |just )?"
+    r"(?:checking|verifying|confirming|testing|reviewing|inspecting|examining"
+    r"|looking (?:at|into|over)|searching|fetching|downloading|executing|running"
+    r"|restarting|installing|fixing|building|writing|creating|setting up)\b",
+    re.IGNORECASE)
+
 # repo-relative only: a leading / or a system prefix means "not claiming a
 # file in this project", so skip it.
 _SKIP_PREFIX = ("/", "~", "http:", "https:", "etc/", "usr/", "var/", "opt/",
@@ -113,6 +131,13 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
         out.append(
             f"claims to have {claim.group(0).split(None, 1)[-1]} "
             "something, but this is plain chat -- no tool ran this turn to back that up"
+        )
+
+    progress = _ACTION_PROGRESS_RE.search(text)
+    if progress:
+        out.append(
+            f"says it's currently {progress.group(0).split(None, 1)[-1]} "
+            "something, but this is plain chat -- nothing is actually running"
         )
 
     return out

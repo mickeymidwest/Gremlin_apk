@@ -56,3 +56,18 @@ def test_clean_answer_with_no_action_claim_passes():
     text = "That's probably a race condition in how the two threads share state."
     findings = grounding.check(text, "/tmp/doesnt-matter", context="")
     assert findings == []
+
+
+def test_catches_the_real_restarting_container_incident_shape():
+    # live 2026-09-19: asked to restart a container, the classifier
+    # (a separate bug) routed to chat instead of a tool, and chat
+    # answered as if it were actually doing it -- nothing ran.
+    text = "Mickey, I'm restarting the robofuse container..."
+    findings = grounding.check(text, "/tmp/doesnt-matter", context="")
+    assert any("nothing is actually running" in f for f in findings)
+
+
+def test_does_not_flag_a_general_statement_about_an_ing_verb():
+    text = "Running low on disk space is annoying, you should clean that up."
+    findings = grounding.check(text, "/tmp/doesnt-matter", context="")
+    assert findings == []
