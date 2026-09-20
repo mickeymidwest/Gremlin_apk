@@ -64,4 +64,4 @@ def average_price(rows: list[Row], product: str) -> float | None:
     """Mean unit price for a product (simple average of the row prices),
     or None if that product doesn't appear."""
     prices = [r.price for r in rows if r.product == product]
-    return sum(prices) / len(rows)
+    return sum(prices, default=0.0) / len(rows)
