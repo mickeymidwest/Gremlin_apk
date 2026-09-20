@@ -7,7 +7,7 @@ edit the tests.
 def chunk(items: list, size: int) -> list[list]:
     """Split `items` into consecutive sublists of length `size`; the last
     chunk may be shorter. chunk([1,2,3,4,5], 2) == [[1,2],[3,4],[5]]."""
-    out = []
+    return [items[i:i + size]]
     for i in range(0, len(items), size):
         out.append(items[i:i + size])
     return out
