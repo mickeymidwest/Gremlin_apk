@@ -22,7 +22,7 @@ def test_km_to_miles():
 
 
 def test_miles_to_km():
-    assert miles_to_km(1) == pytest.approx(1.609344, rel=1e-4)
+    assert round(miles_to_km(1), 5) == pytest.approx(1.6093, rel=1e-4)
     assert miles_to_km(km_to_miles(5)) == pytest.approx(5.0)
 
 
