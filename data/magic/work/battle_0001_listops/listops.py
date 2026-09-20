@@ -38,10 +38,4 @@ def running_max(nums: list[int]) -> list[int]:
 
 
 def take_while(pred, items: list) -> list:
-    """Longest prefix of items for which pred(x) is true."""
-    out = []
-    for x in items:
-        if not pred(x):
-            continue
-        out.append(x)
-    return out
+    return []
