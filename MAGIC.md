@@ -359,6 +359,15 @@ building a parallel system.
   it ever reaches the sandbox, regardless of what the model outputs — the
   tool description alone was confirmed to not be enough (it used to list
   `robofuse`/`bridge`/`unarr` as ordinary `docker restart` examples).
+- **Named service control** (`service_status`/`service_restart`,
+  `gremlin_core/service_control.py`): roadmap #107. Separate from
+  `run_command` on purpose -- allow-list-based, not denylist-based:
+  nothing is controllable until it's explicitly added to
+  `config/models.yaml`'s `service_control:` block (currently just
+  `jellyfin`/`jellyseerr`), so a name has to be a deliberate addition to
+  work at all, not an accident of the denylist not having thought of it.
+  Docker containers and `systemctl --user` units only -- no system-scope
+  units, since nothing real needs that yet.
 
 ## 8. Patterns to adopt from other harnesses
 

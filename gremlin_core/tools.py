@@ -26,6 +26,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from . import build_project
 from . import root_exec, script_edit, self_improve, snapshots
+from . import service_control
 from . import update_check as update_check_mod
 from .registry import ModelRegistry
 from .router import Router
@@ -286,6 +287,40 @@ async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str,
         sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=120)
         result = await sandbox.run_safe_command(command)
     return {"answer": _fmt_exec(result), "action": "run_command", "ok": result.ok}
+
+
+def _service_not_allowed(ctx: ExecContext, name: str, action: str) -> dict[str, Any]:
+    allowed = service_control.allowed_names(ctx.project_root)
+    listed = ", ".join(allowed) if allowed else "nothing yet -- config/models.yaml's service_control: list is empty"
+    return {
+        "answer": f"\"{name}\" isn't on the allow-list, so I won't touch it. Allowed: {listed}.",
+        "action": action,
+        "ok": False,
+    }
+
+
+async def _tool_service_status(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return {"answer": "Status on what -- which service/container?", "action": "service_status", "ok": False}
+    resolved = service_control.resolve_unit(ctx.project_root, name)
+    if resolved is None:
+        return _service_not_allowed(ctx, name, "service_status")
+    kind, canonical = resolved
+    result = await service_control.get_status(kind, canonical)
+    return {"answer": _fmt_exec(result), "action": "service_status", "ok": result.ok}
+
+
+async def _tool_service_restart(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return {"answer": "Restart what -- which service/container?", "action": "service_restart", "ok": False}
+    resolved = service_control.resolve_unit(ctx.project_root, name)
+    if resolved is None:
+        return _service_not_allowed(ctx, name, "service_restart")
+    kind, canonical = resolved
+    result = await service_control.restart(kind, canonical)
+    return {"answer": _fmt_exec(result), "action": "service_restart", "ok": result.ok}
 
 
 def _last_review_feedback(result: dict[str, Any]) -> str:
@@ -574,10 +609,10 @@ REGISTRY.register(Tool(
         '{"command": "systemctl restart docker"}, NOT {"command": "docker"}; "how much disk space is '
         'left" means {"command": "df -h"}, NOT {"command": "disk"}. Never output a bare program/service '
         'name by itself as the whole command unless the user\'s request was literally just that '
-        'program\'s name with no verb. jellyfin and jellyseerr are docker CONTAINERS on this '
-        'machine, not systemd services -- "restart jellyfin" means {"command": "docker restart '
-        'jellyfin"}, NOT systemctl. Never target the robofuse/bridge/unarr containers -- that '
-        "stack is off-limits, refuse and say so instead of running the command."
+        'program\'s name with no verb. For restarting or checking a specific named service/container '
+        "(\"restart jellyfin\", \"is jellyseerr up\"), use service_restart/service_status instead of "
+        "this -- they're the allow-listed, audited path for that. Never target the robofuse/bridge/"
+        "unarr containers -- that stack is off-limits, refuse and say so instead of running the command."
     ),
     parameters={
         "type": "object",
@@ -588,6 +623,44 @@ REGISTRY.register(Tool(
         "required": ["command"],
     },
     handler=_tool_run_command,
+    destructive=True,
+    capability="mutates_external",
+))
+
+REGISTRY.register(Tool(
+    name="service_status",
+    description=(
+        'check whether a specific named service/container is running ("is jellyfin up", "status '
+        'of jellyseerr"). args: {"name": "<the service or container name>"}. Only works for names '
+        "on the allow-list in config/models.yaml's service_control: block -- refuses anything else, "
+        "including the robofuse-stack containers, structurally, not just by not being told to."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"name": {"type": "string", "description": "the service or container name"}},
+        "required": ["name"],
+    },
+    handler=_tool_service_status,
+    destructive=False,
+    capability="read_only",
+))
+
+REGISTRY.register(Tool(
+    name="service_restart",
+    description=(
+        'restart a specific named service/container ("restart jellyfin"). args: {"name": "<the '
+        'service or container name>"}. Only works for names on the allow-list in config/models.yaml\'s '
+        "service_control: block -- refuses anything else, including the robofuse-stack containers, "
+        "structurally, not just by not being told to. Different from run_command: this is the "
+        "scoped, audited path for a named service specifically -- prefer it over run_command "
+        "whenever the request is \"restart X\" for something with a name."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"name": {"type": "string", "description": "the service or container name"}},
+        "required": ["name"],
+    },
+    handler=_tool_service_restart,
     destructive=True,
     capability="mutates_external",
 ))

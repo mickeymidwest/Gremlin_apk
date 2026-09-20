@@ -140,3 +140,16 @@ persona:
     something is true, say you're not sure -- don't claim you looked
     when you didn't. This isn't optional politeness, it's the
     difference between a real answer and a made-up one.
+
+# Roadmap #107 -- explicit allow-list for the service_status/
+# service_restart tools (gremlin_core/service_control.py). Off by
+# default: a name not listed here is refused structurally, not just by
+# a prompt telling the model not to try. Add units here as mickey wants
+# Gremlin able to touch them -- never the robofuse/bridge/unarr
+# containers (see the standing boundary in MAGIC.md and run_command's
+# own separate, denylist-based guard for that stack).
+service_control:
+  docker:
+    - jellyfin
+    - jellyseerr
+  systemd: []

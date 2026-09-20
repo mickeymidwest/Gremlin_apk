@@ -305,6 +305,8 @@ def _confirmation_text(intent: Intent, original_message: str) -> str:
         )
     if intent.action == "run_command":
         return f"I'd run this on the desktop:\n\n    {a.get('command', '')}\n\nWant me to go ahead?"
+    if intent.action == "service_restart":
+        return f"I'd restart \"{a.get('name', '')}\". Want me to go ahead?"
     if intent.action == "apply_updates":
         pkgs = a.get("pending") or []
         shown = ", ".join(pkgs[:6]) + ("..." if len(pkgs) > 6 else "")
