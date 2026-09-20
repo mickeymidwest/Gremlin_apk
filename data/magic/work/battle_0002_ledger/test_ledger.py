@@ -12,7 +12,7 @@ def test_balance_includes_opening_balance():
 
 def test_post_rejects_zero_amount():
     lg = Ledger()
-    with pytest.raises(ValueError):
+    with self.assertRaises(ValueError):
         lg.post("bogus", 0.0)
     assert lg.entries == []
 
