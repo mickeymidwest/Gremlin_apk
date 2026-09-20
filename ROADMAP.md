@@ -159,10 +159,17 @@ instead of waiting on that decision — see its note below.
     fixed targets already re-run every night by construction, so the gap was
     memory, not re-running. `gremlin_core/magic/regression.py` persists each
     target's best-ever win to `data/magic/regression/<name>.json` (git-
-    committed nightly alongside skills) and `one_battle`/`one_scaffold_battle`
-    now check + log loudly BEFORE overwriting that evidence when a target
-    that used to win doesn't anymore. `one_generate_battle` (rotating spec,
-    no stable task identity) deliberately excluded.
+    committed nightly alongside skills) and `one_campaign_battle`/
+    `one_scaffold_battle`/`one_generate_battle` all check + log loudly BEFORE
+    overwriting that evidence when a target that used to win doesn't anymore.
+    `one_generate_battle` (scaffold-apk) was originally excluded on a "rotating
+    spec, no stable task identity" call — fixed 2026-09-20 (mickey: "check that
+    regression suite gap you flagged earlier"): the spec NAME (tipcalc/
+    salestax/streak, a fixed cycling list) is stable even though the target
+    name's meaning rotates, so it's now keyed on `f"{target_name}-{spec}"`.
+    (`one_battle` itself is retired dead code as of the same session's Campaign
+    work — `one_campaign_battle`/`Campaign.step()` drives every non-scaffold,
+    non-generate target now.)
 65. **[P2]** Campaign report written to `data/magic/reports/<date>.md` and
     committed, not just printed.
 66. **[P3]** Multi-model campaign — run the same campaign on qwen2.5-7b vs

@@ -26,9 +26,25 @@ nvidia-smi --query-gpu=memory.free --format=csv,noheader || true
 
 echo "-- zoid loop --"
 venv/bin/python zoid_loop.py --minutes "$MINUTES" --rounds "${ZOID_ROUNDS:-200}"
+ZOID_EXIT=$?
 
 echo "-- restoring service + timers --"
 for u in gremlin-watchdog.timer gremlin-update.timer gremlin-distill.timer gremlin.service; do
   systemctl --user start "$u" 2>/dev/null
 done
-echo "==================== $(date) done ===================="
+
+# Real bug found + fixed 2026-09-20: this script never checked
+# zoid_loop.py's exit code, and has no `set -e` (can't use one -- a
+# crash must still fall through to "restoring service + timers" above,
+# not leave the box down all night). That silence let zoid_loop.py
+# crash on a dead model name for 6 straight nights (2026-09-13 to
+# 2026-09-19) while every log still ended in a plain "done" banner --
+# nobody noticed until the logs were read by hand. Now a nonzero exit
+# gets its own loud, unmissable banner instead of blending into a
+# normal night's log tail.
+if [ "$ZOID_EXIT" -ne 0 ]; then
+  echo "==================== $(date) FAILED (exit $ZOID_EXIT) ===================="
+else
+  echo "==================== $(date) done ===================="
+fi
+exit "$ZOID_EXIT"

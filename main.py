@@ -939,7 +939,14 @@ async def cmd_edit(registry: ModelRegistry, router: Router, path: str, problem: 
 
     try:
         with git_mutation_lock(PROJECT_ROOT):
-            model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+            # Same fix as self-edit/build_project (roadmap, 2026-09-20):
+            # propose_fix broadcasts to every name it's given then merges
+            # the proposals -- with the full registry that's N local-GGUF
+            # VRAM swaps plus a merge call, the exact slowness bug that
+            # made self-edit never complete.
+            primary_name = registry.primary_model_name()
+            model_names = [primary_name] if primary_name else [
+                n for n in registry.names() if registry.get(n).info.kind != "persona"]
             print(f"Asking {', '.join(model_names)} to propose a fix for {resolved.name}...\n")
 
             new_content = await script_edit.propose_fix(router, model_names, str(resolved), problem)

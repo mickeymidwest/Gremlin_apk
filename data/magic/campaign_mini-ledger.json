@@ -1,17 +1,6 @@
 {
-  "battle_count": 3,
-  "accepted_history": [
-    0,
-    0,
-    0
-  ],
-  "trial_curve": [
-    {
-      "battle": 0,
-      "score": 0.0
-    }
-  ],
-  "best_by_task": {
-    "ledger": 0.0
-  }
+  "battle_count": 0,
+  "accepted_history": [],
+  "trial_curve": [],
+  "best_by_task": {}
 }

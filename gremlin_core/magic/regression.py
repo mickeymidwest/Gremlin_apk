@@ -17,11 +17,15 @@ change, anything) reads as an ordinary in-progress score in the log,
 not a flagged regression -- nothing persists "this used to work"
 across nights. This module is that persistence + the loud check.
 
-Deliberately scoped to `one_battle`/`one_scaffold_battle`'s targets
-(a stable Task per target name, re-attempted as-is every round) --
-NOT `one_generate_battle` (scaffold-apk), which cycles through a
-different spec each round and has no stable task identity to regress
-against.
+Covers `one_battle`/`one_scaffold_battle`'s targets directly (a
+stable Task per target name, re-attempted as-is every round), and
+`one_generate_battle` (scaffold-apk) keyed on f"{target_name}-{spec
+name}" -- the target name itself rotates what it means round to
+round, but `_SCAFFOLD_SPECS` in zoid_loop.py is a fixed, named list
+that `itertools.cycle` just repeats, so the spec name IS a stable
+identity to regress each spec against across its own recurrences.
+(Fixed 2026-09-20 -- this module originally excluded scaffold-apk
+on the "no stable identity" claim, which was only half right.)
 """
 from __future__ import annotations
 

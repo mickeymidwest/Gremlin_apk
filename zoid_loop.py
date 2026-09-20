@@ -522,12 +522,15 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
     build_project fills the feature methods. On all-green, assemble the APK
     into the Builds screen. Feeds the learn step like the others.
 
-    No regression.check_regression()/record_if_win() here, unlike the
-    other two -- the spec rotates every round (itertools.cycle in
-    targets()), so there's no single stable task identity for this
-    target name to regress against; "score dropped" could just as
-    easily mean this round's spec is a harder app, not that anything
-    broke."""
+    Real gap found live 2026-09-20 (mickey: "check that regression
+    suite gap you flagged earlier"): the original reasoning here was
+    "the spec rotates every round, so there's no stable task identity"
+    -- true for tgt["name"] ("scaffold-apk", which really does rotate
+    what it means round to round), but wrong about there being NO
+    stable identity at all. _SCAFFOLD_SPECS is a fixed, named, 3-item
+    list (tipcalc/salestax/streak) that itertools.cycle just repeats
+    -- `sname` IS a stable identity across rounds, one just needed to
+    use it as the regression key instead of tgt["name"]."""
     from gremlin_core.magic import android_scaffold
     from gremlin_core.magic.method_builder import build_project
     from gremlin_core.magic.battle import _skill_score
@@ -580,6 +583,16 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
                               task_id=task.id, transcript=tr, score=score)
         delta = score.value            # baseline is 0 -- a fresh scaffold is all TODO()
         best[tgt["name"]] = max(best.get(tgt["name"], 0.0), score.value)
+
+        # roadmap #64 -- keyed on the SPEC (stable across cycles), not
+        # tgt["name"] (rotates every round) -- see this function's own
+        # docstring for why the original "no stable identity" call was
+        # wrong.
+        regression_key = f"{tgt['name']}-{sname}"
+        regression_msg = regression.check_regression(str(ROOT), regression_key, score.value)
+        if regression_msg:
+            log(f"  {regression_msg}")
+        regression.record_if_win(str(ROOT), regression_key, task.id, result.battle_id, score.value)
 
         if score.value < 0.999:
             try:

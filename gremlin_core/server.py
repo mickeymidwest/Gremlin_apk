@@ -1021,7 +1021,16 @@ def create_app(
             return jsonify({"ok": False, "error": f"no such file: {resolved}"}), 400
 
         async def _propose_and_apply():
-            model_names = [n for n in registry.names() if registry.get(n).info.kind != "persona"]
+            # Same fix as self-edit/build_project (roadmap, 2026-09-20):
+            # propose_fix broadcasts to every name it's given then merges
+            # the proposals -- with the full registry that's N local-GGUF
+            # VRAM swaps plus a merge call, the exact slowness bug that
+            # made self-edit never complete. Primary only; this route's
+            # safety net is script_edit.apply_fix's own compile/verify +
+            # revert-on-failure, not a second-model review.
+            primary_name = registry.primary_model_name()
+            model_names = [primary_name] if primary_name else [
+                n for n in registry.names() if registry.get(n).info.kind != "persona"]
             new_content = await script_edit.propose_fix(router, model_names, str(resolved), problem)
             old_content = resolved.read_text()
             diff = script_edit.diff_preview(old_content, new_content, resolved.name)
