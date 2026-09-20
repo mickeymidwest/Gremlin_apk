@@ -26,7 +26,7 @@ def wrap(text: str, width: int) -> list[str]:
 def truncate(text: str, limit: int) -> str:
     """If text is longer than `limit`, cut it and add a single '…' so the
     RESULT (including the ellipsis) is exactly `limit` chars. Otherwise
-    return text unchanged.
+    return text
     """
     if len(text) <= limit:
         return text
