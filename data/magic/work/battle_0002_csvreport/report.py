@@ -40,7 +40,7 @@ def revenue_by_region(rows: list[Row]) -> dict[str, float]:
     """region -> summed revenue. Every region that appears is a key."""
     out: dict[str, float] = {}
     for row in rows:
-        out[r.region] = r.revenue
+        out[row.region] = row.revenue
     return out
 
 
