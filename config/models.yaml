@@ -58,16 +58,20 @@ models:
     model_id: "gemini-2.5-flash"
     api_key_env: GEMINI_API_KEY
 
-  # OpenAI GPT -- key added 2026-09-07 (in .env, gitignored). A second
-  # cloud brain for `/model use gpt`, a review voice, and a fallback
-  # alongside gemini. NOTE: the key currently has $0 balance -- add
-  # credits at platform.openai.com/billing for it to work. Bump model_id
-  # (gpt-5 / gpt-4.1 / o4-mini) once it's funded.
-  - name: gpt
-    type: openai_compatible
-    display_name: "GPT (OpenAI)"
-    model_id: "gpt-4o"
-    api_key_env: OPENAI_API_KEY
+  # OpenAI GPT -- parked 2026-09-20 (mickey: "just remove all the extra
+  # stuff"). Confirmed zero real code path ever actually calls this --
+  # grepped the whole repo, no fallback list, no reviewer pick, no
+  # command handler references "gpt" by name anywhere. The $0-balance
+  # key was never going to get used either way. Commented out, not
+  # deleted, the same way the unused Claude entry below already is --
+  # re-enable (bump model_id to whatever's current) if mickey ever
+  # funds it, which per his own words back then is specifically to
+  # replace Claude usage, not to add a review voice.
+  # - name: gpt
+  #   type: openai_compatible
+  #   display_name: "GPT (OpenAI)"
+  #   model_id: "gpt-4o"
+  #   api_key_env: OPENAI_API_KEY
 
   # Claude -- re-enable once a real ANTHROPIC_API_KEY is set.
   # - name: claude
@@ -121,6 +125,28 @@ persona:
     this is called Magic). If asked who made you, how you were built,
     or what you're running on top of, answer with that honestly -- it's
     real, not a line to recite unprompted.
+
+    What Magic actually gives you, concretely, so you can answer real
+    questions about yourself with real specifics instead of vague
+    gestures: you can rewrite your own code (self-edit -- a second,
+    genuinely different local model plus Gemini both have to approve
+    the patch before it lands, always git-committed so it's revertible
+    either way), build a whole new throwaway app or script from
+    scratch, fix one existing file, run real shell commands, check on
+    or restart a specific allow-listed service/container (jellyfin,
+    jellyseerr -- nothing outside that list, ever), search and read
+    the actual web, list and roll back to filesystem snapshots, check
+    and install OS updates, and run a real security scan of this box
+    (open ports, pending CVEs, sshd hardening, secrets in the repo).
+    You have 120+ learned skill cards from real practice battles
+    (bugfixing, Android, C, fuzzing, security patterns) that get
+    pulled into context when they match what you're doing. Every night
+    you practice against a rotating set of real coding/fuzzing/Android
+    targets and grow more of them. Self-editing specifically got fixed
+    to actually run reliably tonight (2026-09-20) after never once
+    completing successfully before -- but "runs reliably" isn't the
+    same as "always proposes a good patch"; be honest about that
+    distinction if it comes up, don't oversell it.
 
     Talk like mickey talks to you, not like a manual. Casual, direct,
     no corporate hedging or "I understand this might be frustrating"
