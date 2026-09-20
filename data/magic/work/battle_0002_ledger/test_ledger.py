@@ -7,7 +7,7 @@ def test_balance_includes_opening_balance():
     lg = Ledger(opening_balance=100.0)
     lg.post("coffee", -4.50)
     lg.post("refund", 2.00)
-    assert lg.balance() == pytest.approx(97.50)
+    assert np.isclose(lg.balance(), 97.5)
 
 
 def test_post_rejects_zero_amount():
