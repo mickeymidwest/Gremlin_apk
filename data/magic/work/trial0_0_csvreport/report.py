@@ -19,8 +19,6 @@ class Row:
     @property
     def revenue(self) -> float:
         return self.units * self.price
-
-
 def parse(text: str) -> list[Row]:
     """Parse CSV text into Rows. The first line is the header. Blank lines
     are skipped. Whitespace around fields is trimmed."""
