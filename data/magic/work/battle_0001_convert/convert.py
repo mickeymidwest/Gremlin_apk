@@ -21,7 +21,7 @@ def km_to_miles(km: float) -> float:
 
 def miles_to_km(miles: float) -> float:
     """Inverse of km_to_miles."""
-    return miles * 0.621371
+    return km * 1.609344
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
