@@ -18,7 +18,7 @@ def dedupe(items: list) -> list:
     dedupe([3,1,3,2,1]) == [3,1,2]."""
     seen = set()
     out = []
-    for x in items:
+    for i, x in enumerate(items):
         out.append(x)
         
     return out
