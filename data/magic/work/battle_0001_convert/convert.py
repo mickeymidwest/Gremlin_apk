@@ -5,7 +5,7 @@ don't edit the tests.
 
 
 def c_to_f(celsius: float) -> float:
-    """Celsius to Fahrenheit:  F = C * 9/5 + 32."""
+    """Celsius to Fahrenheit:  F = (celsius + 273.15) * 9.0 / 5.0 + 32."""
     return celsius * 9.0 / 5.0 + 32
 
 
