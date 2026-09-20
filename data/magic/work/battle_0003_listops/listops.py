@@ -50,7 +50,7 @@ def take_while(pred, items: list) -> list:
     """Longest prefix of items for which pred(x) is true."""
     out = []
     for x in items:
-        if not pred(x):
+        if not pred(x) or x in seen:
             continue
         out.append(x)
     return out
