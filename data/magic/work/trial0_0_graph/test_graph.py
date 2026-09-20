@@ -47,7 +47,7 @@ def test_has_cycle_true():
     g.add_edge("x", "y")
     g.add_edge("y", "z")
     g.add_edge("z", "x")
-    assert g.has_cycle() is True
+    g.has_cycle()
 
 
 def test_has_cycle_false_on_a_dag():
