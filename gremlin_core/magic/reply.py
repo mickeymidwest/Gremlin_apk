@@ -8,6 +8,7 @@ the local backend errors outright.
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from .. import notes
@@ -96,6 +97,93 @@ def _skills_block(root: str, message: str, limit: int = 3) -> str:
     return "\n".join(lines)
 
 
+_WS_RE = re.compile(r"\s+")
+
+
+def _norm(s: str) -> str:
+    return _WS_RE.sub(" ", (s or "").strip().lower())
+
+
+def _split_history_blocks(history: str) -> tuple[str, list[str]]:
+    """(prefix, blocks) -- prefix is render()'s header line (everything
+    before the first "User: "), blocks are the "User: ..\\nGremlin: .."
+    turns, originally joined by "\\n\\n". Finds the header by content
+    rather than assuming its exact wording, so this doesn't silently
+    break if ConversationHistory.render's header text ever changes.
+
+    Splits on "\\n\\nUser: " specifically, not bare "\\n\\n" -- a real
+    bug caught testing this live: an answer that itself contains a
+    blank line (e.g. the grounding.caveat() disclaimer, which is
+    appended as "text + \\n\\n_Heads up...") has an internal "\\n\\n"
+    that isn't a block boundary. Splitting on bare "\\n\\n" chopped
+    that block into two fragments, and the second fragment (no "User:"
+    prefix) broke the trailing-repeat walk in
+    _repeat_nudge_and_clean() early, leaving that block un-stripped
+    when it should have been."""
+    idx = history.find("User: ")
+    if idx == -1:
+        return history, []
+    body = history[idx:]
+    parts = body.split("\n\nUser: ")
+    blocks = [parts[0]] + [f"User: {p}" for p in parts[1:]]
+    return history[:idx], blocks
+
+
+def _repeat_nudge_and_clean(message: str, history: str) -> tuple[str, str]:
+    """(cleaned_history, nudge) -- real bug found live 2026-09-20 (mickey:
+    "we still have sometype of bug its still dont giving any thing when
+    i talk to it"): a multi-part question got a short, incomplete
+    answer; mickey asked it again, word for word, and got an EVEN
+    SHORTER one -- same exact text, in fact, on a later retry too.
+
+    First fix attempt here only APPENDED a note saying "answer it fully
+    this time" while still replaying the bad exchange verbatim as the
+    most recent turn. Verified live against mickey's real stuck
+    conversation: the nudge WAS correctly detected and included (traced
+    all the way through PersonaBackend -> LlamaCppBackend -> real
+    chat-formatted messages), and the model STILL reproduced the exact
+    same 29-token non-answer, byte for byte. By that point the same
+    broken "Gremlin: ..." line had repeated 2-3 times in raw history --
+    a pattern that strong apparently outweighs one nearby instruction
+    for a model this size. A note ALONGSIDE the poison wasn't enough;
+    this removes the poison. Every trailing block whose question
+    matches the current one (normalized) gets stripped from what's
+    replayed into the prompt, so the model never sees itself having
+    just given that same bad answer -- replaced with one explicit note
+    instead of N verbatim copies of the failure to imitate."""
+    prefix, blocks = _split_history_blocks(history)
+    if not blocks:
+        return history, ""
+
+    last_answer = ""
+    removed = 0
+    while blocks:
+        block = blocks[-1]
+        if "\nGremlin: " not in block:
+            break
+        user_part, _, answer_part = block.partition("\nGremlin: ")
+        user_part = user_part.removeprefix("User: ")
+        if _norm(user_part) != _norm(message) or not user_part.strip():
+            break
+        last_answer = answer_part
+        blocks.pop()
+        removed += 1
+
+    if removed == 0:
+        return history, ""
+
+    cleaned = (prefix + "\n\n".join(blocks)) if blocks else ""
+    nudge = (
+        "The user just asked this again, word for word. Your last "
+        f"answer to it (\"{last_answer.strip()[:200]}\") clearly "
+        "didn't answer it -- too short, cut off, or missed part of "
+        "what was asked. Don't repeat that same answer or shape. This "
+        "time, actually answer the full question, covering every part "
+        "of it."
+    )
+    return cleaned, nudge
+
+
 def _build_prompt(message: str, root: str, history: str):
     """(prompt, history_msgs) for the backend: the user's line as the
     prompt, everything else (durable memory, matching skills, away-mode
@@ -107,6 +195,7 @@ def _build_prompt(message: str, root: str, history: str):
         _skills_block(root, message),
         notes.recent_away_context(root),
     ) if p)
+    history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
     if context:
         hist.append({"role": "user", "content": context})
@@ -115,6 +204,9 @@ def _build_prompt(message: str, root: str, history: str):
         hist.append({"role": "user", "content":
                      "Earlier in this conversation:\n" + history})
         hist.append({"role": "assistant", "content": "Got it, continuing from there."})
+    if nudge:
+        hist.append({"role": "user", "content": nudge})
+        hist.append({"role": "assistant", "content": "Understood -- answering it fully this time."})
     return message, hist, "\n\n".join(p for p in (context, history) if p)
 
 

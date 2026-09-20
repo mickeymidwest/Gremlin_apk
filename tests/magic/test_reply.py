@@ -88,3 +88,105 @@ def test_corrupt_memory_file_does_not_break_chat(tmp_path, monkeypatch):
     be = Backend(FakeR("still here"))
     r = asyncio.run(reply.answer(be, "you ok?", str(tmp_path)))
     assert r["answer"] == "still here"
+
+
+def test_exact_repeat_of_last_question_gets_a_nudge(tmp_path):
+    """Real bug found live 2026-09-20 (mickey: "we still have sometype
+    of bug its still dont giving any thing when i talk to it"): a short,
+    incomplete answer to a multi-part question, repeated word-for-word,
+    got an even shorter answer -- because the full transcript (that same
+    bad exchange included) gets replayed into every prompt, so the model
+    saw its own prior short answer as the most recent thing said and
+    just continued that shape. _repeat_nudge_and_clean() should catch an
+    exact repeat of the last question and tell the model plainly."""
+    history = ("Earlier in THIS ongoing conversation (most recent last -- "
+               "you are continuing it, not starting over):\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: So, Magic is the codebase, right?")
+    be = Backend(FakeR("this time a real full answer"))
+    r = asyncio.run(reply.answer(
+        be, "list its skills and give pros and cons", str(tmp_path), history=history))
+    assert r["answer"] == "this time a real full answer"
+    prompt = be.calls[0]
+    assert "asked this again, word for word" in prompt
+    assert "didn't answer it" in prompt
+
+
+def test_poisoned_repeat_is_actually_stripped_not_just_annotated(tmp_path):
+    """Second fix attempt: the first version only APPENDED the nudge
+    while still replaying the bad exchange verbatim as the most recent
+    turn. Verified live against mickey's real stuck conversation: the
+    nudge fired correctly but the model reproduced the exact same
+    29-token non-answer anyway -- a note ALONGSIDE the poison wasn't
+    enough to out-weigh 2-3 verbatim copies of the same broken answer
+    sitting right there as "the most recent thing said." This asserts
+    the actual mechanism that fixes it: the repeated bad exchange must
+    be gone from what's replayed, not just footnoted."""
+    history = ("Earlier in THIS ongoing conversation (most recent last -- "
+               "you are continuing it, not starting over):\n"
+               "User: what's the weather\nGremlin: sunny\n\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: So, Magic is the codebase, right?\n\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: So, Magic is the codebase, right?")
+    be = Backend(FakeR("real answer"))
+    asyncio.run(reply.answer(
+        be, "list its skills and give pros and cons", str(tmp_path), history=history))
+    prompt = be.calls[0]
+    # the poisoned answer must not survive as a replayed turn -- it can
+    # still appear once, quoted inside the nudge itself, for context
+    assert "Gremlin: So, Magic is the codebase, right?" not in prompt
+    assert prompt.count("So, Magic is the codebase, right?") == 1
+    # unrelated earlier history is untouched
+    assert "what's the weather" in prompt and "sunny" in prompt
+
+
+def test_repeat_stripping_survives_a_blank_line_inside_an_answer(tmp_path):
+    """Real bug caught testing this live: render() can produce a block
+    whose OWN answer contains an internal blank line (e.g. the
+    grounding.caveat() disclaimer appended as "text\\n\\n_Heads up..."),
+    which looks identical to a block-boundary "\\n\\n" if you split on
+    bare "\\n\\n". That silently broke the trailing-repeat walk and let
+    a should-have-been-stripped block survive. Locks in the fix
+    (splitting on "\\n\\nUser: " specifically)."""
+    history = ("Earlier in THIS ongoing conversation (most recent last -- "
+               "you are continuing it, not starting over):\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: short answer.\n\n_Heads up — disclaimer text here._\n\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: short answer.\n\n_Heads up — disclaimer text here._")
+    be = Backend(FakeR("real answer"))
+    asyncio.run(reply.answer(
+        be, "list its skills and give pros and cons", str(tmp_path), history=history))
+    prompt = be.calls[0]
+    # neither poisoned turn survives as a replayed "Gremlin:" line -- the
+    # bug being locked in here is that the SECOND (later) one used to
+    # survive because the first one's internal blank line broke the walk
+    assert "Gremlin: short answer." not in prompt
+
+
+def test_different_followup_question_gets_no_nudge(tmp_path):
+    history = ("Earlier in THIS ongoing conversation (most recent last -- "
+               "you are continuing it, not starting over):\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: So, Magic is the codebase, right?")
+    be = Backend(FakeR("answer to a new question"))
+    asyncio.run(reply.answer(be, "what time is it", str(tmp_path), history=history))
+    assert "asked this again, word for word" not in be.calls[0]
+
+
+def test_repeat_nudge_ignores_case_and_whitespace(tmp_path):
+    history = ("Earlier in THIS ongoing conversation (most recent last -- "
+               "you are continuing it, not starting over):\n"
+               "User: list its skills and give pros and cons\n"
+               "Gremlin: So, Magic is the codebase, right?")
+    be = Backend(FakeR("full answer"))
+    asyncio.run(reply.answer(
+        be, "  List its skills   AND give Pros and Cons  ", str(tmp_path), history=history))
+    assert "asked this again, word for word" in be.calls[0]
+
+
+def test_no_history_never_nudges(tmp_path):
+    be = Backend(FakeR("first answer ever"))
+    asyncio.run(reply.answer(be, "list its skills and give pros and cons", str(tmp_path)))
+    assert "asked this again, word for word" not in be.calls[0]
