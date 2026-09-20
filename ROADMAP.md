@@ -230,6 +230,52 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 
 ---
 
+## J. Trust & capability foundation  (101–109)
+
+Prompted by a much bigger "100-step enterprise harness" proposal mickey got
+from another AI (permission engine, secrets vault, event bus, world model,
+digital twin, missions) — scaled down to what a one-GPU personal box run by
+one person actually needs. Skip anything that duplicates a mechanism Gremlin
+already has (the review gate, `mutation_log.py`, `data/zoid_stop`,
+`agent_state`) — extend those instead of building parallel systems.
+
+101. **[P1]** Hard system-prompt rule: plain chat has zero tool access this
+     turn — never say "I checked/looked at/ran X" unless a real tool call
+     backs it. (The libFuzzer-lie bug, root cause.)
+102. **[P1]** Extend `grounding.check()` to flag fabricated action-claim
+     language ("I checked", "I finished", "I ran") when no tool actually
+     executed that turn — same one-shot regenerate-with-feedback path it
+     already uses for invented file paths.
+103. **[P1]** Post-action verification before claiming success in
+     `build_project`/`self_edit` — re-check the actual result (build output,
+     git log) instead of trusting the model's own "done" claim. (The
+     fabricated "Yeah, I finished it" bug.)
+104. **[P2]** A small declarative capability list per tool (reuse the
+     existing `Tool`/`ToolRegistry` shape in `tools.py`) — tags each tool as
+     `read_only` / `mutates_gremlin` / `mutates_external`. `mutates_external`
+     tools require an explicit allow entry in `config/models.yaml`, off by
+     default. This is the actual gate for "can Gremlin touch X" — no
+     separate permission-engine subsystem needed.
+105. **[P2]** Audit trail: every `mutates_*` tool call appends to the
+     existing `mutation_log.py`, not a new event bus — timestamp, tool,
+     args, outcome. `/admin/log?n=50` to read it back.
+106. **[P1]** Emergency stop already exists (`data/zoid_stop`, the systemd
+     timers, `agent_state`) — document it in MAGIC.md and expose it as a
+     single `/stop` admin command instead of building a new kill switch.
+107. **[P2]** Generic systemd/docker status+restart tool, scoped to units
+     mickey explicitly names in config (own Gremlin units, anything else he
+     adds) — `mutates_external`, logged, and it only ever acts on units on
+     the allow-list. Deliberately does **not** include `robofuse-stack`'s
+     `robofuse`/`bridge`/`unarr` containers — see the standing boundary on
+     that stack; Jellyfin itself is fine to add to the allow-list.
+108. **[P3]** Scoped/one-time grants ("do X once, don't keep the capability")
+     for anything risky enough to want a leash even after #104 — only worth
+     it once #104 is actually in use and something on the allow-list turns
+     out to need finer control.
+109. **[P3]** A written per-weekend scope contract (what's in/out for this
+     session) before starting any multi-session item above — good discipline
+     from the bigger proposal, worth keeping regardless of the rest of it.
+
 ## The short list, if you only do five
 
 - **#81** SSD — unblocks everything perf-related
