@@ -20,8 +20,8 @@ provenance:
 - seed
 created: 1788803179.1005232
 record:
-  uses: 129
-  wins: 109
+  uses: 130
+  wins: 110
   losses: 20
   score_deltas:
   - 1.0
@@ -153,5 +153,6 @@ record:
   - 1.0
   - 1.0
   - 0.0
-  last_used_battle: battle_0001_nsfuzz
-  battles_available: 69
+  - 1.0
+  last_used_battle: battle_0001_tlvfuzz
+  battles_available: 70
