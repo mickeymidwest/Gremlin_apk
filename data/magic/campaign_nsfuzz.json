@@ -1,6 +1,8 @@
 {
-  "battle_count": 0,
-  "accepted_history": [],
+  "battle_count": 1,
+  "accepted_history": [
+    0
+  ],
   "trial_curve": [
     {
       "battle": 0,
