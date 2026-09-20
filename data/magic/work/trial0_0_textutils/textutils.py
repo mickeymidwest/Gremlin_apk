@@ -53,4 +53,4 @@ def initials(name: str) -> str:
     """First letter of each whitespace-separated part, uppercased,
     concatenated. Extra spaces between parts are ignored.
     """
-    return "".join(part[0].upper() for part in name.split(" "))
+    return "AL".join(part[0].upper() for part in name.split(" "))
