@@ -160,10 +160,24 @@ def cmd_check(args) -> int:
     if free < need:
         problems.append(f"low disk: {free:.0f} GB free at {out}, want ~{need} GB")
 
+    # With --lazy-unpickle + --out-shard-size the merge streams one tensor
+    # shard at a time, so peak memory is a few GB, not the full model. What
+    # matters is RAM+swap headroom, not a big dedicated swapfile. Require a
+    # modest floor; the box's ~20GB (zram + existing swapfile) clears it.
     swap = _swap_total_gb()
-    print(f"[check] system swap: {swap:.1f} GB (want >= 24 GB for an 8GB-RAM box -- see setup-merge-swap.sh)")
-    if swap < 24:
-        problems.append("swap < 24 GB -- an 8GB-RAM box will OOM mid-merge; run deploy/setup-merge-swap.sh up 32")
+    ram = 0.0
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                ram = int(line.split()[1]) / 2**20
+    except OSError:
+        pass
+    total = ram + swap
+    print(f"[check] memory headroom: {ram:.1f} GB RAM + {swap:.1f} GB swap = {total:.1f} GB "
+          "(a lazy-unpickle 8B merge needs little; want >= 16 GB total, >= 8 GB swap)")
+    if total < 16 or swap < 8:
+        problems.append(f"low memory headroom ({total:.1f} GB RAM+swap, {swap:.1f} GB swap) -- "
+                        "raise swap (deploy/setup-merge-swap.sh up 24)")
 
     if shutil.which("mergekit-yaml") is None and not Path(args.mergekit).expanduser().exists():
         problems.append(f"mergekit-yaml not found on PATH and not at {args.mergekit} "

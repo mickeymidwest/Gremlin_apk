@@ -17,16 +17,32 @@ SWAPFILE="${SWAPFILE:-$HOME/Downloads/.merge-swapfile}"
 case "${1:-}" in
   up)
     GB="${2:-32}"
-    if [ -f "$SWAPFILE" ]; then
-      echo "swapfile already exists at $SWAPFILE -- run 'down' first if you want to resize"
-      exit 1
+    # clean up a prior (possibly failed) file so 'up' is idempotent
+    if [ -e "$SWAPFILE" ]; then
+      echo "removing existing $SWAPFILE first ..."
+      sudo swapoff "$SWAPFILE" 2>/dev/null || true
+      sudo rm -f "$SWAPFILE"
     fi
-    echo "creating ${GB}GiB swapfile at $SWAPFILE ..."
-    # fallocate is instant; if the fs rejects it (some), fall back to dd.
-    sudo fallocate -l "${GB}G" "$SWAPFILE" 2>/dev/null || \
+    FSTYPE="$(findmnt -no FSTYPE --target "$(dirname "$SWAPFILE")" 2>/dev/null)"
+    echo "creating ${GB}GiB swapfile at $SWAPFILE (fs: ${FSTYPE:-unknown}) ..."
+    if [ "$FSTYPE" = "btrfs" ]; then
+      # btrfs rejects a normal fallocate'd swapfile (CoW). Prefer the
+      # built-in helper; fall back to the manual nocow procedure.
+      if sudo btrfs filesystem mkswapfile --size "${GB}g" "$SWAPFILE" 2>/dev/null; then
+        :
+      else
+        sudo truncate -s 0 "$SWAPFILE"
+        sudo chattr +C "$SWAPFILE"               # disable CoW (required for swap)
+        sudo dd if=/dev/zero of="$SWAPFILE" bs=1M count=$((GB*1024)) status=progress
+        sudo chmod 600 "$SWAPFILE"
+        sudo mkswap "$SWAPFILE"
+      fi
+    else
+      # ext4/xfs: dd (not fallocate) so swapon doesn't choke on holes
       sudo dd if=/dev/zero of="$SWAPFILE" bs=1M count=$((GB*1024)) status=progress
-    sudo chmod 600 "$SWAPFILE"
-    sudo mkswap "$SWAPFILE"
+      sudo chmod 600 "$SWAPFILE"
+      sudo mkswap "$SWAPFILE"
+    fi
     sudo swapon "$SWAPFILE"
     # let the kernel lean on swap only under real pressure, not eagerly
     sudo sysctl -w vm.swappiness=10 >/dev/null || true
