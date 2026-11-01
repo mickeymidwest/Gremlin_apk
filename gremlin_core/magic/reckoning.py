@@ -55,6 +55,20 @@ fact without explaining why. When in doubt, reject -- a missed skill is
 cheaper than a bad one.
 """
 
+# The gate's reply is parsed for exactly one field (`accept`), so a weak
+# local model that fumbles the JSON silently drops a good skill. Constrain
+# the sampler to the shape the prompt already asks for -- valid JSON, the
+# two fields, `accept` a real boolean. A no-op on remote/scripted models
+# (grammar is local-only); see gremlin_core/backends/grammars.py.
+_GATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "accept": {"type": "boolean"},
+        "reason": {"type": "string"},
+    },
+    "required": ["accept", "reason"],
+}
+
 def _render_context(skills: Sequence[Skill], facts: Sequence[Fact]) -> str:
     lines = ["EXISTING SKILLS:"]
     lines += [f"- {s.name} [{s.status}]: {s.purpose}" for s in skills] or ["  (none)"]
@@ -172,7 +186,8 @@ def gate(model: Model, proposals: Sequence[Proposal],
             if cur is not None:
                 prompt += f"\n\nCURRENT VERSION being replaced:\n{cur.render()}"
         reply = model.complete([{"role": "user", "content": prompt}],
-                               system=_GATE_SYSTEM, max_tokens=300)
+                               system=_GATE_SYSTEM, max_tokens=300,
+                               grammar=_GATE_SCHEMA)
         verdict = _extract_json(reply.text)
         if verdict.get("accept") is True:
             kept.append(p)

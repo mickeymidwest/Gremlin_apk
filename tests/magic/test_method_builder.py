@@ -16,7 +16,7 @@ class _CapModel:
     def __init__(self, reply="return 0"):
         self.reply, self.system = reply, None
 
-    def complete(self, messages, system=None, max_tokens=4096):
+    def complete(self, messages, system=None, max_tokens=4096, grammar=None):
         from gremlin_core.magic.model import ModelReply
         self.system = system
         return ModelReply(text=self.reply)

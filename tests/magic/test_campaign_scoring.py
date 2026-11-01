@@ -27,7 +27,7 @@ def _patch_cmd(expr):
 class ClampFixer:
     name = "clampfixer"
 
-    def complete(self, messages, system=None, max_tokens=4096):
+    def complete(self, messages, system=None, max_tokens=4096, grammar=None):
         sysp, joined = system or "", " ".join(m["content"] for m in messages)
         if "You are a gate" in sysp:
             return ModelReply('{"accept": false, "reason": "x"}')

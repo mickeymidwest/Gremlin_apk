@@ -44,6 +44,7 @@ class ModelBackend(ABC):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        grammar=None,
     ) -> GenerationResult:
         """Run one generation. Must never raise -- catch errors internally
         and return a GenerationResult with .error set, so one bad/offline
@@ -56,6 +57,7 @@ class ModelBackend(ABC):
         system: Optional[str] = None,
         max_tokens: int = 1536,
         temperature: float = 0.7,
+        grammar=None,
     ):
         """Async generator of text deltas (str). Default: run generate()
         and hand back its whole text as a single delta -- so an API
@@ -65,8 +67,17 @@ class ModelBackend(ABC):
 
         Contract: yields str pieces. Raises only if nothing was yielded
         (caller can then fall back); a mid-stream failure just stops."""
-        result = await self.generate(
-            prompt, system=system, max_tokens=max_tokens, temperature=temperature)
+        # Pass grammar through, but tolerate a generate() override that
+        # predates the kwarg (older/minimal backends) rather than forcing
+        # every subclass to adopt it -- the local backend is the only one
+        # that can honor a grammar anyway.
+        try:
+            result = await self.generate(
+                prompt, system=system, max_tokens=max_tokens,
+                temperature=temperature, grammar=grammar)
+        except TypeError:
+            result = await self.generate(
+                prompt, system=system, max_tokens=max_tokens, temperature=temperature)
         if not result.ok:
             raise RuntimeError(result.error or "generation failed")
         if result.text:

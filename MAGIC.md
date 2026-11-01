@@ -410,6 +410,24 @@ isn't a thing; skills come from the loop and from here.
    battle messages. *defer.*
 10. **code-as-action** (smolagents CodeAgent) — agent writes Python instead of
     ACTION/JSON. A rethink of the protocol, not now — noted as a future option.
+11. **Grammar-constrained decoding** (GBNF / structured outputs) — DONE (capability).
+    `gremlin_core/backends/grammars.py` compiles a GBNF string or a JSON-schema
+    dict to a cached `LlamaGrammar`; `LlamaCppBackend.generate`/`generate_stream`
+    take a `grammar=` kwarg and hand it to the sampler, so a weak local model is
+    *mathematically* unable to emit malformed JSON or preamble before a tool call.
+    Threaded through `magic/model.py` (`BackendModel.complete(..., grammar=)`) so any
+    harness call — reckoning gate, verifiers, structured extraction — can opt in with
+    one kwarg. Remote backends accept-and-ignore it (GBNF is local-only; they have
+    native JSON modes). This is a Zoid reliability shield: it constrains output
+    *shape*, never *content* — the pilot still decides the answer. Canned
+    `grammars.JSON_OBJECT` for "valid JSON, any shape"; pass a schema dict for a
+    specific shape. **Wired into the reckoning gate** (`reckoning._GATE_SCHEMA`): the
+    gate's reply is parsed for one field (`accept`), so a weak model fumbling the JSON
+    used to silently drop a good skill — the sampler is now constrained to
+    `{"accept": bool, "reason": str}`, the exact shape the gate prompt asks for. Still
+    opt-in elsewhere (the ReAct `ACTION:` protocol and the propose/draft calls) —
+    constraining those wants a live-model tuning pass. Tests: `tests/test_grammars.py`,
+    `tests/magic/test_gate_grammar.py`.
 
 ## 9. Open / needs mickey
 

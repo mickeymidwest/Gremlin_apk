@@ -35,7 +35,7 @@ class Model(Protocol):
     name: str
 
     def complete(self, messages: Sequence[Message], system: str | None = None,
-                 max_tokens: int = 4096) -> ModelReply: ...
+                 max_tokens: int = 4096, grammar=None) -> ModelReply: ...
 
 
 def _flatten(messages: Sequence[Message]) -> str:
@@ -76,7 +76,7 @@ class BackendModel:
         self.temperature = temperature
         self._loop = loop
 
-    def complete(self, messages, system=None, max_tokens=4096):
+    def complete(self, messages, system=None, max_tokens=4096, grammar=None):
         msgs = list(messages)
         # Prefer real multi-turn: the last user message is the prompt, the
         # rest is history the backend can render as ChatML turns. Falls
@@ -89,7 +89,7 @@ class BackendModel:
         try:
             coro = self._backend.generate(
                 prompt, system=system, max_tokens=max_tokens,
-                temperature=self.temperature, history=history,
+                temperature=self.temperature, history=history, grammar=grammar,
             )
         except TypeError:
             coro = self._backend.generate(
@@ -116,5 +116,5 @@ class ScriptedModel:
         self._replies = list(replies) or [""]
         self._it = itertools.chain(self._replies, itertools.repeat(self._replies[-1]))
 
-    def complete(self, messages, system=None, max_tokens=4096):
+    def complete(self, messages, system=None, max_tokens=4096, grammar=None):
         return ModelReply(text=next(self._it))

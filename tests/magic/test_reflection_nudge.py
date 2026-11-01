@@ -11,7 +11,7 @@ def test_failed_test_run_gets_a_diagnose_nudge(tmp_path):
     seen = []
 
     class Watcher(ScriptedModel):
-        def complete(self, messages, system=None, max_tokens=4096):
+        def complete(self, messages, system=None, max_tokens=4096, grammar=None):
             seen.append(messages[-1]["content"] if messages else "")
             return super().complete(messages, system, max_tokens)
 

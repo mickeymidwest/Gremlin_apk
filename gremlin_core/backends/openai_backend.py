@@ -47,6 +47,7 @@ class OpenAIBackend(ModelBackend):
         max_tokens: int = 1536,
         temperature: float = 0.7,
         history: Optional[list] = None,
+        grammar=None,  # GBNF is local-only; remote backends ignore it (they have native JSON modes)
     ) -> GenerationResult:
         try:
             await self.warmup()

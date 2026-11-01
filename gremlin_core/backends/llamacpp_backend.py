@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from .base import ModelBackend, ModelInfo, GenerationResult
+from . import grammars
 
 try:
     from llama_cpp import Llama
@@ -160,6 +161,7 @@ class LlamaCppBackend(ModelBackend):
         max_tokens: int = 1536,
         temperature: float = 0.7,
         history: Optional[list] = None,
+        grammar=None,  # GBNF str | JSON-schema dict | LlamaGrammar; see grammars.py
     ) -> GenerationResult:
         try:
             messages = []
@@ -208,6 +210,11 @@ class LlamaCppBackend(ModelBackend):
                     error=f"{self.info.name} is still busy with a previous request -- try again shortly",
                 )
 
+            # Grammar-constrain the sampler when asked (local only). None
+            # -> unconstrained, identical to before. Compiled+cached in
+            # grammars.compile so the ReAct loop doesn't rebuild it per step.
+            _grammar = grammars.compile(grammar)
+
             try:
                 await self._ensure_loaded()
 
@@ -217,6 +224,7 @@ class LlamaCppBackend(ModelBackend):
                         max_tokens=max_tokens,
                         temperature=temperature,
                         repeat_penalty=self.repeat_penalty,
+                        **({"grammar": _grammar} if _grammar is not None else {}),
                     )
 
                 result = await loop.run_in_executor(self._executor, _run)
@@ -242,6 +250,7 @@ class LlamaCppBackend(ModelBackend):
         max_tokens: int = 1536,
         temperature: float = 0.7,
         history: Optional[list] = None,
+        grammar=None,
     ):
         """Async generator of text deltas as llama.cpp produces them.
 
@@ -265,6 +274,7 @@ class LlamaCppBackend(ModelBackend):
         if self.no_think:
             messages[-1]["content"] += " /no_think"
 
+        _grammar = grammars.compile(grammar)
         loop = asyncio.get_event_loop()
         try:
             await asyncio.wait_for(
@@ -283,7 +293,8 @@ class LlamaCppBackend(ModelBackend):
             try:
                 for chunk in self._llm.create_chat_completion(
                         messages=messages, max_tokens=max_tokens,
-                        temperature=temperature, stream=True):
+                        temperature=temperature, stream=True,
+                        **({"grammar": _grammar} if _grammar is not None else {})):
                     if stop.is_set():
                         break
                     choices = chunk.get("choices") or [{}]

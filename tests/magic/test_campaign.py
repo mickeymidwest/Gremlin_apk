@@ -38,7 +38,7 @@ def _action(tool, args):
 class DemoModel:
     name = "demo"
 
-    def complete(self, messages, system=None, max_tokens=4096):
+    def complete(self, messages, system=None, max_tokens=4096, grammar=None):
         sysp = system or ""
         joined = " ".join(m["content"] for m in messages)
         if "You are a gate" in sysp:

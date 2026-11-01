@@ -36,6 +36,7 @@ class GeminiBackend(ModelBackend):
         history: Optional[list] = None,
         image_b64: Optional[str] = None,
         image_mime: Optional[str] = None,
+        grammar=None,  # GBNF is local-only; remote backends ignore it (they have native JSON modes)
     ) -> GenerationResult:
         try:
             await self.warmup()
