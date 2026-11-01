@@ -424,10 +424,19 @@ isn't a thing; skills come from the loop and from here.
     specific shape. **Wired into the reckoning gate** (`reckoning._GATE_SCHEMA`): the
     gate's reply is parsed for one field (`accept`), so a weak model fumbling the JSON
     used to silently drop a good skill — the sampler is now constrained to
-    `{"accept": bool, "reason": str}`, the exact shape the gate prompt asks for. Still
-    opt-in elsewhere (the ReAct `ACTION:` protocol and the propose/draft calls) —
-    constraining those wants a live-model tuning pass. Tests: `tests/test_grammars.py`,
-    `tests/magic/test_gate_grammar.py`.
+    `{"accept": bool, "reason": str}`, the exact shape the gate prompt asks for.
+    **Also wired into the ReAct battle step** (`grammars.react_turn_grammar`,
+    `run_battle(grammar_constrained=True)` default): each turn is constrained to the
+    envelope — an optional `<think>` block, then either `ACTION: <tool>` with a
+    well-formed JSON arg object in the fence and nothing after, or `DONE <answer>`.
+    The tool-name alternation is rebuilt per step from `toolhost.allowed`, so a
+    phase-locked tool can't be named and edits only become sampleable after an explore
+    unlocks them. A free-text prelude can't constrain under GBNF (every structured
+    token is also valid prose), hence the `<think>` slot — which the backend already
+    strips, so skill-attribution (which leans on the regex-match path, not card-naming)
+    is unaffected. Still opt-in on the propose/draft calls; toggle the battle off with
+    `grammar_constrained=False`. Tests: `tests/test_grammars.py`,
+    `tests/magic/test_gate_grammar.py`, `tests/magic/test_react_grammar.py`.
 
 ## 9. Open / needs mickey
 

@@ -26,6 +26,7 @@ import re
 from typing import Optional, Sequence
 
 from ._jsonx import extract_json
+from ..backends import grammars
 from .model import Model, QuotaExhausted
 from .toolhost import ShellToolHost, ToolCall
 from .types import Fact, Skill, StepRecord, Task, Transcript
@@ -312,7 +313,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
                plan: bool = True, phase_gate: bool = True,
                readonly: bool = False, time_budget_s: float = 600.0,
                on_done=None, lessons: Sequence[str] = (), autocommit: bool = True,
-               protect_glob: str | None = None) -> Transcript:
+               protect_glob: str | None = None,
+               grammar_constrained: bool = True) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
@@ -360,8 +362,16 @@ def run_battle(task: Task, repo_path: str, model: Model,
         if time.monotonic() - _start > time_budget_s:
             transcript.final_message = "(gave up: time budget exhausted)"
             break
+        # Grammar-constrain the turn to the ReAct envelope: optional
+        # <think>, then a valid ACTION (a currently-allowed tool + a
+        # well-formed JSON arg object in the fence, nothing after) or DONE.
+        # Rebuilt each step because phase-gating widens toolhost.allowed
+        # after the first explore; compile() caches by grammar string.
+        _grammar = (grammars.react_turn_grammar(toolhost.allowed)
+                    if grammar_constrained else None)
         try:
-            reply = model.complete(messages, system=system, max_tokens=max_tokens)
+            reply = model.complete(messages, system=system,
+                                   max_tokens=max_tokens, grammar=_grammar)
         except QuotaExhausted:
             raise                       # campaign.py stops the run cleanly on this
         except Exception as e:          # a transient backend error ends this battle, doesn't crash the caller
