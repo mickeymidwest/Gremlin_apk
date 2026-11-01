@@ -228,6 +228,7 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     if ctx.loop is not None:      # under the server -- too heavy for this box
         return {"ok": False, "action": "fix",
                 "answer": _HEAVY_ON_DESKTOP.format(cmd="fix", args=args)}
+    import os
     import shutil
     import tempfile
     from .battle import run_battle
@@ -236,7 +237,16 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     from .types import Task
 
     root = Path(ctx.project_root)
-    work = Path(tempfile.mkdtemp(prefix="magic-fix-")) / "repo"
+    # Keep the repo copy AND the pytest run's temp off the system /tmp. On
+    # this box /tmp is a small RAM-backed tmpfs (~half of 8GB RAM); copying
+    # the repo there and running the full suite's tmp_path fixtures beside a
+    # resident model filled it and froze the box (2026-11-01). Put both on
+    # the same 1TB drive the repo lives on. Safe to set os.environ here: _fix
+    # only runs on the CLI path (it returns early under the server).
+    big_tmp = root.parent / ".magic-tmp"
+    big_tmp.mkdir(exist_ok=True)
+    os.environ["TMPDIR"] = str(big_tmp)
+    work = Path(tempfile.mkdtemp(prefix="magic-fix-", dir=str(big_tmp))) / "repo"
     shutil.copytree(root, work, ignore=shutil.ignore_patterns(
         ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
         "data", "tools", "*.pyc", "*.gguf"))
