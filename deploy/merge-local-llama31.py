@@ -255,10 +255,14 @@ def cmd_run(args) -> int:
     cmd = [
         mergekit, str(cfg_path), str(out),
         "--lazy-unpickle",            # stream tensors from disk, don't hold all in RAM
+        "--clone-tensors",            # zero-copy for identical shapes; cheaper than low-cpu-memory
         "--out-shard-size", "2B",     # write in 2B-param shards, bounded peak memory
         "--copy-tokenizer",           # carry the base tokenizer into the output
-        "--verbose",
     ]
+    # NOTE: do NOT add --low-cpu-memory on this box -- it re-reads tensors
+    # from disk constantly and, with a 7.5GB-RAM machine already leaning on
+    # swap, that turns a ~20min merge into a disk-bound multi-hour crawl
+    # (observed 2026-11-01). lazy-unpickle alone keeps peak memory in range.
     if args.allow_crimes:
         cmd.append("--allow-crimes")  # off by default -- same-arch set shouldn't need it
     # NO --cuda: CPU merge. On 8GB VRAM a GPU merge of 8B won't fit anyway.

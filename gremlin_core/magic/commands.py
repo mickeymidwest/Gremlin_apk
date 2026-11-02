@@ -249,7 +249,11 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     work = Path(tempfile.mkdtemp(prefix="magic-fix-", dir=str(big_tmp))) / "repo"
     shutil.copytree(root, work, ignore=shutil.ignore_patterns(
         ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
-        "data", "tools", "*.pyc", "*.gguf"))
+        "data", "tools", "*.pyc", "*.gguf",
+        # never copy our own temp/merge scratch into the work copy -- doing
+        # so makes the battle copy nest into itself (observed 2026-11-01)
+        ".magic-tmp", ".finetune-venv", ".finetune-venv-scripts",
+        "merge_out", "merge_scratch", "merge_inputs", "merge_env", "gremlin-build"))
 
     store = Store(root)
     skills = store.read_skills()

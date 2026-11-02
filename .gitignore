@@ -90,3 +90,8 @@ data/magic/work/
 # nothing lost by not tracking it; the weekly backup (#74) doesn't
 # include this directory either, same reasoning.
 data/defense/
+.magic-tmp/
+merge_out/
+merge_scratch/
+merge_inputs/
+merge_env/
