@@ -78,7 +78,11 @@ def _render_context(skills: Sequence[Skill], facts: Sequence[Fact]) -> str:
 
 
 def _transcript_digest(result: BattleResult, limit: int = 6000) -> str:
-    lines = [f"TASK OUTCOME: score {result.score.value:.2f}"]
+    v = result.verdict
+    lines = [f"TASK OUTCOME: {v.status} (score {result.score.value:.2f}) -- {v.reason}"]
+    if v.status == "inconclusive":
+        lines.append("NOTE: the check did not actually verify the work -- do not "
+                     "learn a 'fix' lesson from this attempt; it was never tested.")
     if result.score.failure_signal:
         lines.append(f"failure signal: {result.score.failure_signal}")
     lines.append("\nSTEPS:")

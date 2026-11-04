@@ -69,6 +69,13 @@ class BattleResult:
     def won(self) -> bool:
         return self.score.value >= 0.999
 
+    @property
+    def verdict(self):
+        """Completion verdict (verified|partial|failed|inconclusive) -- see
+        magic/verdict.py. Lazy import keeps types.py dependency-free."""
+        from .verdict import classify_outcome
+        return classify_outcome(self.score)
+
 
 @dataclass
 class SkillRecord:
