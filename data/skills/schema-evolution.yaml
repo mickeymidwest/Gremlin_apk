@@ -1,0 +1,23 @@
+id: skill_a8e87dc4
+name: schema-evolution
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Evolve data schemas while keeping old data readable
+trigger_when: changing a persisted data format
+trigger_matcher: schema|format|version field|evolve|compatibility|serialize
+procedure:
+- Version the schema and handle old versions on read
+- Avoid breaking changes; migrate forward deliberately
+- Test reading data written by prior versions
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

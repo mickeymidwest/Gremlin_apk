@@ -1,0 +1,23 @@
+id: skill_79ac1bc8
+name: checkpoint-and-resume
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Resume interrupted work without starting over
+trigger_when: work may be interrupted and later resumed
+trigger_matcher: resume|interrupted|checkpoint|continue|where left off|reboot
+procedure:
+- Persist what you were building, changed, and what remains
+- On resume, read that state before acting
+- Continue from the next safe step, not from scratch
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

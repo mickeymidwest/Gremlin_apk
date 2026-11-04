@@ -1,0 +1,23 @@
+id: skill_70dc3fbe
+name: uncertainty-calibration
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Low model confidence is not evidence of correctness; calibrate to actual support
+trigger_when: forming a confidence level about an answer
+trigger_matcher: confident|sure|certain|probably|likely|I think
+procedure:
+- Base confidence on evidence gathered, not on fluency of your own wording
+- Say what would raise or lower your confidence
+- When support is thin, say so explicitly instead of hedging vaguely
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_5978ed7e
+name: backward-compatibility
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Keep existing consumers working across a change
+trigger_when: changing a public interface or format
+trigger_matcher: backward compat|existing|don't break|public api|consumers
+procedure:
+- Identify who depends on the current behavior
+- Preserve old behavior or provide a migration path
+- Deprecate before removing, with a window
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

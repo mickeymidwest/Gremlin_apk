@@ -1,0 +1,23 @@
+id: skill_d771ac9b
+name: task-prioritization
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Decide what to do first based on impact and dependency
+trigger_when: several tasks compete for order
+trigger_matcher: prioritize|first|order|what next|most important
+procedure:
+- Rank by impact, risk, and what unblocks other work
+- Do prerequisites before dependents
+- Re-prioritize as new information arrives
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_b1c91bbd
+name: background-task-supervision
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Monitor long-running background processes to completion
+trigger_when: a process runs detached in the background
+trigger_matcher: background|detached|nohup|daemon|long job|supervise
+procedure:
+- Track the job's PID/log and check it to completion
+- Detect stalls vs genuine progress
+- Clean up and report when it finishes or fails
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

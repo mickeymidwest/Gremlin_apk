@@ -1,0 +1,23 @@
+id: skill_dc9db20b
+name: blocked-task-detection
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Recognize when progress is genuinely impossible and stop
+trigger_when: unable to make forward progress
+trigger_matcher: blocked|can't proceed|stuck|waiting on|dependency missing
+procedure:
+- Detect when you're blocked vs just slow
+- Name the specific blocker and what would clear it
+- Escalate or switch tasks instead of thrashing
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_61d375ff
+name: memory-leak-detection
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Find and fix unbounded memory growth
+trigger_when: a process grows in memory over time
+trigger_matcher: memory leak|oom|growing|unbounded|rss|heap
+procedure:
+- Observe memory over time under representative load
+- Localize the retained allocations
+- Fix the root retention and verify the curve flattens
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

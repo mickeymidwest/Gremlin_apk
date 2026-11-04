@@ -1,0 +1,23 @@
+id: skill_08ec57be
+name: honest-progress-reporting
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Report outcomes faithfully, including failures and skips
+trigger_when: reporting what happened after doing work
+trigger_matcher: done|worked|passed|failed|skipped|result
+procedure:
+- If tests failed, say so with the output
+- If a step was skipped, say that
+- Claim done only when verified; otherwise say unverified
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

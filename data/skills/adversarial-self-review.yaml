@@ -1,0 +1,23 @@
+id: skill_d34fa96d
+name: adversarial-self-review
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Attack your own conclusion before delivering important work
+trigger_when: finalizing high-stakes work
+trigger_matcher: review|final|important|conclusion|deliver|sign off
+procedure:
+- Before delivering, argue against your own result
+- Search for counterexamples and hidden failures
+- Fix what the attack exposes, or state the residual risk
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_365c6e0e
+name: causal-reasoning
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Distinguish correlation from causation; find what actually caused an outcome
+trigger_when: explaining why something happened
+trigger_matcher: caused|because|correlat|why did|led to|due to
+procedure:
+- Don't assume correlation is causation
+- 'Test the causal claim: does removing the cause remove the effect'
+- Investigate confounders before concluding
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

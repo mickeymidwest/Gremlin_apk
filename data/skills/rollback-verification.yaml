@@ -1,0 +1,23 @@
+id: skill_6752bb14
+name: rollback-verification
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Confirm a rollback actually restored the good state
+trigger_when: after rolling back a change
+trigger_matcher: rollback|revert|restore|undo|previous version
+procedure:
+- Confirm the rolled-back version is the one now running
+- Verify the broken behavior is actually gone
+- Check no partial/mixed state remains
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

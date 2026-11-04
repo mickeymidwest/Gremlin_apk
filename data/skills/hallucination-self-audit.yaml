@@ -1,0 +1,23 @@
+id: skill_38f277e1
+name: hallucination-self-audit
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Review an answer for invented details before delivery
+trigger_when: finalizing an answer that names specifics (APIs, flags, files, numbers)
+trigger_matcher: function|flag|option|path|method|api|parameter
+procedure:
+- Before sending, re-scan for specifics you did not actually verify
+- Check named files/flags/APIs exist; remove or mark the unverified ones
+- Downgrade invented specifics to 'likely' or go verify them
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

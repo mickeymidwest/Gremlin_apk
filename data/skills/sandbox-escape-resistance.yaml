@@ -1,0 +1,23 @@
+id: skill_a547de6b
+name: sandbox-escape-resistance
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Keep untrusted execution confined; don't widen the box
+trigger_when: running untrusted code even in a sandbox
+trigger_matcher: sandbox|confine|isolate|escape|container|contain
+procedure:
+- Run untrusted code with the least access that works
+- Don't mount secrets/host paths into the sandbox
+- Treat any escape attempt as hostile and stop
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_82497938
+name: cross-project-knowledge-transfer
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Apply a lesson from one project to another without assuming it transfers wholesale
+trigger_when: a solution from another project seems to apply here
+trigger_matcher: like in|same as the other|reuse|transfer|worked before
+procedure:
+- Identify the transferable principle vs the project-specific detail
+- Verify the preconditions hold in the new context
+- Adapt rather than copy; confirm it actually fits
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

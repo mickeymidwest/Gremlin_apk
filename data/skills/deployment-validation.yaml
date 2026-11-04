@@ -1,0 +1,23 @@
+id: skill_e7d7f6b2
+name: deployment-validation
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Confirm a deployment actually works, not just that it ran
+trigger_when: after deploying/restarting a service
+trigger_matcher: deploy|release|restart|rollout|went live|shipped
+procedure:
+- Check the service is healthy and serving after deploy
+- Validate the new version/behavior is actually active
+- Watch logs/metrics briefly before declaring success
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_1c2154bf
+name: claim-level-verification
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Verify individual claims rather than trusting the answer as a whole
+trigger_when: an answer bundles several independent factual claims
+trigger_matcher: answer|summary|report|findings|conclusion
+procedure:
+- Decompose the answer into atomic claims
+- Verify each claim independently; one true claim doesn't validate the rest
+- Report per-claim status when they differ
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_62214e01
+name: learned-lesson-validation
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Validate a learned lesson before trusting it broadly
+trigger_when: a lesson was inferred from limited evidence
+trigger_matcher: learned that|lesson|seems like|pattern|rule of thumb
+procedure:
+- Check the lesson against more than the single episode that spawned it
+- Require diverse evidence before generalizing
+- Demote lessons that fail on new cases
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

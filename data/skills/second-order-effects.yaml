@@ -1,0 +1,23 @@
+id: skill_e7696db8
+name: second-order-effects
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Consider consequences beyond the immediate result
+trigger_when: a change has effects past the thing directly touched
+trigger_matcher: side effect|downstream|ripple|also affects|knock-on
+procedure:
+- Trace what the change triggers beyond its direct target
+- Check performance, state, and other consumers
+- Weigh second-order cost against the first-order benefit
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
