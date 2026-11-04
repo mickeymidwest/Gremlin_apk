@@ -1,0 +1,23 @@
+id: skill_4630452b
+name: documentation-navigation
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Find the correct, version-matched documentation for a library or tool
+trigger_when: needing authoritative usage details for a dependency
+trigger_matcher: docs|documentation|readme|api reference|how to use
+procedure:
+- Locate the docs for the exact installed version (see version-awareness)
+- Search within the docs for the specific symbol/behavior
+- Prefer the project's own docs over third-party restatements
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

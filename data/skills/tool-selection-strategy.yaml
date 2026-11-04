@@ -1,0 +1,23 @@
+id: skill_4a6d929c
+name: tool-selection-strategy
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Choose the correct tool for the task instead of defaulting
+trigger_when: multiple tools could do the job
+trigger_matcher: which tool|use the|command|approach|better to
+procedure:
+- Match the tool to the task's shape and constraints
+- Prefer the dedicated/safer tool over a blunt general one
+- State why the chosen tool fits
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

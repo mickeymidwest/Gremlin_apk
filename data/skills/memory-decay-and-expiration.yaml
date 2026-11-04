@@ -1,0 +1,23 @@
+id: skill_b908453a
+name: memory-decay-and-expiration
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Let time-sensitive memories expire instead of trusting them forever
+trigger_when: storing a fact that is only true for now
+trigger_matcher: as of|currently|temporary|for now|this version
+procedure:
+- Mark time-sensitive memories with an expiry or recheck date
+- Re-verify before relying on an aged memory
+- Drop or refresh memories past their validity
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

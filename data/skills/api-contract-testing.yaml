@@ -1,0 +1,23 @@
+id: skill_a3d9a73e
+name: api-contract-testing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Verify producer and consumer agree on an API contract
+trigger_when: changing or depending on an API shape
+trigger_matcher: contract|schema|api|request|response|breaking
+procedure:
+- Pin the expected request/response contract
+- Test both sides against it
+- Fail loudly on contract drift
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

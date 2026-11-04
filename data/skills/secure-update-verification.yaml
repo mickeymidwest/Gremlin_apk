@@ -1,0 +1,23 @@
+id: skill_771e1bf7
+name: secure-update-verification
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Verify an update's authenticity before applying it
+trigger_when: pulling or applying a software/self update
+trigger_matcher: update|upgrade|self-update|new version|pull|fetch update
+procedure:
+- Verify the update's source and integrity before applying
+- Confirm it hasn't been tampered with in transit
+- Keep the ability to roll back a bad update
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

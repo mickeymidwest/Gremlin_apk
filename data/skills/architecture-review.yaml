@@ -1,0 +1,23 @@
+id: skill_06c521bf
+name: architecture-review
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Evaluate a design's structure, boundaries, and coupling
+trigger_when: assessing or proposing a system's architecture
+trigger_matcher: architecture|design|structure|coupling|module|boundary
+procedure:
+- Check separation of concerns and clear boundaries
+- Look for hidden coupling and single points of failure
+- Judge against the actual requirements, not ideals
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

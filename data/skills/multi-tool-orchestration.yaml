@@ -1,0 +1,23 @@
+id: skill_24de270d
+name: multi-tool-orchestration
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Coordinate several tools in a controlled, checked sequence
+trigger_when: a task needs a pipeline of tool calls
+trigger_matcher: then|pipeline|sequence|chain|orchestrate|multi-step
+procedure:
+- Sequence calls with a checkpoint after each critical step
+- Pass verified outputs forward, not assumed ones
+- Stop the chain on the first unrecovered failure
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

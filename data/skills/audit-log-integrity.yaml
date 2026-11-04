@@ -1,0 +1,23 @@
+id: skill_7266aa69
+name: audit-log-integrity
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Keep an honest, tamper-evident record of actions taken
+trigger_when: performing actions that should be auditable
+trigger_matcher: audit|log|record|trail|history|accountability
+procedure:
+- Log significant actions with enough detail to review
+- Don't rewrite history to hide a mistake
+- Report outcomes faithfully, including failures
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

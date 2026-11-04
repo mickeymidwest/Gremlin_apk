@@ -1,0 +1,23 @@
+id: skill_dd5d2ffc
+name: command-risk-classification
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Identify dangerous shell operations and treat them with care
+trigger_when: about to run a shell command
+trigger_matcher: rm -rf|dd|mkfs|chmod -R|:>|force|wipe|overwrite
+procedure:
+- Classify commands by blast radius before running
+- For destructive ones, confirm target and have a recovery path
+- Refuse or escalate clearly unsafe operations
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_8081a99b
+name: environment-drift-detection
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Notice when the machine environment has changed
+trigger_when: behavior differs from expectation or env may have changed
+trigger_matcher: drift|changed|different|unexpected env|version changed|why now
+procedure:
+- Compare current environment against known-good assumptions
+- Detect changed versions, paths, services, config
+- Re-establish facts about the env rather than trusting stale ones
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_57cefc37
+name: property-based-testing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Test invariants across generated inputs, not just examples
+trigger_when: a function has general properties worth checking
+trigger_matcher: property|invariant|generate inputs|holds for all|fuzz
+procedure:
+- Identify invariants that must hold for all inputs
+- Generate varied inputs to try to violate them
+- Shrink failing cases to a minimal reproducer
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

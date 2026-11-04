@@ -1,0 +1,23 @@
+id: skill_81616531
+name: goal-decomposition
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Turn a broad objective into concrete, actionable tasks
+trigger_when: given a broad or vague objective
+trigger_matcher: make my|improve|set up|goal|objective|overall
+procedure:
+- Translate the objective into specific checkable tasks
+- Clarify intent before acting if the goal is ambiguous
+- Order tasks and define what 'done' means for each
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

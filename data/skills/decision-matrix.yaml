@@ -1,0 +1,23 @@
+id: skill_8f3cad8b
+name: decision-matrix
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Compare options against explicit criteria rather than vibes
+trigger_when: choosing between multiple viable solutions
+trigger_matcher: option|approach|choose|compare|which is better|vs
+procedure:
+- Name the criteria that matter (cost, risk, effort, fit)
+- Score each option against them explicitly
+- Pick based on the matrix and state the tradeoff accepted
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

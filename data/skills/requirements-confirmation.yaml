@@ -1,0 +1,23 @@
+id: skill_e47dbff7
+name: requirements-confirmation
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Confirm understanding of requirements before building
+trigger_when: starting substantial work from a spec
+trigger_matcher: requirements|spec|build|what exactly|confirm|scope
+procedure:
+- Restate the requirements as you understand them
+- Confirm the non-obvious or high-cost ones
+- Then build to the confirmed spec
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -1,0 +1,23 @@
+id: skill_8b36a857
+name: dependency-pinning
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Pin dependencies to known-good versions for reproducibility
+trigger_when: adding or updating a dependency
+trigger_matcher: dependency|version|pin|lockfile|^|~|latest
+procedure:
+- Pin exact versions; commit the lockfile
+- Avoid floating ranges for anything load-bearing
+- Update deliberately, with testing, not implicitly
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

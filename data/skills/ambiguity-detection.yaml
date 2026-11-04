@@ -1,0 +1,23 @@
+id: skill_b065f688
+name: ambiguity-detection
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Spot ambiguity that would change what you do
+trigger_when: a request admits multiple valid interpretations
+trigger_matcher: ambiguous|unclear|could mean|which|either|not sure what
+procedure:
+- Detect where interpretations diverge materially
+- Resolve from context/defaults when safe
+- Ask only when the answer changes the outcome
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

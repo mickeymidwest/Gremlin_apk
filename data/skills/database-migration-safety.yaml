@@ -1,0 +1,23 @@
+id: skill_5bf9a23a
+name: database-migration-safety
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Apply schema/data migrations without data loss or downtime
+trigger_when: changing a database schema or data
+trigger_matcher: migration|schema|alter table|column|backfill|drop
+procedure:
+- Back up before migrating; make migrations reversible
+- Prefer additive, backward-compatible steps
+- Test the migration on a copy before the real data
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

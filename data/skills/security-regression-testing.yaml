@@ -1,0 +1,23 @@
+id: skill_f3cf8557
+name: security-regression-testing
+status: candidate
+destination: card
+council_reviewed: false
+purpose: Keep fixed vulnerabilities fixed with tests
+trigger_when: after fixing a security issue
+trigger_matcher: security fix|vuln|cve|patched|hardening|regression
+procedure:
+- Add a test that fails on the vulnerable behavior
+- Run it on every change so the fix can't silently regress
+- Tie it to the specific weakness that was closed
+supersedes: null
+provenance:
+- proposed
+created: 1793752469.3142495
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
