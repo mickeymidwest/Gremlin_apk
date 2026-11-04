@@ -2,7 +2,7 @@ id: seed_25
 name: apk-recon
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: 'map an Android app''s attack surface: components, data flow, native code'
 trigger_when: analyzing or pentesting an Android APK
 trigger_matcher: apk|android app|jadx|apktool|frida|drozer|exported|deep link|AndroidManifest|dex|smali
@@ -21,8 +21,8 @@ provenance:
 - seed
 created: 1788803179.1005294
 record:
-  uses: 41
-  wins: 41
+  uses: 42
+  wins: 42
   losses: 0
   score_deltas:
   - 0.6429
@@ -66,5 +66,6 @@ record:
   - 0.7714
   - 0.45
   - 0.45
-  last_used_battle: zoid_gen_streak_1789880787
+  - 1.0
+  last_used_battle: zoid_gen_tipcalc_1793753203
   battles_available: 0

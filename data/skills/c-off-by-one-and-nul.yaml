@@ -2,7 +2,7 @@ id: seed_50
 name: c-off-by-one-and-nul
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: buffer sizes, loop bounds, and the string terminator are where C bugs live
 trigger_when: writing or auditing C/C++ that copies into or indexes a buffer
 trigger_matcher: \bchar \w+\[|memcpy|strcpy|strncpy|strcat|snprintf|buf\[|\bi <=|\bi <|\+
@@ -17,9 +17,9 @@ provenance:
 - seed
 created: 1788816592.063365
 record:
-  uses: 67
+  uses: 68
   wins: 55
-  losses: 12
+  losses: 13
   score_deltas:
   - 1.0
   - 1.0
@@ -88,5 +88,6 @@ record:
   - 0.0
   - 1.0
   - -1.0
-  last_used_battle: battle_0004_inifuzz
-  battles_available: 38
+  - 0.0
+  last_used_battle: battle_0002_inifuzz
+  battles_available: 39
