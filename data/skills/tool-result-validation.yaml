@@ -1,26 +1,35 @@
 id: skill_toolresval
 name: tool-result-validation
-status: candidate
+status: active
 destination: card
 council_reviewed: false
-purpose: A command exiting 0 does not prove the goal was met; verify the real effect before reporting success
-trigger_when: after an install/build/deploy/config/write command whose success you are about to report
+purpose: A command exiting 0 does not prove the goal was met; verify the real effect before
+  reporting success
+trigger_when: after an install/build/deploy/config/write command whose success you are about
+  to report
 trigger_matcher: installed|successfully|exit 0|returned 0|\bdone\b|build succeeded|deployed|created|updated
 procedure:
-- Never report success from an exit code alone -- name the concrete artifact or state the task required and check it exists
-- install -> confirm the binary/package is present AND its version (which <cmd>; <cmd> --version; pacman -Q <pkg>; npm ls -g <pkg>)
+- Never report success from an exit code alone -- name the concrete artifact or state the
+  task required and check it exists
+- install -> confirm the binary/package is present AND its version (which <cmd>; <cmd> --version;
+  pacman -Q <pkg>; npm ls -g <pkg>)
 - service -> systemctl --user is-active <svc> AND the expected port is listening (ss -tlnp)
-- build -> the output file exists with a sane size and a fresh mtime, not a stale artifact from a prior run
+- build -> the output file exists with a sane size and a fresh mtime, not a stale artifact
+  from a prior run
 - file edit -> read the file back and confirm the change is actually present
-- if you cannot produce evidence of the effect, report "unverified" (not "done") and say what check failed
+- if you cannot produce evidence of the effect, report "unverified" (not "done") and say what
+  check failed
 supersedes: null
 provenance:
 - proposed
 created: 1793750400.0
 record:
-  uses: 0
-  wins: 0
+  uses: 3
+  wins: 3
   losses: 0
-  score_deltas: []
-  last_used_battle: null
-  battles_available: 0
+  score_deltas:
+  - 1.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0005_inifuzz
+  battles_available: 3

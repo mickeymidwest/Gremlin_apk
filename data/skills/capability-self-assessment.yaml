@@ -3,7 +3,8 @@ name: capability-self-assessment
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Judge whether you have the tools/knowledge/resources/authority before accepting a task
+purpose: Judge whether you have the tools/knowledge/resources/authority before accepting a
+  task
 trigger_when: deciding whether you can actually do a task
 trigger_matcher: can I|able to|do I have|capable|authority|resources
 procedure:
