@@ -109,8 +109,8 @@ persona:
   # Qwen2.5-Coder is a strong generalist (code + math + reasoning), not
   # narrow -- it passed the long-context sum and the duration parser the
   # plain 7B botched. Chat + /build + /fix now all share one warm model.
-  primary_model: gremlin-llama31-ties
-  fallback_models: [llama-3.1-8b-abliterated, gemini]
+  primary_model: llama-3.1-8b-abliterated
+  fallback_models: [gemini]
   # HF full-precision repo the primary was quantized from -- what
   # `gremlin finetune` needs (QLoRA loads it via transformers).
   base_repo: "Qwen/Qwen2.5-Coder-7B-Instruct"
