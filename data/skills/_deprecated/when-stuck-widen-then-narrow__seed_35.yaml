@@ -1,6 +1,6 @@
 id: seed_35
 name: when-stuck-widen-then-narrow
-status: active
+status: deprecated
 destination: card
 council_reviewed: true
 purpose: repeating the same failing move is not progress -- change the altitude
@@ -17,9 +17,9 @@ provenance:
 - seed
 created: 1788816592.0633433
 record:
-  uses: 478
+  uses: 481
   wins: 190
-  losses: 188
+  losses: 191
   score_deltas:
   - 0.5
   - 0.2
@@ -499,5 +499,8 @@ record:
   - 0.0
   - 0.0
   - 0.0
-  last_used_battle: battle_0005_csvreport
-  battles_available: 277
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0006_ledger
+  battles_available: 280

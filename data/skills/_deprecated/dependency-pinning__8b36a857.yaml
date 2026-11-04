@@ -1,6 +1,6 @@
 id: skill_8b36a857
 name: dependency-pinning
-status: active
+status: deprecated
 destination: card
 council_reviewed: true
 purpose: Pin dependencies to known-good versions for reproducibility
@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 8
+  uses: 13
   wins: 6
-  losses: 2
+  losses: 7
   score_deltas:
   - 0.5
   - 0.0
@@ -27,5 +27,10 @@ record:
   - 0.0
   - 0.6923
   - 1.0
-  last_used_battle: zoid_gen_salestax_1793768916
-  battles_available: 0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0006_graph
+  battles_available: 5

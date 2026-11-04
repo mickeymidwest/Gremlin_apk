@@ -1,6 +1,6 @@
 id: skill_392d9d53
 name: tool-failure-recovery
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Recover deliberately from a failed tool call
@@ -15,11 +15,12 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 2
-  wins: 2
+  uses: 3
+  wins: 3
   losses: 0
   score_deltas:
   - 0.5
   - 0.625
-  last_used_battle: zoid_mb_bank-multi_1793768029
+  - 0.5
+  last_used_battle: zoid_mb_bank-multi_1793769640
   battles_available: 0

@@ -2,7 +2,7 @@ id: skill_e22aa6f4
 name: least-privilege-tool-use
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Request only the permissions/scope a task needs
 trigger_when: an action could be done with narrower scope
 trigger_matcher: sudo|all|--force|global|root|broad
@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 6
-  wins: 4
-  losses: 2
+  uses: 9
+  wins: 6
+  losses: 3
   score_deltas:
   - 0.0
   - 0.4154
@@ -25,5 +25,8 @@ record:
   - 0.0
   - 0.6923
   - 1.0
-  last_used_battle: zoid_gen_salestax_1793768916
-  battles_available: 0
+  - 0.0
+  - 0.0
+  - 0.4154
+  last_used_battle: zoid_mb_buildalot-apk_1793770447
+  battles_available: 1

@@ -1,6 +1,6 @@
 id: skill_toolresval
 name: tool-result-validation
-status: active
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: A command exiting 0 does not prove the goal was met; verify the real effect before
@@ -24,9 +24,9 @@ provenance:
 - proposed
 created: 1793750400.0
 record:
-  uses: 6
+  uses: 7
   wins: 3
-  losses: 3
+  losses: 4
   score_deltas:
   - 1.0
   - 0.0
@@ -34,5 +34,6 @@ record:
   - -1.0
   - -1.0
   - -1.0
-  last_used_battle: battle_0006_inifuzz
-  battles_available: 6
+  - -1.0
+  last_used_battle: battle_0007_nsfuzz
+  battles_available: 7
