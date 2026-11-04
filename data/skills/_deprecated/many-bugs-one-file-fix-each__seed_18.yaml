@@ -1,26 +1,30 @@
 id: seed_18
-name: android-debug-apk-install
-status: active
+name: many-bugs-one-file-fix-each
+status: deprecated
 destination: card
 council_reviewed: true
-purpose: assembleDebug produces a signed, installable APK -- no manual signing
-trigger_when: producing an APK to install on a phone
-trigger_matcher: assembleDebug|app-debug\.apk|apksigner|install .*apk|debug keystore|unsigned
+purpose: a file with several planted bugs -- each failing test is a DIFFERENT bug, not one
+trigger_when: pytest shows 2+ failing tests across different functions and you're fixing bug
+  bodies
+trigger_matcher: failing test|[0-9]+ failed|each failing test|has bugs|fix the (function|method)
+  bodies|planted
 procedure:
-- ./gradlew assembleDebug -> app/build/outputs/apk/debug/app-debug.apk, auto-signed with the
-  debug keystore (v2 scheme)
-- same debug key every build, so it installs as an update over a prior debug build with no
-  signature conflict
-- bump versionCode every build so the installer shows it as an update, not 'app not installed'
-- 'verify: apksigner verify --print-certs app-debug.apk'
+- run pytest -q FIRST and list every failing test name -- there are usually 3-5, one per function
+- fix ONE function, re-run, confirm THAT test went green, then move to the NEXT failing function
+- never edit the same function a 3rd time -- if two attempts didn't fix it, re-read its test
+  and the docstring word-for-word, the bug is an off-by-one / wrong operator / missing .strip()
+- 'common planted bugs: `a+b <= w` should count the separator (`a+1+b`); `s[:n]+suffix` is
+  n+len(suffix) chars; `.split('' '')` breaks on double spaces, want `.split()`; a `return
+  s` that forgot `.strip(...)`'
+- you are NOT done until pytest prints 0 failed -- a partial fix scores partial
 supersedes: null
 provenance:
 - seed
-created: 1788744588.6605494
+created: 1788833969.757066
 record:
-  uses: 470
+  uses: 475
   wins: 187
-  losses: 183
+  losses: 188
   score_deltas:
   - 0.5
   - 0.2
@@ -220,7 +224,6 @@ record:
   - 0.5
   - 0.4
   - 0.0
-  - -0.1429
   - 0.5
   - 0.4
   - 0.3333
@@ -492,5 +495,11 @@ record:
   - 0.0
   - 0.0
   - 0.0
-  last_used_battle: battle_0004_csvreport
-  battles_available: 271
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0005_csvreport
+  battles_available: 277

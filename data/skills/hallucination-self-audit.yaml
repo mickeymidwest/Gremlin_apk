@@ -1,6 +1,6 @@
 id: skill_38f277e1
 name: hallucination-self-audit
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Review an answer for invented details before delivery
@@ -15,12 +15,15 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 3
-  wins: 2
-  losses: 1
+  uses: 6
+  wins: 4
+  losses: 2
   score_deltas:
   - 0.5
   - 0.0
   - 0.4154
-  last_used_battle: zoid_mb_buildalot-apk_1793767099
+  - 0.625
+  - 0.0
+  - 0.6923
+  last_used_battle: zoid_mb_buildalot-apk_1793768785
   battles_available: 0

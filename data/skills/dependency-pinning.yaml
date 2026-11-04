@@ -2,7 +2,7 @@ id: skill_8b36a857
 name: dependency-pinning
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Pin dependencies to known-good versions for reproducibility
 trigger_when: adding or updating a dependency
 trigger_matcher: dependency|version|pin|lockfile|^|~|latest
@@ -15,13 +15,17 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 4
-  wins: 3
-  losses: 1
+  uses: 8
+  wins: 6
+  losses: 2
   score_deltas:
   - 0.5
   - 0.0
   - 0.4154
   - 1.0
-  last_used_battle: zoid_gen_tipcalc_1793767251
+  - 0.625
+  - 0.0
+  - 0.6923
+  - 1.0
+  last_used_battle: zoid_gen_salestax_1793768916
   battles_available: 0

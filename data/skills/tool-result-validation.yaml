@@ -24,12 +24,15 @@ provenance:
 - proposed
 created: 1793750400.0
 record:
-  uses: 3
+  uses: 6
   wins: 3
-  losses: 0
+  losses: 3
   score_deltas:
   - 1.0
   - 0.0
   - 0.0
-  last_used_battle: battle_0005_inifuzz
-  battles_available: 3
+  - -1.0
+  - -1.0
+  - -1.0
+  last_used_battle: battle_0006_inifuzz
+  battles_available: 6

@@ -1,6 +1,6 @@
 id: skill_e47dbff7
 name: requirements-confirmation
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Confirm understanding of requirements before building
@@ -15,11 +15,13 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 2
-  wins: 2
+  uses: 4
+  wins: 4
   losses: 0
   score_deltas:
   - 0.4154
   - 1.0
-  last_used_battle: zoid_gen_tipcalc_1793767251
+  - 0.6923
+  - 1.0
+  last_used_battle: zoid_gen_salestax_1793768916
   battles_available: 0

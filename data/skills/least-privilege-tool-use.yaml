@@ -1,6 +1,6 @@
 id: skill_e22aa6f4
 name: least-privilege-tool-use
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Request only the permissions/scope a task needs
@@ -15,12 +15,15 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 3
-  wins: 2
-  losses: 1
+  uses: 6
+  wins: 4
+  losses: 2
   score_deltas:
   - 0.0
   - 0.4154
   - 1.0
-  last_used_battle: zoid_gen_tipcalc_1793767251
+  - 0.0
+  - 0.6923
+  - 1.0
+  last_used_battle: zoid_gen_salestax_1793768916
   battles_available: 0
