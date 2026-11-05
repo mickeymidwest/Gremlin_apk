@@ -1,6 +1,6 @@
 id: skill_5bf48e70
 name: primary-source-first
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Prefer official documentation and original sources over summaries
@@ -15,11 +15,12 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 2
-  wins: 2
+  uses: 3
+  wins: 3
   losses: 0
   score_deltas:
   - 1.0
   - 1.0
-  last_used_battle: zoid_gen_salestax_1793768916
+  - 0.7714
+  last_used_battle: zoid_gen_tipcalc_1793853394
   battles_available: 0

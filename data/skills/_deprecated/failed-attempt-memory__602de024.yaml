@@ -1,6 +1,6 @@
 id: skill_602de024
 name: failed-attempt-memory
-status: active
+status: deprecated
 destination: card
 council_reviewed: false
 purpose: Remember failures in full so they aren't repeated across projects
@@ -15,12 +15,16 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 7
   wins: 3
-  losses: 0
+  losses: 4
   score_deltas:
   - 0.5
   - 0.625
   - 0.5
-  last_used_battle: zoid_mb_bank-multi_1793769640
-  battles_available: 0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0007_textutils
+  battles_available: 4
