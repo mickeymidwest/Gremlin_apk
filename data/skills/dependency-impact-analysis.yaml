@@ -2,7 +2,7 @@ id: skill_36d69bdb
 name: dependency-impact-analysis
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Understand what else could break before making a change
 trigger_when: editing shared code/config other things depend on
 trigger_matcher: shared|used by|dependency|breaking change|refactor|rename
@@ -15,13 +15,14 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 4
-  wins: 4
+  uses: 5
+  wins: 5
   losses: 0
   score_deltas:
   - 0.5
   - 0.625
   - 0.5
   - 0.5
-  last_used_battle: zoid_mb_bank-multi_1793852317
+  - 0.75
+  last_used_battle: zoid_mb_bank-multi_1793854541
   battles_available: 0
