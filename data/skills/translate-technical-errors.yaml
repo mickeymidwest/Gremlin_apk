@@ -15,8 +15,8 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 5
-  wins: 5
+  uses: 6
+  wins: 6
   losses: 0
   score_deltas:
   - 0.5
@@ -24,5 +24,6 @@ record:
   - 0.5
   - 0.5
   - 0.75
-  last_used_battle: zoid_mb_bank-multi_1793854541
+  - 0.625
+  last_used_battle: zoid_mb_bank-multi_1793856320
   battles_available: 0

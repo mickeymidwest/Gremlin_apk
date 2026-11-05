@@ -1,6 +1,6 @@
 id: skill_versionaware
 name: version-awareness
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Establish the actually-installed tool/library version before quoting version-specific
@@ -24,8 +24,8 @@ provenance:
 - proposed
 created: 1793750400.0
 record:
-  uses: 10
-  wins: 5
+  uses: 11
+  wins: 6
   losses: 5
   score_deltas:
   - 0.0
@@ -38,5 +38,6 @@ record:
   - 0.5538
   - 0.0
   - 0.4154
-  last_used_battle: zoid_mb_buildalot-apk_1793855354
+  - 0.4091
+  last_used_battle: zoid_mb_klondike-apk_1793856778
   battles_available: 0
