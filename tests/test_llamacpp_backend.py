@@ -103,6 +103,7 @@ class _LoopingLlm(_FakeLlm):
 
     def tokenize(self, data: bytes):
         type(self).tokenized = True
+        time.sleep(0.05)   # long enough for a still-running worker to get caught
         return super().tokenize(data)
 
     def create_chat_completion(self, **kwargs):
