@@ -13,6 +13,7 @@ separate from self_improve.py and more cautious about it:
   my computer" means your own stuff, not /etc or /usr.
 """
 from __future__ import annotations
+import asyncio
 import difflib
 import py_compile
 import shutil
@@ -140,7 +141,12 @@ async def apply_fix(
 
     if verify_command:
         sandbox = SecureExecutionSandbox(str(path.parent), timeout_seconds=60)
-        result = await sandbox.run_safe_command(verify_command)
+        try:
+            result = await sandbox.run_safe_command(verify_command)
+        except asyncio.CancelledError:
+            path.write_text(original_content)
+            backup.unlink(missing_ok=True)
+            raise
         if not result.ok:
             path.write_text(original_content)  # revert
             backup.unlink(missing_ok=True)

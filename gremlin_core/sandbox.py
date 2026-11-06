@@ -96,3 +96,9 @@ class SecureExecutionSandbox:
                 stdout="", stderr=f"command timed out after {self.timeout}s",
                 exit_code=-1, timed_out=True,
             )
+        except asyncio.CancelledError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            raise

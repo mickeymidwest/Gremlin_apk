@@ -24,6 +24,7 @@ import asyncio
 import json
 import queue as _queue
 import secrets
+from concurrent.futures import CancelledError as FuturesCancelled
 from concurrent.futures import TimeoutError as FuturesTimeout
 import socket
 import subprocess
@@ -44,6 +45,7 @@ from . import history as history_mod
 from . import away_sync
 from . import builds
 from . import eviction
+from . import job_control
 from . import model_scan
 from . import mutation_log
 from . import root_exec
@@ -119,9 +121,12 @@ def start_background_loop() -> asyncio.AbstractEventLoop:
 
 
 def run_coro(loop: asyncio.AbstractEventLoop, coro, timeout: float = 120.0):
-    future = asyncio.run_coroutine_threadsafe(coro, loop)
+    label = getattr(coro, "__qualname__", "job")
+    future = job_control.submit(coro, loop, label)
     try:
         return future.result(timeout=timeout)
+    except FuturesCancelled:
+        raise job_control.JobAborted(label)
     except FuturesTimeout:
         # stop a not-yet-started coroutine from running later with no one
         # waiting on it (and piling up behind a backend lock). A coroutine
@@ -129,6 +134,8 @@ def run_coro(loop: asyncio.AbstractEventLoop, coro, timeout: float = 120.0):
         # covers a genuinely wedged loop.
         future.cancel()
         raise
+    finally:
+        job_control.untrack(future)
 
 
 _STATUS_CACHE = {"at": 0.0, "data": {}}
@@ -1154,6 +1161,24 @@ def create_app(
             "agent_state": state_machine.state.value,
             "busy": state_machine.state.value != "idle",
         })
+
+    @app.route("/admin/abort", methods=["POST"])
+    def admin_abort():
+        """Stops work that's running now, unlike /admin/stop, which only
+        tells the practice loop not to start another round. A self-edit that
+        hasn't committed yet undoes its own patch on the way out. An
+        in-progress model generation can't be interrupted, so its slot frees
+        once it finishes. Streaming chats aren't tracked here."""
+        auth_error = _check_admin_auth()
+        if auth_error:
+            return auth_error
+        result = job_control.abort()
+        mutation_log.append_mutation(str(project_root), {"kind": "admin_abort", **result})
+        return jsonify({"ok": True, **result})
+
+    @app.errorhandler(job_control.JobAborted)
+    def job_aborted(e):
+        return jsonify({"error": "aborted", "job": str(e)}), 409
 
     @app.route("/admin/defense", methods=["GET"])
     def admin_defense():

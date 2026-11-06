@@ -53,6 +53,22 @@ def split_reasoning(text: str) -> tuple[str, str]:
     return visible, "\n".join(reasoning_parts).strip()
 
 
+async def _wait_for_worker(fut) -> None:
+    """Waits for a worker thread even if this task gets cancelled. llama.cpp
+    can't be interrupted or used from two threads, so the backend lock has
+    to stay held until the worker has really finished."""
+    cancelled = False
+    while not fut.done():
+        try:
+            await asyncio.shield(fut)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:  # noqa -- the caller reads fut's own result
+            break
+    if cancelled:
+        raise asyncio.CancelledError()
+
+
 class LlamaCppBackend(ModelBackend):
     # ggml_type enum values llama-cpp-python wants for type_k / type_v.
     _KV_GGML_TYPE = {"f16": 1, "q8_0": 8, "q5_1": 7, "q5_0": 6, "q4_1": 3, "q4_0": 2}
@@ -229,7 +245,9 @@ class LlamaCppBackend(ModelBackend):
                         **({"grammar": _grammar} if _grammar is not None else {}),
                     )
 
-                result = await loop.run_in_executor(self._executor, _run)
+                fut = loop.run_in_executor(self._executor, _run)
+                await _wait_for_worker(fut)
+                result = fut.result()
                 self._last_used = time.monotonic()
             finally:
                 self._lock.release()
@@ -346,7 +364,7 @@ class LlamaCppBackend(ModelBackend):
             # The health check can break out while the worker is still generating.
             # tokenize() below must not touch the model until it has stopped.
             stop.set()
-            await fut
+            await _wait_for_worker(fut)
             self._last_used = time.monotonic()
             # A streaming create_chat_completion never reports usage the
             # way the non-streaming call does (checked: llama-cpp-python
@@ -366,12 +384,11 @@ class LlamaCppBackend(ModelBackend):
             }
         finally:
             stop.set()
-            if fut is not None:
-                try:
-                    await fut          # worker thread must be done before we let go of the lock
-                except Exception:  # noqa
-                    pass
-            self._lock.release()
+            try:
+                if fut is not None:
+                    await _wait_for_worker(fut)  # must be done before we let go of the lock
+            finally:
+                self._lock.release()
 
     async def unload(self) -> None:
         """Frees this model's VRAM/RAM (drops the loaded llama.cpp

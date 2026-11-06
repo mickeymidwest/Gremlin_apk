@@ -7,7 +7,10 @@ across turns. 1.1 (llama.cpp's own CLI default) is now the backend
 default and is threaded through to every create_chat_completion call.
 """
 import asyncio
+import threading
 import time
+
+import pytest
 
 import gremlin_core.backends.llamacpp_backend as backend_mod
 from gremlin_core.backends.base import ModelInfo
@@ -153,3 +156,38 @@ def test_generate_stream_leaves_grammar_output_alone(monkeypatch):
 
     asyncio.run(run())
     assert be._last_stream_degeneration is None
+
+
+class _SlowLlm(_FakeLlm):
+    """A generation that can't be interrupted, like the real thing."""
+    finished = False
+    running = threading.Event()
+
+    def create_chat_completion(self, **kwargs):
+        type(self).running.set()
+        time.sleep(0.3)
+        type(self).finished = True
+        return super().create_chat_completion(**kwargs)
+
+
+def test_cancelled_generate_keeps_the_lock_until_the_worker_ends(monkeypatch):
+    _SlowLlm.finished = False
+    _SlowLlm.running = threading.Event()
+    monkeypatch.setattr(backend_mod, "Llama", lambda **kwargs: _SlowLlm(**kwargs))
+    be = backend_mod.LlamaCppBackend(
+        ModelInfo(name="test", kind="local_gguf"), model_path="/fake/model.gguf")
+
+    async def run():
+        task = asyncio.create_task(be.generate("hi"))
+        while not _SlowLlm.running.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        assert be._lock.locked()
+        assert not _SlowLlm.finished
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert _SlowLlm.finished
+        assert not be._lock.locked()
+
+    asyncio.run(run())
