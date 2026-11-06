@@ -25,6 +25,14 @@ if [ "$LOCAL" = "$REMOTE" ]; then
     exit 0
 fi
 
+# On a branch or with unpushed commits HEAD differs from origin/main even
+# though there's nothing to pull. Without this, every run would restart
+# gremlin.service for nothing.
+if git merge-base --is-ancestor "$REMOTE" HEAD; then
+    echo "[$(date -Iseconds)] Nothing new on origin/main ($LOCAL)."
+    exit 0
+fi
+
 echo "[$(date -Iseconds)] New commits on origin/main -- pulling..."
 if ! git pull --ff-only origin main; then
     echo "[$(date -Iseconds)] Pull failed (local changes conflict?) -- not touching anything further."

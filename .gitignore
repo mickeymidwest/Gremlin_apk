@@ -95,3 +95,10 @@ merge_out/
 merge_scratch/
 merge_inputs/
 merge_env/
+.gremlin/heavy.lock
+.gremlin/backup/
+.gremlin/trash/
+.gremlin/review/
+.gremlin/talk/
+*.kit-new
+.gremlin/remote/
