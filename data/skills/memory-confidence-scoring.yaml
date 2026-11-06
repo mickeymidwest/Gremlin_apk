@@ -15,12 +15,13 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 4
   wins: 1
-  losses: 2
+  losses: 3
   score_deltas:
   - -1.0
   - -1.0
   - 0.0
-  last_used_battle: battle_0011_nsfuzz
-  battles_available: 3
+  - -1.0
+  last_used_battle: battle_0012_nsfuzz
+  battles_available: 4
