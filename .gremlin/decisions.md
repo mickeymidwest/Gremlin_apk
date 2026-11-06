@@ -16,14 +16,15 @@ Mickey: delete any that aren't really settled.
 ---
 
 ## Primary model (MAGIC.md §1)
-- USE: Qwen2.5-7B-Instruct Q4_K_M as primary (won the 11-model bench: 8/8 @ ~65 tok/s).
-  qwen2.5-coder-7b for /build /fix; qwen3-8b alternate; llama-3.1-8b-abliterated fallback; Gemini fallback.
+- USE: llama-3.1-8b-abliterated Q4_K_M as primary (config/models.yaml, restored 2026-11-03), Gemini fallback.
+  qwen2.5-14b is the other registered local model. The Qwen 7B models are no longer on disk.
 - NOT: swapping the primary without re-running the bench.
 
 ## KV cache (MAGIC.md §1, models.yaml, confirmed 2026-11-06)
 - USE: kv_cache_type q8_0 for every local GGUF unless VRAM forces otherwise.
 - NOT: q4_0 KV. Tested: it causes pure token-repetition / degeneration (Qwen2.5 confirmed 2026-09-12;
-  it also made the gremlin-llama31-ties merge repeat in chat — the merge was fine, the KV quant wasn't).
+  on Llama 3.1, the 2026-11-06 A/B found no KV effect: gremlin-llama31-ties ran away on both q4_0 and q8_0,
+  and the unmerged primary was clean on both. The fault there is in the merge, not the KV quant).
   Exception on record: the 14B entry needs q4_0 at 8k or it CUDA-OOMs — a VRAM tradeoff, accepted there only.
 
 ## GPU offload / VRAM (MAGIC.md §1, build log)
