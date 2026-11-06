@@ -13,6 +13,7 @@ from typing import Optional
 
 from .base import ModelBackend, ModelInfo, GenerationResult
 from . import grammars
+from .. import output_health
 
 try:
     from llama_cpp import Llama
@@ -100,6 +101,7 @@ class LlamaCppBackend(ModelBackend):
         self.flash_attn = flash_attn or kv_cache_type != "f16"
         self._llm: Optional["Llama"] = None
         self._last_used: float = 0.0
+        self._last_stream_degeneration: Optional[str] = None
         self._last_stream_usage: dict = {}  # see generate_stream's usage note
         self._lock = asyncio.Lock()  # llama.cpp isn't safely reentrant per-instance --
         # also now the one thing serializing load/generate/unload against
@@ -308,6 +310,7 @@ class LlamaCppBackend(ModelBackend):
                 loop.call_soon_threadsafe(q.put_nowait, _DONE)
 
         fut = None
+        self._last_stream_degeneration = None
         try:
             await self._ensure_loaded()
             fut = loop.run_in_executor(self._executor, _run)
@@ -325,6 +328,14 @@ class LlamaCppBackend(ModelBackend):
                 # token-by-token streaming, so this is an exact completion
                 # count -- unlike prompt_tokens below, no tokenizer re-run.
                 completion_tokens += 1
+                # Grammar output is constrained by design, so repeats there mean nothing.
+                if _grammar is None and completion_tokens % output_health.CHECK_EVERY_TOKENS == 0:
+                    reason = output_health.degeneration(full)
+                    if reason:
+                        self._last_stream_degeneration = reason
+                        print(f"[output_health] {self.info.name}: stopped after "
+                              f"{completion_tokens} tokens ({reason})", flush=True)
+                        break
                 if self.strip_reasoning:
                     visible, _ = split_reasoning(full)
                 else:

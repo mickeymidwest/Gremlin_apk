@@ -92,3 +92,50 @@ def test_generate_stream_passes_repeat_penalty(monkeypatch):
 
     asyncio.run(run())
     assert captured["llm"].chat_calls[0]["repeat_penalty"] == 1.3
+
+
+class _LoopingLlm(_FakeLlm):
+    """Streams the same paragraph far past where the check should fire."""
+    tokens_sent = 0
+
+    def create_chat_completion(self, **kwargs):
+        self.chat_calls.append(kwargs)
+        words = ("I hope this helps and please let me know if you need anything else from me "
+                 "today or would like more detail on any part of it. ").split(" ") * 200
+
+        def _chunks():
+            for word in words:
+                type(self).tokens_sent += 1
+                yield {"choices": [{"delta": {"content": word + " "}}]}
+        return _chunks()
+
+
+def _looping_backend(monkeypatch):
+    _LoopingLlm.tokens_sent = 0
+    monkeypatch.setattr(backend_mod, "Llama", lambda **kwargs: _LoopingLlm(**kwargs))
+    return backend_mod.LlamaCppBackend(
+        ModelInfo(name="test", kind="local_gguf"), model_path="/fake/model.gguf")
+
+
+def test_generate_stream_stops_a_looping_reply(monkeypatch):
+    be = _looping_backend(monkeypatch)
+
+    async def run():
+        return "".join([d async for d in be.generate_stream("hi")])
+
+    text = asyncio.run(run())
+    assert be._last_stream_degeneration
+    assert _LoopingLlm.tokens_sent < 1000
+    assert text
+    assert be._last_stream_usage["completion_tokens"] < 1000
+
+
+def test_generate_stream_leaves_grammar_output_alone(monkeypatch):
+    be = _looping_backend(monkeypatch)
+    monkeypatch.setattr(backend_mod.grammars, "compile", lambda g: "compiled")
+
+    async def run():
+        return [d async for d in be.generate_stream("hi", grammar="root ::= x")]
+
+    asyncio.run(run())
+    assert be._last_stream_degeneration is None
