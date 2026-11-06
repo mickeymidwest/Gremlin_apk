@@ -74,6 +74,51 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Pair / re-pair with a desktop"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Or enter the address yourself"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/manual_address_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Desktop IP or pairing link"
+            android:inputType="textUri"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/manual_port_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Port (default 8765)"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/manual_token_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Token (data/server_token.txt)"
+            android:inputType="textPassword"
+            android:importantForAutofill="no" />
+
+        <Button
+            android:id="@+id/manual_pair_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Test and save" />
+
+        <TextView
+            android:id="@+id/manual_pair_result"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
             android:layout_marginBottom="24dp" />
 
         <View

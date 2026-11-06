@@ -59,6 +59,7 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().remove("host").remove("port").remove("token").apply()
             startQrScan()
         }
+        setUpManualPairing(prefs, host, port, token)
 
         findViewById<Button>(R.id.show_commands_button).setOnClickListener { showCommandsReference() }
         findViewById<Button>(R.id.open_builds_button).setOnClickListener {
@@ -399,6 +400,56 @@ class SettingsActivity : AppCompatActivity() {
             // if savedValue isn't one of the current choices (e.g. an
             // older saved model id), just leaves the default (index 0)
             // selected rather than crashing on a bad index
+        }
+    }
+
+    private fun setUpManualPairing(prefs: SharedPreferences, host: String, port: Int, token: String) {
+        val addressInput = findViewById<EditText>(R.id.manual_address_input)
+        val portInput = findViewById<EditText>(R.id.manual_port_input)
+        val tokenInput = findViewById<EditText>(R.id.manual_token_input)
+        val saveButton = findViewById<Button>(R.id.manual_pair_button)
+        val result = findViewById<TextView>(R.id.manual_pair_result)
+
+        addressInput.setText(host)
+        if (port != 0) portInput.setText(port.toString())
+        tokenInput.setText(token)
+
+        saveButton.setOnClickListener {
+            val target = try {
+                ManualPairing.parse(
+                    addressInput.text.toString(),
+                    portInput.text.toString(),
+                    tokenInput.text.toString(),
+                )
+            } catch (e: IllegalArgumentException) {
+                result.text = e.message
+                return@setOnClickListener
+            }
+
+            saveButton.isEnabled = false
+            result.text = "Testing ${target.host}:${target.port}..."
+            Thread {
+                val problem = ManualPairing.check(target)
+                runOnUiThread {
+                    saveButton.isEnabled = true
+                    if (problem != null) {
+                        // The old pairing stays in place until a new one works.
+                        result.text = problem
+                    } else {
+                        prefs.edit()
+                            .putString("host", target.host)
+                            .putInt("port", target.port)
+                            .putString("token", target.token)
+                            .apply()
+                        Toast.makeText(this, "Paired with ${target.host}:${target.port}", Toast.LENGTH_LONG).show()
+                        // Everything on this screen captured the old host in onCreate.
+                        intent.putExtra("host", target.host)
+                        intent.putExtra("port", target.port)
+                        intent.putExtra("token", target.token)
+                        recreate()
+                    }
+                }
+            }.start()
         }
     }
 
