@@ -5,8 +5,9 @@
 #   some_cmd 2>&1 | scripts/ask-gemini.sh - "Why is this failing?"                  # attach piped logs ("-" = read stdin)
 #   scripts/ask-gemini.sh --review                                                  # review this branch vs main
 #
-# Gemini runs read-only (see .gemini/settings.json): it can read the whole repo but
-# can't edit files or run commands. Every exchange is saved in .gremlin/talk/ so
+# Gemini runs through the Antigravity CLI (agy). AGY_READONLY below is what makes it
+# read-only: agy ignores .gemini/settings.json and its --mode plan can still write files.
+# It can read the whole repo but can't edit files or run commands. Every exchange is saved in .gremlin/talk/ so
 # Mickey can read what the two of them said.
 set -uo pipefail
 
@@ -18,7 +19,9 @@ LOG="$TALK/$TS-$$.md"
 TIMEOUT="${GEMINI_TIMEOUT:-300}"
 BASE="${GREMLIN_BASE:-main}"
 
-command -v gemini >/dev/null || { echo "ask-gemini: gemini CLI not found on PATH" >&2; exit 127; }
+export PATH="$HOME/.local/bin:$PATH"
+command -v agy >/dev/null || { echo "ask-gemini: agy (Antigravity CLI) not found on PATH" >&2; exit 127; }
+AGY_READONLY='{"permissions":{"deny":["write_file(/)","command(*)","mcp(*)"]}}'
 
 # Don't add Gemini's RAM on top of a running heavy build — wait for it (max 15 min).
 if [ -e .gremlin/heavy.lock ]; then
@@ -27,7 +30,9 @@ if [ -e .gremlin/heavy.lock ]; then
   exec 8>&-
 fi
 
-CONTEXT="$(mktemp)"; trap 'rm -f "$CONTEXT"' EXIT
+# agy -p ignores stdin, so context goes in a file it reads. It stays inside the repo
+# because that's agy's workspace.
+CONTEXT="$ROOT/$TALK/$TS-$$.context"; : > "$CONTEXT"; trap 'rm -f "$CONTEXT"' EXIT
 
 if [ "${1:-}" = "--review" ]; then
   shift
@@ -36,19 +41,24 @@ if [ "${1:-}" = "--review" ]; then
     echo; echo "## Diff (committed vs $BASE + uncommitted)"
     git diff "$BASE"...HEAD 2>/dev/null; git diff HEAD 2>/dev/null
   } > "$CONTEXT"
-  PROMPT="REVIEW REQUEST from Claude (execution agent). Review the diff below against MAGIC.md and CALIBRATION.md. Read any repo files you need for context. ${*:-} Follow your GEMINI.md review format and end with exactly one VERDICT line."
+  PROMPT="REVIEW REQUEST from Claude (execution agent). Review the diff in the attached context against MAGIC.md and CALIBRATION.md. Read any repo files you need for context. ${*:-} Follow your GEMINI.md review format and end with exactly one VERDICT line."
 else
   # Only read stdin when explicitly asked with "-": agent shells often leave stdin open forever.
   if [ "${1:-}" = "-" ]; then shift; timeout 600 cat > "$CONTEXT"; fi
   [ $# -gt 0 ] || { echo 'usage: scripts/ask-gemini.sh "question" | - "question" | --review [note]' >&2; exit 64; }
   PROMPT="CONSULT from Claude (execution agent): $*
-Answer directly and concretely; read repo files if you need them. If attached context follows, it is below."
+Answer directly and concretely; read repo files if you need them."
 fi
+[ -s "$CONTEXT" ] && PROMPT="$PROMPT
+
+Attached context is in $CONTEXT. Read that whole file before answering."
 
 { echo "# Claude -> Gemini ($TS)"; echo; echo "$PROMPT"; [ -s "$CONTEXT" ] && { echo; echo '```'; head -c 4000 "$CONTEXT"; echo; echo '```'; }; echo; echo "# Gemini"; } > "$LOG"
 
-MODEL_ARGS=(); [ -n "${GEMINI_MODEL:-}" ] && MODEL_ARGS=(-m "$GEMINI_MODEL")
-REPLY="$(timeout "$TIMEOUT" gemini "${MODEL_ARGS[@]}" -p "$PROMPT" < "$CONTEXT" 2>>"$LOG.err")"
+MODEL_ARGS=(); [ -n "${GEMINI_MODEL:-}" ] && MODEL_ARGS=(--model "$GEMINI_MODEL")
+# Outer timeout is a backstop: --print-timeout should end it first.
+REPLY="$(timeout "$((TIMEOUT + 15))" agy "${MODEL_ARGS[@]}" --settings "$AGY_READONLY" \
+  --print-timeout "${TIMEOUT}s" -p "$PROMPT" </dev/null 2>>"$LOG.err")"
 RC=$?
 [ -s "$LOG.err" ] || rm -f "$LOG.err"
 
