@@ -2,7 +2,7 @@ id: skill_26874364
 name: progress-tracking
 status: active
 destination: card
-council_reviewed: false
+council_reviewed: true
 purpose: Track milestones and what remains across a multi-step job
 trigger_when: working through a multi-step task
 trigger_matcher: progress|milestone|remaining|todo|status|how far
@@ -15,8 +15,8 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 11
-  wins: 6
+  uses: 13
+  wins: 7
   losses: 5
   score_deltas:
   - 0.0
@@ -30,5 +30,7 @@ record:
   - 0.0
   - 0.4154
   - 0.4091
-  last_used_battle: zoid_mb_klondike-apk_1793856778
+  - 0.0818
+  - 0.4154
+  last_used_battle: zoid_mb_buildalot-apk_1793939925
   battles_available: 0
