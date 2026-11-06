@@ -20,6 +20,7 @@ compile check, and every landed change is a discrete, revertible git
 commit. Nothing here lets a model touch anything outside this repo.
 """
 from __future__ import annotations
+import asyncio
 import os
 import shlex
 import subprocess
@@ -267,32 +268,34 @@ async def apply_patch(
         f.write(patch_text)
         patch_path = f.name
 
+    revert_on_cancel = None
     try:
-        check = _run(["git", "apply", "--check", patch_path], root)
+        # The tree may hold the user's uncommitted work, so everything below
+        # touches only the patch's own files. --index also refuses a patch
+        # on a file with uncommitted edits instead of mixing into them.
+        staged = _run(["git", "diff", "--cached", "--name-only"], root).stdout.splitlines()
+        if staged:
+            return {"applied": False,
+                    "reason": f"staged changes already present: {', '.join(staged)}"}
+
+        # --index would otherwise reject a file that was only touched, not changed.
+        _run(["git", "update-index", "-q", "--refresh"], root)
+        check = _run(["git", "apply", "--check", "--index", patch_path], root)
         if check.returncode != 0:
             return {"applied": False, "reason": f"patch does not apply cleanly:\n{check.stderr}"}
 
-        apply_result = _run(["git", "apply", patch_path], root)
+        apply_result = _run(["git", "apply", "--index", patch_path], root)
         if apply_result.returncode != 0:
             return {"applied": False, "reason": f"git apply failed:\n{apply_result.stderr}"}
 
-        # Stage everything immediately, including newly-added files.
-        # This matters for two reasons: (1) `git diff --name-only`
-        # (unstaged) never lists untracked files, so a patch that adds a
-        # new file would otherwise have that file silently skip the
-        # compile-check below entirely -- a real gap, confirmed by
-        # testing a patch that added a broken new .py file and watching
-        # it sail through uncompiled. (2) reverting via `git checkout --
-        # .` only restores tracked files; it never removes a newly
-        # created untracked file, leaving it behind after a "reverted"
-        # failure. Staging first, then using `git reset --hard HEAD` +
-        # `git clean -fd` to revert, fixes both at once.
-        _run(["git", "add", "-A"], root)
+        # --index staged the patch, new files included, so they get
+        # compile-checked below and `apply -R` removes them on a revert.
         changed = _run(["git", "diff", "--cached", "--name-only", "HEAD"], root).stdout.splitlines()
 
         def _revert():
-            _run(["git", "reset", "--hard", "HEAD"], root)
-            _run(["git", "clean", "-fd"], root)
+            _run(["git", "apply", "-R", "--index", patch_path], root)
+
+        revert_on_cancel = _revert
 
         async def _maybe_teach(error_detail: str) -> None:
             """Only called on a real, concrete failure (compile error,
@@ -354,8 +357,8 @@ async def apply_patch(
                     "reason": f"reverted -- test suite failed:\n{test_run.stdout}\n{test_run.stderr}",
                 }
 
+        revert_on_cancel = None
         commit_msg = f"self-improve ({applied_by}): {goal}"
-        _run(["git", "add", "-A"], root)
         commit = _run(["git", "commit", "-m", commit_msg], root)
         if commit.returncode != 0:
             return {
@@ -373,6 +376,10 @@ async def apply_patch(
             "commit_message": commit_msg,
         })
         return {"applied": True, "committed": True, "commit_message": commit_msg, "files_changed": changed}
+    except asyncio.CancelledError:
+        if revert_on_cancel:
+            revert_on_cancel()
+        raise
     finally:
         os.unlink(patch_path)
 
