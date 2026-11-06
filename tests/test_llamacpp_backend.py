@@ -82,3 +82,13 @@ def test_generate_stream_tracks_completion_and_prompt_tokens(monkeypatch):
     assert usage["completion_tokens"] == 2  # two chunks yielded by the fake
     assert usage["prompt_tokens"] == 3       # "what is up" tokenized -> 3 words
     assert usage["total_tokens"] == 5
+
+
+def test_generate_stream_passes_repeat_penalty(monkeypatch):
+    be, captured = _backend(monkeypatch, repeat_penalty=1.3)
+
+    async def run():
+        return [d async for d in be.generate_stream("hi")]
+
+    asyncio.run(run())
+    assert captured["llm"].chat_calls[0]["repeat_penalty"] == 1.3

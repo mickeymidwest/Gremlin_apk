@@ -293,7 +293,8 @@ class LlamaCppBackend(ModelBackend):
             try:
                 for chunk in self._llm.create_chat_completion(
                         messages=messages, max_tokens=max_tokens,
-                        temperature=temperature, stream=True,
+                        temperature=temperature, repeat_penalty=self.repeat_penalty,
+                        stream=True,
                         **({"grammar": _grammar} if _grammar is not None else {})):
                     if stop.is_set():
                         break
