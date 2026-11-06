@@ -7,6 +7,7 @@ across turns. 1.1 (llama.cpp's own CLI default) is now the backend
 default and is threaded through to every create_chat_completion call.
 """
 import asyncio
+import time
 
 import gremlin_core.backends.llamacpp_backend as backend_mod
 from gremlin_core.backends.base import ModelInfo
@@ -97,6 +98,12 @@ def test_generate_stream_passes_repeat_penalty(monkeypatch):
 class _LoopingLlm(_FakeLlm):
     """Streams the same paragraph far past where the check should fire."""
     tokens_sent = 0
+    generated_after_tokenize = False
+    tokenized = False
+
+    def tokenize(self, data: bytes):
+        type(self).tokenized = True
+        return super().tokenize(data)
 
     def create_chat_completion(self, **kwargs):
         self.chat_calls.append(kwargs)
@@ -106,12 +113,17 @@ class _LoopingLlm(_FakeLlm):
         def _chunks():
             for word in words:
                 type(self).tokens_sent += 1
+                if type(self).tokenized:
+                    type(self).generated_after_tokenize = True
+                time.sleep(0.001)   # paced like a real model, so the worker is still running
                 yield {"choices": [{"delta": {"content": word + " "}}]}
         return _chunks()
 
 
 def _looping_backend(monkeypatch):
     _LoopingLlm.tokens_sent = 0
+    _LoopingLlm.tokenized = False
+    _LoopingLlm.generated_after_tokenize = False
     monkeypatch.setattr(backend_mod, "Llama", lambda **kwargs: _LoopingLlm(**kwargs))
     return backend_mod.LlamaCppBackend(
         ModelInfo(name="test", kind="local_gguf"), model_path="/fake/model.gguf")
@@ -128,6 +140,7 @@ def test_generate_stream_stops_a_looping_reply(monkeypatch):
     assert _LoopingLlm.tokens_sent < 1000
     assert text
     assert be._last_stream_usage["completion_tokens"] < 1000
+    assert _LoopingLlm.tokenized and not _LoopingLlm.generated_after_tokenize
 
 
 def test_generate_stream_leaves_grammar_output_alone(monkeypatch):

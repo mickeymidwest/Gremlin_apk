@@ -343,6 +343,10 @@ class LlamaCppBackend(ModelBackend):
                 if len(visible) > emitted:
                     yield visible[emitted:]
                     emitted = len(visible)
+            # The health check can break out while the worker is still generating.
+            # tokenize() below must not touch the model until it has stopped.
+            stop.set()
+            await fut
             self._last_used = time.monotonic()
             # A streaming create_chat_completion never reports usage the
             # way the non-streaming call does (checked: llama-cpp-python

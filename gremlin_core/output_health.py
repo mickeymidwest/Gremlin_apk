@@ -7,7 +7,6 @@ model is doing now and not by a repeated phrase earlier on. Normal code and
 tables repeat too, so these thresholds would rather miss a loop than cut off
 a real answer. They were tuned on tests/fixtures/model_output/.
 """
-import re
 from typing import Optional
 
 CHAR_TAIL = 800
