@@ -128,3 +128,25 @@ def test_cancel_during_tests_undoes_only_the_patch(repo, monkeypatch):
     assert (repo / "a.py").read_text() == "x = 1\n"
     assert_user_work_intact(repo)
     assert git(repo, "diff", "--cached", "--name-only") == ""
+
+
+def test_failed_commit_leaves_nothing_staged(repo):
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    patch = make_patch(repo, "a.py", "x = 2\n")
+    user_work(repo)
+
+    result = apply(repo, patch)
+
+    assert result["applied"] is False
+    assert (repo / "a.py").read_text() == "x = 1\n"
+    assert git(repo, "diff", "--cached", "--name-only") == ""
+    assert_user_work_intact(repo)
+
+
+def test_check_rejects_a_patch_on_a_dirty_file(repo):
+    patch = make_patch(repo, "b.py", "y = 2\n")
+    user_work(repo)
+    ok, _ = self_improve.check_patch_applies(patch, str(repo))
+    assert ok is False

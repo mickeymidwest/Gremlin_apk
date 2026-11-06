@@ -99,6 +99,8 @@ class SecureExecutionSandbox:
         except asyncio.CancelledError:
             try:
                 proc.kill()
-            except ProcessLookupError:
+                # Bounded: a grandchild can hold the pipes open past this exit.
+                await asyncio.wait_for(proc.wait(), timeout=2)
+            except (ProcessLookupError, PermissionError, asyncio.TimeoutError):
                 pass
             raise

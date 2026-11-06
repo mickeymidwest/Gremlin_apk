@@ -90,3 +90,34 @@ def test_abort_route(client):
     response = client.post("/admin/abort", headers={"X-Admin-Token": "admin"})
     assert response.status_code == 200
     assert response.get_json()["ok"] is True
+
+
+def test_abort_leaves_protected_processes_running(monkeypatch):
+    monkeypatch.setattr(job_control, "PROTECTED", {"sleep"})
+    proc = subprocess.Popen(["sleep", "30"])
+    try:
+        assert job_control.abort()["processes_stopped"] == 0
+        assert proc.poll() is None
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_abort_survives_processes_it_may_not_signal(monkeypatch):
+    class RootOwned:
+        def name(self):
+            return "some-tool"
+
+        def terminate(self):
+            raise psutil.AccessDenied()
+
+        def kill(self):
+            raise psutil.AccessDenied()
+
+    class Server:
+        def children(self, recursive=False):
+            return [RootOwned()]
+
+    monkeypatch.setattr(psutil, "Process", Server)
+    monkeypatch.setattr(psutil, "wait_procs", lambda procs, timeout: ([], procs))
+    assert job_control.abort()["processes_stopped"] == 1

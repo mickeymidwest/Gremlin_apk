@@ -9,6 +9,12 @@ import psutil
 
 _GRACE_SECONDS = 3.0
 
+# Killing these mid-run can do real damage (a half-finished pacman leaves the
+# package database locked), and root-owned ones can't be signalled anyway.
+PROTECTED = {"pacman", "snapper", "sudo", "systemctl"}
+
+_GONE = (psutil.NoSuchProcess, psutil.AccessDenied)
+
 _lock = threading.Lock()
 _running: dict[Future, str] = {}
 
@@ -32,23 +38,34 @@ def untrack(future: Future) -> None:
 
 
 def abort() -> dict:
-    """Cancels every tracked job, then stops this process's child processes.
-    The order matters: a job blocked on a subprocess only sees the cancel
-    once that subprocess is gone."""
+    """Cancels every tracked job, then stops this process's child processes
+    except PROTECTED ones. The order matters: a job blocked on a subprocess
+    only sees the cancel once that subprocess is gone."""
     with _lock:
         jobs = list(_running.items())
     cancelled = [label for future, label in jobs if future.cancel()]
 
-    children = psutil.Process().children(recursive=True)
+    children = _stoppable_children()
     for proc in children:
         try:
             proc.terminate()
-        except psutil.NoSuchProcess:
+        except _GONE:
             pass
     _, alive = psutil.wait_procs(children, timeout=_GRACE_SECONDS)
     for proc in alive:
         try:
             proc.kill()
-        except psutil.NoSuchProcess:
+        except _GONE:
             pass
     return {"cancelled": cancelled, "processes_stopped": len(children)}
+
+
+def _stoppable_children() -> list:
+    stoppable = []
+    for proc in psutil.Process().children(recursive=True):
+        try:
+            if proc.name() not in PROTECTED:
+                stoppable.append(proc)
+        except _GONE:
+            pass
+    return stoppable

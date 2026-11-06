@@ -191,3 +191,30 @@ def test_cancelled_generate_keeps_the_lock_until_the_worker_ends(monkeypatch):
         assert not be._lock.locked()
 
     asyncio.run(run())
+
+
+def test_cancelled_load_keeps_the_lock_and_the_model(monkeypatch):
+    loading = threading.Event()
+
+    def slow_ctor(**kwargs):
+        loading.set()
+        time.sleep(0.3)
+        return _FakeLlm(**kwargs)
+
+    monkeypatch.setattr(backend_mod, "Llama", slow_ctor)
+    be = backend_mod.LlamaCppBackend(
+        ModelInfo(name="test", kind="local_gguf"), model_path="/fake/model.gguf")
+
+    async def run():
+        task = asyncio.create_task(be.generate("hi"))
+        while not loading.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0.05)
+        assert be._lock.locked()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not be._lock.locked()
+        assert be._llm is not None
+
+    asyncio.run(run())

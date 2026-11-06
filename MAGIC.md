@@ -344,11 +344,12 @@ building a parallel system.
 - **Stop** (`POST /admin/stop`, admin token required): sets `data/zoid_stop`,
   which `zoid_loop.py`'s nightly practice loop already checks between
   rounds and halts on — this just makes that reachable over HTTP instead of
-  `touch`ing the file over SSH. Be honest about what it *isn't*: there is
-  no real way to abort a `self_edit`/`build_project` that's already
-  mid-flight (`git_mutation_lock` only stops a second one from starting
-  concurrently) — the response includes `agent_state` so a caller can see
-  whether one is actually running rather than assume this cancelled it.
+  `touch`ing the file over SSH. It doesn't touch work already running.
+- **Abort** (`POST /admin/abort`, admin token required): cancels jobs running
+  through `run_coro` and stops their child processes. Uncommitted self-edits
+  and script fixes undo themselves. `pacman`, `sudo`, `systemctl` and `snapper`
+  are left alone, an in-progress generation runs to its end, and streaming
+  chats aren't tracked.
 - **robofuse-stack boundary, enforced structurally, not just in the prompt**
   (`gremlin_core/tools.py`, `_tool_run_command`): mickey runs a torrent-
   indexer + Real-Debrid auto-download pipeline at `~/robofuse-stack`

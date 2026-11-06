@@ -9,6 +9,9 @@ test in this suite (see test_capability_and_audit.py etc.)."""
 import asyncio
 import os
 
+import psutil
+import pytest
+
 from gremlin_core.sandbox import SecureExecutionSandbox
 
 
@@ -90,3 +93,20 @@ def test_workspace_dir_is_resolved_to_an_absolute_path(tmp_path):
     rel = os.path.relpath(str(tmp_path), os.getcwd())
     sandbox = SecureExecutionSandbox(rel)
     assert os.path.isabs(sandbox.workspace)
+
+
+def test_cancelled_command_is_killed(tmp_path):
+    marker = tmp_path / "pid"
+
+    async def run():
+        sandbox = SecureExecutionSandbox(str(tmp_path), timeout_seconds=30)
+        task = asyncio.create_task(
+            sandbox.run_safe_command(f"sh -c 'echo $$ > {marker}; exec sleep 30'"))
+        while not marker.exists() or not marker.read_text().strip():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+    assert not psutil.pid_exists(int(marker.read_text()))

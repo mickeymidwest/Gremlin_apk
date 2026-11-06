@@ -338,6 +338,8 @@ def create_app(
         heavy = cmd in ("fix", "build", "override")
         try:
             result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=900.0)
+        except job_control.JobAborted:
+            raise
         except Exception as e:
             health["consec_fail"] += 1
             if heavy:
@@ -387,6 +389,8 @@ def create_app(
                     )),
                     timeout=120.0,
                 )
+            except job_control.JobAborted:
+                raise
             except Exception as e:
                 health["consec_fail"] += 1
                 return jsonify({
@@ -463,6 +467,8 @@ def create_app(
                 # under contention can still take real wall time.
                 timeout=480.0,
             )
+        except job_control.JobAborted:
+            raise
         except Exception as e:
             # A raw 500 here was confirmed to look like a broken app on
             # the phone with zero explanation -- a slow answer (or one
@@ -521,6 +527,8 @@ def create_app(
                                   actions.execute(pending, router, registry, str(project_root))),
                         timeout=900.0,
                     )
+                except job_control.JobAborted:
+                    raise
                 except Exception:
                     # Previously unguarded -- an exception here (e.g. a
                     # timeout mid self_edit/build_project) surfaced as a
@@ -566,6 +574,8 @@ def create_app(
                           intent_mod.classify(router, "gremlin", message)),
                 timeout=90.0,
             )
+        except job_control.JobAborted:
+            raise
         except Exception:
             return None
         if detected.is_chat:
@@ -583,6 +593,8 @@ def create_app(
                               actions.execute(prepared, router, registry, str(project_root))),
                     timeout=900.0,
                 )
+            except job_control.JobAborted:
+                raise
             except Exception:
                 # Same gap as the confirmation-path call above -- this is
                 # the read-only-and-simple-mutation path (update_check,
@@ -1136,16 +1148,10 @@ def create_app(
 
     @app.route("/admin/stop", methods=["POST"])
     def admin_stop():
-        """Roadmap #106. Honest about what this actually is: the nightly
-        zoid_loop.py practice loop already checks data/zoid_stop between
-        rounds and halts cleanly (see deploy/zoid-nightly.sh) -- this
-        just makes that reachable over HTTP instead of `touch`ing the
-        file over SSH. There is NO real way to abort a self_edit/
-        build_project that's already mid-flight (git_mutation_lock only
-        stops a SECOND one from starting concurrently) -- reporting
-        agent_state here so the caller can see whether something like
-        that is actually running right now, rather than this endpoint
-        silently pretending to cancel it."""
+        """Roadmap #106. The nightly zoid_loop.py practice loop already
+        checks data/zoid_stop between rounds and halts cleanly (see
+        deploy/zoid-nightly.sh) -- this makes that reachable over HTTP.
+        It doesn't touch work already running; /admin/abort does that."""
         auth_error = _check_admin_auth()
         if auth_error:
             return auth_error
@@ -1156,7 +1162,7 @@ def create_app(
         return jsonify({
             "ok": True,
             "note": "zoid_stop set -- the nightly practice loop will halt at its next check. "
-                    "This does NOT abort an in-flight self_edit/build_project; see agent_state below "
+                    "To stop a running job use /admin/abort; see agent_state below "
                     "for whether one is actually running.",
             "agent_state": state_machine.state.value,
             "busy": state_machine.state.value != "idle",

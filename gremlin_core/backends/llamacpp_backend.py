@@ -165,7 +165,14 @@ class LlamaCppBackend(ModelBackend):
                 kwargs["type_v"] = t
             return Llama(**kwargs)
 
-        self._llm = await loop.run_in_executor(self._executor, _load)
+        fut = loop.run_in_executor(self._executor, _load)
+        try:
+            await _wait_for_worker(fut)
+        except asyncio.CancelledError:
+            if fut.exception() is None:
+                self._llm = fut.result()  # it's loaded either way, so keep the handle
+            raise
+        self._llm = fut.result()
         self._last_used = time.monotonic()
 
     async def warmup(self) -> None:

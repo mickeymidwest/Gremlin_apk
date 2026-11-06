@@ -213,7 +213,9 @@ def check_patch_applies(patch_text: str, root: str) -> tuple[bool, str]:
         f.write(patch_text)
         patch_path = f.name
     try:
-        check = _run(["git", "apply", "--check", patch_path], root)
+        # Same check apply_patch makes, so a doomed patch fails before review.
+        _run(["git", "update-index", "-q", "--refresh"], root)
+        check = _run(["git", "apply", "--check", "--index", patch_path], root)
         return check.returncode == 0, check.stderr
     finally:
         os.unlink(patch_path)
@@ -361,12 +363,13 @@ async def apply_patch(
         commit_msg = f"self-improve ({applied_by}): {goal}"
         commit = _run(["git", "commit", "-m", commit_msg], root)
         if commit.returncode != 0:
+            _revert()  # left staged, it would block every later self-edit
             return {
-                "applied": True,
+                "applied": False,
                 "committed": False,
                 "commit_message": commit_msg,
                 "files_changed": changed,
-                "warning": f"patch applied but commit failed (files are on disk, uncommitted): {commit.stderr}",
+                "reason": f"reverted -- commit failed: {commit.stderr}",
             }
         mutation_log.append_mutation(root, {
             "kind": "self_improve",
