@@ -33,7 +33,7 @@ Only items with evidence of a real gap are listed. Item numbers are the blueprin
 | # | Proposal | The gap (evidence in repo) | Status |
 |---|----------|----------------------------|--------|
 | N1 | **Model output health check** (#43, with O6): stop a generation that degenerates or won't stop | 2026-11-06 chat test of gremlin-llama31-ties: reply 3 fell into a hex loop, 50.4% repeated 5-grams, and replies 2 and 3 ran to max_tokens. `/status` and the watchdog check liveness only, so nothing catches this | ACCEPTED |
-| N2 | **Real abort for running work** (#91) | `server.py admin_stop` docstring: "There is NO real way to abort a self_edit/build_project that's already mid-flight" | PENDING |
+| N2 | **Real abort for running work** (#91) | `server.py admin_stop` docstring: "There is NO real way to abort a self_edit/build_project that's already mid-flight" | ACCEPTED |
 | N3 | **Frozen model benchmark** (#60, #76, #77) | `decisions.md` requires a bench before swapping the primary, and the merge's quality is still unsettled. Extend `bench/quality.py` + `data/eval_set.jsonl` (42 lines); don't start over | PENDING |
 | N4 | **Project Brain** (#21-28) | No per-project store found in `gremlin_core/`. Do after O7, so it doesn't add a third memory system | PENDING |
 | N5 | **Token handling** (#85) | The pairing URL with its token is written to the service journal, and the server is plain HTTP on 0.0.0.0 | PENDING |
