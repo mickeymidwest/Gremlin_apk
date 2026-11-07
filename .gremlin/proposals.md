@@ -34,12 +34,12 @@ Only items with evidence of a real gap are listed. Item numbers are the blueprin
 |---|----------|----------------------------|--------|
 | N1 | **Model output health check** (#43, with O6): stop a generation that degenerates or won't stop | 2026-11-06 chat test of gremlin-llama31-ties: reply 3 fell into a hex loop, 50.4% repeated 5-grams, and replies 2 and 3 ran to max_tokens. `/status` and the watchdog check liveness only, so nothing catches this | ACCEPTED |
 | N2 | **Real abort for running work** (#91) | `server.py admin_stop` docstring: "There is NO real way to abort a self_edit/build_project that's already mid-flight" | ACCEPTED |
-| N3 | **Frozen model benchmark** (#60, #76, #77) | `decisions.md` requires a bench before swapping the primary, and the merge's quality is still unsettled. Extend `bench/quality.py`; `data/eval_set.jsonl` is old fine-tune output, not a benchmark | PENDING |
+| N3 | **Frozen model benchmark** (#60, #76, #77) | `decisions.md` requires a bench before swapping the primary, and the merge's quality is still unsettled. Extend `bench/quality.py`; `data/eval_set.jsonl` is old fine-tune output, not a benchmark | DONE 2026-11-07: quality, stop, honesty and chat parts, suite hash, `--compare`. First run (bare model, Gremlin's prompt): primary 13/19 · 8/8 · 3/12, merge v2 13/19 · 1/8 · 2/12, abliterated 14B 13/19 · 8/8 · 5/12 at 24 tok/s, old 14B 13/19 · 8/8 · 9/12 at 24 tok/s. Primary stays |
 | N4 | **Project Brain** (#21-28) | No per-project store found in `gremlin_core/`. Do after O7, so it doesn't add a third memory system | PENDING |
 | N5 | **Token handling** (#85) | The pairing URL with its token is written to the service journal, and the server is plain HTTP on 0.0.0.0 | PENDING |
 | N6 | **Build provenance** (#103) | `builds.py` marks a folder with `.gremlin-build.json`. Add source commit and version there; a full registry isn't needed yet | PENDING |
 | N7 | **Run replay** (#69) | `data/magic/episodes` holds 1,499 files. Check whether they record tool results before building anything | PARTLY DONE |
-| N8 | **Truth Engine** (ChatGPT stages doc): important answers and finished tasks show the claim, its evidence, what was tested and what is unknown | The merge invented actions and BIOS versions on 2026-11-03. Extends `magic/grounding.py` and builds on O1/O2. Build after the fine-tune cut and the Mickey profile | PENDING |
+| N8 | **Truth Engine** (ChatGPT stages doc): important answers and finished tasks show the claim, its evidence, what was tested and what is unknown | The merge invented actions and BIOS versions on 2026-11-03. Extends `magic/grounding.py` and builds on O1/O2. Build after the fine-tune cut and the Mickey profile | STEP 1 DONE 2026-11-07: grounding flags made-up results in chat (restart worked, scan results, disk numbers, update counts, pretend `*runs command*`). Bench chat part on the primary: 6 of 12 trap replies made something up and all 6 got the warning, 10 of 10 ordinary replies had no false alarm. Next: claim / evidence / tested / unknown for finished tasks |
 
 Already covered, don't add twice: verification engine (#2, #30) = O1/O2; execution checkpoints (#31) = O4;
 regression tracking (#14) = `magic/regression.py`; snapshots (#32) = `snapshots.py`; code review (#47) = `review.py`.
@@ -72,7 +72,7 @@ Claude and Gemini disagree with ChatGPT: a central policy engine (Gemini: duplic
 ## App redesign (requested by Mickey 2026-11-07)
 | # | Proposal | Scope | Status |
 |---|----------|-------|--------|
-| A1 | **Polished Gremlin app** | New look, better chat screen, reorganized Settings, nicer Builds, Stop button, live status, model switcher, memory and skills views, profile editor once built | ACCEPTED |
+| A1 | **Polished Gremlin app** | New look, better chat screen, reorganized Settings, nicer Builds, Stop button, live status, model switcher, memory and skills views, profile editor once built | PARTLY DONE: 1.3 redesign, 1.4 profile editor. Left: Settings sections, Builds redesign |
 
 ## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
 Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
