@@ -1,0 +1,58 @@
+#!/usr/sbin/nft -f
+# Gremlin firewall (2026-11-07). INPUT only, in its own table, so Docker's
+# own rules (NAT, forwarding to containers) are never touched or flushed.
+#   - everything over Tailscale (Mickey's phone, and Claude's SSH)
+#   - the home LAN, only on the ports actually in use
+#   - Tailscale's direct-connection UDP port from anywhere
+#   - drop everything else coming in (the desktop has a public IPv6 address,
+#     so without this some services can be reachable from the internet)
+# Loaded by gremlin-firewall.service; remove with: nft delete table inet gremlin_fw
+
+table inet gremlin_fw
+delete table inet gremlin_fw
+
+table inet gremlin_fw {
+    set lan4 {
+        type ipv4_addr; flags interval
+        elements = { 192.168.1.0/24 }
+    }
+    set lan6 {
+        type ipv6_addr; flags interval
+        elements = { fe80::/10, fd00::/8 }
+    }
+    # ssh, KDE Connect, robofuse bridge, Jellyseerr, Jellyfin, Gremlin
+    set lan_tcp {
+        type inet_service
+        elements = { 22, 1716, 5000, 5055, 8096, 8765 }
+    }
+    # KDE Connect, SSDP/DLNA, mDNS, Jellyfin discovery
+    set lan_udp {
+        type inet_service
+        elements = { 1716, 1900, 5353, 7359 }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        ct state established,related accept
+        ct state invalid drop
+        iif "lo" accept
+        iifname "tailscale0" accept
+        iifname "docker0" accept
+        iifname "br-*" accept
+
+        meta l4proto icmp accept
+        meta l4proto ipv6-icmp accept
+
+        udp dport 41641 accept
+        udp sport 67 udp dport 68 accept
+        udp sport 547 udp dport 546 accept
+
+        ip saddr @lan4 tcp dport @lan_tcp accept
+        ip saddr @lan4 udp dport @lan_udp accept
+        ip6 saddr @lan6 tcp dport @lan_tcp accept
+        ip6 saddr @lan6 udp dport @lan_udp accept
+
+        limit rate 5/minute log prefix "gremlin-fw drop: " level info
+    }
+}

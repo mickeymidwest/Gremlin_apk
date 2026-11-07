@@ -79,7 +79,7 @@ def ssh_settings(paths: tuple[str, ...] = ("/etc/ssh/sshd_config",), dropin: str
 
 def firewall() -> dict:
     return {u: (_run(["systemctl", "is-active", u]) or "inactive").strip()
-            for u in ("firewalld", "nftables", "ufw", "iptables")}
+            for u in ("gremlin-firewall", "firewalld", "nftables", "ufw", "iptables")}
 
 
 def enabled_units() -> list[str]:
