@@ -1336,6 +1336,14 @@ def serve(registry: ModelRegistry, router: Router, project_root: str, port: int 
     loop = start_background_loop()
     app = create_app(registry, router, root, loop, token, admin_token)
 
+    # Print the banner BEFORE the warmup starts: llama-cpp-python points
+    # fds 1 and 2 at /dev/null while it loads a model (verbose=False), so a
+    # line flushed during the background warmup is lost. Seen 2026-11-07:
+    # the banner vanished from the journal once it was flushed right away.
+    lan_ip = get_lan_ip()
+    pair_ip, pair_from = pairing_host()
+    print(startup_banner(port, lan_ip, pair_ip, pair_from, str(data_dir / TOKEN_PATH_NAME)), flush=True)
+
     # Idle-unload sweep for local GGUF consult/fallback models -- keeps
     # VRAM from just accumulating over the life of this process. Never
     # touches the primary model (see eviction.py). Scheduled on the same
@@ -1357,9 +1365,6 @@ def serve(registry: ModelRegistry, router: Router, project_root: str, port: int 
             print(f"[warmup] skipped ({e}) -- first chat will cold-load.", flush=True)
     asyncio.run_coroutine_threadsafe(_warm(), loop)
 
-    lan_ip = get_lan_ip()
-    pair_ip, pair_from = pairing_host()
-    print(startup_banner(port, lan_ip, pair_ip, pair_from, str(data_dir / TOKEN_PATH_NAME)), flush=True)
 
     import logging
     logging.getLogger("werkzeug").addFilter(RedactTokens())
