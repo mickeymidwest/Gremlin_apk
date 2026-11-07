@@ -133,7 +133,11 @@ def backed_by(claim: str, context: str) -> bool:
     if c in ctx:
         return True
     nums = re.findall(r"\d+(?:\.\d+)?", c)
-    return bool(nums) and all(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d])", ctx) for n in nums)
+    # a lone small number ("you have 2 updates") turns up anywhere by
+    # chance, so it only counts when the whole claim is there (Gemini)
+    if not nums or all(len(n) == 1 for n in nums):
+        return False
+    return all(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d])", ctx) for n in nums)
 
 
 def result_claims(text: str, context: str = "") -> list[str]:

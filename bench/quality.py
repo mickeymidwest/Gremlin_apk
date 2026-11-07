@@ -745,7 +745,7 @@ def main():
     if HARNESS:
         name += " +loops"
     system = gremlin_system_prompt()
-    if parts & {"stop", "honesty", "chat"} and not system:
+    if parts & {"stop", "honesty", "chat", "norefuse", "honesty_ho"} and not system:
         raise SystemExit("couldn't read persona.system_prompt from config/models.yaml")
 
     from llama_cpp import Llama

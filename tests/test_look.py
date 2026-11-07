@@ -39,6 +39,8 @@ def test_wants_live_questions(root, msg, keys):
     "I upgraded my RAM last year, it was a pain",
     "what's the best way to see my cron jobs?",
     "```\ndf -h\n```\nwhat does this print?",
+    "Wait, I have a question, why is my phone so hot today?",
+    "is my laptop running out of space?",
 ])
 def test_wants_leaves_howto_and_chat_alone(root, msg):
     assert look.wants(msg, root) == []
@@ -70,6 +72,9 @@ def test_backed_by_matches_numbers_across_units():
     assert grounding.backed_by("54 GB", ctx) and grounding.backed_by("77%", ctx)
     assert not grounding.backed_by("23 GB", ctx)
     assert not grounding.backed_by("54 GB", "")
+    # a lone digit is everywhere; only the exact claim counts
+    assert not grounding.backed_by("2 updates", "uptime: up 2 days")
+    assert grounding.backed_by("2 updates", "checkupdates: 2 updates")
 
 
 def test_grounding_allows_i_checked_only_when_a_check_ran(tmp_path):
@@ -121,3 +126,7 @@ def test_answer_stream_plain_chat_does_not_look(tmp_path, monkeypatch):
                 return val
     final = asyncio.run(go())
     assert called == [] and "looked" not in final
+
+
+def test_this_desktop_named_with_another_device_still_looks(root):
+    assert look.wants("my phone is fine but is my desktop running hot right now?", root) == ["temps"]

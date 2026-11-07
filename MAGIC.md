@@ -428,3 +428,19 @@ isn't a thing; skills come from the loop and from here.
   Actions runs and pull the built APK artifact.
 - Real `ANTHROPIC_API_KEY` still a placeholder in `.env` (Gemini works).
 - ~~Push local `main` → origin~~ done — origin at `15d1c4c`.
+
+
+## Harness loops and look-first (2026-11-07)
+
+- `gremlin_core/look.py` (U2): a question about this desktop's live state runs fixed read-only
+  probes (df, free, nvidia-smi, sensors, uname, BIOS info, uptime, checkupdates, ip, failed units,
+  cron/timers, ps, docker ps) and the reply answers from that output, with a "(Checked just now: ...)"
+  footer. Nothing from the message or the model becomes part of a command.
+- `gremlin_core/magic/loops.py` (U3-U5): format loop (JSON under a grammar, tables, one-line forms),
+  code loop (run in a bubblewrap jail against the request's examples and smoke inputs, up to 3 tries,
+  keeps the best), math loop (plain answer and program vote), yes/no vote. Model-agnostic: a `call`
+  function in, a `Solved` out.
+- In chat (U6) behind `persona.loops_in_chat` (off until the uplift bench shows a gain) or
+  `GREMLIN_LOOPS=1`. Code that still fails gets one Gemini attempt, and the reply says so.
+- Measure with `bench/quality.py --harness` (U1): same suite as the bare run, plus the held-out set
+  in `bench/heldout.py` that loops are never tuned on.

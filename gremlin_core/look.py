@@ -43,6 +43,12 @@ _HOWTO = re.compile(
     r"|\bwhat is a\b|\bwhat's a\b|\bshould i\b|\bbest way\b", re.I)
 
 
+# about some other device: the probes only see this desktop
+_OTHER_DEVICE = re.compile(r"\b(?:phone|iphone|android|laptop|tablet|ipad|car|truck|tv|xbox|playstation|ps5|"
+                           r"switch|router|watch|work (?:pc|computer))\b", re.I)
+_THIS_BOX = re.compile(r"\b(?:desktop|pc|computer|box|server|machine|rig|you|your)\b", re.I)
+
+
 @dataclass
 class Probe:
     key: str
@@ -110,7 +116,7 @@ PROBES = [
     Probe("disk", re.compile(r"\b(?:disk|storage|drive|ssd|hdd|nvme|space)\b", re.I),
           lambda: _cmd(["df", "-h", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs",
                         "--output=target,size,used,avail,pcent"])),
-    Probe("memory", re.compile(r"\b(?:ram|memory|swap)\b(?<!vram)", re.I), lambda: _cmd(["free", "-h"])),
+    Probe("memory", re.compile(r"\b(?:ram|memory|swap)\b", re.I), lambda: _cmd(["free", "-h"])),
     Probe("gpu", re.compile(r"\b(?:gpu|vram|graphics card|nvidia)\b", re.I),
           lambda: _cmd(["nvidia-smi", "--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total",
                         "--format=csv"])),
@@ -157,6 +163,8 @@ def wants(message: str, root: Optional[str] = None) -> list[str]:
     """Probe keys for a question about this machine's live state, or []."""
     text = re.sub(r"```.*?```", " ", message or "", flags=re.S)
     if not text.strip() or _HOWTO.search(text) or not _ASKING.search(text):
+        return []
+    if _OTHER_DEVICE.search(text) and not _THIS_BOX.search(text):
         return []
     own = [n for n in _own_names(root) if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text, re.I)]
     if not own and not _LIVE.search(text):
