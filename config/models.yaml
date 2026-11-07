@@ -32,8 +32,8 @@ models:
   # NousResearch/Hermes-3-Llama-3.1-8B, merged 2026-11-01 via deploy/merge-local-llama31.py).
   - name: gremlin-llama31-ties
     type: local_gguf
-    display_name: "Gremlin Llama-3.1-8B TIES (abliterated + Hermes-3)"
-    model_path: "/home/mickey/Downloads/gremlin/models/gremlin-llama31-ties.Q4_K_M.gguf"
+    display_name: "Gremlin Llama-3.1-8B TIES v2 (abliterated + 25% Hermes-3)"
+    model_path: "/home/mickey/Downloads/gremlin/models/gremlin-llama31-ties-v2.Q4_K_M.gguf"
     n_ctx: 16384
     n_gpu_layers: -1
     flash_attn: true
