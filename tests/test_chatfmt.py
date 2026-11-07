@@ -28,3 +28,8 @@ def test_registered_with_llama_cpp():
     lcf = pytest.importorskip("llama_cpp.llama_chat_format")
     assert lcf.get_chat_completion_handler("chatml-nothink") is not None
     chatfmt.register()  # a second import/register is harmless
+
+
+def test_think_marker_needs_whitespace():
+    prompt, think = chatfmt.format_messages([{"role": "user", "content": "read https://example.com/think"}])
+    assert not think and "example.com/think<|im_end|>" in prompt

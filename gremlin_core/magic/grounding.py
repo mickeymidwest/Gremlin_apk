@@ -92,7 +92,8 @@ _RESULT_CLAIMS = [
 _CONDITIONAL_RE = re.compile(
     r"\b(?:if|whether|when|once|until|unless|after|before|in case|make sure|assuming)\b", re.I)
 # a size next to these is VRAM/RAM headroom talk, not his disk
-_NOT_DISK_RE = re.compile(r"\b(?:v?ram|memory|gpu|card|vram|context|kv|cache|model|weights|swap)\b", re.I)
+_NOT_DISK_RE = re.compile(r"\b(?:v?ram|memory|gpu|card|vram|context|kv|cache|model|weights|swap"
+                          r"|rtx|gtx|geforce|radeon|arc)\b", re.I)
 _DISK_RE = re.compile(r"\b(?:disk|drive|storage|partition|ssd|hdd|space|/home|root|filesystem|df)\b"
                       r"|(?:^|\s)/(?:\s|$)", re.I)
 

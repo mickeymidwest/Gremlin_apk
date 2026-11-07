@@ -26,10 +26,11 @@ def format_messages(messages: list[dict]) -> tuple[str, bool]:
         if not isinstance(content, str):  # multimodal lists: keep the text parts
             content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
         if i == last_user:
-            if content.rstrip().endswith(THINK_MARK.strip()):
+            # the switch needs whitespace before it: ".../think" in a URL isn't one
+            if (" " + content.rstrip()).endswith(THINK_MARK):
                 think = True
                 content = content.rstrip()[: -len(THINK_MARK.strip())].rstrip()
-            if content.rstrip().endswith(NOTHINK_MARK.strip()):
+            if (" " + content.rstrip()).endswith(NOTHINK_MARK):
                 content = content.rstrip()[: -len(NOTHINK_MARK.strip())].rstrip()
         parts.append(f"<|im_start|>{m.get('role', 'user')}\n{content}<|im_end|>\n")
     prompt = "".join(parts) + "<|im_start|>assistant\n"
