@@ -49,8 +49,9 @@ _CODE_RE = re.compile(
     r"\b(?:python )?(?:function|class|method|script|program|code)\b"
     r"|\b(?:return|give|output|reply with)\s+(?:only\s+|just\s+)?the\s+(?:fixed\s+|corrected\s+)?(?:code|function)\b"
     r"|\bonly the code\b", re.I)
-_OTHER_LANG_RE = re.compile(r"\b(?:javascript|typescript|node\.?js|rust|golang|go code|c\+\+|c#|java|kotlin|"
-                            r"swift|ruby|php|bash|shell script|powershell|sql|html|css|lua|perl)\b", re.I)
+_OTHER_LANG_RE = re.compile(r"\b(?:javascript|typescript|node\.?js|rust|golang|go code|java|kotlin|"
+                            r"swift|ruby|php|bash|shell script|powershell|sql|html|css|lua|perl)\b"
+                            r"|\bc(?:\+\+|#)(?!\w)", re.I)
 # asks for a number worked out from numbers in the question
 _QUANTITY_RE = re.compile(
     r"\bhow (?:many|much|long|old|far|fast)\b|\bwhat (?:is|was|will be) the (?:total|answer|result|value|"
@@ -212,6 +213,7 @@ def solve(call: Call, prompt: str, *, max_tokens: int = 600, temperature: float 
 # ------------------------------------------------------- running Python
 
 Runner = Callable[[str], tuple]
+MEMORY_CAP_BYTES = 1024 * 1024 * 1024  # 1 GB; this box has 7 GB with the pilot loaded
 
 
 def run_python(source: str, timeout: float = 10.0) -> tuple[int, str, str]:
@@ -222,9 +224,12 @@ def run_python(source: str, timeout: float = 10.0) -> tuple[int, str, str]:
     import sys
     import tempfile
     with tempfile.TemporaryDirectory() as d:
+        def _cap():  # runaway allocations fail fast instead of pushing the box into swap
+            import resource
+            resource.setrlimit(resource.RLIMIT_AS, (MEMORY_CAP_BYTES, MEMORY_CAP_BYTES))
         try:
             r = subprocess.run([sys.executable, "-I", "-c", source], cwd=d, capture_output=True,
-                               text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+                               text=True, timeout=timeout, stdin=subprocess.DEVNULL, preexec_fn=_cap)
             return r.returncode, r.stdout, r.stderr
         except subprocess.TimeoutExpired:
             return -1, "", f"timed out after {timeout:.0f}s (an infinite loop, or waiting for input?)"
@@ -384,7 +389,12 @@ def run_checks(code: str, name: Optional[str], examples: list, smoke: list,
     except SyntaxError as e:
         return [("syntax", f"SyntaxError on line {e.lineno}: {e.msg}")]
     if not name:
-        return [("missing", "the code doesn't define a function")]
+        # a class or a plain script: no function to call, so just run it
+        rc, out, err = runner(code)
+        if rc != 0:
+            tail = (err or "").strip().splitlines()[-3:]
+            return [("run", "running the code failed: " + " | ".join(tail))]
+        return []
     rc, out, err = runner(_check_script(code, name, examples, smoke))
     found = []
     for line in out.splitlines():

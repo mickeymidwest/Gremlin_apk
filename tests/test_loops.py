@@ -99,6 +99,8 @@ def test_json_grammar_compiles():
     ("Write a Python function `double(x)` that doubles x. Only the code.", loops.CODE),
     ("Fix this function, it crashes:\ndef f(x):\n    return x[0]", loops.CODE),
     ("Write a JavaScript function that doubles x.", loops.PLAIN),
+    ("Write a C++ function that doubles x.", loops.PLAIN),
+    ("Write me a function in C#.", loops.PLAIN),
     ("A bus has 12 seats and 5 are taken. How many are free?", loops.MATH),
     ("How many legs does a spider have?", loops.PLAIN),
     ("Is the sky blue? Answer yes or no.", loops.VOTE),
@@ -124,7 +126,10 @@ def test_run_checks_finds_wrong_example_crash_and_syntax():
     assert any("returned 2, expected 3" in m for _, m in probs)
     assert any("IndexError" in m for _, m in probs)
     assert loops.run_checks("def f(:\n", "f", [], [], loops.run_python)[0][0] == "syntax"
-    assert loops.run_checks("x = 1\n", None, [], [], loops.run_python)[0][0] == "missing"
+    # a class or script with no top-level function is just run
+    assert loops.run_checks("class A:\n    def get(self):\n        return 1\nA().get()\n", None, [], [],
+                            loops.run_python) == []
+    assert loops.run_checks("x = 1 / 0\n", None, [], [], loops.run_python)[0][0] == "run"
 
 
 def test_run_python_times_out():
@@ -181,3 +186,8 @@ def test_vote_loop_majority_and_early_stop():
 def test_math_just_that_total_number():
     call = fake("```python\nprint(4 + 6)\n```", "```python\nprint(10)\n```")
     assert loops.solve(call, "Prices: 4 and 6. End your reply with just that total number.").text == "10"
+
+
+def test_run_python_memory_cap():
+    rc, _out, err = loops.run_python("x = bytearray(3 * 1024 ** 3)")
+    assert rc != 0 and "MemoryError" in err
