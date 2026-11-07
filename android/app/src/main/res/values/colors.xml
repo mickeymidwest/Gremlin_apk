@@ -7,4 +7,10 @@
     <color name="gremlin_text_secondary">#9FD9C8</color>
     <color name="gremlin_system">#FFD27D</color>
     <color name="gremlin_error">#FF9D9D</color>
+    <color name="gremlin_bubble_user">#1F4A3C</color>
+    <color name="gremlin_code_bg">#0A100E</color>
+    <color name="gremlin_line">#24382F</color>
+    <color name="gremlin_online">#6DE3A0</color>
+    <color name="gremlin_busy">#FFD27D</color>
+    <color name="gremlin_offline">#FF9D9D</color>
 </resources>

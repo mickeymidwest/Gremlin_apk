@@ -3,32 +3,41 @@ package com.gremlin.app
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
-import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.method.ScrollingMovementMethod
-import android.text.style.ForegroundColorSpan
-import android.text.style.RelativeSizeSpan
+import android.animation.ValueAnimator
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.ArrayAdapter
-import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.PopupMenu
+import android.widget.ScrollView
 import android.widget.ListPopupWindow
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.zxing.integration.android.IntentIntegrator
 import com.google.zxing.integration.android.IntentResult
+import com.gremlin.app.ChatTranscript.Kind
+import com.gremlin.app.ChatTranscript.Turn
 import com.gremlin.app.attach.Attachments
 import com.gremlin.app.voice.VoiceOutput
 import java.io.File
+import org.json.JSONObject
 import java.net.URI
 
 class MainActivity : AppCompatActivity() {
@@ -39,7 +48,10 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var connectionLabel: TextView
     private lateinit var tokenUsageLabel: TextView
-    private lateinit var chatLog: TextView
+    private lateinit var chat: ChatView
+    private lateinit var statusDot: View
+    private lateinit var sendButton: ImageButton
+    private lateinit var hologramFrame: FrameLayout
     private lateinit var thinkingStatus: TextView
     private lateinit var messageInput: EditText
     private lateinit var hologramView: WebView
@@ -56,7 +68,7 @@ class MainActivity : AppCompatActivity() {
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@registerForActivityResult
         try {
-            contentResolver.openOutputStream(uri)?.use { it.write(chatLog.text.toString().toByteArray()) }
+            contentResolver.openOutputStream(uri)?.use { it.write(chat.plainText().toByteArray()) }
             Toast.makeText(this, "Chat exported", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
@@ -88,7 +100,7 @@ class MainActivity : AppCompatActivity() {
                 ?: return@registerForActivityResult
             val ttl = res.data?.getStringExtra(ConversationsActivity.EXTRA_TITLE) ?: "chat"
             currentThread = tid
-            chatLog.text = ""
+            chat.clear()
             historyFile.writeText("")
             appendSystemTurn("— $ttl —", false)
             // this thread's own running total isn't known until its next
@@ -128,35 +140,39 @@ class MainActivity : AppCompatActivity() {
 
         connectionLabel = findViewById(R.id.connection_label)
         tokenUsageLabel = findViewById(R.id.token_usage_label)
-        chatLog = findViewById(R.id.chat_log)
-        chatLog.movementMethod = ScrollingMovementMethod()
+        statusDot = findViewById(R.id.status_dot)
+        sendButton = findViewById(R.id.send_button)
+        hologramFrame = findViewById(R.id.hologram_frame)
+        chat = ChatView(findViewById<LinearLayout>(R.id.chat_list), findViewById<ScrollView>(R.id.chat_scroll))
         if (historyFile.exists()) {
-            chatLog.text = historyFile.readText()
+            chat.load(historyFile.readText())
         }
         thinkingStatus = findViewById(R.id.thinking_status)
         messageInput = findViewById(R.id.message_input)
 
         hologramView = findViewById(R.id.hologram_view)
+        hologramView.setBackgroundColor(Color.TRANSPARENT)
         hologramView.settings.javaScriptEnabled = true
         hologramView.addJavascriptInterface(JsBridge(), "Android")
         hologramView.loadUrl("file:///android_asset/hologram.html")
 
-        findViewById<Button>(R.id.scan_button).setOnClickListener { startQrScan() }
-        findViewById<Button>(R.id.chats_button).setOnClickListener {
+        messageInput.setOnFocusChangeListener { _, focused -> setHologramSmall(focused) }
+        findViewById<View>(R.id.more_button).setOnClickListener { showMoreMenu(it) }
+        findViewById<View>(R.id.builds_button).setOnClickListener {
+            startActivity(Intent(this, BuildsActivity::class.java))
+        }
+        findViewById<View>(R.id.chats_button).setOnClickListener {
             conversationsLauncher.launch(Intent(this, ConversationsActivity::class.java))
         }
-        findViewById<Button>(R.id.send_button).setOnClickListener { sendMessage() }
-        findViewById<Button>(R.id.export_button).setOnClickListener {
-            exportLauncher.launch("gremlin-chat-${System.currentTimeMillis()}.txt")
-        }
+        sendButton.setOnClickListener { if (busy) stopWork() else sendMessage() }
         // A real, always-visible way into Settings -- the hologram WebView
         // can also open it via JsBridge.openSettings() (tapping the
         // hologram itself), but that's JS-driven and its tappable area
         // changes once models are linked/paired, which made Settings
         // effectively unreachable once you'd actually set anything up.
         // This button doesn't depend on the hologram's state at all.
-        findViewById<Button>(R.id.settings_button).setOnClickListener { openSettings() }
-        findViewById<Button>(R.id.attach_button).setOnClickListener {
+        findViewById<View>(R.id.settings_button).setOnClickListener { openSettings() }
+        findViewById<View>(R.id.attach_button).setOnClickListener {
             // Broad filter rather than a narrow allow-list: Attachments
             // sniffs the real type itself, and an over-strict picker
             // filter is how "why can't I select my own file" bugs happen.
@@ -266,11 +282,134 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateConnectionLabel()
-        // Best-effort refresh so the hologram's head-slot labels (and
-        // ModelSettingsActivity, opened from one of them) have something
-        // reasonably fresh cached without the WebView itself needing to
-        // do any networking -- see JsBridge.getStatusJson() below.
-        Thread { gremlinClient.fetchStatusRaw() }.start()
+        statusHandler.post(statusPoll)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        statusHandler.removeCallbacks(statusPoll)
+    }
+
+    // The status line. Also keeps the cached status fresh for the hologram's
+    // head-slot labels and ModelSettingsActivity (see getStatusJson below).
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusPoll = object : Runnable {
+        override fun run() {
+            Thread {
+                val raw = gremlinClient.fetchStatusRaw()
+                runOnUiThread { showStatus(raw) }
+            }.start()
+            statusHandler.postDelayed(this, 15_000)
+        }
+    }
+
+    private fun showStatus(raw: String?) {
+        if (prefs.getString("host", null) == null) {
+            updateConnectionLabel()
+            setDot(R.color.gremlin_offline)
+            return
+        }
+        val json = try { raw?.let { JSONObject(it) } } catch (e: Exception) { null }
+        if (json == null) {
+            connectionLabel.text = "Offline -- can't reach the desktop"
+            setDot(R.color.gremlin_offline)
+            return
+        }
+        val model = json.optString("primary_model", "Gremlin")
+        val working = json.optBoolean("busy", false) || !json.optBoolean("model_loaded", true)
+        connectionLabel.text = "Online  ·  $model" + if (working) "  ·  busy" else ""
+        setDot(if (working) R.color.gremlin_busy else R.color.gremlin_online)
+    }
+
+    private fun setDot(colorId: Int) {
+        statusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, colorId))
+    }
+
+    private var busy = false
+
+    /** The send button doubles as Stop while Gremlin is working. */
+    private fun setBusy(value: Boolean) {
+        busy = value
+        sendButton.setImageResource(if (value) R.drawable.ic_stop else R.drawable.ic_send)
+        sendButton.contentDescription = if (value) "Stop" else "Send"
+    }
+
+    private fun stopWork() {
+        Thread {
+            gremlinClient.cancelStream()
+            if (!prefs.getString("admin_token", null).isNullOrBlank()) gremlinClient.abortJobs()
+        }.start()
+    }
+
+    /** Shrinks the hologram while typing. Scaled rather than cropped,
+     *  because hologram.html draws at a fixed size. */
+    private fun setHologramSmall(small: Boolean) {
+        val scale = resources.displayMetrics.density
+        val to = ((if (small) 64 else 170) * scale).toInt()
+        ValueAnimator.ofInt(hologramFrame.height, to).apply {
+            duration = 220
+            addUpdateListener {
+                val height = it.animatedValue as Int
+                hologramFrame.layoutParams = hologramFrame.layoutParams.apply { this.height = height }
+                val s = (height / (200f * scale)).coerceAtMost(1f)
+                hologramView.scaleX = s
+                hologramView.scaleY = s
+            }
+            start()
+        }
+    }
+
+    private fun showMoreMenu(anchor: View) {
+        val menu = PopupMenu(this, anchor)
+        menu.menu.add("Switch model")
+        menu.menu.add("Stop running jobs")
+        menu.menu.add("Pair with QR code")
+        menu.menu.add("Export chat")
+        menu.setOnMenuItemClickListener { item ->
+            when (item.title) {
+                "Switch model" -> pickModel()
+                "Stop running jobs" -> Thread {
+                    val result = gremlinClient.abortJobs()
+                    runOnUiThread { appendSystemTurn(result.message, !result.ok) }
+                }.start()
+                "Pair with QR code" -> startQrScan()
+                "Export chat" -> exportLauncher.launch("gremlin-chat-${System.currentTimeMillis()}.txt")
+            }
+            true
+        }
+        menu.show()
+    }
+
+    private fun pickModel() {
+        val raw = prefs.getString("cached_status_json", "") ?: ""
+        val json = try { JSONObject(raw) } catch (e: Exception) { null }
+        val models = json?.optJSONArray("models")
+        val current = json?.optString("primary_model", "") ?: ""
+        val names = (0 until (models?.length() ?: 0)).mapNotNull { models?.optJSONObject(it)?.optString("name") }
+            .filter { it.isNotEmpty() && it != "gemini" }
+        if (names.isEmpty()) {
+            Toast.makeText(this, "Desktop model list isn't available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = names.map { if (it == current) "$it  (current)" else it }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Switch Gremlin's model")
+            .setItems(labels) { _, which ->
+                val name = names[which]
+                if (name == current) return@setItems
+                AlertDialog.Builder(this)
+                    .setTitle("Switch to $name?")
+                    .setMessage("This changes the model Gremlin runs on.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Switch") { _, _ ->
+                        Thread {
+                            val answer = gremlinClient.command("/model", "use $name", currentThread)
+                            runOnUiThread { appendSystemTurn(answer, false) }
+                        }.start()
+                    }
+                    .show()
+            }
+            .show()
     }
 
     private fun openSettings() {
@@ -328,9 +467,9 @@ class MainActivity : AppCompatActivity() {
         val hasGeminiKey = !prefs.getString("gemini_key", null).isNullOrBlank()
 
         connectionLabel.text = when {
-            host != null && port != 0 -> "Paired with $host:$port (falls back to Claude/Gemini away from home)"
+            host != null && port != 0 -> "Connecting to $host..."
             hasAnthropicKey || hasGeminiKey -> "Standalone mode -- not paired with a desktop"
-            else -> "Not set up yet -- tap the hologram for Settings, or pair with a desktop below"
+            else -> "Not paired yet -- open Settings to set up"
         }
     }
 
@@ -404,53 +543,28 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** For plain/system lines (e.g. "(paired with ...)") -- unstyled,
-     * same as always. Chat turns use appendUserTurn/appendAssistantTurn
-     * below instead, which build a styled fragment and pass it through
-     * this same append+persist path. */
-    private fun appendToLog(line: String) {
-        appendStyled(line)
-    }
-
-    private fun appendStyled(fragment: CharSequence) {
-        if (chatLog.text.isNotEmpty()) chatLog.append("\n\n")
-        chatLog.append(fragment)
+    private fun saveHistory() {
         try {
-            historyFile.writeText(chatLog.text.toString())
+            historyFile.writeText(chat.plainText())
         } catch (e: Exception) {
             // Non-fatal -- chat still works in-memory for this session
             // even if persistence fails for some reason (e.g. full disk).
         }
     }
 
-    // Claude-Code-style turn blocks: a `›` prompt glyph in the accent
-    // color for what you typed, plain text for gremlin's reply, and any
-    // source/consult status as a small dim sub-line rather than an
-    // inline suffix -- same visual language as the desktop chat panel
-    // (gui/assets/main.html), reusing the same Theme.Gremlin colors so
-    // both platforms actually look identical, not just similar.
+    private fun appendToLog(line: String) {
+        chat.add(Turn(Kind.SYSTEM, line))
+        saveHistory()
+    }
+
     private fun appendUserTurn(message: String) {
-        val accent = ContextCompat.getColor(this, R.color.gremlin_accent)
-        val builder = SpannableStringBuilder()
-        val promptStart = builder.length
-        builder.append("› ")
-        builder.setSpan(ForegroundColorSpan(accent), promptStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        builder.append(message)
-        appendStyled(builder)
+        chat.add(Turn(Kind.USER, message))
+        saveHistory()
     }
 
     private fun appendAssistantTurn(answer: String, subStatus: String?) {
-        val secondary = ContextCompat.getColor(this, R.color.gremlin_text_secondary)
-        val builder = SpannableStringBuilder()
-        builder.append(answer)
-        if (!subStatus.isNullOrEmpty()) {
-            builder.append("\n")
-            val subStart = builder.length
-            builder.append(subStatus)
-            builder.setSpan(ForegroundColorSpan(secondary), subStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            builder.setSpan(RelativeSizeSpan(0.85f), subStart, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        }
-        appendStyled(builder)
+        chat.add(Turn(Kind.GREMLIN, answer, subStatus))
+        saveHistory()
     }
 
     private fun sendMessage() {
@@ -475,10 +589,12 @@ class MainActivity : AppCompatActivity() {
         hologramView.evaluateJavascript("setTalking(true)", null)
         thinkingStatus.text = getString(R.string.thinking)
         thinkingStatus.visibility = View.VISIBLE
+        setBusy(true)
 
         fun subStatusFor(source: String): String? = when (source) {
             "claude" -> "(standalone, via Claude)"
             "gemini" -> "(standalone, via Gemini)"
+            "stopped" -> "(stopped)"
             else -> null
         }
 
@@ -513,11 +629,14 @@ class MainActivity : AppCompatActivity() {
                         val sub = subStatusFor(result.source)
                         if (started.get()) {
                             finishAssistantStreamTurn(result.answer, sub)
+                        } else if (result.source == "stopped") {
+                            appendSystemTurn("Stopped.", false)
                         } else {
                             // no deltas arrived (fallback path / action / clear)
                             appendAssistantTurn(result.answer, sub)
                         }
-                        voiceOutput.speak(result.answer)
+                        setBusy(false)
+                        if (result.source != "stopped") voiceOutput.speak(result.answer)
                         hologramView.evaluateJavascript("setTalking(false)", null)
                         thinkingStatus.visibility = View.GONE
                         updateTokenUsageLabel(result.tokenUsage)
@@ -527,46 +646,15 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    // --- streaming assistant turn: append tokens straight onto the log
-    //     as they arrive, persist + add the sub-status line once at the
-    //     end (a disk write per token would be silly). ---
-    private var streamTurnMark = 0
+    private fun beginAssistantStreamTurn() = chat.beginStream()
 
-    private fun beginAssistantStreamTurn() {
-        if (chatLog.text.isNotEmpty()) chatLog.append("\n\n")
-        streamTurnMark = chatLog.text.length
-    }
+    private fun appendAssistantDelta(delta: String) = chat.appendStream(delta)
 
-    private fun appendAssistantDelta(delta: String) {
-        chatLog.append(delta)
-        val layout = chatLog.layout ?: return
-        val bottom = layout.getLineBottom(chatLog.lineCount - 1)
-        val visible = chatLog.height - chatLog.paddingTop - chatLog.paddingBottom
-        if (bottom > visible) chatLog.scrollTo(0, bottom - visible)
-    }
-
+    /** The done frame's answer wins: it can differ from the streamed text
+     *  (reasoning stripped, or a fallback that replaced everything). */
     private fun finishAssistantStreamTurn(finalAnswer: String, subStatus: String?) {
-        // reconcile with the authoritative final answer from the done
-        // frame (it may differ from the concatenated deltas -- reasoning
-        // strip, a fallback that replaced everything)
-        val streamed = chatLog.text.subSequence(streamTurnMark, chatLog.text.length).toString()
-        if (streamed != finalAnswer) {
-            val kept = chatLog.text.subSequence(0, streamTurnMark)
-            chatLog.text = SpannableStringBuilder(kept).append(finalAnswer)
-        }
-        if (!subStatus.isNullOrEmpty()) {
-            val secondary = ContextCompat.getColor(this, R.color.gremlin_text_secondary)
-            val b = SpannableStringBuilder(chatLog.text).append("\n")
-            val s = b.length
-            b.append(subStatus)
-            b.setSpan(ForegroundColorSpan(secondary), s, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            b.setSpan(RelativeSizeSpan(0.85f), s, b.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            chatLog.text = b
-        }
-        try {
-            historyFile.writeText(chatLog.text.toString())
-        } catch (e: Exception) {
-        }
+        chat.finishStream(finalAnswer, subStatus)
+        saveHistory()
     }
 
     /** `/claude` is the ONE remaining typed command, on purpose.
@@ -686,10 +774,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun appendSystemTurn(text: String, isError: Boolean) {
-        val color = ContextCompat.getColor(this, if (isError) R.color.gremlin_error else R.color.gremlin_system)
-        val builder = SpannableStringBuilder()
-        builder.append(text)
-        builder.setSpan(ForegroundColorSpan(color), 0, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        appendStyled(builder)
+        chat.add(Turn(Kind.SYSTEM, if (isError) "! $text" else text))
+        saveHistory()
     }
 }

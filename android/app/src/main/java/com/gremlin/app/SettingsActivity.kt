@@ -62,6 +62,8 @@ class SettingsActivity : AppCompatActivity() {
         setUpManualPairing(prefs, host, port, token)
 
         findViewById<Button>(R.id.show_commands_button).setOnClickListener { showCommandsReference() }
+        findViewById<Button>(R.id.show_memory_button).setOnClickListener { showDesktopInfo("What Gremlin remembers", "/memory", "list") }
+        findViewById<Button>(R.id.show_skills_button).setOnClickListener { showDesktopInfo("Gremlin's skills", "/skill", "list") }
         findViewById<Button>(R.id.open_builds_button).setOnClickListener {
             startActivity(android.content.Intent(this, BuildsActivity::class.java))
         }
@@ -451,6 +453,24 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }.start()
         }
+    }
+
+    /** Read-only view of a desktop command's output. */
+    private fun showDesktopInfo(title: String, command: String, args: String) {
+        val text = TextView(this)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        text.setPadding(pad, pad, pad, pad)
+        text.setTextIsSelectable(true)
+        text.text = "Loading..."
+        val scroll = android.widget.ScrollView(this)
+        scroll.addView(text)
+        AlertDialog.Builder(this).setTitle(title).setView(scroll).setPositiveButton("Close", null).show()
+        val prefs = getSharedPreferences("gremlin_prefs", MODE_PRIVATE)
+        val client = GremlinClient(prefs, applicationContext)
+        Thread {
+            val answer = client.command(command, args)
+            runOnUiThread { text.text = answer }
+        }.start()
     }
 
     private fun startQrScan() {

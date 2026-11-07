@@ -158,6 +158,33 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
      * onDone with no deltas. So the caller can always rely on exactly one
      * onDone; onDelta is best-effort progress.
      */
+    @Volatile private var activeStream: HttpURLConnection? = null
+    @Volatile private var streamCancelled = false
+
+    /** Ends the reply in progress. Closing the connection stops the
+     *  generation on the desktop; the partial answer comes back through
+     *  chatStream's onDone with source "stopped". */
+    fun cancelStream() {
+        streamCancelled = true
+        try { activeStream?.disconnect() } catch (_: Exception) {}
+    }
+
+    /** Stops running desktop jobs through /admin/abort. */
+    fun abortJobs(): AdminResult {
+        val (host, port, adminToken) = adminCreds() ?: return AdminResult(false, adminCredsError())
+        return try {
+            val c = URL("http://$host:$port/admin/abort").openConnection() as HttpURLConnection
+            c.requestMethod = "POST"
+            c.setRequestProperty("X-Admin-Token", adminToken)
+            c.connectTimeout = 5_000
+            c.readTimeout = 15_000
+            val code = c.responseCode
+            AdminResult(code in 200..299, if (code in 200..299) "Stopped running jobs." else "Abort failed: HTTP $code")
+        } catch (e: Exception) {
+            AdminResult(false, "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
     fun chatStream(message: String, onDelta: (String) -> Unit, onDone: (ChatResult) -> Unit) {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
@@ -173,6 +200,8 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
 
         var connection: HttpURLConnection? = null
+        var answer = StringBuilder()
+        streamCancelled = false
         try {
             val url = URL("http://$host:$port/chat/stream")
             connection = (url.openConnection() as HttpURLConnection).apply {
@@ -191,8 +220,8 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
                 connection.disconnect(); connection = null
                 onDone(chat(message)); return
             }
+            activeStream = connection
 
-            var answer = StringBuilder()
             var source = "desktop"
             var tokenUsage: TokenUsage? = null
             connection.inputStream.bufferedReader().useLines { lines ->
@@ -216,12 +245,20 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
                     }
                 }
             }
+            activeStream = null
             connection.disconnect(); connection = null
+            if (streamCancelled) source = "stopped"
             refreshCachedPersonaVoice(host, port, token) // keep away-mode voice current, same as chat()
             onDone(ChatResult(answer.toString(), source, tokenUsage))
         } catch (e: Exception) {
+            activeStream = null
             try { connection?.disconnect() } catch (_: Exception) {}
-            onDone(chat(message)) // any streaming trouble -> the reliable path
+            if (streamCancelled) {
+                // Stopping isn't a network failure: falling back would ask again.
+                onDone(ChatResult(answer.toString(), "stopped"))
+            } else {
+                onDone(chat(message)) // any streaming trouble -> the reliable path
+            }
         }
     }
 
@@ -260,7 +297,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         return if (anthropicKey.isNullOrBlank() && geminiKey.isNullOrBlank()) {
             ChatResult(
                 "Can't reach the desktop and no API keys are set up. " +
-                "Connect to your home Wi-Fi, or add a Claude/Gemini API key in Settings.",
+                "Check that Tailscale is on, or add a Claude/Gemini API key in Settings.",
                 "none-configured",
             )
         } else {

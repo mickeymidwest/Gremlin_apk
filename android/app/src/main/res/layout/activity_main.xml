@@ -5,45 +5,79 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:fitsSystemWindows="true"
-    android:padding="12dp">
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp">
 
-    <!-- fixed, not weighted: when the keyboard opens the chat + input keep
-         their room instead of the hologram eating the space -->
-    <WebView
-        android:id="@+id/hologram_view"
+    <!-- The frame height animates; the WebView keeps its size and scales,
+         because hologram.html draws at a fixed size and would crop. -->
+    <FrameLayout
+        android:id="@+id/hologram_frame"
         android:layout_width="match_parent"
-        android:layout_height="200dp" />
+        android:layout_height="170dp"
+        android:clipChildren="true">
 
-    <TextView
-        android:id="@+id/connection_label"
+        <WebView
+            android:id="@+id/hologram_view"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:layout_gravity="center" />
+    </FrameLayout>
+
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="11sp"
-        android:alpha="0.7"
-        android:paddingTop="4dp" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="4dp">
+
+        <View
+            android:id="@+id/status_dot"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_dot" />
+
+        <TextView
+            android:id="@+id/connection_label"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/gremlin_text_secondary"
+            android:textSize="12sp" />
+
+        <ImageButton
+            android:id="@+id/more_button"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="More"
+            android:src="@drawable/ic_more" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/token_usage_label"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:textColor="@color/gremlin_text_secondary"
         android:textSize="11sp"
-        android:alpha="0.7"
-        android:paddingBottom="6dp"
         android:visibility="gone" />
 
     <ScrollView
         android:id="@+id/chat_scroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_weight="1"
+        android:fadeScrollbars="true"
+        android:scrollbars="none">
 
-        <TextView
-            android:id="@+id/chat_log"
+        <LinearLayout
+            android:id="@+id/chat_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textSize="14sp"
-            android:lineSpacingExtra="3dp"
+            android:orientation="vertical"
+            android:paddingTop="4dp"
             android:paddingBottom="8dp" />
     </ScrollView>
 
@@ -51,80 +85,114 @@
         android:id="@+id/thinking_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:textSize="12sp"
-        android:alpha="0.7"
+        android:paddingStart="4dp"
+        android:paddingBottom="4dp"
         android:text="@string/thinking"
+        android:textColor="@color/gremlin_text_secondary"
+        android:textSize="12sp"
         android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:paddingTop="8dp">
+        android:gravity="bottom"
+        android:orientation="horizontal">
 
         <EditText
             android:id="@+id/message_input"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:fontFamily="monospace"
-            android:textSize="14sp"
+            android:background="@drawable/bg_input"
             android:hint="Ask Gremlin..."
             android:inputType="textCapSentences|textMultiLine"
-            android:maxLines="4" />
+            android:maxLines="5"
+            android:minHeight="46dp"
+            android:paddingStart="16dp"
+            android:paddingTop="10dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="10dp"
+            android:textSize="15sp" />
 
-        <Button
+        <ImageButton
             android:id="@+id/send_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Send" />
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/bg_send"
+            android:contentDescription="Send"
+            android:src="@drawable/ic_send" />
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:paddingTop="2dp">
 
-        <Button
+        <TextView
             android:id="@+id/chats_button"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:drawableTop="@drawable/ic_chats"
+            android:drawablePadding="2dp"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:text="Chats"
-            style="?attr/borderlessButtonStyle"
-            android:textSize="11sp" />
-
-        <Button
-            android:id="@+id/scan_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pair"
-            style="?attr/borderlessButtonStyle"
-            android:textSize="11sp" />
-
-        <Button
+            android:textColor="@color/gremlin_text_secondary"
+            android:textSize="11sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+        <TextView
             android:id="@+id/attach_button"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:drawableTop="@drawable/ic_attach"
+            android:drawablePadding="2dp"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:text="Attach"
-            style="?attr/borderlessButtonStyle"
-            android:textSize="11sp" />
-
-        <Button
-            android:id="@+id/export_button"
-            android:layout_width="wrap_content"
+            android:textColor="@color/gremlin_text_secondary"
+            android:textSize="11sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+        <TextView
+            android:id="@+id/builds_button"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Export Chat"
-            style="?attr/borderlessButtonStyle"
-            android:textSize="11sp" />
-
-        <Button
+            android:layout_weight="1"
+            android:drawableTop="@drawable/ic_builds"
+            android:drawablePadding="2dp"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="Builds"
+            android:textColor="@color/gremlin_text_secondary"
+            android:textSize="11sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+        <TextView
             android:id="@+id/settings_button"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:drawableTop="@drawable/ic_settings"
+            android:drawablePadding="2dp"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
             android:text="Settings"
-            style="?attr/borderlessButtonStyle"
-            android:textSize="11sp" />
+            android:textColor="@color/gremlin_text_secondary"
+            android:textSize="11sp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
     </LinearLayout>
-
 </LinearLayout>

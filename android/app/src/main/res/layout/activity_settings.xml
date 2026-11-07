@@ -32,18 +32,31 @@
             android:text="Gremlin commands" />
 
         <Button
+            android:id="@+id/show_memory_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="What Gremlin remembers" />
+
+        <Button
+            android:id="@+id/show_skills_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Gremlin's skills" />
+
+        <Button
             android:id="@+id/open_builds_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Desktop Builds — download to phone"
+            android:text="Desktop builds"
             android:layout_marginBottom="20dp" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="At home"
+            android:textColor="@color/gremlin_accent"
             android:textStyle="bold"
-            android:textSize="13sp"
+            android:textSize="16sp"
             android:layout_marginBottom="6dp" />
 
         <TextView
@@ -73,7 +86,7 @@
             android:id="@+id/settings_repair_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Pair / re-pair with a desktop"
+            android:text="Pair with QR code"
             android:layout_marginBottom="12dp" />
 
         <TextView
@@ -131,8 +144,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Away from home"
+            android:textColor="@color/gremlin_accent"
             android:textStyle="bold"
-            android:textSize="13sp"
+            android:textSize="16sp"
             android:layout_marginBottom="4dp" />
 
         <TextView
@@ -231,8 +245,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Voice"
+            android:textColor="@color/gremlin_accent"
             android:textStyle="bold"
-            android:textSize="13sp"
+            android:textSize="16sp"
             android:layout_marginBottom="4dp" />
 
         <TextView
@@ -293,8 +308,9 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Admin"
+            android:textColor="@color/gremlin_accent"
             android:textStyle="bold"
-            android:textSize="13sp"
+            android:textSize="16sp"
             android:layout_marginBottom="4dp" />
 
         <TextView
@@ -347,6 +363,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Overlay mode"
+            android:textColor="@color/gremlin_accent"
             android:textStyle="bold"
             android:layout_marginBottom="4dp" />
 
