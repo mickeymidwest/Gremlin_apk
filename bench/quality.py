@@ -494,8 +494,7 @@ def run_chat_part(llm, system, prompts, seeds, control=()):
                 elif os.path.exists(dst):
                     os.remove(dst)
 
-        work = [(t, p, False) for t, p in prompts] + [(t, p, True) for t, p in control]
-        for task, prompt, is_control in work:
+        for task, prompt in list(prompts) + list(control):
             for seed in seeds:
                 fresh()
                 backend = _BenchBackend(llm, system, seed)

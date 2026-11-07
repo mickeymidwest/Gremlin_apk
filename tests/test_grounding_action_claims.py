@@ -107,6 +107,7 @@ def test_catches_made_up_results(text):
     "An 8B at Q4 is about 5 GB, so you have about 2.4 GB left on the card.",
     "That leaves 3 GB available for the KV cache.",
     "Kernel 6.6 added better support for that chipset.",
+    "On an 8GB card, a 1.5x bigger context leaves 2 GB free.",
 ])
 def test_ordinary_talk_is_not_flagged_more(text):
     assert grounding.check(text, "/tmp/doesnt-matter", context="facts") == [], text

@@ -96,9 +96,17 @@ _GENERAL_VERSION_RE = re.compile(
 
 
 def _sentence_around(text: str, start: int, end: int) -> tuple[str, str]:
-    """(the sentence up to the match, the whole sentence)."""
-    b = max(text.rfind(c, 0, start) for c in ".!?\n") + 1
-    e = min([i for i in (text.find(c, end) for c in ".!?\n") if i != -1] or [len(text)])
+    """(the sentence up to the match, the whole sentence). A dot between
+    digits (2.4 GB) doesn't end a sentence."""
+    def is_stop(i: int) -> bool:
+        return text[i] in "!?\n" or (text[i] == "." and not (
+            0 < i < len(text) - 1 and text[i - 1].isdigit() and text[i + 1].isdigit()))
+    b = start
+    while b > 0 and not is_stop(b - 1):
+        b -= 1
+    e = end
+    while e < len(text) and not is_stop(e):
+        e += 1
     return text[b:start], text[b:e]
 
 
