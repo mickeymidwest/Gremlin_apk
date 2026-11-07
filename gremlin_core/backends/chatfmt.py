@@ -43,8 +43,11 @@ def register() -> None:
         from llama_cpp import llama_chat_format as lcf
     except ImportError:
         return
-    if "chatml-nothink" in getattr(lcf, "_CHAT_FORMATS", {}):
-        return
+    try:
+        lcf.get_chat_completion_handler("chatml-nothink")
+        return  # already registered
+    except Exception:
+        pass
 
     @lcf.register_chat_format("chatml-nothink")
     def _fmt(messages, **kwargs):

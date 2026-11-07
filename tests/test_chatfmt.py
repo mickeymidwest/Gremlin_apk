@@ -26,4 +26,5 @@ def test_no_think_marker_is_removed_and_only_last_user_turn_counts():
 def test_registered_with_llama_cpp():
     import pytest
     lcf = pytest.importorskip("llama_cpp.llama_chat_format")
-    assert "chatml-nothink" in lcf._CHAT_FORMATS
+    assert lcf.get_chat_completion_handler("chatml-nothink") is not None
+    chatfmt.register()  # a second import/register is harmless
