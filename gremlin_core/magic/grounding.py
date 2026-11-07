@@ -116,6 +116,26 @@ def _sentence_around(text: str, start: int, end: int) -> tuple[str, str]:
     return text[b:start], text[b:e]
 
 
+# set by look.context_block: a real read-only check ran this turn
+LIVE_MARK = "LIVE CHECK --"
+# claiming to have LOOKED is true when a check ran; claiming to have
+# restarted/installed/fixed something still isn't
+_LOOK_VERBS_RE = re.compile(r"\b(?:checked|verified|confirmed|looked|examined|inspected|ran|run|executed)\b", re.I)
+
+
+def backed_by(claim: str, context: str) -> bool:
+    """The claim appears in the context, or every number in it does
+    (df says "234G", the reply says "234 GB")."""
+    ctx = (context or "").lower()
+    c = (claim or "").strip().lower()
+    if not ctx or not c:
+        return False
+    if c in ctx:
+        return True
+    nums = re.findall(r"\d+(?:\.\d+)?", c)
+    return bool(nums) and all(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d])", ctx) for n in nums)
+
+
 def result_claims(text: str, context: str = "") -> list[str]:
     """Results only a tool could know, stated outright in plain chat.
     Skips conditionals, VRAM/RAM sizes, and anything Mickey said himself."""
@@ -132,7 +152,7 @@ def result_claims(text: str, context: str = "") -> list[str]:
             if what == "a disk space number" and (
                     _NOT_DISK_RE.search(sentence) or not _DISK_RE.search(sentence)):
                 continue
-            if m.group(0).strip().lower() in ctx:
+            if backed_by(m.group(0), ctx):
                 continue
             return [f"states {what} (\"{m.group(0).strip()}\"), but this is plain chat -- "
                     "no tool ran this turn, so that can't have been checked"]
@@ -223,6 +243,8 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
         out.append("refers to earlier work, but there is no prior context in this exchange")
 
     claim = _ACTION_CLAIM_RE.search(text)
+    if claim and LIVE_MARK in ctx and _LOOK_VERBS_RE.search(claim.group(0)):
+        claim = None
     if claim:
         out.append(
             f"claims to have {claim.group(0).split(None, 1)[-1]} "

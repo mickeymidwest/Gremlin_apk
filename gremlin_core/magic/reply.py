@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from .. import look
 from .. import notes
 from .. import profile
 from ..learning_log import append_learning_log
@@ -185,7 +186,20 @@ def _repeat_nudge_and_clean(message: str, history: str) -> tuple[str, str]:
     return cleaned, nudge
 
 
-def _build_prompt(message: str, root: str, history: str):
+async def _look_first(message: str, root: str) -> tuple[list[str], str]:
+    """(probe keys, evidence) for a question about this machine's live
+    state, else ([], ''). U2: check before answering. Never raises."""
+    import asyncio
+    try:
+        keys = look.wants(message, root)
+        if not keys:
+            return [], ""
+        return keys, await asyncio.to_thread(look.gather, keys)
+    except Exception:
+        return [], ""
+
+
+def _build_prompt(message: str, root: str, history: str, evidence: str = ""):
     """(prompt, history_msgs) for the backend: the user's line as the
     prompt, everything else (durable memory, matching skills, away-mode
     turns, this thread's history) as prior turns so the model answers in
@@ -213,7 +227,12 @@ def _build_prompt(message: str, root: str, history: str):
     if nudge:
         hist.append({"role": "user", "content": nudge})
         hist.append({"role": "assistant", "content": "Understood -- answering it fully this time."})
-    return message, hist, "\n\n".join(p for p in (context, history) if p)
+    if evidence:
+        # last, right before the question, so the pilot can't miss it
+        hist.append({"role": "user", "content": look.context_block(evidence)})
+        hist.append({"role": "assistant", "content": "Got it -- I'll answer from that output only."})
+    return message, hist, "\n\n".join(p for p in (context, history,
+                                                    look.context_block(evidence) if evidence else "") if p)
 
 
 async def _gen(backend, prompt: str, hist: list):
@@ -299,7 +318,8 @@ async def answer_stream(primary, message: str, root: str,
         yield "done", _reply(msg, action="remember")
         return
 
-    prompt, hist, ctx = _build_prompt(message, root, history)
+    looked, evidence = await _look_first(message, root)
+    prompt, hist, ctx = _build_prompt(message, root, history, evidence)
 
     acc = ""
     stream_broke = False
@@ -327,8 +347,15 @@ async def answer_stream(primary, message: str, root: str,
                 note = grounding.caveat(bad)
                 text += note
                 yield "delta", note
+        if looked:
+            note = look.footer(looked)
+            text += note
+            yield "delta", note
         await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin", history=history)
-        yield "done", _reply(text, source="gremlin", ok=not stream_broke, usage=_stream_usage(primary))
+        done = _reply(text, source="gremlin", ok=not stream_broke, usage=_stream_usage(primary))
+        if looked:
+            done["looked"], done["evidence"] = looked, evidence
+        yield "done", done
         return
 
     if fallback is not None:
@@ -355,7 +382,8 @@ async def answer(primary, message: str, root: str,
         notes.remember_fact(root, f"[user] {fact}")
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
-    prompt, hist, ctx = _build_prompt(message, root, history)
+    looked, evidence = await _look_first(message, root)
+    prompt, hist, ctx = _build_prompt(message, root, history, evidence)
 
     r = await _gen(primary, prompt, hist)
     used, used_fallback = getattr(r, "model", "gremlin"), False
@@ -393,5 +421,10 @@ async def answer(primary, message: str, root: str,
             else:
                 text = text + grounding.caveat(bad)
 
+    if looked:
+        text += look.footer(looked)
     await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used, history=history)
-    return _reply(text, source=used, from_memory=False, usage=usage or None)
+    out = _reply(text, source=used, from_memory=False, usage=usage or None)
+    if looked:
+        out["looked"], out["evidence"] = looked, evidence
+    return out

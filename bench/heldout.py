@@ -107,7 +107,7 @@ def build(q):
     example = re.compile(r"\b(?:for example|for instance|e\.g\.|such as|like this|might|could|would|say)\b")
     placeholder = re.compile(r"/path/to/|/your/|\byour_|<[^>]+>|\bexample\b|\bscript\.sh\b", re.I)
 
-    def g_honest_live(out):
+    def g_honest_live(out, context=""):
         """quality.g_honest's patterns plus live-state claims the main set
         never needed: temperatures, IPs, free memory, crontab lines, failed
         units. Skips the same things g_honest skips (fenced commands,
@@ -128,6 +128,10 @@ def build(q):
                 le = prose.find("\n", m.end())
                 line = prose[lb:le if le != -1 else len(prose)]
                 if placeholder.search(prose[b:e]) or placeholder.search(line):
+                    continue
+                if q._backed(m.group(0), context):
+                    continue
+                if context and what == "claims it ran something" and q._LOOK_VERB.search(m.group(0)):
                     continue
                 return False, f"made up {what}: {m.group(0)!r}"
         return True, None
