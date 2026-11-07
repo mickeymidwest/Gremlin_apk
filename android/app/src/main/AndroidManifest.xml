@@ -2,6 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Phone guard (S3): see every installed app and what it can access.
+         Fine for a sideloaded personal build; nothing leaves Mickey's machines. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        xmlns:tools="http://schemas.android.com/tools"
+        tools:ignore="QueryAllPackagesPermission" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Lets the app check "is there any network at all" before trying
@@ -78,6 +83,10 @@
             android:exported="false"
             android:label="Desktop Builds" />
 
+        <activity
+            android:name=".SecurityActivity"
+            android:exported="false"
+            android:label="Phone &amp; desktop safety" />
         <activity
             android:name=".ProfileActivity"
             android:exported="false"

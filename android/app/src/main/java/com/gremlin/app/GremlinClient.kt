@@ -579,6 +579,38 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
     }
 
+    data class GuardResult(val report: String? = null, val error: String? = null)
+
+    /** S2/S3: POST /guard/phone with a snapshot, GET /guard/desktop, or
+     *  POST /guard/<which>/accept. All answer {"report": ...} or {"message": ...}. */
+    private fun guardCall(path: String, method: String, body: JSONObject? = null): GuardResult {
+        val host = prefs.getString("host", null) ?: return GuardResult(error = "Not paired with the desktop yet.")
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return GuardResult(error = "Not paired with the desktop yet.")
+        return try {
+            val c = (URL("http://$host:$port$path").openConnection() as HttpURLConnection)
+            c.requestMethod = method
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.connectTimeout = 5_000; c.readTimeout = 60_000
+            if (body != null) {
+                c.doOutput = true
+                c.setRequestProperty("Content-Type", "application/json")
+                c.outputStream.use { it.write(body.toString().toByteArray()) }
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val j = try { JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}") } catch (e: Exception) { JSONObject() }
+            if (code !in 200..299) return GuardResult(error = j.optString("error").ifEmpty { "Desktop answered HTTP $code." })
+            GuardResult(report = j.optString("report").ifEmpty { j.optString("message") })
+        } catch (e: Exception) {
+            GuardResult(error = "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
+    fun postPhoneGuard(snapshot: JSONObject) = guardCall("/guard/phone", "POST", snapshot)
+    fun getDesktopGuard() = guardCall("/guard/desktop", "GET")
+    fun acceptGuard(which: String) = guardCall("/guard/$which/accept", "POST", JSONObject())
+
     data class ConversationInfo(val id: String, val title: String, val updated: Double)
 
     /** GET /conversations -- the recent-conversations list. */

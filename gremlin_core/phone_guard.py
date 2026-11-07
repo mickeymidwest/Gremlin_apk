@@ -14,7 +14,10 @@ Snapshot shape (sent by PhoneGuard.kt):
    "notification_listeners": ["pkg", ...],
    "packages": [{"pkg": "...", "label": "...", "installer": "com.android.vending",
                  "system": false, "first_install": ms, "last_update": ms,
-                 "perms": ["READ_SMS", ...]}]}
+                 "perms": ["READ_SMS", ...],      # runtime permissions it HAS
+                 "special": ["SYSTEM_ALERT_WINDOW", ...]}]}  # special access it ASKS for
+  (an ordinary app can't see whether another app was granted special
+  access like overlays or install-unknown-apps, only that it asks)
 """
 from __future__ import annotations
 
@@ -92,15 +95,19 @@ def diff(base: dict, now: dict) -> list[Finding]:
         p = new[pkg]
         if p.get("system"):
             continue
-        risky = sorted(set(p.get("perms") or []) & RISKY_PERMS)
+        has = sorted(set(p.get("perms") or []) & RISKY_PERMS)
+        asks = sorted(set(p.get("special") or []) & RISKY_PERMS - set(has))
+        risky = has or asks
         installer = p.get("installer") or "unknown"
         sideloaded = installer not in _STORES
         level = HIGH if (risky and sideloaded) else MEDIUM if (risky or sideloaded) else INFO
         why = []
         if sideloaded:
             why.append(f"not from a store (installer: {installer})")
-        if risky:
-            why.append("granted " + ", ".join(risky))
+        if has:
+            why.append("has " + ", ".join(has))
+        if asks:
+            why.append("asks for " + ", ".join(asks))
         out.append(Finding(level, f"New app: {_label(now, pkg)}", "; ".join(why)))
     for pkg in sorted(set(new) & set(old)):
         gained = sorted((set(new[pkg].get("perms") or []) - set(old[pkg].get("perms") or [])) & RISKY_PERMS)

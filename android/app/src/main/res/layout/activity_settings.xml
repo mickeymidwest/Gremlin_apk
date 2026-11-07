@@ -44,6 +44,12 @@
             android:text="How I like things" />
 
         <Button
+            android:id="@+id/open_security_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Phone &amp; desktop safety" />
+
+        <Button
             android:id="@+id/show_skills_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

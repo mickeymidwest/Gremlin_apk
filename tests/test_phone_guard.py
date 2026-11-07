@@ -44,7 +44,12 @@ def test_new_accessibility_and_sideloaded_sms_app_are_high():
     found = {f.what: (f.level, f.why) for f in pg.diff(BASE, now)}
     assert found["New accessibility service: Flashlight (com.evil.flashlight)"][0] == "high"
     lvl, why = found["New app: Flashlight (com.evil.flashlight)"]
-    assert lvl == "high" and "not from a store" in why and "READ_SMS" in why
+    assert lvl == "high" and "not from a store" in why and "has BIND_ACCESSIBILITY_SERVICE, READ_SMS" in why
+    now2 = _new()
+    now2["packages"].append({"pkg": "com.x", "label": "X", "installer": "com.android.vending", "system": False,
+                             "perms": [], "special": ["SYSTEM_ALERT_WINDOW"]})
+    lvl, why = {f.what: (f.level, f.why) for f in pg.diff(BASE, now2)}["New app: X (com.x)"]
+    assert lvl == "medium" and why == "asks for SYSTEM_ALERT_WINDOW"
 
 
 def test_store_app_without_risky_perms_is_info_and_removals_noted():
