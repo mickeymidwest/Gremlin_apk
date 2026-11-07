@@ -26,6 +26,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from . import build_project
 from . import root_exec, script_edit, self_improve, snapshots
+from . import receipt as receipt_mod
 from . import service_control
 from . import update_check as update_check_mod
 from .registry import ModelRegistry
@@ -168,9 +169,12 @@ async def _tool_apply_updates(args: dict[str, Any], ctx: ExecContext) -> dict[st
     # [Y/n]" prompt has no way to be answered through a non-interactive
     # pipe (same reasoning as the rest of this project's admin commands).
     result = await root_exec.run_as_root("pacman -Syu --noconfirm", ctx.project_root, timeout=1800)
+    receipt = receipt_mod.for_updates(result.exit_code, result.timed_out, result.stdout, result.stderr)
     if result.ok:
-        return {"answer": f"Updated.\n\n{_fmt_exec(result)}", "action": "apply_updates", "ok": True}
-    return {"answer": f"Update failed: {_fmt_exec(result)}", "action": "apply_updates", "ok": False}
+        return receipt_mod.attach(
+            {"answer": f"Updated.\n\n{_fmt_exec(result)}", "action": "apply_updates", "ok": True}, receipt)
+    return receipt_mod.attach(
+        {"answer": f"Update failed: {_fmt_exec(result)}", "action": "apply_updates", "ok": False}, receipt)
 
 
 async def _tool_snapshots(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
@@ -190,7 +194,8 @@ async def _tool_rollback(args: dict[str, Any], ctx: ExecContext) -> dict[str, An
     if not number:
         return {"answer": "Which snapshot number should I roll back to?", "action": "rollback", "ok": False}
     ok, message = await snapshots.rollback_to(number, ctx.project_root)
-    return {"answer": message, "action": "rollback", "ok": ok}
+    return receipt_mod.attach({"answer": message, "action": "rollback", "ok": ok},
+                              receipt_mod.for_rollback(number, ok, message))
 
 
 async def _tool_reboot(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
@@ -198,20 +203,21 @@ async def _tool_reboot(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]
     # uses, and it's covered by the NOPASSWD sudoers rule install-all.sh
     # sets up -- so this works even with no cached sudo password.
     result = await root_exec.run_as_root("systemctl reboot", ctx.project_root)
+    receipt = receipt_mod.for_reboot(result.exit_code)
     if result.ok:
-        return {
+        return receipt_mod.attach({
             "answer": "Rebooting now -- it should come back up and reconnect on its own.",
             "action": "reboot",
             "ok": True,
-        }
+        }, receipt)
     # A dropped connection mid-reboot is the expected good outcome, not
     # a failure worth alarming over (same reasoning as the /admin/reboot
     # route and SettingsActivity.triggerReboot).
-    return {
+    return receipt_mod.attach({
         "answer": "Reboot request sent -- if it went through, the desktop is on its way down.",
         "action": "reboot",
         "ok": True,
-    }
+    }, receipt)
 
 
 async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
@@ -245,7 +251,10 @@ async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str,
     else:
         sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=120)
         result = await sandbox.run_safe_command(command)
-    return {"answer": _fmt_exec(result), "action": "run_command", "ok": result.ok}
+    return receipt_mod.attach(
+        {"answer": _fmt_exec(result), "action": "run_command", "ok": result.ok},
+        receipt_mod.for_command(command, result.exit_code, result.timed_out, result.stderr,
+                                as_root=bool(args.get("as_root"))))
 
 
 def _service_not_allowed(ctx: ExecContext, name: str, action: str) -> dict[str, Any]:
@@ -279,7 +288,39 @@ async def _tool_service_restart(args: dict[str, Any], ctx: ExecContext) -> dict[
         return _service_not_allowed(ctx, name, "service_restart")
     kind, canonical = resolved
     result = await service_control.restart(kind, canonical)
-    return {"answer": _fmt_exec(result), "action": "service_restart", "ok": result.ok}
+    # Post-condition (proposal O5): don't take the restart's exit code as
+    # proof -- look at the service a few seconds later, so a container
+    # that crash-loops right after a "successful" restart is caught.
+    status_ok, status_out = None, ""
+    if result.ok:
+        import asyncio
+        await asyncio.sleep(SERVICE_SETTLE_SECONDS)
+        try:
+            status = await service_control.get_status(kind, canonical)
+            status_ok, status_out = status.exit_code in (0, 3), status.stdout
+        except Exception:
+            status_ok = False
+    command = (f"docker restart {canonical}" if kind == "docker"
+               else f"systemctl --user restart {canonical}")
+    receipt = receipt_mod.for_service_restart(canonical, kind, command, result.exit_code,
+                                              result.timed_out, result.stderr, status_ok, status_out)
+    ok = result.ok and receipt.status != receipt_mod.FAILED
+    return receipt_mod.attach({"answer": _fmt_exec(result), "action": "service_restart", "ok": ok},
+                              receipt)
+
+
+# how long to let a restarted service settle before checking it
+SERVICE_SETTLE_SECONDS = 4.0
+
+
+def _approvers(result: dict[str, Any]) -> list[str]:
+    """Reviewers that approved, in order, without repeats."""
+    seen: list[str] = []
+    for round_ in result.get("review_history") or []:
+        name = round_.get("reviewer")
+        if round_.get("approved") and name and name not in seen:
+            seen.append(name)
+    return seen
 
 
 def _last_review_feedback(result: dict[str, Any]) -> str:
@@ -327,18 +368,27 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
         run_tests=True,
         consult_models=ctx.registry.consult_models(),
     )
+    if result.get("applied"):
+        files = result.get("files_changed") or []
+        receipt = receipt_mod.for_code_change(
+            "self_edit", f"Changed my own code ({len(files)} file{'s' if len(files) != 1 else ''})",
+            files, result.get("checks"), approved_by=_approvers(result),
+            extra_evidence=(["committed to git, so it can be undone"] if result.get("committed")
+                            else ["NOT committed: " + str(result.get("warning") or "commit failed")]),
+            run_hint="the changed code")
+        receipt.unknown.append("it isn't live until Gremlin restarts")
     if result.get("applied") and result.get("committed"):
-        return {
+        return receipt_mod.attach({
             "answer": f"Done -- {result.get('commit_message')}\nFiles changed: {result.get('files_changed')}",
             "action": "self_edit",
             "ok": True,
-        }
+        }, receipt)
     if result.get("applied"):
-        return {
+        return receipt_mod.attach({
             "answer": f"Applied but not committed -- {result.get('warning')}",
             "action": "self_edit",
             "ok": True,
-        }
+        }, receipt)
     return {"answer": f"Didn't apply it: {result.get('reason')}{_last_review_feedback(result)}",
             "action": "self_edit", "ok": False}
 
@@ -377,19 +427,27 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
         teacher_model=teacher_model, skip_review=True,
         consult_models=ctx.registry.consult_models(),
     )
+    if result.get("applied"):
+        files = result.get("files_changed") or []
+        receipt = receipt_mod.for_code_change(
+            "build", f"Wrote {len(files)} file{'s' if len(files) != 1 else ''} in ~/Downloads/{safe_name}/",
+            files, result.get("checks"),
+            extra_evidence=(["committed to git in that folder"] if result.get("committed")
+                            else ["NOT committed: " + str(result.get("warning") or "commit failed")]),
+            run_hint="the program")
     if result.get("applied") and result.get("committed"):
-        return {
+        return receipt_mod.attach({
             "answer": f"Built it in ~/Downloads/{safe_name}/ -- {result.get('commit_message')}\n"
                       f"Files: {result.get('files_changed')}",
             "action": "build_project",
             "ok": True,
-        }
+        }, receipt)
     if result.get("applied"):
-        return {
+        return receipt_mod.attach({
             "answer": f"Written to ~/Downloads/{safe_name}/ but not committed -- {result.get('warning')}",
             "action": "build_project",
             "ok": True,
-        }
+        }, receipt)
     return {"answer": f"Didn't build it: {result.get('reason')}", "action": "build_project", "ok": False}
 
 
@@ -412,11 +470,17 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
         project_root=ctx.project_root, problem=problem,
     )
     if result.get("applied"):
-        return {
-            "answer": f"Fixed {Path(path).name}. Original backed up to {result.get('backup_path')}.",
+        name = Path(path).name
+        receipt = receipt_mod.for_code_change(
+            "script_fix", f"Rewrote {name}", [name],
+            {"compiled": [name] if name.endswith(".py") else []},
+            extra_evidence=[f"original backed up to {result.get('backup_path')}"],
+            run_hint=name)
+        return receipt_mod.attach({
+            "answer": f"Changed {name}. Original backed up to {result.get('backup_path')}.",
             "action": "script_fix",
             "ok": True,
-        }
+        }, receipt)
     return {"answer": f"Didn't change it: {result.get('reason')}", "action": "script_fix", "ok": False}
 
 

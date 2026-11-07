@@ -64,6 +64,7 @@ async def execute(
                 "capability": tool.capability,
                 "args": intent.args or {},
                 "ok": bool(result.get("ok", True)),
+                "receipt": (result.get("receipt") or {}).get("status", ""),
             })
         except Exception:
             pass

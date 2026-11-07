@@ -74,7 +74,13 @@ def test_service_restart_tool_calls_through_for_an_allowed_name(tmp_path, monkey
         calls.append((kind, name))
         return SandboxResult(stdout="restarted", stderr="", exit_code=0, timed_out=False)
 
+    async def _fake_status(kind, name):
+        return SandboxResult(stdout="abc   img   Up 2 seconds   jellyfin\n", stderr="",
+                             exit_code=0, timed_out=False)
+
     monkeypatch.setattr(service_control, "restart", _fake_restart)
+    monkeypatch.setattr(service_control, "get_status", _fake_status)
+    monkeypatch.setattr(tools_mod, "SERVICE_SETTLE_SECONDS", 0)
 
     ctx = tools_mod.ExecContext(router=None, registry=None, project_root=root)
     result = asyncio.run(tools_mod._tool_service_restart({"name": "jellyfin"}, ctx))

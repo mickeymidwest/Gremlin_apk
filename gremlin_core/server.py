@@ -563,10 +563,13 @@ def create_app(
         result["conversation_usage"] = conversation_history.usage_totals(conv_key)
         return jsonify(result)
 
-    def _chat_reply(answer: str, action: str = "chat", ok: bool = True) -> dict:
+    def _chat_reply(answer: str, action: str = "chat", ok: bool = True,
+                    receipt: Optional[dict] = None) -> dict:
         """Same shape /chat already returns, so the phone renders an
-        action result and an ordinary answer through one code path."""
-        return {
+        action result and an ordinary answer through one code path.
+        receipt: the finished task's claim/evidence/checked/unknown
+        (receipt.py); its text is already at the end of answer."""
+        out = {
             "answer": answer,
             "consulted": False,
             "from_memory": False,
@@ -574,6 +577,9 @@ def create_app(
             "action": action,
             "action_ok": ok,
         }
+        if receipt:
+            out["receipt"] = receipt
+        return out
 
     def _handle_possible_action(message: str) -> Optional[dict]:
         """Returns a response dict if this message was (or completed) an
@@ -611,7 +617,7 @@ def create_app(
                     )
                 return _chat_reply(result.get("answer", "Done."),
                                    result.get("action", pending.action),
-                                   result.get("ok", True))
+                                   result.get("ok", True), result.get("receipt"))
             # Neither yes nor no -- treat it as a new message entirely
             # and drop the stale proposal, rather than half-remembering
             # something the user has clearly moved on from.
@@ -694,7 +700,7 @@ def create_app(
                 answer = f"{answer}\n\n{apply_intent.confirmation_prompt}"
 
             return _chat_reply(answer, result.get("action", prepared.action),
-                               result.get("ok", True))
+                               result.get("ok", True), result.get("receipt"))
 
         pending_confirmations.put(key, prepared)
         return _chat_reply(prepared.confirmation_prompt, prepared.action)

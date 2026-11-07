@@ -420,6 +420,9 @@ async def write_new_files(
                     "reason": f"reverted -- {rel_path} failed to compile:\n{compile_check.stderr}",
                 }
 
+    # for the task receipt (receipt.py): exit 5 = zero tests, not a pass
+    checks = {"compiled": [p for p in written if p.endswith(".py")],
+              "tests": "not_run", "test_summary": ""}
     if run_tests:
         sandbox = SecureExecutionSandbox(root, timeout_seconds=test_timeout)
         pytest_cmd = f"{shlex.quote(sys.executable)} -m pytest"
@@ -430,6 +433,9 @@ async def write_new_files(
         if test_run.exit_code not in (0, 5):
             _revert()
             return {"applied": False, "reason": f"reverted -- test suite failed:\n{test_run.stdout}\n{test_run.stderr}"}
+        from .receipt import pytest_summary
+        checks["tests"] = "none" if test_run.exit_code == 5 else "passed"
+        checks["test_summary"] = pytest_summary(test_run.stdout)
 
     commit_msg = f"build ({applied_by}): {goal}"
     commit = _run(["git", "commit", "-m", commit_msg], root)
@@ -438,8 +444,10 @@ async def write_new_files(
             "applied": True, "committed": False, "commit_message": commit_msg,
             "files_changed": written,
             "warning": f"files written but commit failed: {commit.stderr}",
+            "checks": checks,
         }
-    return {"applied": True, "committed": True, "commit_message": commit_msg, "files_changed": written}
+    return {"applied": True, "committed": True, "commit_message": commit_msg, "files_changed": written,
+            "checks": checks}
 
 
 async def run_build(

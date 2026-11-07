@@ -322,6 +322,12 @@ async def apply_patch(
                         "reason": f"reverted -- {rel_path} failed to compile:\n{compile_check.stderr}",
                     }
 
+        # What actually got checked, for the task receipt (receipt.py):
+        # "passed" only when pytest ran tests and they passed -- exit 5
+        # (zero tests collected) is let through below but is NOT a pass.
+        checks = {"compiled": [p for p in changed if p.endswith(".py")],
+                  "tests": "not_run", "test_summary": ""}
+
         # Optional pytest gate: revert everything on any test failure,
         # same as a compile failure. Runs via SecureExecutionSandbox
         # rather than a raw subprocess call -- confined cwd, minimal PATH.
@@ -352,6 +358,9 @@ async def apply_patch(
                     "applied": False,
                     "reason": f"reverted -- test suite failed:\n{test_run.stdout}\n{test_run.stderr}",
                 }
+            from .receipt import pytest_summary
+            checks["tests"] = "none" if test_run.exit_code == 5 else "passed"
+            checks["test_summary"] = pytest_summary(test_run.stdout)
 
         revert_on_cancel = None
         commit_msg = f"self-improve ({applied_by}): {goal}"
@@ -364,6 +373,7 @@ async def apply_patch(
                 "commit_message": commit_msg,
                 "files_changed": changed,
                 "reason": f"reverted -- commit failed: {commit.stderr}",
+                "checks": checks,
             }
         mutation_log.append_mutation(root, {
             "kind": "self_improve",
@@ -372,7 +382,8 @@ async def apply_patch(
             "files_changed": changed,
             "commit_message": commit_msg,
         })
-        return {"applied": True, "committed": True, "commit_message": commit_msg, "files_changed": changed}
+        return {"applied": True, "committed": True, "commit_message": commit_msg, "files_changed": changed,
+                "checks": checks}
     except asyncio.CancelledError:
         if revert_on_cancel:
             revert_on_cancel()
