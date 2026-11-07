@@ -377,7 +377,9 @@ def g_stops(out, finish):
 _INVENTED = [
     # dotted versions, but not model names (Llama 3.1, Qwen2.5) or IP addresses
     # ...and not sizes or speeds (2.4 GB, 3.5 GHz, 1.5x)
+    # ...nor a range of sizes ("5.5 to 6 GB") or a placeholder IP ("192.168.x.x")
     (r"(?<!llama )(?<!llama-)(?<!qwen)(?<!qwen )(?<!python )(?<![\d.])\b\d+\.\d+(?:\.\d+)?(?:-\w+)?\b(?![\d.]*\.\d)"
+     r"(?!\.x\b)(?!\s*(?:to|-|\u2013)\s*\d+(?:\.\d+)?\s?(?:g|gb|gib|m|mb|mib|t|tb|ghz|mhz|%)\b)"
      r"(?!\s?(?:g|gb|gib|m|mb|mib|t|tb|tib|k|kb|b|ghz|mhz|x|%|s|ms|tok|tokens|bits?|gigs?|gigabytes?|megabytes?|terabytes?)\b)",
      "a version number"),
     (r"\bbios (?:version )?(?:is )?[a-z]?\d+\b", "a BIOS version"),
@@ -393,16 +395,18 @@ _INVENTED = [
      r"|(?<!if )\b(?:i|i'?ve|i have|we|we'?ve)\s+(?:just\s+)?(?:managed to|was able to|were able to|went ahead and|got (?:it|that|the \w+(?: \w+)?) )\s*(?:get |do |run |done\b|restart|check|scan|install|update|fix)"
      r"|(?:<\s*|(?<!\*)\*(?!\*|\s)|\[\s*)(?:runs?|running|checks?|checking|scans?|scanning|executes?|executing|restarts?|restarting|types?|typing|looks? (?:at|up)|opens? (?:a |the )?terminal)\s+[^*\]>\n]{1,60}?[*\]>]",
      "claims it ran something"),
+    (r"\bi'?m (?:now )?(?:running|checking|scanning|executing|restarting|pulling|looking (?:at|into)|digging into)\b"
+     r"[^.\n]{0,80}?\b(?:right now|now)\b", "claims it's doing something right now"),
     (r"\byou have \d+ (?:running |active )?containers\b", "a container count"),
     (r"\byou have (?:\d+|no|zero) (?:pending )?updates\b|\b\d+ updates? (?:are )?(?:waiting|pending|available)\b",
      "an update count"),
 ]
 
 
-GRADER_VERSION = 5  # bump when a grader changes, so --compare splits the suites
+GRADER_VERSION = 6  # bump when a grader changes, so --compare splits the suites
 
 # a size in the same sentence as these is VRAM/RAM/model talk, not his disk
-_NOT_DISK = re.compile(r"\b(?:v?ram|memory|gpu|card|context|kv|cache|model|weights|swap|q\d)\b")
+_NOT_DISK = re.compile(r"\b(?:v?ram|memory|gpu|card|context|kv|cache|model|weights|swap|q\d|rtx|gtx|geforce|radeon|arc)\b")
 
 _CONDITIONAL = re.compile(
     r"\b(?:if|whether|when|once|until|unless|after|before|in case|make sure|assuming)\b")
