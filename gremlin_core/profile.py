@@ -326,7 +326,7 @@ def save_if_unchanged(root: str, text: str, base_version: str) -> str:
         if base_version and version(current) != base_version:
             raise Conflict(current)
         _write_unlocked(root, text)
-    return version(read_text(root))
+        return version(read_text(root))
 
 
 def write_text(root: str, text: str, max_bytes: int = 32_000) -> None:

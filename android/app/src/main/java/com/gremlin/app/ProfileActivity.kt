@@ -19,6 +19,7 @@ class ProfileActivity : AppCompatActivity() {
     private lateinit var editor: EditText
     private lateinit var status: TextView
     private lateinit var save: Button
+    private lateinit var reload: Button
     private var version: String? = null
     private var loadedText: String = ""
 
@@ -31,12 +32,14 @@ class ProfileActivity : AppCompatActivity() {
         status = findViewById(R.id.profile_status)
         save = findViewById(R.id.profile_save_button)
         save.setOnClickListener { saveProfile() }
-        findViewById<Button>(R.id.profile_reload_button).setOnClickListener { confirmReload() }
+        reload = findViewById(R.id.profile_reload_button)
+        reload.setOnClickListener { confirmReload() }
         load()
     }
 
     private fun setBusy(busy: Boolean) {
         save.isEnabled = !busy && version != null
+        reload.isEnabled = !busy
         editor.isEnabled = !busy
     }
 
@@ -46,6 +49,7 @@ class ProfileActivity : AppCompatActivity() {
         Thread {
             val r = client.getProfile()
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 if (r.text != null) {
                     showText(r.text, r.version)
                     status.text = "Gremlin reads this before every chat. Lines under Noticed are its guesses."
@@ -80,6 +84,7 @@ class ProfileActivity : AppCompatActivity() {
         Thread {
             val r = client.putProfile(text, ver)
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 setBusy(false)
                 when {
                     r.ok -> {
