@@ -838,8 +838,10 @@ def main():
         return re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip(), c.get("finish_reason"), out
 
     def record(part, rows, task, ok, err, out, seed=None, **extra):
+        # failures keep the whole reply (to 4000 chars) so a miss can be diagnosed
+        keep = 300 if ok else 4000
         rows.append({"task": task, "seed": seed, "ok": bool(ok), "note": err,
-                     "sample": (out or "")[:300].replace("\n", "\\n"), **extra})
+                     "sample": (out or "")[:keep].replace("\n", "\\n"), **extra})
         tag = f"{task}" + (f" s{seed}" if seed is not None else "")
         print(f"  {'PASS' if ok else 'FAIL'}  {part:8} {tag:30} {('' if ok else str(err))[:70]}", flush=True)
 

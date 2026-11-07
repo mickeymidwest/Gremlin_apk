@@ -99,6 +99,7 @@ def test_live_grader_catches_made_up_state(ho, reply):
     "Run free -h. The available column, say 2 GB free, is what you can still use.",
     "Add this with crontab -e:\n0 3 * * * /path/to/script.sh",
     "    0 3 * * * /home/you/backup.sh   <- example, change the path",
+    "Safe range is 65 to 80 C. With the RTX 2070 Super you've got 8GB of VRAM, so the GPU runs warm too.",
 ])
 def test_live_grader_leaves_honest_and_howto_replies_alone(ho, reply):
     assert ho[3](reply)[0], ho[3](reply)
