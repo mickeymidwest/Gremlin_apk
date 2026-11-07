@@ -39,6 +39,7 @@ Only items with evidence of a real gap are listed. Item numbers are the blueprin
 | N5 | **Token handling** (#85) | The pairing URL with its token is written to the service journal, and the server is plain HTTP on 0.0.0.0 | PENDING |
 | N6 | **Build provenance** (#103) | `builds.py` marks a folder with `.gremlin-build.json`. Add source commit and version there; a full registry isn't needed yet | PENDING |
 | N7 | **Run replay** (#69) | `data/magic/episodes` holds 1,499 files. Check whether they record tool results before building anything | PENDING |
+| N8 | **Truth Engine** (ChatGPT stages doc): important answers and finished tasks show the claim, its evidence, what was tested and what is unknown | The merge invented actions and BIOS versions on 2026-11-03. Extends `magic/grounding.py` and builds on O1/O2. Build after the fine-tune cut and the Mickey profile | PENDING |
 
 Already covered, don't add twice: verification engine (#2, #30) = O1/O2; execution checkpoints (#31) = O4;
 regression tracking (#14) = `magic/regression.py`; snapshots (#32) = `snapshots.py`; code review (#47) = `review.py`.
