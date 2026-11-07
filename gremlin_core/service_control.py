@@ -17,6 +17,7 @@ Two kinds, matching what's actually real on this box:
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -74,3 +75,84 @@ async def restart(kind: str, name: str) -> SandboxResult:
     if kind == "docker":
         return await sandbox.run_safe_command(f"docker restart {name}")
     return await sandbox.run_safe_command(f"systemctl --user restart {name}")
+
+
+# ------------------------------------------------- "is X running?" check
+
+# asking about state, not asking to change it
+_STATUS_CUE_RE = re.compile(
+    r"\b(running|up|down|working|ok|okay|alive|healthy|status|good|fine|online|offline"
+    r"|dead|crash\w*|broke\w*|how'?s|how\s+(is|are|be|was)|check(ing)?)\b", re.I)
+# a request to DO something, or a how-to question: leave those to the
+# classifier, which can propose a restart with a confirmation
+_NOT_A_STATUS_QUESTION_RE = re.compile(
+    r"\b(restart|reboot|stop|start|kill|remove|delete|update|upgrade|install|set\s*up|setup"
+    r"|configure|config|logs?|fix|add|how\s+(do|can|to|should|would))\b", re.I)
+# words that mean "all of them"
+_GROUP_RE = re.compile(r"\b(stack|containers|services|docker)\b", re.I)
+
+
+def status_question(project_root: str, message: str) -> list[str]:
+    """Allow-listed names to check if `message` asks whether they're up,
+    else []. Naming a container checks that one; "stack", "containers",
+    "services" or "docker" checks everything on the list. Pure apart from
+    reading the allow-list."""
+    text = message or ""
+    if not _STATUS_CUE_RE.search(text) or _NOT_A_STATUS_QUESTION_RE.search(text):
+        return []
+    allow = _load_allowlist(project_root)
+    every = allow["docker"] + allow["systemd"]
+    if not every:
+        return []
+    named = [n for n in every
+             if re.search(rf"(?<![\w-]){re.escape(n.removesuffix('.service'))}(?![\w-])", text, re.I)]
+    if _GROUP_RE.search(text):
+        return every
+    return named
+
+
+async def check_many(project_root: str, names: list[str]) -> tuple[bool, str]:
+    """(all up?, answer) from one `docker ps -a` plus `systemctl --user
+    is-active` per unit. The answer is built from the real output only."""
+    allow = _load_allowlist(project_root)
+    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=30)
+    states: dict[str, str] = {}
+    docker = [n for n in names if n in allow["docker"]]
+    if docker:
+        res = await sandbox.run_safe_command("docker ps -a --format '{{.Names}}|{{.Status}}'")
+        if res.ok:
+            for line in res.stdout.splitlines():
+                name, _, status = line.partition("|")
+                if name.strip() in docker:
+                    states[name.strip()] = status.strip()
+        else:
+            for n in docker:
+                states[n] = "?couldn't run docker ps"
+        for n in docker:
+            states.setdefault(n, "?no container by that name")
+    for n in names:
+        if n in allow["systemd"]:
+            res = await sandbox.run_safe_command(f"systemctl --user is-active {n}")
+            states[n] = (res.stdout or "").strip() or "?couldn't ask systemd"
+    return render_states(names, states)
+
+
+def render_states(names: list[str], states: dict[str, str]) -> tuple[bool, str]:
+    def is_up(st: str) -> bool:
+        return st.startswith("Up ") or st == "active"
+    lines = ["Checked just now:"]
+    for n in names:
+        st = states.get(n, "?not checked")
+        lines.append(f"- {n}: {st.lstrip('?')}")
+    down = [n for n in names if not is_up(states.get(n, "?"))]
+    unhealthy = [n for n in names if "unhealthy" in states.get(n, "")]
+    if not down:
+        many = len(names) > 1
+        lines.append(f"\n{'All ' + str(len(names)) + ' are' if many else 'It is'} up"
+                     + (f", but Docker says {', '.join(unhealthy)} {'is' if len(unhealthy) == 1 else 'are'} unhealthy."
+                        if unhealthy else "."))
+    else:
+        lines.append(f"\nNot up: {', '.join(down)}. Say \"restart {down[0]}\" and I'll restart it.")
+    lines.append("This only shows the containers are running. I didn't open their web pages "
+                 "or check versions.")
+    return (not down and not unhealthy), "\n".join(lines)

@@ -247,3 +247,58 @@ def test_self_improve_records_checks(tmp_path):
     assert res.get("applied"), res
     assert res["checks"]["compiled"] == ["m.py"]
     assert res["checks"]["tests"] == "none"
+
+
+
+# ------------------------------------------- "is it running?" pre-check
+
+@pytest.mark.parametrize("msg,expect", [
+    ("So how is my robofuse stack is jellyfin running good.", "all"),
+    ("is jellyfin up?", ["jellyfin"]),
+    ("how's jellyseerr doing", ["jellyseerr"]),
+    ("are my containers ok", "all"),
+    ("restart jellyfin", []),
+    ("how do I set up jellyfin on my tv", []),
+    ("show me the jellyfin logs", []),
+    ("I watched a movie on jellyfin last night", []),
+    ("how's everything going", []),
+    ("what's up", []),
+    ("is jellyfinx running", []),
+])
+def test_status_question(tmp_path, msg, expect):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "models.yaml").write_text(
+        "service_control:\n  docker:\n    - jellyfin\n    - jellyseerr\n    - robofuse\n  systemd: []\n")
+    got = service_control.status_question(str(tmp_path), msg)
+    assert got == (["jellyfin", "jellyseerr", "robofuse"] if expect == "all" else expect)
+
+
+def test_render_states_only_reports_what_it_saw():
+    ok, text = service_control.render_states(
+        ["jellyfin", "bridge"], {"jellyfin": "Up 27 hours (healthy)", "bridge": "Up 27 hours"})
+    assert ok and "- jellyfin: Up 27 hours (healthy)" in text and "All 2 are up." in text
+    assert "didn't open their web pages" in text
+    ok, text = service_control.render_states(
+        ["jellyfin", "bridge"], {"jellyfin": "Up 1 hour", "bridge": "Exited (1) 3 minutes ago"})
+    assert not ok and "Not up: bridge" in text and 'restart bridge' in text
+    ok, text = service_control.render_states(["x"], {"x": "?no container by that name"})
+    assert not ok and "- x: no container by that name" in text
+    ok, text = service_control.render_states(["j"], {"j": "Up 2 hours (unhealthy)"})
+    assert not ok and "unhealthy" in text.splitlines()[-2]
+
+
+def test_check_many_reads_docker_ps(tmp_path, monkeypatch):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "models.yaml").write_text(
+        "service_control:\n  docker:\n    - jellyfin\n    - bridge\n  systemd: []\n")
+    from gremlin_core import sandbox as sb
+    seen = []
+
+    async def fake_run(self, cmd, stdin_data=None):
+        seen.append(cmd)
+        return SandboxResult(stdout="jellyfin|Up 27 hours (healthy)\nother|Up 1 day\n",
+                             stderr="", exit_code=0, timed_out=False)
+    monkeypatch.setattr(sb.SecureExecutionSandbox, "run_safe_command", fake_run)
+    ok, text = asyncio.run(service_control.check_many(str(tmp_path), ["jellyfin", "bridge"]))
+    assert len(seen) == 1 and not ok
+    assert "- bridge: no container by that name" in text

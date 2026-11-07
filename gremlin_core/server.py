@@ -635,6 +635,21 @@ def create_app(
                 "never actually asked. What do you want me to do?"
             )
 
+        # "is jellyfin running?" -> look, don't guess. Runs before the
+        # classifier because a status question often has no action word
+        # in it, and plain chat then invents a docker ps row (2026-11-07).
+        try:
+            from . import service_control
+            names = service_control.status_question(str(project_root), message)
+            if names:
+                all_up, answer = run_coro(loop, service_control.check_many(str(project_root), names),
+                                          timeout=60.0)
+                return _chat_reply(answer, "service_status", all_up)
+        except job_control.JobAborted:
+            raise
+        except Exception:
+            pass
+
         # A slow/failed classification (timeout, or the primary erroring)
         # must never crash the whole request -- this check is a courtesy
         # ("does this look like a system command?"), not something the
