@@ -29,7 +29,7 @@ built here.
 
 Kept separate from two things it's confused with: the durable memory
 file (gremlin_memory.txt, explicit "remember that ..." facts) and the
-learning log (fine-tuning material). This is the live conversation.
+learning log. This is the live conversation.
 """
 from __future__ import annotations
 

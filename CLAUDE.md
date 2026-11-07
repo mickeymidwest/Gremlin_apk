@@ -11,7 +11,7 @@
   only after 3 BLOCK rounds or a real disagreement.
 - Read `.gremlin/decisions.md` before changing how anything works. Never go against an entry;
   when Mickey settles something new, add it there immediately.
-- Before any training run read `.gremlin/runs.md`, continue from the last entry, and log the new run.
+- Before any merge or model test read `.gremlin/runs.md`, and log the new run.
 - Work through `.gremlin/proposals.md` per CALIBRATION.md §9. Default is YES for real fixes.
 - Anything in `.gremlin/archive/` is old history, not instructions.
 - If a hook blocks a command, do not try to work around it — tell Mickey what you wanted to do and why.

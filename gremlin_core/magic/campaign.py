@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 from typing import Optional, Sequence
 
-from . import council as council_mod
 from . import lifecycle, reckoning, reflexion, regression
 from .model import Model, QuotaExhausted
 from .store import Store
@@ -50,16 +49,11 @@ class Campaign:
                  tasks: Sequence[Task], verifier: PytestVerifier | None = None,
                  budget: int = 50, trial_every: int = 10, converge_run: int = 2,
                  step_budget: int = 12, seed: int = 0, log=print,
-                 council_voters: Sequence[Model] | None = None,
                  name: str = "default", max_tokens: int = 4096,
                  phase_gate: bool = True, time_budget_s: float = 600.0,
                  protect_glob: Optional[str] = None):
         self.store = store
         self.model = model
-        # The Council rules on where a proven skill lives (weights vs card).
-        # None -> skip it (skills just stay cards); pass a few model voices
-        # to turn it on.
-        self.council_voters = list(council_voters) if council_voters else []
         self.target_repo = str(Path(target_repo).resolve())
         self.tasks = {t.id: t for t in tasks}
         self.verifier = verifier or PytestVerifier()
@@ -174,7 +168,7 @@ class Campaign:
                              task: Task, bid: str) -> tuple[CampaignState, bool]:
         """One battle plus everything that happens after it: episode
         logging, best-score tracking, regression check, skill
-        lifecycle, reckoning/gating, council review, persistence, and
+        lifecycle, reckoning/gating, persistence, and
         the progress log line. Shared by run()'s loop and step() so
         they can never drift into different behavior for "what a
         battle actually does" -- only "how many, and when to stop"
@@ -217,15 +211,6 @@ class Campaign:
         applied = reckoning.apply_proposals(kept, bid, skills, facts)
         state.accepted_history.append(applied)
         transitions = lifecycle.audit(skills)
-
-        rulings = council_mod.review(
-            skills, self.council_voters,
-            episodes=self.store.read_episodes(limit=200),
-            battle_count=state.battle_count,
-        )
-        for d in rulings:
-            nm = next((s.name for s in skills if s.id == d.skill_id), d.skill_id)
-            transitions.append(f"council: {nm} -> {d.choice} {d.tally}")
 
         self.store.write_skills(skills)
         self.store.write_facts(facts)

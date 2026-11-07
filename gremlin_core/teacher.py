@@ -4,11 +4,8 @@ that doesn't compile or fails its tests -- this is the "teacher loop":
 an external judge (claude or gemini, kept in their existing fallback
 role too, not instead of it -- see config/models.yaml's fallback_models)
 explains what went wrong and gives a corrected version. The correction
-is logged into the same learning_log.jsonl schema consult.py already
-writes to, so it becomes real fine-tuning material through the
-existing dataset builder (finetune.py) with no special-casing there --
-Gremlin actually learning from a concrete mistake, not just a one-off
-fix applied and forgotten.
+is logged to learning_log.jsonl, so a concrete mistake leaves a record
+instead of being fixed and forgotten.
 
 Deliberately separate from review.py's reviewer gate: that reviews a
 patch BEFORE it's applied (a design-time check, and if it fails, the

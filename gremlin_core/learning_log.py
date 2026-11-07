@@ -1,9 +1,8 @@
-"""data/learning_log.jsonl -- what `gremlin finetune` trains on.
+"""data/learning_log.jsonl -- a record of what Gremlin needed help with.
 
 One line per "Gremlin didn't know this on its own" moment: the prompt,
 the answer that was eventually good, and (historically) which models
-contributed. Written from the chat path, read by finetune.py /
-distill.py / checkpoint_eval.py.
+contributed. Written from the chat path, read by /skill suggest.
 
 Split out of the old consult.py so the learning log outlives the
 specialist-consult machinery it used to live next to.

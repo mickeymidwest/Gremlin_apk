@@ -29,9 +29,7 @@ already has anything in it (see _is_bootstrap):
 
 Every successful build is also logged to Gremlin's OWN learning log
 (gremlin_root, never target_root) alongside real consults -- so
-"building things" becomes fine-tuning material the same way any other
-consult does, and repeated use is meant to make it genuinely better at
-this over time, not just a one-off trick.
+repeated requests can surface as skill candidates, not just one-off tricks.
 """
 from __future__ import annotations
 
@@ -284,9 +282,7 @@ async def propose_with_retry_and_teacher(
     sometimes comes back empty or structurally broken. Retries a few
     times (cheap: same model, already loaded) before falling back to
     `teacher_model` to actually solve it. Returns (result, used_teacher)
-    -- used_teacher tells the caller to log this as teaching material,
-    so gremlin's own model genuinely gets better at this over successive
-    fine-tunes instead of permanently leaning on an external model."""
+    -- used_teacher tells the caller to log this in the learning log."""
     bootstrap = _is_bootstrap(root)
     patch = ""
     for _ in range(max_local_attempts):
@@ -330,11 +326,8 @@ async def propose_with_retry_and_teacher(
 
 
 def _log_teacher_assist(gremlin_root: str, goal: str, teacher_model: str, patch: str) -> None:
-    """Same learning_log.jsonl schema teacher.py's teach_from_error
-    already uses, so finetune.py's dataset builder picks this up with no
-    special-casing: next time `gremlin finetune` runs on the primary,
-    this goal + the teacher's working solution is real material for
-    teaching gremlin's own model to do this kind of build itself."""
+    """Records this goal and the teacher's working solution in the same
+    learning_log.jsonl schema teacher.py's teach_from_error uses."""
     consult_mod.append_learning_log(gremlin_root, {
         "prompt": f"How would you build: {goal}?",
         "final_answer": patch,
@@ -347,10 +340,8 @@ def _log_teacher_assist(gremlin_root: str, goal: str, teacher_model: str, patch:
 
 def _log_as_learning_material(gremlin_root: str, goal: str, folder_name: str, model_names: list[str], result: dict) -> None:
     """Every successful build becomes a learning-log entry in GREMLIN's
-    own data/ (never the target project's), so `gremlin distill` /
-    `gremlin finetune` can pick "building things" up as material later --
-    the same mechanism any other consult's findings go through, so this
-    genuinely feeds getting better at it over time rather than being a
+    own data/ (never the target project's), so /skill suggest can spot
+    recurring requests -- this feeds getting better over time rather than being a
     one-off trick with no lasting effect."""
     summary = (
         f"Built {folder_name}/ for: {goal}\n"

@@ -16,6 +16,18 @@ models:
     chat_format: chatml
     footprint_mb: 7600
 
+  # Abliterated build of the same 14B. Same size and settings as qwen2.5-14b.
+  - name: qwen2.5-14b-abliterated
+    type: local_gguf
+    display_name: "Qwen2.5-14B-Instruct abliterated-v2 (IQ3_XS)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-14B-Instruct-abliterated-v2.i1-IQ3_XS.gguf"
+    n_ctx: 8192
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0
+    chat_format: chatml
+    footprint_mb: 7600
+
   # The one uncensored option, for the rare case a base model balks at
   # something legitimate. Not the voice -- addressable by name only.
   - name: llama-3.1-8b-abliterated
@@ -39,29 +51,6 @@ models:
     flash_attn: true
     kv_cache_type: q8_0
     chat_format: llama-3
-
-  # The first fine-tune (Qwen2.5-3B + QLoRA on 124 examples, 2026-09-07)
-  # was A/B'd and came out WORSE than the plain 3B -- repetition loops,
-  # garbled facts. Unregistered 2026-09-07. The pipeline is proven; the
-  # payoff run is the 7B on a rented GPU (deploy/CLOUD-FINETUNE.md). The
-  # adapter still exists at data/finetunes/20260907-124946/ for reference.
-
-  # Second fine-tune attempt (2026-09-13): local Unsloth QLoRA, GPU-only,
-  # zero CPU offload -- the PIPELINE is proven safe on this box (real
-  # run, no crash, see deploy/LOCAL-FINETUNE.md), but the RESULT was
-  # A/B'd same-day against the plain base and unregistered: on a clean
-  # conversation it misrouted a plain "write me a function" request
-  # into an unwanted build_project offer (a regression -- the plain
-  # base answered it directly), and it confabulated "notes from our
-  # previous convo" on a freshly-cleared thread. Identity/personality
-  # were roughly a wash. Likely cause: only 107 training examples,
-  # heavy on scaffolding/battle transcripts relative to real
-  # conversation, biasing it toward "this is a build task." Worth
-  # retrying once data/conversations/ has accumulated more real usage
-  # (mickey's own back-and-forth, not cleared mid-session) -- the
-  # adapter + GGUF still exist at data/finetunes/local-unsloth/ to
-  # register again, same block shape, once a richer dataset justifies
-  # another run.
 
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   - name: gemini
@@ -111,9 +100,6 @@ persona:
   # plain 7B botched. Chat + /build + /fix now all share one warm model.
   primary_model: llama-3.1-8b-abliterated
   fallback_models: [gemini]
-  # HF full-precision repo the primary was quantized from -- what
-  # `gremlin finetune` needs (QLoRA loads it via transformers).
-  base_repo: "Qwen/Qwen2.5-Coder-7B-Instruct"
   system_prompt: |
     Your name is Gremlin. You're a personal AI assistant running locally
     on the user's own desktop. If asked your name or who you are, answer

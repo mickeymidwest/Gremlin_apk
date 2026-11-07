@@ -103,11 +103,9 @@ class Skill:
     provenance: list[str] = field(default_factory=list)   # battle ids it was compiled from
     supersedes: Optional[str] = None
     status: str = "candidate"                     # candidate | active | deprecated
-    # Where a proven skill lives (MAGIC.md section 4, set by the Council):
-    #   "card"    -- stays here, loaded into context on trigger (default)
-    #   "weights" -- queued to be baked into Gremlin on the next finetune
+    # Skills always stay cards. These two fields only keep old card files loading.
     destination: str = "card"
-    council_reviewed: bool = False                # has the Council ruled on it yet
+    council_reviewed: bool = False                # old card field, unused yet
     created: float = field(default_factory=_now)
     record: SkillRecord = field(default_factory=SkillRecord)
 

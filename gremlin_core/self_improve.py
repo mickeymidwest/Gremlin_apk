@@ -135,9 +135,7 @@ async def propose_with_retry_and_teacher(
     comes back completely empty. Retries a few times (cheap: same model,
     already loaded) before falling back to `teacher_model` to actually
     solve it. Returns (patch, used_teacher) -- used_teacher tells the
-    caller to log this as teaching material (see _log_teacher_assist),
-    so gremlin's own model genuinely gets better at this over successive
-    fine-tunes instead of permanently leaning on an external model."""
+    caller to log this in the learning log (see _log_teacher_assist)."""
     patch = ""
     for _ in range(max_local_attempts):
         patch = await propose_patch(router, model_names, goal, root)
@@ -171,11 +169,8 @@ async def propose_with_retry_and_teacher(
 
 
 def _log_teacher_assist(root: str, goal: str, teacher_model: str, patch: str) -> None:
-    """Same learning_log.jsonl schema teacher.py's teach_from_error
-    already uses, so finetune.py's dataset builder picks this up with no
-    special-casing: next time `gremlin finetune` runs on the primary,
-    this goal + the teacher's working solution is real material for
-    teaching gremlin's own model to do this kind of self-edit itself."""
+    """Records this goal and the teacher's working solution in the same
+    learning_log.jsonl schema teacher.py's teach_from_error uses."""
     from .learning_log import append_learning_log
     append_learning_log(root, {
         "prompt": f"How would you change your own code to: {goal}?",
@@ -248,8 +243,7 @@ async def apply_patch(
     If `teach_on_failure` is True (needs `router`), a real compile or
     test failure -- the patch actually ran and hit something concrete,
     not just "didn't apply cleanly" -- gets explained and corrected by
-    `teacher_model` (see teacher.py), logged as future fine-tuning
-    material. Purely a learning signal: the correction is never
+    `teacher_model` (see teacher.py) and logged. Purely a learning signal: the correction is never
     auto-applied here, and a failed teacher call never blocks returning
     the original failure result. Off by default, same as run_tests.
     """

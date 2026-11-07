@@ -278,15 +278,7 @@ which is exactly why the smaller alternatives above exist.
    "Root commands and rolling back" above -- neither has been tested
    against real `sudo`/`snapper` yet, only the clean-failure paths in a
    sandbox with neither available).
-4. Chat with Gremlin normally for a while to build up
-   `data/learning_log.jsonl`, then `gremlin build-training-set` to see
-   how much real distillation material exists.
-5. From there: steps 3-6 of the fine-tuning plan (QLoRA training on
-   Qwythos-9B, GGUF conversion, the eval gate, checkpoint promotion) --
-   needs `torch`/`transformers`/`peft`/`bitsandbytes` (not yet added to
-   this repo) and a local llama.cpp checkout for GGUF conversion, on
-   top of the base install. Ask to pick this up and it'll pick up
-   exactly where the plan left off.
+4. Chat with Gremlin normally. Skills and memory build up as you use it.
 
 ## Removing models
 

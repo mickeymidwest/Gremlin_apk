@@ -63,9 +63,9 @@ The #1 failure on this project: Claude drifts back to "how it thinks it should b
 - Things proven on this hardware (RTX 2070 Super 8GB, 7.5GB RAM) count as decisions: facts, not suggestions.
 - Commands for NOT approaches that crash the machine also go in `.gremlin/banned.txt` (hard-blocked).
 
-## 8. Training runs
-- Every run goes through scripts/heavy.sh and gets logged in `.gremlin/runs.md`
-  (settings -> result -> next change). Read the log first; continue from the last entry.
+## 8. Model runs
+- Weight fine-tuning is out for good (`.gremlin/decisions.md`). Merges and model tests go through
+  scripts/heavy.sh and get logged in `.gremlin/runs.md` (settings -> result -> next change).
 
 ## 9. Outside suggestions (ChatGPT, Gemini, Mickey)
 Suggestions live in .gremlin/proposals.md. For EACH one, Claude:

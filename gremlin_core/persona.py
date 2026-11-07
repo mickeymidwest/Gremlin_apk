@@ -45,8 +45,7 @@ class PersonaBackend(ModelBackend):
         # Fraction of otherwise-confident answers to consult anyway, purely
         # to keep data flowing into learning_log.jsonl -- see consult.py's
         # seems_uncertain(). An abliterated primary model rarely hedges in
-        # words even when it's wrong, so without this the finetune pipeline
-        # would never get real training data.
+        # words even when it's wrong.
         self.consult_sample_rate = consult_sample_rate
         # When True, an otherwise-confident-looking answer still gets a
         # second LLM "is this actually vague?" check (consult.py's

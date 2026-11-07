@@ -8,7 +8,7 @@ LOG="data/zoid/validate-$(date +%Y%m%d-%H%M).log"
 mkdir -p data/zoid
 exec >>"$LOG" 2>&1
 echo "==================== $(date) validation start ===================="
-for u in gremlin.service gremlin-watchdog.timer gremlin-update.timer gremlin-distill.timer; do
+for u in gremlin.service gremlin-watchdog.timer gremlin-update.timer; do
   systemctl --user stop "$u" 2>/dev/null
 done
 pkill -9 -f "main.py serve" 2>/dev/null

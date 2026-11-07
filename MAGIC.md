@@ -20,8 +20,6 @@ is the spec; the sections below are the current state, not a plan.
 - **Verifier + campaign** — `PytestVerifier` (the only source of a battle
   outcome) + the resurrect→battle→verify→reckon→audit→trial loop. Converges only
   when skills AND the held-out score have both plateaued and ≥60% of tasks solve.
-- **Council** — a proven skill (≥5 wins) is voted `weights` (QLoRA training set)
-  vs `card` (stays loadable); tie → card.
 - **Harness patterns adopted** (Aider / SWE-agent / TaskWeaver): parse-before-edit,
   `edit_file` search/replace, phase-gated tools, repo map, pre-battle plan,
   post-red-test reflection nudge.
@@ -42,8 +40,7 @@ is the spec; the sections below are the current state, not a plan.
 **5b — the old machinery is gone:** deleted `consult.py` `council.py`
 `specialists.py` `bench.py` `distill.py` (2.7k lines). `/chat` answers via
 `magic/reply.py` (notes + away + history → primary, Gemini only on a local
-error, learning-log only when the fallback answered). `judge.py` kept for
-`checkpoint_eval`. `intent.py`/`actions.py` kept — the NL-action layer.
+error, learning-log only when the fallback answered). `intent.py`/`actions.py` kept — the NL-action layer.
 
 **Commands:** `/chat /skill /build /fix /model /defense /do`, on desktop
 (`gremlin magic <cmd>`) and the app (`POST /command`, `/` autocomplete).
@@ -110,7 +107,7 @@ via `/do` (`file`/`strings`/`nm`/`objdump`/`readelf` aren't write verbs).
 Toolchain: `deploy/setup-security-tools.sh` (clang, radare2, checksec,
 afl++; semgrep/lief/capstone pip'd into the venv). No separate command --
 Gremlin the pilot uses the skills, and wins/losses feed the learning loop
-(reflexion + skill promotion + finetune_sources pulls battle wins).
+(reflexion + skill promotion).
 Practice runs: `scratch_fuzz_battle.py [target-dir]` (gitignored, like the
 klondike one) drives a battle against a fuzzing-practice repo (planted
 bug + README task; win = a harness that builds and does real execs).
@@ -158,8 +155,7 @@ KEEP as tools: `build_project.py`, `builds.py`, `script_edit.py`,
 `update_check.py`, `away_sync.py`, `claude_override.py`.
 
 REBUILD into Magic's loop: `self_improve.py` + `review.py` + `teacher.py` +
-`mutation_log.py` → battle/reckoning/gate. `finetune.py` + `checkpoint_eval.py` +
-`distill.py` → weights-side loop + eval. `agent_state.py` → battle state machine.
+`mutation_log.py` → battle/reckoning/gate. `agent_state.py` → battle state machine.
 `pressure.py` → prompt assembly.
 
 DROP: `council.py` (old), `specialists.py`, `consult.py`, `bench.py`,
@@ -224,16 +220,9 @@ New cards are added to `_SEED`; `/skill seed` (idempotent) materialises any
 missing ones. Cards earn `active` by winning battles; the loop also proposes
 its own from battle transcripts.
 
-## 4. The Council — skill destination decision
+## 4. Skills stay cards
 
-After an active skill has enough wins, the Council (a few model voices, incl.
-Claude/Gemini) votes on where it belongs:
-
-- **Hard-code into Gremlin** — added to the QLoRA training set, baked into weights
-  on the next `gremlin finetune`. Permanent, always-on, zero prompt cost. For
-  stable, high-use skills.
-- **Keep in Magic** — stays a skill card, loaded into context on trigger.
-  Editable, revisable, revertible. For niche or still-proving skills.
+Proven skills stay skill cards, loaded on trigger. Weight fine-tuning is permanently out (see `.gremlin/decisions.md`), so the old Council vote is gone.
 
 ## 5. Where Gremlin runs — and what the app is for
 

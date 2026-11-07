@@ -10,7 +10,7 @@
 #
 # Retries a few times before restarting so a normal brief restart
 # window (e.g. gremlin-update.sh mid-pull) doesn't get mistaken for a
-# hang. Same flock-guard pattern as gremlin-distill.sh, so an
+# hang. A flock guard means an
 # overlapping run is a no-op instead of stacking checks.
 
 set -u

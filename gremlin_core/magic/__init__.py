@@ -13,6 +13,5 @@ Layout (built in order, see MAGIC.md section headings):
   reckoning  -- propose (new_skill / revise_skill / new_fact) -> gate
   lifecycle  -- candidate -> active -> deprecated
   verifier   -- the ONLY source of a battle outcome
-  council    -- skill destination: hard-code into Gremlin vs keep in Magic
   campaign   -- the resurrect -> battle -> reckon -> audit loop
 """

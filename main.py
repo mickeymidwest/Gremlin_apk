@@ -21,7 +21,7 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     must be requested explicitly per run.
     --teach-on-failure: if the applied patch fails to compile or fails a test (a real,
     concrete failure -- not just "didn't apply cleanly"), --teacher (default gemini) explains
-    the mistake and the correction is logged to data/learning_log.jsonl as future fine-tuning
+    the mistake and the correction is logged to data/learning_log.jsonl
     material. Never auto-applies the correction. Off by default.
   gremlin auto-fix
   gremlin edit <path> ["<problem description>"]
@@ -33,27 +33,6 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin list-snapshots          -- list BTRFS snapshots (via snapper)
   gremlin rollback-to <number>    -- roll back to a snapshot and reboot (requires sudo
     password cached via set-sudo-password)
-  gremlin build-training-set      -- turn data/learning_log.jsonl (every time a consult
-    was needed) into data/training_set.jsonl + data/eval_set.jsonl, for fine-tuning
-    Gremlin's own primary model on what the consult group has contributed over time.
-  gremlin finetune [--promote]    -- runs build-training-set, then a QLoRA fine-tune of
-    the primary model's base repo on the result, merges + converts back to GGUF. Without
-    --promote the new .gguf is left on disk untouched; with it, persona.primary_model in
-    config/models.yaml is switched to the new version (the old model entry/file are left
-    alone either way, so reverting is a one-line config edit).
-  gremlin finetune --target=<name> [--base-repo=<repo>] [--promote]
-    Same ladder, but for one specific sub-model instead of the primary -- trains only on
-    learning_log.jsonl entries where <name> was the one actually consulted (see
-    gremlin_core/consult.py's topic routing), so it learns from just its own contributions.
-    --base-repo is that sub-model's own full-precision HF repo (transformers format), NOT
-    the GGUF quantizer repo it was downloaded from -- bartowski/mradermacher etc. only
-    publish quants of someone else's original checkpoint, and QLoRA needs that original.
-    Omit --base-repo and it's looked up in data/submodel_base_repos.json (pre-verified for
-    all 21 roster models); only needed explicitly for a model added since. Without
-    --promote the new .gguf is left on disk; with it, <name>'s own model_path is swapped
-    in place (every specialists:/consult_models:
-    reference to it keeps working, and the old file is left alone so reverting is a
-    one-line config edit).
   gremlin build <name> "<what to build>" [--apply] [--test] [--dir=<path>]
     [--reviewer-a=NAME] [--reviewer-b=NAME]
     Builds a NEW project from scratch (or extends an existing one) in ~/Downloads/<name>/
@@ -62,16 +41,9 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     own repo. That folder becomes its own git repo (auto-init'd), so every build is a
     discrete, revertible commit, same safety guarantee as a self-edit. Without --apply,
     only previews the proposed diff. A successful build is also logged to Gremlin's own
-    data/learning_log.jsonl as future fine-tuning material, so repeated use is meant to
+    data/learning_log.jsonl, so repeated use is meant to
     make it better at this over time. Reachable from regular chat too, e.g. "build me a
     bash script that backs up my Documents folder" -- same reviewer gate either way.
-  gremlin checkpoint-eval [--judge=NAME]
-    For every promoted sub-model fine-tune (`gremlin finetune --target=<name> --promote`
-    has run), replays its own held-out question through both the original base checkpoint
-    and the fine-tuned one that replaced it, and has an independent judge score both blind
-    (reuses gremlin bench's judge machinery). "The training run finished without erroring"
-    and "the fine-tune actually made it better at its own material" are different claims --
-    this checks the second one. Results saved to data/checkpoint_eval_results.jsonl.
   gremlin research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]
     Generate -> adversarial critique -> refine, until the score stops improving.
     Also: --queue (add to the background queue), --daemon (work it continuously), --status.
@@ -102,10 +74,8 @@ from gremlin_core import server
 from gremlin_core import hf_hub
 from gremlin_core import root_exec
 from gremlin_core import snapshots as snapshots_mod
-from gremlin_core import finetune
 from gremlin_core import update_check
 from gremlin_core import research
-from gremlin_core import checkpoint_eval
 from gremlin_core import build_project
 from gremlin_core.pressure import PressureLevel
 from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
@@ -136,8 +106,7 @@ def _throttle_background_work():
     for the calling process -- confirmed by real incident, not theory: a
     `gremlin distill` run alone pushed load average past 11 on this
     4-core box and visibly starved the Jellyfin server running alongside
-    it. Called at the start of every heavy batch command (distill,
-    finetune) so they still finish, just only using CPU/disk the desktop
+    it. Called at the start of heavy batch commands so they still finish, just only using CPU/disk the desktop
     isn't otherwise asking for, instead of competing with it. Survives
     distill's own os.execv self-restart (nice/ionice are process
     scheduling attributes, not something exec resets). Best-effort: a
@@ -408,106 +377,6 @@ async def cmd_rollback_to(number: str, skip_confirm: bool = False):
     print(message)
 
 
-def cmd_build_training_set():
-    result = finetune.write_training_set(PROJECT_ROOT)
-    print(f"Wrote {result['train_count']} training example(s) to {result['train_path']}")
-    print(f"Wrote {result['eval_count']} held-out eval example(s) to {result['eval_path']}")
-    if result["train_count"] == 0:
-        print(
-            "Nothing here yet -- these come from data/learning_log.jsonl, which only "
-            "gets an entry each time Gremlin's own answer was uncertain and a consult "
-            "was needed. Chat with Gremlin a bit more first."
-        )
-
-
-def cmd_finetune(promote: bool):
-    _throttle_background_work()
-    print("Building training set from data/learning_log.jsonl...")
-    try:
-        result = finetune.run_pipeline(PROJECT_ROOT, CONFIG_PATH, promote=promote)
-    except Exception as e:
-        print(f"Fine-tune failed: {e}")
-        return
-
-    if result["stage"] == "dataset":
-        print(f"Wrote {result['train_count']} training example(s) -- nothing to train on yet.")
-        print(
-            "These come from data/learning_log.jsonl, which only gets an entry each time "
-            "Gremlin's own answer was uncertain and a consult was needed. Chat with Gremlin "
-            "a bit more first, then try again."
-        )
-        return
-
-    print(f"Trained on {result['train_count']} example(s), held out {result['eval_count']} for eval.")
-    loss_line = f"Train loss: {result['train_loss']:.4f}"
-    if result["eval_loss"] is not None:
-        loss_line += f", eval loss: {result['eval_loss']:.4f}"
-    print(loss_line)
-    print(f"Merged + quantized GGUF: {result['gguf_path']}")
-    if result["promoted_name"]:
-        print(f"Promoted as '{result['promoted_name']}' -- persona.primary_model now points to it.")
-        print("Run `gremlin list` to confirm, or edit config/models.yaml's primary_model to revert.")
-    else:
-        print(
-            "Not promoted -- the new GGUF is on disk but gremlin's primary_model is untouched. "
-            "Re-run with --promote once you've sanity-checked it, or register/point to it manually."
-        )
-
-
-def _lookup_submodel_base_repo(model_name: str) -> Optional[str]:
-    """data/submodel_base_repos.json maps each registered sub-model to the
-    full-precision HF repo its GGUF was quantized from -- verified once
-    (by fetching each model's actual HF page) so `--base-repo` doesn't
-    need to be hunted down and typed out by hand every time. Returns None
-    if `model_name` isn't in the table (a model added since, or a typo) --
-    caller falls back to requiring --base-repo explicitly in that case."""
-    import json
-    path = Path(PROJECT_ROOT) / "data" / "submodel_base_repos.json"
-    if not path.exists():
-        return None
-    try:
-        table = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return None
-    return table.get(model_name)
-
-
-def cmd_finetune_submodel(model_name: str, base_repo: str, promote: bool):
-    _throttle_background_work()
-    print(f"Building training set for '{model_name}' from data/learning_log.jsonl...")
-    try:
-        result = finetune.run_pipeline_for_model(
-            PROJECT_ROOT, CONFIG_PATH, model_name, base_repo, promote=promote,
-        )
-    except Exception as e:
-        print(f"Fine-tune failed: {e}")
-        return
-
-    if result["stage"] == "dataset":
-        print(f"Wrote {result['train_count']} training example(s) -- nothing to train on yet.")
-        print(
-            f"These come from data/learning_log.jsonl entries where '{model_name}' specifically "
-            "was the one consulted (see gremlin_core/consult.py's routing). Use 'go learn about "
-            "X' on a topic that group handles, or run `gremlin distill`, to generate some first."
-        )
-        return
-
-    print(f"Trained on {result['train_count']} example(s), held out {result['eval_count']} for eval.")
-    loss_line = f"Train loss: {result['train_loss']:.4f}"
-    if result["eval_loss"] is not None:
-        loss_line += f", eval loss: {result['eval_loss']:.4f}"
-    print(loss_line)
-    print(f"Merged + quantized GGUF: {result['gguf_path']}")
-    if result["promoted"]:
-        print(f"Promoted -- '{model_name}' now points at the fine-tuned file.")
-        print("Run `gremlin list` to confirm, or edit its model_path in config/models.yaml to revert.")
-    else:
-        print(
-            f"Not promoted -- the new GGUF is on disk but '{model_name}' still points at its "
-            "original file. Re-run with --promote once you've sanity-checked it."
-        )
-
-
 def cmd_update_check():
     result = update_check.run_check()
     if not result["ok"]:
@@ -522,43 +391,6 @@ async def cmd_list(registry: ModelRegistry):
         b = registry.get(name)
         tag = " <- talk to this one" if b.info.kind == "persona" else ""
         print(f"  - {name} ({b.info.kind}) {b.info.notes}{tag}")
-
-
-async def cmd_checkpoint_eval(registry: ModelRegistry, router: Router, judge: Optional[str]):
-    _throttle_background_work()
-    cases = checkpoint_eval.find_promoted_submodels(os.path.join(PROJECT_ROOT, "config", "models.yaml"))
-    if not cases:
-        print("No promoted sub-model fine-tunes found -- nothing to compare yet.")
-        print("(a model counts once `gremlin finetune --target=<name> --promote` has run)")
-        return
-
-    print(f"Comparing {len(cases)} promoted sub-model fine-tune(s) against their original base checkpoint.")
-    print("Each held-out question runs through both; an independent judge scores them blind.\n")
-
-    def show(msg: str):
-        print(f"  {msg}")
-
-    report = await checkpoint_eval.run_checkpoint_eval(
-        router, registry, os.path.join(PROJECT_ROOT, "config", "models.yaml"),
-        judge_name=judge, progress=show,
-    )
-
-    print(f"\nJudge: {report.judge}\n")
-    for r in report.results:
-        if r.error:
-            print(f"  {r.name:45} ERROR: {r.error}")
-            continue
-        arrow = "IMPROVED" if r.delta > 2 else ("REGRESSED" if r.delta < -2 else "unchanged")
-        print(f"  {r.name:45} base {r.base_score:5.1f} vs fine-tuned {r.finetuned_score:5.1f}  -> {arrow}")
-        if r.reason:
-            print(f"      {r.reason}")
-
-    print(
-        f"\n{len(report.improved)} improved / {len(report.regressed)} regressed / "
-        f"{len(report.unchanged)} unchanged (out of {len(report.scored)} scored)."
-    )
-    path = checkpoint_eval.record_report(PROJECT_ROOT, report)
-    print(f"(saved to {path})")
 
 
 async def cmd_research(
@@ -904,7 +736,7 @@ async def cmd_auto_fix(registry: ModelRegistry, router: Router):
     ).strip().lower()
     teach_input = input(
         "If the patch fails to compile or fails a test, ask gemini to explain the "
-        "mistake and log the correction for future fine-tuning? (y/N): "
+        "mistake and log the correction? (y/N): "
     ).strip().lower()
 
     # Reuses cmd_improve entirely -- auto-fix is a friendlier front door,
@@ -1036,34 +868,6 @@ async def main():
         await cmd_rollback_to(sys.argv[2])
         return
 
-    if cmd == "build-training-set":
-        cmd_build_training_set()
-        return
-
-    if cmd == "finetune":
-        extra_args = sys.argv[2:]
-        promote = "--promote" in extra_args
-        target_model = None
-        target_base_repo = None
-        for arg in extra_args:
-            if arg.startswith("--target="):
-                target_model = arg.split("=", 1)[1]
-            elif arg.startswith("--base-repo="):
-                target_base_repo = arg.split("=", 1)[1]
-        if target_model:
-            if not target_base_repo:
-                target_base_repo = _lookup_submodel_base_repo(target_model)
-            if not target_base_repo:
-                print(
-                    "--target requires --base-repo=<the sub-model's own full-precision HF repo> "
-                    f"(no entry for '{target_model}' in data/submodel_base_repos.json either)"
-                )
-                return
-            cmd_finetune_submodel(target_model, target_base_repo, promote)
-        else:
-            cmd_finetune(promote)
-        return
-
     if cmd == "update-check":
         cmd_update_check()
         return
@@ -1177,13 +981,6 @@ async def main():
                 elif arg.startswith("--dir="):
                     target_dir = arg.split("=", 1)[1]
             await cmd_build(registry, router, name, goal, do_apply, run_tests, reviewer_a, reviewer_b, target_dir)
-        elif cmd == "checkpoint-eval":
-            extra = sys.argv[2:]
-            judge = None
-            for a in extra:
-                if a.startswith("--judge="):
-                    judge = a.split("=", 1)[1]
-            await cmd_checkpoint_eval(registry, router, judge)
         elif cmd == "auto-fix":
             await cmd_auto_fix(registry, router)
         elif cmd == "edit":
@@ -1191,7 +988,7 @@ async def main():
             problem = sys.argv[3] if len(sys.argv) > 3 else None
             await cmd_edit(registry, router, path, problem)
         elif cmd == "serve":
-            # Same reasoning as distill/finetune/enlist -- confirmed by a
+            # Same reasoning as other heavy batch commands -- confirmed by a
             # SECOND real incident, this time during normal /chat traffic
             # (not a batch job): a local model generating during a consult
             # call was enough to starve Jellyfin again. nice/ionice are

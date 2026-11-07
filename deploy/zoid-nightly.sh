@@ -17,7 +17,7 @@ exec >>"$LOG" 2>&1
 echo "==================== $(date) start (budget ${MINUTES}m) ===================="
 
 echo "-- stopping service + timers --"
-for u in gremlin.service gremlin-watchdog.timer gremlin-update.timer gremlin-distill.timer; do
+for u in gremlin.service gremlin-watchdog.timer gremlin-update.timer; do
   systemctl --user stop "$u" 2>/dev/null
 done
 pkill -9 -f "main.py serve" 2>/dev/null
@@ -29,7 +29,7 @@ venv/bin/python zoid_loop.py --minutes "$MINUTES" --rounds "${ZOID_ROUNDS:-200}"
 ZOID_EXIT=$?
 
 echo "-- restoring service + timers --"
-for u in gremlin-watchdog.timer gremlin-update.timer gremlin-distill.timer gremlin.service; do
+for u in gremlin-watchdog.timer gremlin-update.timer gremlin.service; do
   systemctl --user start "$u" 2>/dev/null
 done
 

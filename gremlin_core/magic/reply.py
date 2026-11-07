@@ -235,9 +235,7 @@ async def _stream(backend, prompt: str, hist: list):
 
 async def _post_answer_bookkeeping(primary, message: str, root: str,
                                    text: str, used_fallback: bool, used: str) -> None:
-    """autosave a durable fact + log finetune material -- only when the
-    fallback answered (training on Gremlin's own outputs just reinforces
-    them). Best-effort, never raises."""
+    """autosave a durable fact + log what the fallback answered. Best-effort, never raises."""
     try:
         await notes.maybe_autosave_note(primary, message, root)
     except Exception:

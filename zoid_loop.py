@@ -38,7 +38,7 @@ if _envsh.is_file():
         os.environ[_k.strip()] = _v
 
 # .env (GEMINI_API_KEY / OPENAI_API_KEY) -- the server loads this, a bare
-# script doesn't, so the council's gemini voter would fail without it
+# script doesn't, so the gemini lesson model would fail without it
 _envf = Path(__file__).parent / ".env"
 if _envf.is_file():
     for _line in _envf.read_text().splitlines():
@@ -57,7 +57,7 @@ from gremlin_core.magic.store import Store
 from gremlin_core.magic.battle import run_battle
 from gremlin_core.magic.campaign import Campaign
 from gremlin_core.magic.method_builder import build_from_scaffold
-from gremlin_core.magic import lifecycle, reckoning, reflexion, regression, council as council_mod
+from gremlin_core.magic import lifecycle, reckoning, reflexion, regression
 from gremlin_core.magic.verifier import PytestVerifier
 from gremlin_core.magic.fuzz_verifier import FuzzVerifier
 from gremlin_core.magic.gradle_verifier import GradleVerifier
@@ -67,23 +67,7 @@ ROOT = Path(__file__).parent
 CONFIG = str(ROOT / "config" / "models.yaml")
 HOME = Path.home()
 
-_COUNCIL: list = []          # zero-VRAM voter(s) for skill destination; filled in main()
-
-
-def _council_step(store, skills, log) -> None:
-    """Let the council rule on well-proven skills -- card vs bake-into-weights.
-    Runs on gemini (no VRAM) so it doesn't fight the loop's model."""
-    if not _COUNCIL:
-        return
-    try:
-        rulings = council_mod.review(skills, _COUNCIL,
-                                     episodes=store.read_episodes(limit=120),
-                                     limit=1)      # gemini free tier = 5 req/min; backlog clears over the night
-        for d in rulings:
-            nm = next((s.name for s in skills if s.id == d.skill_id), d.skill_id)
-            log(f"     council: {nm} -> {d.choice} {d.tally}")
-    except Exception as e:
-        log(f"     council skipped: {type(e).__name__}")
+_LESSON_MODELS: list = []    # zero-VRAM model for failure lessons; filled in main()
 
 
 _IGNORE = shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "venv",
@@ -337,7 +321,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
 
         if score.value < 0.999:
             try:
-                lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
+                lesson = reflexion.distil_lesson(_LESSON_MODELS[0] if _LESSON_MODELS else model, task, tr)
                 reflexion.save_lesson(str(ROOT), task, lesson)
             except Exception:
                 lesson = ""
@@ -349,7 +333,6 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
-        _council_step(store, skills, log)
         store.write_skills(skills)
         store.write_facts(facts)
         try:
@@ -484,7 +467,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
 
         if score.value < 0.999:
             try:
-                lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
+                lesson = reflexion.distil_lesson(_LESSON_MODELS[0] if _LESSON_MODELS else model, task, tr)
                 reflexion.save_lesson(str(ROOT), task, lesson)
             except Exception:
                 lesson = ""
@@ -496,7 +479,6 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
-        _council_step(store, skills, log)
         store.write_skills(skills)
         store.write_facts(facts)
         try:
@@ -596,7 +578,7 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
 
         if score.value < 0.999:
             try:
-                lesson = reflexion.distil_lesson(_COUNCIL[0] if _COUNCIL else model, task, tr)
+                lesson = reflexion.distil_lesson(_LESSON_MODELS[0] if _LESSON_MODELS else model, task, tr)
                 reflexion.save_lesson(str(ROOT), task, lesson)
             except Exception:
                 lesson = ""
@@ -608,7 +590,6 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         kept = reckoning.gate(model, proposals, skills, facts)
         applied = reckoning.apply_proposals(kept, result.battle_id, skills, facts)
         transitions = lifecycle.audit(skills)
-        _council_step(store, skills, log)
         store.write_skills(skills)
         store.write_facts(facts)
         try:
@@ -671,13 +652,12 @@ def main() -> None:
     # otherwise runs.
     coder = reg.get("llama-3.1-8b-abliterated")
     model = BackendModel(coder, temperature=0.2)
-    # council voter: gemini if configured (API, no VRAM) -- rules on whether a
-    # proven skill should be baked into the finetune vs stay a card
+    # gemini if configured (API, no VRAM) -- writes failure lessons
     try:
-        _COUNCIL.append(BackendModel(reg.get("gemini"), temperature=0.0))
-        log("council voter: gemini")
+        _LESSON_MODELS.append(BackendModel(reg.get("gemini"), temperature=0.0))
+        log("lesson model: gemini")
     except Exception:
-        log("council voter: none (gemini not configured) -- skills stay cards")
+        log("lesson model: none (gemini not configured)")
     store = Store(str(ROOT))
     from gremlin_core.magic import seed_skills
     newly = seed_skills.seed(str(ROOT))

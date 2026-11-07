@@ -3,7 +3,7 @@
 set -u
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 echo ">> restoring services"
-for u in gremlin-watchdog.timer gremlin-update.timer gremlin-distill.timer gremlin.service; do
+for u in gremlin-watchdog.timer gremlin-update.timer gremlin.service; do
   systemctl --user start "$u" 2>/dev/null
 done
 if [ -d "$HOME/robofuse-stack" ]; then
