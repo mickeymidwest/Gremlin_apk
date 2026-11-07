@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Main action: filled green-to-blue -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#550D1512">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="14dp" />
+            <gradient android:angle="0"
+                android:startColor="@color/gremlin_accent"
+                android:endColor="@color/gremlin_blue" />
+        </shape>
+    </item>
+</ripple>

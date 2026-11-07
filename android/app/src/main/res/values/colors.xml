@@ -3,6 +3,8 @@
     <color name="gremlin_bg">#0D1512</color>
     <color name="gremlin_surface">#132019</color>
     <color name="gremlin_surface_hi">#1A2B23</color>
+    <!-- the borders fade from gremlin_accent (mint green) into this -->
+    <color name="gremlin_blue">#5AB8FF</color>
     <color name="gremlin_accent">#7DFFCF</color>
     <color name="gremlin_text_primary">#CFECE2</color>
     <color name="gremlin_text_secondary">#9FD9C8</color>

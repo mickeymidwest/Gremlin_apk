@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Card: a 1.5dp green-to-blue gradient frame around the surface color -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="18dp" />
+            <gradient android:angle="135"
+                android:startColor="@color/gremlin_accent"
+                android:endColor="@color/gremlin_blue" />
+        </shape>
+    </item>
+    <item android:left="1.5dp" android:top="1.5dp" android:right="1.5dp" android:bottom="1.5dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="16.5dp" />
+            <solid android:color="@color/gremlin_surface" />
+        </shape>
+    </item>
+</layer-list>
