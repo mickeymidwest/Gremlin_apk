@@ -230,9 +230,10 @@ Proven skills stay skill cards, loaded on trigger. Weight fine-tuning is permane
 on his machine: runs commands, builds projects, edits and improves its own code.
 That is the whole point — the desktop is where the work happens.
 
-**The phone app is a thin client. Two jobs only:**
+**The phone app is a control panel:**
 1. **Communicate** with desktop-Gremlin (chat).
 2. **Download** things Gremlin built on the desktop, to the phone.
+3. **Control and inspect** Gremlin: stop work, see status, switch models, view memory and skills.
 
 The app never runs a model, never builds anything, never runs the harness loop.
 A slash command typed in the app is just a structured *message* to

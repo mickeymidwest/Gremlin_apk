@@ -51,6 +51,11 @@ Moved to the hardware queue below: digital twins (#111), environment cloning (#3
 
 Waiting on Gemini: the rest of the 125 items and the 200-upgrade master roadmap. Claude passed on these without review, which `decisions.md` no longer allows.
 
+## App redesign (requested by Mickey 2026-11-07)
+| # | Proposal | Scope | Status |
+|---|----------|-------|--------|
+| A1 | **Polished Gremlin app** | New look, better chat screen, reorganized Settings, nicer Builds, Stop button, live status, model switcher, memory and skills views, profile editor once built | ACCEPTED |
+
 ## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
 Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
 

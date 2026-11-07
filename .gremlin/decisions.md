@@ -36,7 +36,8 @@ Mickey: delete any that aren't really settled.
 - NOT: running battles under the live server. 7.5GB RAM swap-thrashes and the watchdog restarts it mid-run.
 
 ## Phone app (MAGIC.md §5)
-- USE: thin client: chat + download desktop builds. That's it.
+- USE (Mickey, 2026-11-07): the app is a control panel: chat, build downloads, and controls and views for Gremlin
+  (stop, status, model switching, memory, skills). All the work still runs on the desktop.
 - NOT: running models, builds or the harness loop on the phone.
 
 ## Old machinery (MAGIC.md 5b)
