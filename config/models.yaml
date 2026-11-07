@@ -123,7 +123,7 @@ persona:
   # Qwen2.5-Coder is a strong generalist (code + math + reasoning), not
   # narrow -- it passed the long-context sum and the duration parser the
   # plain 7B botched. Chat + /build + /fix now all share one warm model.
-  primary_model: llama-3.1-8b-abliterated
+  primary_model: qwen3.5-9b
   fallback_models: [gemini]
   system_prompt: |
     Your name is Gremlin. You're a personal AI assistant running locally

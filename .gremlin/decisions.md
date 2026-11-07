@@ -16,8 +16,11 @@ Mickey: delete any that aren't really settled.
 ---
 
 ## Primary model (MAGIC.md §1)
-- USE: llama-3.1-8b-abliterated Q4_K_M as primary (config/models.yaml, restored 2026-11-03), Gemini fallback.
-  qwen2.5-14b is the other registered local model. The Qwen 7B models are no longer on disk.
+- USE: qwen3.5-9b (stock, Q4_K_M, chat_format chatml-nothink) as primary, Gemini fallback. Mickey chose it
+  2026-11-07 after the uplift bench (grader v6, bare): quality 19/19, heldout 12/12, stop 8/8, honesty 10/12,
+  norefuse 20/20, norefuse_hard 18/18, honesty_ho 16/16, chat 21/22, 46 tok/s. It answered every refusal
+  test, so it doesn't limit him; the abliterated 9B scored lower everywhere and is kept one tap away.
+  Previous primary: llama-3.1-8b-abliterated (13/19, 8/12, honesty 2/12, 59 tok/s).
 - NOT: swapping the primary without re-running the bench.
 
 ## KV cache (MAGIC.md §1, models.yaml, confirmed 2026-11-06)
