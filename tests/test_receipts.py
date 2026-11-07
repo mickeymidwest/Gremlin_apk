@@ -264,6 +264,10 @@ def test_self_improve_records_checks(tmp_path):
     ("how's everything going", []),
     ("what's up", []),
     ("is jellyfinx running", []),
+    ("docker is fine for that", []),
+    ("I'm good with docker containers", []),
+    ("jellyfin is working good today", []),
+    ("check jellyfin", ["jellyfin"]),
 ])
 def test_status_question(tmp_path, msg, expect):
     (tmp_path / "config").mkdir()
@@ -277,7 +281,7 @@ def test_render_states_only_reports_what_it_saw():
     ok, text = service_control.render_states(
         ["jellyfin", "bridge"], {"jellyfin": "Up 27 hours (healthy)", "bridge": "Up 27 hours"})
     assert ok and "- jellyfin: Up 27 hours (healthy)" in text and "All 2 are up." in text
-    assert "didn't open their web pages" in text
+    assert "whether they're running" in text and "didn't open their web pages" in text
     ok, text = service_control.render_states(
         ["jellyfin", "bridge"], {"jellyfin": "Up 1 hour", "bridge": "Exited (1) 3 minutes ago"})
     assert not ok and "Not up: bridge" in text and 'restart bridge' in text

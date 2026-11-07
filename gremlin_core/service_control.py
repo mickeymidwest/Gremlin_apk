@@ -88,6 +88,11 @@ _STATUS_CUE_RE = re.compile(
 _NOT_A_STATUS_QUESTION_RE = re.compile(
     r"\b(restart|reboot|stop|start|kill|remove|delete|update|upgrade|install|set\s*up|setup"
     r"|configure|config|logs?|fix|add|how\s+(do|can|to|should|would))\b", re.I)
+# it has to be asked, not just mentioned: "docker is fine for that" is chat
+_ASKING_RE = re.compile(
+    r"\?|^\s*(is|are|how|check|any)\b"
+    r"|\b(how'?s|how\s+(is|are|was)|is\s+(my|the|it|everything)|are\s+(my|the|they|all)"
+    r"|check|status)\b", re.I)
 # words that mean "all of them"
 _GROUP_RE = re.compile(r"\b(stack|containers|services|docker)\b", re.I)
 
@@ -98,7 +103,8 @@ def status_question(project_root: str, message: str) -> list[str]:
     "services" or "docker" checks everything on the list. Pure apart from
     reading the allow-list."""
     text = message or ""
-    if not _STATUS_CUE_RE.search(text) or _NOT_A_STATUS_QUESTION_RE.search(text):
+    if (not _STATUS_CUE_RE.search(text) or not _ASKING_RE.search(text)
+            or _NOT_A_STATUS_QUESTION_RE.search(text)):
         return []
     allow = _load_allowlist(project_root)
     every = allow["docker"] + allow["systemd"]
@@ -153,6 +159,6 @@ def render_states(names: list[str], states: dict[str, str]) -> tuple[bool, str]:
                         if unhealthy else "."))
     else:
         lines.append(f"\nNot up: {', '.join(down)}. Say \"restart {down[0]}\" and I'll restart it.")
-    lines.append("This only shows the containers are running. I didn't open their web pages "
+    lines.append("This only shows whether they're running. I didn't open their web pages "
                  "or check versions.")
     return (not down and not unhealthy), "\n".join(lines)
