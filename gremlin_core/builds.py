@@ -34,14 +34,41 @@ _NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 MAX_ZIP_BYTES = 50 * 1024 * 1024
 
 
-def write_marker(target_root: str, goal: str, models: list[str], files_changed: list[str]) -> None:
-    """Called by build_project after a successful, committed build."""
+def source_info(source_dir: Optional[str]) -> dict:
+    """Which code a build came from: git commit, branch, and whether there
+    were uncommitted changes. {} when it isn't a git checkout."""
+    import subprocess
+    if not source_dir:
+        return {}
+
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(source_dir), *args], capture_output=True,
+                           text=True, timeout=10)
+        return r.stdout.strip() if r.returncode == 0 else None
+    try:
+        commit = git("rev-parse", "HEAD")
+        if not commit:
+            return {}
+        dirty = git("status", "--porcelain", "--untracked-files=no")
+        return {"commit": commit, "branch": git("rev-parse", "--abbrev-ref", "HEAD") or "",
+                "dirty": bool(dirty)}
+    except (OSError, subprocess.SubprocessError):
+        return {}
+
+
+def write_marker(target_root: str, goal: str, models: list[str], files_changed: list[str],
+                 source_dir: Optional[str] = None, version: str = "") -> None:
+    """Called after a successful build. source_dir is the checkout the build
+    came from (defaults to the build folder itself, which build_project
+    keeps as its own git repo); version is e.g. an APK's versionName."""
     path = Path(target_root) / MARKER
     payload = {
         "goal": goal,
         "created": time.time(),
         "models": models,
         "files_changed": files_changed or [],
+        "source": source_info(source_dir or target_root),
+        "version": version or "",
     }
     try:
         path.write_text(json.dumps(payload, indent=2))
@@ -100,6 +127,9 @@ def list_builds() -> list[dict]:
             "goal": meta.get("goal", ""),
             "created": meta.get("created"),
             "models": meta.get("models", []),
+            "version": meta.get("version", ""),
+            "source_commit": (meta.get("source") or {}).get("commit", "")[:12],
+            "source_dirty": bool((meta.get("source") or {}).get("dirty")),
             "size_bytes": size,
             "file_count": files,
             "too_big": size > MAX_ZIP_BYTES,

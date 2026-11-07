@@ -26,6 +26,8 @@ import queue as _queue
 import secrets
 from concurrent.futures import CancelledError as FuturesCancelled
 from concurrent.futures import TimeoutError as FuturesTimeout
+import os
+import re
 import socket
 import subprocess
 import threading
@@ -109,6 +111,75 @@ def get_lan_ip() -> str:
         return "127.0.0.1"
     finally:
         s.close()
+
+
+_IPV4_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
+
+
+def get_tailscale_ip() -> Optional[str]:
+    """This box's Tailscale address (100.64.0.0/10), or None. Pairing with
+    it works at home and away, as long as the phone is on Tailscale too."""
+    import subprocess
+    try:
+        out = subprocess.run(["tailscale", "ip", "-4"], capture_output=True,
+                             text=True, timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.splitlines():
+        m = _IPV4_RE.match(line.strip())
+        if m and int(m.group(1)) == 100 and 64 <= int(m.group(2)) <= 127:
+            return line.strip()
+    return None
+
+
+def pairing_host() -> tuple[str, str]:
+    """(address, where it came from) for the pairing URL: GREMLIN_PAIR_HOST
+    if set, else Tailscale, else the LAN address."""
+    override = os.environ.get("GREMLIN_PAIR_HOST", "").strip()
+    if override:
+        return override, "GREMLIN_PAIR_HOST"
+    ts = get_tailscale_ip()
+    if ts:
+        return ts, "Tailscale"
+    return get_lan_ip(), "LAN"
+
+
+_TOKEN_IN_URL_RE = re.compile(r"((?:token|admin_token)=)[^&\s\"']+", re.I)
+
+
+class RedactTokens:
+    """logging filter: a build pulled through the phone's browser carries
+    ?token=... in its URL, and werkzeug logs every request line to the
+    journal. Blank the value before it's written."""
+
+    def filter(self, record) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        clean = _TOKEN_IN_URL_RE.sub(r"\1REDACTED", msg)
+        if clean != msg:
+            record.msg, record.args = clean, ()
+        return True
+
+
+def startup_banner(port: int, lan_ip: str, pair_ip: str, pair_from: str, token_path: str) -> str:
+    """What `gremlin serve` prints. Never contains the token: under systemd
+    this goes to the journal, which kept 570 copies of it before
+    2026-11-07. `gremlin pair` shows the QR in a terminal instead."""
+    lines = [f"Gremlin server running on port {port}",
+             f"  LAN:     http://{lan_ip}:{port}"]
+    if pair_from != "LAN":
+        lines.append(f"  {pair_from + ':':8} http://{pair_ip}:{port}  (pairing uses this one)")
+    lines += [f"(token saved at {token_path} -- reused across restarts, not printed here)",
+              "To pair the phone, run `gremlin pair` in a terminal and scan the QR,",
+              "or use Settings -> Pair manually in the app.",
+              "",
+              "Admin token (system commands, reboot) is intentionally NOT shown here --",
+              "run `gremlin admin-token` separately to see it, and enter it manually",
+              "in the app's Admin section. Keeping it out of the QR code means",
+              "regular phone pairing never grants remote command/reboot access."]
+    return "\n".join(lines)
 
 
 def start_background_loop() -> asyncio.AbstractEventLoop:
@@ -1287,15 +1358,9 @@ def serve(registry: ModelRegistry, router: Router, project_root: str, port: int 
     asyncio.run_coroutine_threadsafe(_warm(), loop)
 
     lan_ip = get_lan_ip()
-    url = pairing_url(lan_ip, port, token)
-    print(f"Gremlin server running on http://{lan_ip}:{port}")
-    print(f"(token saved at {data_dir / TOKEN_PATH_NAME} -- reused across restarts)\n")
-    print("Scan this in the Gremlin Android app to pair (same Wi-Fi network required):\n")
-    print_pairing_info(url)
-    print()
-    print("Admin token (system commands, reboot) is intentionally NOT shown here --")
-    print("run `gremlin admin-token` separately to see it, and enter it manually")
-    print("in the app's Admin section. Keeping it out of the QR code means")
-    print("regular phone pairing never grants remote command/reboot access.")
+    pair_ip, pair_from = pairing_host()
+    print(startup_banner(port, lan_ip, pair_ip, pair_from, str(data_dir / TOKEN_PATH_NAME)), flush=True)
 
+    import logging
+    logging.getLogger("werkzeug").addFilter(RedactTokens())
     app.run(host="0.0.0.0", port=port, threaded=True)

@@ -11,6 +11,8 @@ Settings -> Builds screen like any other desktop build.
 """
 from __future__ import annotations
 
+import re
+
 import os
 import shutil
 import subprocess
@@ -18,6 +20,21 @@ from pathlib import Path
 
 from .. import builds as builds_mod
 
+
+
+def app_version(proj) -> str:
+    """'1.4 (5)' from app/build.gradle(.kts) versionName/versionCode, or ''."""
+    for f in ("app/build.gradle.kts", "app/build.gradle"):
+        try:
+            text = (Path(proj) / f).read_text()
+        except OSError:
+            continue
+        name = re.search(r"versionName\s*=?\s*\"([^\"]+)\"", text)
+        code = re.search(r"versionCode\s*=?\s*(\d+)", text)
+        if name or code:
+            return " ".join(x for x in ((name.group(1) if name else ""),
+                                        (f"({code.group(1)})" if code else "")) if x)
+    return ""
 
 def _env_path() -> Path:
     return Path.home() / "android-build" / "env.sh"
@@ -101,7 +118,8 @@ def build_apk(project_hint: str, out_name: str, timeout: int = 1800) -> dict:
     dest.mkdir(parents=True, exist_ok=True)
     shutil.copy2(apk, dest / f"{out_name}.apk")
     builds_mod.write_marker(str(dest), goal=f"Android APK from {proj.name}",
-                            models=[], files_changed=[f"{out_name}.apk"])
+                            models=[], files_changed=[f"{out_name}.apk"],
+                            source_dir=str(proj), version=app_version(proj))
     size_mb = apk.stat().st_size / 1024 / 1024
     return {"ok": True, "action": "build",
             "answer": f"Built {out_name}.apk ({size_mb:.1f} MB) -> ~/Downloads/{out_name}/ "

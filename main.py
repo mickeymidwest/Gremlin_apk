@@ -26,6 +26,8 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin auto-fix
   gremlin edit <path> ["<problem description>"]
   gremlin serve [port]           (default: 8765) -- lets the phone app connect
+  gremlin pair [port]             -- show the phone pairing URL + QR in this terminal
+                                   (Tailscale address if this box has one, else LAN)
   gremlin admin-token             -- reveal the separate admin token (system commands, reboot)
   gremlin set-sudo-password       -- cache a sudo password locally so root commands can run
     remotely (phone or desktop chat) without a monitor. Verified against real sudo before
@@ -999,6 +1001,18 @@ async def main():
             _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
+        elif cmd == "pair":
+            data_dir = Path(PROJECT_ROOT) / "data"
+            token = server.get_or_create_token(data_dir)
+            port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
+            host, where = server.pairing_host()
+            print(f"Pairing over {where}. Scan this in the Gremlin app:\n")
+            server.print_pairing_info(server.pairing_url(host, port, token))
+            if where == "Tailscale":
+                print("\nThe phone needs Tailscale on to reach this address, at home or away.")
+            else:
+                print("\nThis is the home network address, so it only works on the same Wi-Fi.")
+            print("This shows the token: don't paste it anywhere public.")
         elif cmd == "admin-token":
             data_dir = Path(PROJECT_ROOT) / "data"
             admin_token = server.get_or_create_admin_token(data_dir)
