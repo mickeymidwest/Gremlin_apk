@@ -64,15 +64,14 @@ Mickey: delete any that aren't really settled.
   --allow-crimes doesn't fix it, the result repeats/degenerates. Not real mergekit flags
   (MERGEKIT_USE_CPU / LOW_CPU_MEM_USAGE). Not GGUF inputs (mergekit needs full-weight HF repos).
 
-## Fine-tuning (confirmed from repo 2026-11-06)
-- USE: the QLoRA pipeline is proven safe on this box (local Unsloth, GPU-only, no CPU offload). The real
-  payoff run is the 7B on a rented GPU (deploy/CLOUD-FINETUNE.md), and only after data/conversations/
-  has more real back-and-forth usage to train on.
-- NOT: registering a fine-tune without A/B-ing it against the plain base first. Every attempt so far
-  (3B QLoRA 2026-09-07; local Unsloth 7B/8B 2026-09-13) came out WORSE than the base — repetition loops,
-  misrouting plain requests into build offers, confabulated "previous convo" notes — and was unregistered.
-  Likely cause: too few examples, too heavy on scaffolding/battle transcripts vs real conversation.
-- If results are weak: fix the DATA (more real conversation), don't just rerun. Log every run in .gremlin/runs.md.
+## Fine-tuning (settled by Mickey 2026-11-07, permanent)
+- NOT: weight fine-tuning of any kind: QLoRA, Unsloth, LoRA adapters, Colab or rented-GPU training runs.
+  Don't propose it, rebuild it or suggest "one more try". Every attempt (3B QLoRA 2026-09-07; local Unsloth
+  7B/8B 2026-09-13) came out worse than the base, with repetition loops, misrouted requests and invented
+  memories. There's also nothing real to train on: learning_log.jsonl is empty because consult.py is gone,
+  and data/conversations/ holds one file of 45 messages.
+- USE: better models come from choosing or merging them (see Model merges). This doesn't affect mergekit,
+  which still lives in .finetune-venv.
 
 ## Outside upgrades (ChatGPT review, Nov 2026)
 - USE: staged rollout per .gremlin/proposals.md: verification-as-code first (Batch 1).
