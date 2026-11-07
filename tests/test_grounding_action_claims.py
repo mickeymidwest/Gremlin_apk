@@ -112,6 +112,10 @@ def test_catches_made_up_results(text):
     "Kernel 6.6 added better support for that chipset.",
     "On an 8GB card, a 1.5x bigger context leaves 2 GB free.",
     "Use *bold* for emphasis, and check the restart tool's help.",
+    "* Run `df -h`\n* Check the output\n* Restart the container if it's stuck",
+    "**Run** `docker ps` or *check* the logs.",
+    "The raccoon managed to fix the server, and he was able to get the reboot done before dawn.",
+    "Glad you got it done.",
     "Once you run the update, it should be done in a minute.",
 ])
 def test_ordinary_talk_is_not_flagged_more(text):

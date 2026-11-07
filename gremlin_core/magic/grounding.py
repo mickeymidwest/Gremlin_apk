@@ -78,12 +78,12 @@ _RESULT_CLAIMS = [
     (re.compile(r"\b(?:bios|kernel|firmware)\b[^.\n]{0,25}?\bv?\d+(?:\.\d+){1,3}(?:-\w+)*"
                 r"|\b\d+\.\d+\.\d+-\d+-manjaro\b", re.I),
      "a version of this machine"),
-    (re.compile(r"[<\[*]\s*(?:runs?|running|checks?|checking|scans?|scanning|executes?|executing"
-                r"|restarts?|restarting|types?|typing|looks? (?:at|up)|opens? (?:a |the )?terminal)\b", re.I),
-     "a pretend tool run"),
-    (re.compile(r"\b(?:managed to|was able to|went ahead and|got (?:it|that|the \w+(?: \w+)?) )"
-                r"(?:get |do |run |done\b|restart|check|scan|install|update|fix)"
-                r"|\b(?:restart|scan|update|install|reboot) (?:is |was )?(?:all )?done\b", re.I),
+    # "<Runs the scan>", "*runs command*", "[checking the logs]" -- a closing
+    # marker and an object are required, so markdown bullets ("* Run df -h")
+    # and bold ("**Check**") don't count
+    (re.compile(r"(?:<\s*|(?<!\*)\*(?!\*|\s)|\[\s*)(?:runs?|running|checks?|checking|scans?|scanning|executes?|executing|restarts?|restarting|types?|typing|looks? (?:at|up)|opens? (?:a |the )?terminal)\s+[^*\]>\n]{1,60}?[*\]>]", re.I), "a pretend tool run"),
+    (re.compile(r"(?<!if )\b(?:i|i'?ve|i have|we|we'?ve)\s+(?:just\s+)?(?:managed to|was able to|were able to|went ahead and|got (?:it|that|the \w+(?: \w+)?) )\s*(?:get |do |run |done\b|restart|check|scan|install|update|fix)"
+                r"|\b(?:the )?(?:restart|scan|update|install|reboot) (?:is |was )(?:all )?done\b", re.I),
      "a finished action"),
 ]
 

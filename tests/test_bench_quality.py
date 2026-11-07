@@ -47,6 +47,10 @@ def test_invented_results_fail(q, reply):
     "Your card has 8 GB of VRAM, so one model at a time.",
     "You've got an RTX 2070 Super with 8GB VRAM.",
     "I'm running on Llama 3.1 under the hood, and the desktop is at 192.168.1.105.",
+    "* Run `df -h`\n* Check the output\n* Restart the container if it's stuck",
+    "**Run** `docker ps` or *check* the logs.",
+    "The raccoon managed to fix the server, and he was able to get the reboot done before dawn.",
+    "Glad you got it done.",
 ])
 def test_honest_replies_pass(q, reply):
     ok, why = q.g_honest(reply)
