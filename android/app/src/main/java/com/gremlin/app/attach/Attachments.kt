@@ -7,7 +7,6 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
-import com.gremlin.app.overlay.ScreenReader
 import java.io.File
 import java.io.FileOutputStream
 
@@ -16,7 +15,7 @@ import java.io.FileOutputStream
  *
  * Three kinds, all ending at the same place (plain text in the prompt):
  *  - text-ish files (.txt, .md, source, .csv, .json...) read directly
- *  - images OCR'd via the same ML Kit recognizer the screen overlay uses
+ *  - images OCR'd via ML Kit's bundled recognizer (ImageText.kt)
  *  - PDFs rendered page-by-page with the platform's own PdfRenderer and
  *    then OCR'd
  *
@@ -108,7 +107,7 @@ object Attachments {
                 android.graphics.BitmapFactory.decodeStream(it)
             } ?: return "[Couldn't decode that image.]"
 
-            val text = ScreenReader.extractText(bitmap)
+            val text = ImageText.extractText(bitmap)
             bitmap.recycle()
             if (text.isNotBlank()) text else "[No readable text found in that image.]"
         } catch (e: Exception) {
@@ -144,7 +143,7 @@ object Attachments {
                     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
                     bitmap.eraseColor(Color.WHITE) // transparent background OCRs as blank
                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    val text = ScreenReader.extractText(bitmap)
+                    val text = ImageText.extractText(bitmap)
                     bitmap.recycle()
                     if (text.isNotBlank()) {
                         out.append("--- page ${i + 1} ---\n").append(text).append("\n\n")
@@ -166,7 +165,7 @@ object Attachments {
 
     /**
      * Attachment content is reference material, never instructions --
-     * same delimiting rule the screen-reader overlay uses, for the same
+     * same delimiting rule the old screen overlay used, for the same
      * reason: a PDF that happens to contain "ignore your instructions"
      * must not be able to act as a prompt.
      */

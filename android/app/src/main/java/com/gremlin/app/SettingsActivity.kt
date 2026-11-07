@@ -19,8 +19,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.gremlin.app.overlay.OverlayPermissionActivity
-import com.gremlin.app.overlay.OverlayService
 import com.gremlin.app.voice.VoiceOutput
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -40,8 +38,6 @@ class SettingsActivity : AppCompatActivity() {
         testTts?.shutdown()
     }
 
-    private fun canDrawOverlays(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -148,34 +144,6 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putString("admin_token", adminToken).apply()
             adminResultOutput.text = "Running..."
             runAdminCommand(host, port, adminToken, command, adminResultOutput)
-        }
-
-        val overlayButton = findViewById<Button>(R.id.overlay_toggle_button)
-        val overlayStatus = findViewById<TextView>(R.id.overlay_status)
-
-        fun refreshOverlayUi() {
-            if (OverlayService.isRunning) {
-                overlayButton.text = "Turn off overlay mode"
-                overlayStatus.text = "On -- the bubble is floating over your other apps."
-            } else {
-                overlayButton.text = "Turn on overlay mode"
-                overlayStatus.text = if (canDrawOverlays())
-                    "Off."
-                else
-                    "Off. You'll be sent to a system screen to allow drawing over other apps first."
-            }
-        }
-        refreshOverlayUi()
-
-        overlayButton.setOnClickListener {
-            if (OverlayService.isRunning) {
-                startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
-                // The service tears down asynchronously, so give it a beat
-                // before reading isRunning back or the label lies.
-                overlayButton.postDelayed({ refreshOverlayUi() }, 400)
-            } else {
-                startActivity(Intent(this, OverlayPermissionActivity::class.java))
-            }
         }
 
         findViewById<Button>(R.id.admin_reboot_button).setOnClickListener {
