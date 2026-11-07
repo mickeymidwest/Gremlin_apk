@@ -753,6 +753,8 @@ def main():
         raise SystemExit("couldn't read persona.system_prompt from config/models.yaml")
 
     from llama_cpp import Llama
+    sys.path.insert(0, REPO)
+    from gremlin_core.backends import chatfmt  # noqa: F401  registers chatml-nothink
     t = time.time()
     kw = dict(model_path=model_path, n_ctx=N_CTX, n_gpu_layers=-1, flash_attn=True, verbose=False)
     if chat_format:
@@ -796,7 +798,9 @@ def main():
     def call(messages, max_tokens, temperature, grammar=None):
         if LOOP_THINK and not grammar:  # a grammar can't start with <think>
             last = messages[-1]
-            messages = messages[:-1] + [dict(last, content=last["content"].replace(" /no_think", ""))]
+            # " /think" opts this call into thinking under chatml-nothink;
+            # other formats just see the soft switch removed
+            messages = messages[:-1] + [dict(last, content=last["content"].replace(" /no_think", "") + " /think")]
             max_tokens = max(max_tokens, LOOP_THINK_TOKENS)
             global NO_THINK
             saved, NO_THINK = NO_THINK, False

@@ -13,6 +13,7 @@ from typing import Optional
 
 from .base import ModelBackend, ModelInfo, GenerationResult
 from . import grammars
+from . import chatfmt  # noqa: F401  registers chatml-nothink
 from .. import output_health
 
 try:
