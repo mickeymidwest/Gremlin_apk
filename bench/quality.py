@@ -30,6 +30,15 @@ Run it with Gremlin stopped (one model fits on the card):
     BENCH_THINK=1 ...           # Qwen3: allow thinking
     BENCH_SEEDS=1,2,3 ...       # seeds for the stop/honesty parts (default 1234,5678)
     BENCH_PARTS=stop,honesty    # run only some parts
+    --harness                   # quality + heldout go through gremlin_core/magic/loops.py
+                                # (U1). Same suite as the bare run; the name gets " +loops".
+
+Two more parts (U1, held-out: never used while building the loops, see
+bench/heldout.py):
+  heldout     -- new tasks of the same kinds as quality.
+  honesty_ho  -- live-state questions on topics the honesty part doesn't
+                 cover (RAM, IP, user units, CPU temperature, cron), plus
+                 how-to controls, graded with extra live-state patterns.
 Compare the latest result for each model on the same suite (no GPU needed):
     venv/bin/python bench/quality.py --compare
 
@@ -45,6 +54,9 @@ THINK = os.environ.get("BENCH_THINK") == "1"
 N_CTX = int(os.environ.get("BENCH_N_CTX", "8192"))
 SEEDS = [int(x) for x in os.environ.get("BENCH_SEEDS", "1234,5678").split(",") if x.strip()]
 REPEAT_PENALTY = float(os.environ.get("BENCH_REPEAT_PENALTY", "1.1"))  # what the server uses
+
+HARNESS = "--harness" in sys.argv[1:] or os.environ.get("BENCH_HARNESS") == "1"
+DEFAULT_PARTS = "quality,heldout,stop,honesty,honesty_ho,chat"
 
 # Qwen3 thinking toggle: soft-switch in the prompt. Ignored by non-Qwen models.
 NOTHINK_SUFFIX = "" if THINK else " /no_think"
@@ -538,10 +550,26 @@ def suite_hash(system_prompt, parts=("quality", "stop", "honesty", "chat")):
     for name, prompt in STOP_PROMPTS + HONESTY_PROMPTS + CONTROL_PROMPTS:
         h.update(f"{name}\0{prompt}\0".encode())
     h.update(f"{STOP_MAX_TOKENS}/{HONESTY_MAX_TOKENS}/{SEEDS}/{REPEAT_PENALTY}/g{GRADER_VERSION}".encode())
+    if set(parts) & {"heldout", "honesty_ho"}:
+        ho_tasks, ho_honest, ho_control, _ = _heldout()
+        for name, prompt, grader in ho_tasks:
+            h.update(f"{name}\0{prompt}\0".encode())
+        for name, prompt in ho_honest + ho_control:
+            h.update(f"{name}\0{prompt}\0".encode())
+        import heldout
+        h.update(f"ho{heldout.HELDOUT_VERSION}".encode())
     h.update(hashlib.sha256(system_prompt.encode()).digest())
     # a partial run (BENCH_PARTS) is its own suite, so it can't mask a full run
     h.update(",".join(sorted(parts)).encode())
     return h.hexdigest()[:12]
+
+
+def _heldout():
+    sys.path.insert(0, HERE)
+    import heldout
+    import types
+    # the graders live in this module's globals (it may be loaded without a sys.modules entry)
+    return heldout.build(types.SimpleNamespace(**globals()))
 
 
 def resolve_model(arg):
@@ -583,12 +611,14 @@ def compare(paths=None):
         by_suite[suite].append(r)
     for suite, rs in by_suite.items():
         print(f"\nsuite {suite}")
-        print(f"  {'model':34} {'quality':>8} {'stop':>8} {'honesty':>8} {'chat':>8} {'tok/s':>6}  date")
+        print(f"  {'model':34} {'quality':>8} {'heldout':>8} {'stop':>8} {'honesty':>8} {'hon-ho':>8} "
+              f"{'chat':>8} {'tok/s':>6} {'s/task':>7}  date")
         for r in sorted(rs, key=lambda r: -sum(p["score"] for k, p in r["parts"].items() if k != "chat")):
             cell = lambda k: (f"{r['parts'][k]['score']}/{r['parts'][k]['total']}"
                               if k in r["parts"] else "-")
-            print(f"  {(r.get('name') or r['model'])[:34]:34} {cell('quality'):>8} {cell('stop'):>8} "
-                  f"{cell('honesty'):>8} {cell('chat'):>8} {r.get('tok_per_s', 0):>6}  {r['ts'][:10]}")
+            print(f"  {(r.get('name') or r['model'])[:34]:34} {cell('quality'):>8} {cell('heldout'):>8} "
+                  f"{cell('stop'):>8} {cell('honesty'):>8} {cell('honesty_ho'):>8} {cell('chat'):>8} "
+                  f"{r.get('tok_per_s', 0):>6} {r.get('wall_s_per_task', '-'):>7}  {r['ts'][:10]}")
     return by_suite
 
 
@@ -619,7 +649,9 @@ def main():
         return
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     model_path, chat_format, kv, name = resolve_model(args[0] if args else None)
-    parts = set((os.environ.get("BENCH_PARTS") or "quality,stop,honesty,chat").split(","))
+    parts = set((os.environ.get("BENCH_PARTS") or DEFAULT_PARTS).split(","))
+    if HARNESS:
+        name += " +loops"
     system = gremlin_system_prompt()
     if parts & {"stop", "honesty", "chat"} and not system:
         raise SystemExit("couldn't read persona.system_prompt from config/models.yaml")
@@ -648,24 +680,49 @@ def main():
         out = c["message"]["content"] or ""
         return re.sub(r"<think>.*?</think>", "", out, flags=re.S).strip(), c.get("finish_reason"), out
 
-    def record(part, rows, task, ok, err, out, seed=None):
+    def record(part, rows, task, ok, err, out, seed=None, **extra):
         rows.append({"task": task, "seed": seed, "ok": bool(ok), "note": err,
-                     "sample": (out or "")[:300].replace("\n", "\\n")})
+                     "sample": (out or "")[:300].replace("\n", "\\n"), **extra})
         tag = f"{task}" + (f" s{seed}" if seed is not None else "")
         print(f"  {'PASS' if ok else 'FAIL'}  {part:8} {tag:30} {('' if ok else str(err))[:70]}", flush=True)
 
     results = {}
-    if "quality" in parts:
+    walls = []
+    loops = None
+    if HARNESS:
+        sys.path.insert(0, REPO)
+        from gremlin_core.magic import loops
+
+    def call(messages, max_tokens, temperature):
+        return run(messages, max_tokens, temperature)
+
+    def run_tasks(part, tasks):
         rows = []
-        for task, prompt, grader in TASKS:
+        for task, prompt, grader in tasks:
+            t0 = time.time()
+            extra = {}
             try:
-                clean, _, out = run([{"role": "user", "content": prompt}],
-                                    1200 if THINK else 600, 0.3)
+                if loops:
+                    solved = loops.solve(call, prompt, max_tokens=1200 if THINK else 600, temperature=0.3)
+                    clean, out = solved.text, solved.raw
+                    extra = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
+                else:
+                    clean, _, out = run([{"role": "user", "content": prompt}],
+                                        1200 if THINK else 600, 0.3)
                 ok, err = grader(clean)
             except Exception as e:
                 ok, err, out = False, f"EXC {type(e).__name__}: {e}", traceback.format_exc()[-300:]
-            record("quality", rows, task, ok, err, out)
-        results["quality"] = rows
+            wall = round(time.time() - t0, 1)
+            walls.append(wall)
+            record(part, rows, task, ok, err, out, wall_s=wall, **extra)
+        results[part] = rows
+
+    if "quality" in parts:
+        run_tasks("quality", TASKS)
+    if parts & {"heldout", "honesty_ho"}:
+        ho_tasks, ho_honest, ho_control, g_honest_live = _heldout()
+    if "heldout" in parts:
+        run_tasks("heldout", ho_tasks)
 
     sysmsg = [{"role": "system", "content": system}] if system else []
     for part, prompts, max_toks in (("stop", STOP_PROMPTS, STOP_MAX_TOKENS),
@@ -684,6 +741,19 @@ def main():
                 record(part, rows, task, ok, err, out, seed)
         results[part] = rows
 
+    if "honesty_ho" in parts:
+        rows = []
+        for task, prompt in ho_honest + ho_control:
+            for seed in SEEDS:
+                try:
+                    clean, finish, out = run(sysmsg + [{"role": "user", "content": prompt}],
+                                             HONESTY_MAX_TOKENS, 0.7, seed=seed, repeat_penalty=REPEAT_PENALTY)
+                    ok, err = g_honest_live(clean)
+                except Exception as e:
+                    ok, err, out = False, f"EXC {type(e).__name__}: {e}", traceback.format_exc()[-300:]
+                record("honesty_ho", rows, task, ok, err, out, seed)
+        results["honesty_ho"] = rows
+
     if "chat" in parts:
         rows = []
         for task, seed, ok, note, text in run_chat_part(llm, system, HONESTY_PROMPTS, SEEDS,
@@ -698,6 +768,10 @@ def main():
         "chat_format": chat_format or "gguf-embedded",
         "kv": kv or "f16",
         "think": THINK,
+        "harness": HARNESS,
+        # wall-clock per quality/heldout task: a loop that triples the
+        # time per answer has to be worth it (Gemini review, U1)
+        "wall_s_per_task": round(sum(walls) / len(walls), 1) if walls else None,
         "suite": suite_hash(system, parts),
         "seeds": SEEDS,
         "parts": {k: {"score": sum(r["ok"] for r in v), "total": len(v)} for k, v in results.items()},
