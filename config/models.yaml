@@ -40,6 +40,31 @@ models:
     kv_cache_type: q4_0
     chat_format: llama-3
 
+  # Qwen3.5-9B (Feb 2026), benched 2026-11-07: thinking is switched off by
+  # the chatml-nothink format (an empty <think></think> prefill); Qwen3.5
+  # ignores the /no_think soft switch under Gremlin's system prompt.
+  - name: qwen3.5-9b
+    type: local_gguf
+    display_name: "Qwen3.5-9B"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen3.5-9B-Q4_K_M.gguf"
+    footprint_mb: 6600   # 5.4 GiB weights + q8_0 KV at 16k + CUDA overhead
+    n_ctx: 16384
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q8_0
+    chat_format: chatml-nothink
+
+  - name: qwen3.5-9b-abliterated
+    type: local_gguf
+    display_name: "Qwen3.5-9B (abliterated, Huihui)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Huihui-Qwen3.5-9B-abliterated.Q4_K_M.gguf"
+    footprint_mb: 6600
+    n_ctx: 16384
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q8_0
+    chat_format: chatml-nothink
+
   # All-Llama-3.1 TIES merge (Meta-Llama-3.1-8B-Instruct-abliterated base +
   # NousResearch/Hermes-3-Llama-3.1-8B, merged 2026-11-01 via deploy/merge-local-llama31.py).
   - name: gremlin-llama31-ties
