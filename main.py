@@ -26,6 +26,8 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin auto-fix
   gremlin edit <path> ["<problem description>"]
   gremlin serve [port]           (default: 8765) -- lets the phone app connect
+  gremlin guard [--full|accept]   -- desktop guard: what changed since the known-good
+                                   baseline (--full adds the slow SUID scan)
   gremlin pair [port]             -- show the phone pairing URL + QR in this terminal
                                    (Tailscale address if this box has one, else LAN)
   gremlin admin-token             -- reveal the separate admin token (system commands, reboot)
@@ -1001,6 +1003,13 @@ async def main():
             _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
+        elif cmd == "guard":
+            from gremlin_core import guard
+            if len(sys.argv) > 2 and sys.argv[2] == "accept":
+                print(guard.accept(PROJECT_ROOT))
+            else:
+                text, _found = guard.run(PROJECT_ROOT, full="--full" in sys.argv[2:])
+                print(text)
         elif cmd == "pair":
             data_dir = Path(PROJECT_ROOT) / "data"
             token = server.get_or_create_token(data_dir)
