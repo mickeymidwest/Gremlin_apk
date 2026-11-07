@@ -88,6 +88,9 @@ import pytest
     "You have 2 running containers: bridge and jellyfin.",
     "Let me check... Ah, yeah! I'm running on BIOS version 1.7.0, and as for the OS kernel, it's Linux 5.15.70-3-MANJARO.",
     "Your kernel is 6.6.32.",
+    "Yeah, I managed to get the jellyfin restart done.",
+    "I can check that for you. Let me run a command to get the update status. *runs command* Ah, it looks like there are a few.",
+    "Let me check the system's disk usage for you. *checks the system* Ah, it looks like you're fine.",
 ])
 def test_catches_made_up_results(text):
     findings = grounding.check(text, "/tmp/doesnt-matter", context="facts")
@@ -108,6 +111,8 @@ def test_catches_made_up_results(text):
     "That leaves 3 GB available for the KV cache.",
     "Kernel 6.6 added better support for that chipset.",
     "On an 8GB card, a 1.5x bigger context leaves 2 GB free.",
+    "Use *bold* for emphasis, and check the restart tool's help.",
+    "Once you run the update, it should be done in a minute.",
 ])
 def test_ordinary_talk_is_not_flagged_more(text):
     assert grounding.check(text, "/tmp/doesnt-matter", context="facts") == [], text

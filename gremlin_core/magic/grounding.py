@@ -78,7 +78,13 @@ _RESULT_CLAIMS = [
     (re.compile(r"\b(?:bios|kernel|firmware)\b[^.\n]{0,25}?\bv?\d+(?:\.\d+){1,3}(?:-\w+)*"
                 r"|\b\d+\.\d+\.\d+-\d+-manjaro\b", re.I),
      "a version of this machine"),
-    (re.compile(r"<\s*runs?\b|\[\s*runs?\b|\*\s*runs? (?:the |a )", re.I), "a pretend tool run"),
+    (re.compile(r"[<\[*]\s*(?:runs?|running|checks?|checking|scans?|scanning|executes?|executing"
+                r"|restarts?|restarting|types?|typing|looks? (?:at|up)|opens? (?:a |the )?terminal)\b", re.I),
+     "a pretend tool run"),
+    (re.compile(r"\b(?:managed to|was able to|went ahead and|got (?:it|that|the \w+(?: \w+)?) )"
+                r"(?:get |do |run |done\b|restart|check|scan|install|update|fix)"
+                r"|\b(?:restart|scan|update|install|reboot) (?:is |was )?(?:all )?done\b", re.I),
+     "a finished action"),
 ]
 
 # "I can't tell if the restart worked", "once the scan is complete,
