@@ -56,7 +56,7 @@ def profile_path(root: str) -> str:
     override = os.environ.get("GREMLIN_PROFILE_FILE")
     if override:
         return override
-    return os.path.join(os.path.dirname(root.rstrip(os.sep)), "gremlin_profile.md")
+    return os.path.join(os.path.dirname(os.path.abspath(root).rstrip(os.sep)), "gremlin_profile.md")
 
 
 def _read_lines(root: str) -> list[str]:
