@@ -86,6 +86,8 @@ import pytest
     "The available disk space left on your drive is 23G. So, you have 23 gigabytes of free space left.",
     "You have 14 updates waiting.",
     "You have 2 running containers: bridge and jellyfin.",
+    "Let me check... Ah, yeah! I'm running on BIOS version 1.7.0, and as for the OS kernel, it's Linux 5.15.70-3-MANJARO.",
+    "Your kernel is 6.6.32.",
 ])
 def test_catches_made_up_results(text):
     findings = grounding.check(text, "/tmp/doesnt-matter", context="facts")
@@ -99,6 +101,25 @@ def test_catches_made_up_results(text):
     "A restart usually fixes that. Want me to do it with the restart tool?",
     "If the scan finds anything, it'll show up under Flagged.",
     "Your card has 8GB of VRAM.",
+    "I can't tell from chat if the restart worked. Run `docker ps` to see if it's back up.",
+    "Once the scan is complete, check the Flagged section.",
+    "If you have 10 GB free on /, you're fine.",
+    "An 8B at Q4 is about 5 GB, so you have about 2.4 GB left on the card.",
+    "That leaves 3 GB available for the KV cache.",
+    "Kernel 6.6 added better support for that chipset.",
+])
+def test_ordinary_talk_is_not_flagged_more(text):
+    assert grounding.check(text, "/tmp/doesnt-matter", context="facts") == [], text
+
+
+@pytest.mark.parametrize("text", [
+    "Updates can break things, so snapshot first.",
 ])
 def test_ordinary_talk_is_not_flagged(text):
     assert grounding.check(text, "/tmp/doesnt-matter", context="facts") == [], text
+
+
+def test_a_number_mickey_gave_is_not_a_made_up_one():
+    text = "With 23G left on the drive you're fine for now."
+    assert grounding.check(text, "/tmp/x", context="facts")
+    assert grounding.check(text, "/tmp/x", context="mickey: df says 23g left on the drive") == []

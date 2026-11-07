@@ -68,17 +68,61 @@ _RESULT_CLAIMS = [
                 r"|scan complete|here are the (?:scan )?results"
                 r"|no (?:pending )?(?:critical )?(?:vulnerabilities|cves) (?:were )?(?:found|detected))\b", re.I),
      "scan results"),
-    (re.compile(r"\byou(?:'ve| have)(?: got)? (?:about |around )?\d+(?:\.\d+)?\s?"
-                r"(?:g|gb|gib|t|tb|tib|gigs?|gigabytes?|terabytes?) (?:of )?(?:free|left|available|remaining)\b"
-                r"|\b\d+(?:\.\d+)?\s?(?:g|gb|gib|t|tb|tib|gigabytes?) (?:of (?:disk |free )?space )?"
-                r"(?:free|left|available|remaining) on\b", re.I),
+    (re.compile(r"\b\d+(?:\.\d+)?\s?(?:g|gb|gib|t|tb|tib|gigs?|gigabytes?|terabytes?)\b"
+                r"(?: of (?:disk |free |storage )?space)?\s(?:free|left|available|remaining)\b", re.I),
      "a disk space number"),
     (re.compile(r"\byou have (?:\d+|no|zero) (?:pending |available )?updates\b"
                 r"|\b\d+ (?:pending )?updates? (?:are |is )?(?:waiting|pending|available)\b", re.I),
      "an update count"),
     (re.compile(r"\byou have \d+ (?:running |active )?containers\b", re.I), "a container count"),
+    (re.compile(r"\b(?:bios|kernel|firmware)\b[^.\n]{0,25}?\bv?\d+(?:\.\d+){1,3}(?:-\w+)*"
+                r"|\b\d+\.\d+\.\d+-\d+-manjaro\b", re.I),
+     "a version of this machine"),
     (re.compile(r"<\s*runs?\b|\[\s*runs?\b|\*\s*runs? (?:the |a )", re.I), "a pretend tool run"),
 ]
+
+# "I can't tell if the restart worked", "once the scan is complete,
+# check...", "see if it's back up": the same words, but not a claim.
+_CONDITIONAL_RE = re.compile(
+    r"\b(?:if|whether|when|once|until|unless|after|before|in case|make sure|assuming)\b", re.I)
+# a size next to these is VRAM/RAM headroom talk, not his disk
+_NOT_DISK_RE = re.compile(r"\b(?:v?ram|memory|gpu|card|vram|context|kv|cache|model|weights|swap)\b", re.I)
+_DISK_RE = re.compile(r"\b(?:disk|drive|storage|partition|ssd|hdd|space|/home|root|filesystem|df)\b"
+                      r"|(?:^|\s)/(?:\s|$)", re.I)
+
+
+_GENERAL_VERSION_RE = re.compile(
+    r"\b(?:added|introduced|released|since|supports?|support for|changelog|newer|older|upgrade to)\b", re.I)
+
+
+def _sentence_around(text: str, start: int, end: int) -> tuple[str, str]:
+    """(the sentence up to the match, the whole sentence)."""
+    b = max(text.rfind(c, 0, start) for c in ".!?\n") + 1
+    e = min([i for i in (text.find(c, end) for c in ".!?\n") if i != -1] or [len(text)])
+    return text[b:start], text[b:e]
+
+
+def result_claims(text: str, context: str = "") -> list[str]:
+    """Results only a tool could know, stated outright in plain chat.
+    Skips conditionals, VRAM/RAM sizes, and anything Mickey said himself."""
+    prose = re.sub(r"```.*?```", " ", text or "", flags=re.S)
+    ctx = (context or "").lower()
+    for rx, what in _RESULT_CLAIMS:
+        for m in rx.finditer(prose):
+            before, sentence = _sentence_around(prose, m.start(), m.end())
+            if _CONDITIONAL_RE.search(before):
+                continue
+            # "kernel 6.6 added X" is history, not this box
+            if what == "a version of this machine" and _GENERAL_VERSION_RE.search(sentence):
+                continue
+            if what == "a disk space number" and (
+                    _NOT_DISK_RE.search(sentence) or not _DISK_RE.search(sentence)):
+                continue
+            if m.group(0).strip().lower() in ctx:
+                continue
+            return [f"states {what} (\"{m.group(0).strip()}\"), but this is plain chat -- "
+                    "no tool ran this turn, so that can't have been checked"]
+    return []
 
 # The present-progressive twin of the same bug, confirmed live
 # 2026-09-19: asked to restart a container the classifier routed to
@@ -171,15 +215,7 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
             "something, but this is plain chat -- no tool ran this turn to back that up"
         )
 
-    # fenced blocks are commands for Mickey to run, not claims
-    prose = re.sub(r"```.*?```", " ", text, flags=re.S)
-    for rx, what in _RESULT_CLAIMS:
-        m = rx.search(prose)
-        if m:
-            out.append(
-                f"states {what} (\"{m.group(0).strip()}\"), but this is plain chat -- "
-                "no tool ran this turn, so that can't have been checked")
-            break
+    out.extend(result_claims(text, ctx))
 
     progress = _ACTION_PROGRESS_RE.search(text)
     if progress:
