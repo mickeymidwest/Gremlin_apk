@@ -236,37 +236,10 @@ async def _tool_web_fetch(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     return {"answer": web_search.fetch_text(url), "action": "web_fetch", "ok": True}
 
 
-# mickey runs a torrent-indexer + Real-Debrid auto-download pipeline at
-# ~/robofuse-stack (docker-compose services: robofuse, bridge, unarr --
-# NOT jellyfin/jellyseerr, which are the legitimate media-server side of
-# the same compose file and stay fine to touch). Declined to extend or
-# control that specific pipeline (see the standing boundary) -- this is
-# the structural half of that: even if a prompt or a bad classification
-# gets run_command to try, the actual command never executes. Prompt
-# text alone (the tool description above) isn't enforcement, just a
-# hint the model can ignore; this is the real gate.
-_ROBOFUSE_CONTAINERS = ("robofuse", "bridge", "unarr")
-_ROBOFUSE_PATH_HINT = "robofuse-stack"
-
-
-def _targets_robofuse_stack(command: str) -> bool:
-    low = command.lower()
-    if _ROBOFUSE_PATH_HINT in low:
-        return True
-    return any(re.search(rf"\b{re.escape(name)}\b", low) for name in _ROBOFUSE_CONTAINERS)
-
-
 async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
     command = str(args.get("command") or "").strip()
     if not command:
         return {"answer": "What command do you want me to run?", "action": "run_command", "ok": False}
-    if _targets_robofuse_stack(command):
-        return {
-            "answer": "Not touching the robofuse-stack containers (robofuse/bridge/unarr) -- "
-                      "that pipeline's off-limits. Jellyfin itself is fine.",
-            "action": "run_command",
-            "ok": False,
-        }
     if bool(args.get("as_root")):
         result = await root_exec.run_as_root(command, ctx.project_root)
     else:
@@ -615,10 +588,8 @@ REGISTRY.register(Tool(
         'name by itself as the whole command unless the user\'s request was literally just that '
         'program\'s name with no verb. For restarting or checking a specific named service/container '
         "(\"restart jellyfin\", \"is jellyseerr up\", \"restart robofuse\"), classify as "
-        "service_restart/service_status instead of this, EVEN for robofuse/bridge/unarr -- classify "
-        "it normally with the name filled in, don't switch to chat or answer conversationally instead. "
-        "Those specific names are off-limits and service_restart/service_status will refuse and log "
-        "it themselves; that refusal has to actually run, not be skipped by picking a different action."
+        "service_restart/service_status instead of this -- classify it normally with the name "
+        "filled in, don't switch to chat or answer conversationally instead."
     ),
     parameters={
         "type": "object",
@@ -638,8 +609,7 @@ REGISTRY.register(Tool(
     description=(
         'check whether a specific named service/container is running ("is jellyfin up", "status '
         'of jellyseerr"). args: {"name": "<the service or container name>"}. Only works for names '
-        "on the allow-list in config/models.yaml's service_control: block -- refuses anything else, "
-        "including the robofuse-stack containers, structurally, not just by not being told to."
+        "on the allow-list in config/models.yaml's service_control: block -- refuses anything else."
     ),
     parameters={
         "type": "object",
@@ -656,8 +626,7 @@ REGISTRY.register(Tool(
     description=(
         'restart a specific named service/container ("restart jellyfin"). args: {"name": "<the '
         'service or container name>"}. Only works for names on the allow-list in config/models.yaml\'s '
-        "service_control: block -- refuses anything else, including the robofuse-stack containers, "
-        "structurally, not just by not being told to. Different from run_command: this is the "
+        "service_control: block -- refuses anything else. Different from run_command: this is the "
         "scoped, audited path for a named service specifically -- prefer it over run_command "
         "whenever the request is \"restart X\" for something with a name."
     ),

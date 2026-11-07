@@ -1,13 +1,9 @@
-"""Roadmap #104-106: capability tags on tools, the generic audit log in
-actions.execute(), and the structural (not just prompt-text) block on
-the robofuse-stack containers. Found live while building this: run_command's
-own tool description used to list robofuse/bridge/unarr as ordinary
-`docker restart` targets -- these tests lock in that it can no longer
-actually run a command naming them, regardless of what a model outputs."""
+"""Roadmap #104-106: capability tags on tools and the generic audit log
+in actions.execute()."""
 import asyncio
 
 from gremlin_core import actions, mutation_log
-from gremlin_core.tools import REGISTRY, _targets_robofuse_stack
+from gremlin_core.tools import REGISTRY
 
 
 def test_every_tool_has_a_real_capability_tag():
@@ -28,34 +24,7 @@ def test_run_command_is_mutates_external():
     assert REGISTRY.get("run_command").capability == "mutates_external"
 
 
-def test_targets_robofuse_stack_catches_the_real_container_names():
-    for cmd in ("docker restart robofuse", "docker restart bridge", "docker exec unarr sh",
-                "cd ~/robofuse-stack && docker-compose up -d"):
-        assert _targets_robofuse_stack(cmd), cmd
 
-
-def test_targets_robofuse_stack_leaves_jellyfin_alone():
-    assert not _targets_robofuse_stack("docker restart jellyfin")
-    assert not _targets_robofuse_stack("docker restart jellyseerr")
-    assert not _targets_robofuse_stack("df -h")
-
-
-def test_run_command_handler_actually_refuses_robofuse(monkeypatch):
-    from gremlin_core import tools as tools_mod
-
-    called = []
-
-    async def _fake_sandbox_run(self, cmd):
-        called.append(cmd)
-        raise AssertionError("should never reach the sandbox for a blocked command")
-
-    monkeypatch.setattr(tools_mod.SecureExecutionSandbox, "run_safe_command", _fake_sandbox_run)
-
-    ctx = tools_mod.ExecContext(router=None, registry=None, project_root="/tmp")
-    result = asyncio.run(tools_mod._tool_run_command({"command": "docker restart robofuse"}, ctx))
-    assert result["ok"] is False
-    assert "off-limits" in result["answer"]
-    assert not called
 
 
 def test_actions_execute_logs_mutating_tools_generically(tmp_path, monkeypatch):

@@ -2,8 +2,7 @@
 explicit allow-list in config/models.yaml's `service_control:` block.
 Off by default: nothing is controllable until mickey adds it there.
 
-Deliberately allow-list-based rather than denylist-based like
-run_command's robofuse guard (see tools.py) -- this tool exists
+Deliberately allow-list-based -- this tool exists
 specifically to grant new, real control over the desktop, so it should
 default to nothing rather than default to everything-except-the-things-
 we-thought-to-exclude. A name that isn't in the list is refused the

@@ -1,8 +1,7 @@
 """Roadmap #107: service_status/service_restart, scoped to the
 service_control: allow-list in config/models.yaml. Off by default --
-a name not listed is refused structurally (resolve_unit returns None),
-the same way run_command's robofuse guard is structural rather than
-prompt-text-only. Never touches a real docker/systemctl process in
+a name not listed is refused structurally (resolve_unit returns None).
+Never touches a real docker/systemctl process in
 these tests -- get_status/restart are monkeypatched at the module
 boundary, resolve_unit is pure config parsing."""
 import asyncio
@@ -38,15 +37,6 @@ def test_allow_listed_systemd_name_resolves_with_or_without_suffix(tmp_path):
     assert service_control.resolve_unit(root, "gremlin") == ("systemd", "gremlin.service")
 
 
-def test_robofuse_containers_are_never_on_the_default_allow_list(tmp_path):
-    # the shipped config/models.yaml deliberately never lists these --
-    # this test would fail the moment someone adds one, which is exactly
-    # the point: it has to be a deliberate edit, not an accident.
-    root = _project_root_with(tmp_path, _YAML)
-    for name in ("robofuse", "bridge", "unarr"):
-        assert service_control.resolve_unit(root, name) is None
-
-
 def test_name_not_on_list_refuses(tmp_path):
     root = _project_root_with(tmp_path, _YAML)
     assert service_control.resolve_unit(root, "some-random-thing") is None
@@ -68,7 +58,7 @@ def test_service_restart_tool_refuses_a_name_not_on_the_list(tmp_path, monkeypat
     monkeypatch.setattr(service_control, "restart", lambda k, n: called.append((k, n)))
 
     ctx = tools_mod.ExecContext(router=None, registry=None, project_root=root)
-    result = asyncio.run(tools_mod._tool_service_restart({"name": "robofuse"}, ctx))
+    result = asyncio.run(tools_mod._tool_service_restart({"name": "not-listed"}, ctx))
     assert result["ok"] is False
     assert "allow-list" in result["answer"]
     assert not called

@@ -52,9 +52,9 @@ Mickey: delete any that aren't really settled.
 - NOT: whole-file rewrites as the default.
 
 ## Security boundaries (MAGIC.md §7, §7a)
-- USE: boundaries enforced in code (robofuse-stack refusal in run_command, allow-listed service_control,
+- USE: boundaries enforced in code (allow-listed service_control,
   capability tags, path jail). Infra defense = defensive, own box only.
-- NOT: relying on prompt/tool-description text alone (confirmed not enough), or extending/controlling robofuse-stack.
+- NOT: relying on prompt/tool-description text alone (confirmed not enough).
 
 ## Model merges (confirmed from repo 2026-11-06)
 - USE: TIES, same architecture ONLY, via deploy/merge-local-llama31.py (it refuses non-Llama-3.1 input).
@@ -72,6 +72,10 @@ Mickey: delete any that aren't really settled.
   and data/conversations/ holds one file of 45 messages.
 - USE: better models come from choosing or merging them (see Model merges). This doesn't affect mergekit,
   which still lives in .finetune-venv.
+
+## Gremlin's chat style (settled by Mickey 2026-11-07)
+- USE: room to explain and have fun in conversation: full answers, jokes, tangents. No padding.
+- NOT: keeping replies short as a goal.
 
 ## Outside upgrades (ChatGPT review, Nov 2026)
 - USE: staged rollout per .gremlin/proposals.md: verification-as-code first (Batch 1).

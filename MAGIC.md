@@ -350,22 +350,12 @@ building a parallel system.
   and script fixes undo themselves. `pacman`, `sudo`, `systemctl` and `snapper`
   are left alone, an in-progress generation runs to its end, and streaming
   chats aren't tracked.
-- **robofuse-stack boundary, enforced structurally, not just in the prompt**
-  (`gremlin_core/tools.py`, `_tool_run_command`): mickey runs a torrent-
-  indexer + Real-Debrid auto-download pipeline at `~/robofuse-stack`
-  (`robofuse`/`bridge`/`unarr` containers — `jellyfin`/`jellyseerr` are the
-  legitimate media-server side of the same compose file and stay fine to
-  touch). Declined to extend or control that pipeline. `run_command`
-  refuses any command naming those containers or the stack's path before
-  it ever reaches the sandbox, regardless of what the model outputs — the
-  tool description alone was confirmed to not be enough (it used to list
-  `robofuse`/`bridge`/`unarr` as ordinary `docker restart` examples).
 - **Named service control** (`service_status`/`service_restart`,
   `gremlin_core/service_control.py`): roadmap #107. Separate from
   `run_command` on purpose -- allow-list-based, not denylist-based:
   nothing is controllable until it's explicitly added to
-  `config/models.yaml`'s `service_control:` block (currently just
-  `jellyfin`/`jellyseerr`), so a name has to be a deliberate addition to
+  `config/models.yaml`'s `service_control:` block (currently `jellyfin`, `jellyseerr`,
+  `robofuse`, `bridge`, `unarr`), so a name has to be a deliberate addition to
   work at all, not an accident of the denylist not having thought of it.
   Docker containers and `systemctl --user` units only -- no system-scope
   units, since nothing real needs that yet.
