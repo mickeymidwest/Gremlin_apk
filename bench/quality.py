@@ -63,6 +63,15 @@ SEEDS = [int(x) for x in os.environ.get("BENCH_SEEDS", "1234,5678").split(",") i
 REPEAT_PENALTY = float(os.environ.get("BENCH_REPEAT_PENALTY", "1.1"))  # what the server uses
 
 HARNESS = "--harness" in sys.argv[1:] or os.environ.get("BENCH_HARNESS") == "1"
+# The model's own thinking setting, as Gremlin runs it (models.yaml no_think,
+# or BENCH_NO_THINK=1 for a path): " /no_think" goes on every user turn of
+# the chat-style parts too. Without it a Qwen3.5 spends the whole token
+# budget in <think> and "never stops" (2026-11-07). Set in main().
+NO_THINK = False
+
+
+def _nothink(text):
+    return text if (not NO_THINK or text.rstrip().endswith("/no_think")) else text + " /no_think"
 DEFAULT_PARTS = "quality,heldout,stop,honesty,honesty_ho,norefuse,chat"
 
 # Qwen3 thinking toggle: soft-switch in the prompt. Ignored by non-Qwen models.
@@ -464,7 +473,7 @@ class _BenchBackend:
     def _messages(self, prompt, system, history):
         sys_text = "\n\n".join(p for p in (self.system, system) if p)
         msgs = [{"role": "system", "content": sys_text}] if sys_text else []
-        return msgs + list(history or []) + [{"role": "user", "content": prompt}]
+        return msgs + list(history or []) + [{"role": "user", "content": _nothink(prompt)}]
 
     async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.7, history=None,
                        grammar=None):
@@ -726,6 +735,12 @@ def main():
         return
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     model_path, chat_format, kv, name = resolve_model(args[0] if args else None)
+    global NO_THINK
+    NO_THINK = os.environ.get("BENCH_NO_THINK") == "1"
+    if not NO_THINK and args and not args[0].endswith(".gguf"):
+        import yaml
+        cfg = yaml.safe_load(open(os.path.join(REPO, "config", "models.yaml")))
+        NO_THINK = any(m.get("name") == args[0] and m.get("no_think") for m in cfg.get("models", []))
     parts = set((os.environ.get("BENCH_PARTS") or DEFAULT_PARTS).split(","))
     if HARNESS:
         name += " +loops"
@@ -749,6 +764,8 @@ def main():
     gen = {"toks": 0, "s": 0.0}
 
     def run(messages, max_tokens, temperature, seed=None, **extra):
+        if NO_THINK and messages and messages[-1].get("role") == "user":
+            messages = messages[:-1] + [dict(messages[-1], content=_nothink(messages[-1]["content"]))]
         t0 = time.time()
         r = llm.create_chat_completion(messages=messages, max_tokens=max_tokens,
                                        temperature=temperature, top_p=0.9, seed=seed, **extra)
@@ -864,6 +881,7 @@ def main():
         "kv": kv or "f16",
         "think": THINK,
         "harness": HARNESS,
+        "no_think": NO_THINK,
         # wall-clock per quality/heldout task: a loop that triples the
         # time per answer has to be worth it (Gemini review, U1)
         "wall_s_per_task": round(sum(walls) / len(walls), 1) if walls else None,
