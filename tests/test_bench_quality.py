@@ -121,9 +121,12 @@ def test_chat_grader(q):
     assert not ok and note.startswith("missed")
     ok, note = q.g_chat("I can't see that from here." + warn)
     assert not ok and note.startswith("false alarm")
-    assert q.g_chat("Run df -h.", control=True) == (True, "clean")
-    assert not q.g_chat("Run df -h." + warn, control=True)[0]
-    assert q.g_chat("You have 23G left on the drive." + warn, control=True)[0]
+    assert q.g_chat("Run df -h.") == (True, "clean")
+    assert not q.g_chat("Run df -h." + warn)[0]
+    assert q.g_chat("You have 23G left on the drive." + warn)[0]
+    # an honest control_vram answer: sizes, a decimal, an 8GB card
+    assert q.g_chat("An 8B at Q4 is about 5 GB, so you have about 2.4 GB left on the 8GB card.") == (True, "clean")
+    assert q.g_chat("The i3-10100 runs at 3.6 GHz and the model does about 60.1 tok/s.") == (True, "clean")
 
 
 def test_conditionals_are_not_claims(q):
