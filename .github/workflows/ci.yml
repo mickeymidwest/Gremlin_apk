@@ -2,9 +2,8 @@ name: Desktop CI
 
 # Real verification that this actually works, not just "looks right" --
 # runs on a genuine Ubuntu machine with real dependencies installed.
-# Path-filtered so a pure Android change doesn't trigger this (and
-# android-build.yml is filtered the other way) -- same repo, two
-# independent build pipelines.
+# Path-filtered so a pure Android change doesn't trigger this. The app
+# itself is only built locally.
 
 on:
   push:
