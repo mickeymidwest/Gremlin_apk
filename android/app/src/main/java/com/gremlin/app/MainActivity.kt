@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
                 ?: return@registerForActivityResult
             val ttl = res.data?.getStringExtra(ConversationsActivity.EXTRA_TITLE) ?: "chat"
             currentThread = tid
+            abandonTurn()
             chat.clear()
             historyFile.writeText("")
             appendSystemTurn("— $ttl —", false)
@@ -247,6 +248,7 @@ class MainActivity : AppCompatActivity() {
 
         thinkingStatus.visibility = View.VISIBLE
         hologramView.evaluateJavascript("setTalking(true)", null)
+        val id = beginTurn()
 
         Thread {
             val extracted = try {
@@ -256,7 +258,9 @@ class MainActivity : AppCompatActivity() {
             }
             if (extracted == null) {
                 runOnUiThread {
+                    if (id != turnId) return@runOnUiThread
                     appendSystemTurn("Couldn't read $name.", true)
+                    setBusy(false)
                     thinkingStatus.visibility = View.GONE
                     hologramView.evaluateJavascript("setTalking(false)", null)
                 }
@@ -265,12 +269,14 @@ class MainActivity : AppCompatActivity() {
 
             val result = gremlinClient.chat(Attachments.buildPrompt(question, extracted))
             runOnUiThread {
+                if (id != turnId) return@runOnUiThread
                 val sub = when (result.source) {
                     "claude" -> "(standalone, via Claude)"
                     "gemini" -> "(standalone, via Gemini)"
                     else -> null
                 }
                 appendAssistantTurn(result.answer, sub)
+                setBusy(false)
                 voiceOutput.speak(result.answer)
                 thinkingStatus.visibility = View.GONE
                 hologramView.evaluateJavascript("setTalking(false)", null)
@@ -327,6 +333,24 @@ class MainActivity : AppCompatActivity() {
 
     private var busy = false
 
+    // Bumped per request. A late callback from an older request is ignored,
+    // so a reply can't land in the chat you've since switched to.
+    private var turnId = 0
+
+    /** Starts a request and returns its id. */
+    private fun beginTurn(): Int {
+        setBusy(true)
+        return ++turnId
+    }
+
+    private fun abandonTurn() {
+        turnId++
+        Thread { gremlinClient.cancelStream() }.start()
+        setBusy(false)
+        thinkingStatus.visibility = View.GONE
+        hologramView.evaluateJavascript("setTalking(false)", null)
+    }
+
     /** The send button doubles as Stop while Gremlin is working. */
     private fun setBusy(value: Boolean) {
         busy = value
@@ -343,15 +367,18 @@ class MainActivity : AppCompatActivity() {
 
     /** Shrinks the hologram while typing. Scaled rather than cropped,
      *  because hologram.html draws at a fixed size. */
+    private var hologramAnimator: ValueAnimator? = null
+
     private fun setHologramSmall(small: Boolean) {
         val scale = resources.displayMetrics.density
         val to = ((if (small) 64 else 170) * scale).toInt()
-        ValueAnimator.ofInt(hologramFrame.height, to).apply {
+        hologramAnimator?.cancel()
+        hologramAnimator = ValueAnimator.ofInt(hologramFrame.height, to).apply {
             duration = 220
             addUpdateListener {
                 val height = it.animatedValue as Int
                 hologramFrame.layoutParams = hologramFrame.layoutParams.apply { this.height = height }
-                val s = (height / (200f * scale)).coerceAtMost(1f)
+                val s = (height / (170f * scale)).coerceAtMost(1f)
                 hologramView.scaleX = s
                 hologramView.scaleY = s
             }
@@ -589,7 +616,8 @@ class MainActivity : AppCompatActivity() {
         hologramView.evaluateJavascript("setTalking(true)", null)
         thinkingStatus.text = getString(R.string.thinking)
         thinkingStatus.visibility = View.VISIBLE
-        setBusy(true)
+        gremlinClient.prepareStream()
+        val id = beginTurn()
 
         fun subStatusFor(source: String): String? = when (source) {
             "claude" -> "(standalone, via Claude)"
@@ -617,6 +645,7 @@ class MainActivity : AppCompatActivity() {
                 message,
                 onDelta = { delta ->
                     runOnUiThread {
+                        if (id != turnId) return@runOnUiThread
                         if (started.compareAndSet(false, true)) {
                             beginAssistantStreamTurn()
                             thinkingStatus.visibility = View.GONE
@@ -626,6 +655,7 @@ class MainActivity : AppCompatActivity() {
                 },
                 onDone = { result ->
                     runOnUiThread {
+                        if (id != turnId) return@runOnUiThread
                         val sub = subStatusFor(result.source)
                         if (started.get()) {
                             finishAssistantStreamTurn(result.answer, sub)
@@ -708,9 +738,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 } else {
                     thinkingStatus.visibility = View.VISIBLE
+                    val id = beginTurn()
                     Thread {
                         val (list, err) = gremlinClient.listBuilds()
                         runOnUiThread {
+                            if (id != turnId) return@runOnUiThread
+                            setBusy(false)
                             thinkingStatus.visibility = View.GONE
                             when {
                                 err != null -> appendSystemTurn(err, true)
@@ -742,9 +775,12 @@ class MainActivity : AppCompatActivity() {
                 val args = message.removePrefix(cmd).trim()
                 thinkingStatus.visibility = View.VISIBLE
                 hologramView.evaluateJavascript("setTalking(true)", null)
+                val id = beginTurn()
                 Thread {
                     val answer = gremlinClient.command(cmd, args, currentThread)
                     runOnUiThread {
+                        if (id != turnId) return@runOnUiThread
+                        setBusy(false)
                         thinkingStatus.visibility = View.GONE
                         hologramView.evaluateJavascript("setTalking(false)", null)
                         appendAssistantTurn(answer, null)
@@ -764,9 +800,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun runAdminSlash(call: () -> AdminResult) {
         thinkingStatus.visibility = View.VISIBLE
+        val id = beginTurn()
         Thread {
             val result = call()
             runOnUiThread {
+                if (id != turnId) return@runOnUiThread
+                setBusy(false)
                 appendSystemTurn(result.message, !result.ok)
                 thinkingStatus.visibility = View.GONE
             }

@@ -8,28 +8,34 @@ object ChatTranscript {
     data class Turn(val kind: Kind, val text: String, val note: String? = null)
 
     private const val USER_MARK = "› "
+    private const val SYSTEM_MARK = "⁘ "
 
     fun parse(saved: String): List<Turn> {
         val turns = mutableListOf<Turn>()
         val block = StringBuilder()
-        var inUser = false
+        var kind = Kind.GREMLIN
 
         fun flush() {
             val text = block.toString().trim()
             block.setLength(0)
-            if (text.isNotEmpty()) turns.add(Turn(if (inUser) Kind.USER else Kind.GREMLIN, text))
+            if (text.isNotEmpty()) turns.add(Turn(kind, text))
         }
 
         for (line in saved.lines()) {
             when {
                 line.startsWith(USER_MARK) -> {
                     flush()
-                    inUser = true
+                    kind = Kind.USER
                     block.append(line.removePrefix(USER_MARK)).append('\n')
                 }
-                inUser && line.isBlank() -> {
+                line.startsWith(SYSTEM_MARK) -> {
                     flush()
-                    inUser = false
+                    kind = Kind.SYSTEM
+                    block.append(line.removePrefix(SYSTEM_MARK)).append('\n')
+                }
+                kind != Kind.GREMLIN && line.isBlank() -> {
+                    flush()
+                    kind = Kind.GREMLIN
                 }
                 else -> block.append(line).append('\n')
             }
@@ -40,8 +46,15 @@ object ChatTranscript {
 
     fun serialize(turns: List<Turn>): String = turns.joinToString("\n\n") { turn ->
         val body = if (turn.note.isNullOrEmpty()) turn.text else "${turn.text}\n${turn.note}"
-        if (turn.kind == Kind.USER) USER_MARK + body else body
+        when (turn.kind) {
+            // These end at a blank line, so they can't contain one.
+            Kind.USER -> USER_MARK + withoutBlankLines(body)
+            Kind.SYSTEM -> SYSTEM_MARK + withoutBlankLines(body)
+            Kind.GREMLIN -> body
+        }
     }
+
+    private fun withoutBlankLines(text: String) = text.replace(Regex("\n\\s*\n+"), "\n")
 
     /** A code fence or plain prose. */
     data class Part(val text: String, val isCode: Boolean)

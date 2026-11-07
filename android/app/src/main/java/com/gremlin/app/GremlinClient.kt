@@ -161,6 +161,17 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     @Volatile private var activeStream: HttpURLConnection? = null
     @Volatile private var streamCancelled = false
 
+    /** Call on the UI thread before starting a chat, so a Stop tapped
+     *  right after Send can't be wiped out by the worker starting late. */
+    fun prepareStream() {
+        streamCancelled = false
+    }
+
+    /** Falls back to the blocking path, unless the user already stopped. */
+    private fun chatUnlessStopped(message: String, onDone: (ChatResult) -> Unit) {
+        if (streamCancelled) onDone(ChatResult("", "stopped")) else onDone(chat(message))
+    }
+
     /** Ends the reply in progress. Closing the connection stops the
      *  generation on the desktop; the partial answer comes back through
      *  chatStream's onDone with source "stopped". */
@@ -191,20 +202,19 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         val token = prefs.getString("token", null)
 
         if (!hasAnyNetwork() || host == null || port == 0 || token == null) {
-            onDone(chat(message)); return
+            chatUnlessStopped(message, onDone); return
         }
         // A queued away-mode exchange needs the pending_sync ride-along
         // that only the plain /chat path does -- take it this turn.
         if (readPendingSync().length() > 0) {
-            onDone(chat(message)); return
+            chatUnlessStopped(message, onDone); return
         }
 
         var connection: HttpURLConnection? = null
         var answer = StringBuilder()
-        streamCancelled = false
         try {
             val url = URL("http://$host:$port/chat/stream")
-            connection = (url.openConnection() as HttpURLConnection).apply {
+            connection = (url.openConnection() as HttpURLConnection).also { activeStream = it }.apply {
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Authorization", "Bearer $token")
@@ -217,10 +227,10 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
                 it.write(JSONObject().put("message", message).put("token", token).toString())
             }
             if (connection.responseCode !in 200..299) {
+                activeStream = null
                 connection.disconnect(); connection = null
-                onDone(chat(message)); return
+                chatUnlessStopped(message, onDone); return
             }
-            activeStream = connection
 
             var source = "desktop"
             var tokenUsage: TokenUsage? = null

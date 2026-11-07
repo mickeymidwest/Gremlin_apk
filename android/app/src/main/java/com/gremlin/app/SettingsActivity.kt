@@ -478,7 +478,7 @@ class SettingsActivity : AppCompatActivity() {
         // MainActivity uses -- simplest way to reuse it without
         // duplicating the zxing integration is to just finish back to
         // MainActivity and let the user tap "Pair with Desktop" there.
-        Toast.makeText(this, "Tap \"Pair with Desktop\" on the main screen to scan a new code", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "On the main screen, tap the ⋮ menu, then Pair with QR code", Toast.LENGTH_LONG).show()
         finish()
     }
 
