@@ -62,7 +62,11 @@ class Threads:
 
     def __init__(self, project_root: str, owner: str, primary_n_ctx: int | None = None):
         self.root = Path(project_root)
-        self.owner = owner
+        # owner is the raw "Bearer <token>" header; only its hash is kept,
+        # so threads.json and GET /conversations never hold the token
+        from ..history import _key_id
+        self._raw_owner = owner
+        self.owner = "h:" + _key_id(owner)
         self._index_path = self.root / "data" / "conversations" / "threads.json"
         self._convo = Conversation(project_root, primary_n_ctx=primary_n_ctx)
 
@@ -70,9 +74,18 @@ class Threads:
 
     def _load(self) -> dict:
         try:
-            return json.loads(self._index_path.read_text())
+            idx = json.loads(self._index_path.read_text())
         except (OSError, ValueError):
             return {}
+        # index written before 2026-11-07 stored the raw token: rewrite this
+        # client's entries to the hash (their history keys stay the old ones)
+        old = [t for t, m in idx.items() if m.get("owner") == self._raw_owner]
+        if old:
+            for t in old:
+                idx[t]["owner"] = self.owner
+                idx[t]["legacy_key"] = True
+            self._save(idx)
+        return idx
 
     def _save(self, idx: dict) -> None:
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,13 +101,16 @@ class Threads:
             tmp.unlink(missing_ok=True)
 
     def _key(self, thread_id: str) -> str:
-        return f"{self.owner}:{thread_id}"
+        meta = self._load().get(thread_id) or {}
+        owner = self._raw_owner if meta.get("legacy_key") else self.owner
+        return f"{owner}:{thread_id}"
 
     # -- api -------------------------------------------------------
 
     def list(self) -> list[dict]:
         idx = self._load()
-        mine = [{"id": tid, **meta} for tid, meta in idx.items() if meta.get("owner") == self.owner]
+        mine = [{"id": tid, **{k: v for k, v in meta.items() if k not in ("owner", "legacy_key")}}
+                for tid, meta in idx.items() if meta.get("owner") == self.owner]
         return sorted(mine, key=lambda t: t.get("updated", 0), reverse=True)
 
     def create(self, first_message: str = "") -> str:

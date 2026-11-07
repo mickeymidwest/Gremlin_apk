@@ -110,3 +110,39 @@ def test_request_logs_redact_tokens():
     plain = logging.LogRecord("werkzeug", logging.INFO, __file__, 1, "GET /status %s", ("200",), None)
     server.RedactTokens().filter(plain)
     assert plain.getMessage() == "GET /status 200"
+
+
+def test_threads_never_store_the_raw_token(tmp_path):
+    from gremlin_core.magic.conversation import Threads
+    raw = "Bearer sekrit-token-123"
+    th = Threads(str(tmp_path), owner=raw)
+    tid = th.create("hello there")
+    th.record(tid, "hello there", "hi")
+    text = (tmp_path / "data" / "conversations" / "threads.json").read_text()
+    assert "sekrit-token-123" not in text
+    listed = th.list()
+    assert listed[0]["id"] == tid and "owner" not in listed[0]
+    assert "hi" in Threads(str(tmp_path), owner=raw).recall(tid)
+    assert Threads(str(tmp_path), owner="Bearer other").list() == []
+
+
+def test_threads_migrate_an_old_raw_index_and_keep_history(tmp_path):
+    import json
+    from gremlin_core.magic.conversation import Conversation, Threads
+    raw = "Bearer old-token-456"
+    Conversation(str(tmp_path)).remember("old question", "old answer", f"{raw}:abc")
+    p = tmp_path / "data" / "conversations"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / "threads.json").write_text(json.dumps(
+        {"abc": {"owner": raw, "title": "old", "created": 1, "updated": 1}}))
+    th = Threads(str(tmp_path), owner=raw)
+    assert [t["id"] for t in th.list()] == ["abc"]
+    assert "old-token-456" not in (p / "threads.json").read_text()
+    assert "old answer" in th.recall("abc")
+
+
+def test_app_version_single_quotes(tmp_path):
+    from gremlin_core.magic import android_build
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "build.gradle").write_text("versionCode 3\nversionName '1.2'\n")
+    assert android_build.app_version(tmp_path) == "1.2 (3)"

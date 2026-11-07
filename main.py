@@ -1010,7 +1010,7 @@ async def main():
             server.print_pairing_info(server.pairing_url(host, port, token))
             if where == "Tailscale":
                 print("\nThe phone needs Tailscale on to reach this address, at home or away.")
-            else:
+            elif where == "LAN":
                 print("\nThis is the home network address, so it only works on the same Wi-Fi.")
             print("This shows the token: don't paste it anywhere public.")
         elif cmd == "admin-token":

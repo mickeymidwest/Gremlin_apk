@@ -29,7 +29,7 @@ def app_version(proj) -> str:
             text = (Path(proj) / f).read_text()
         except OSError:
             continue
-        name = re.search(r"versionName\s*=?\s*\"([^\"]+)\"", text)
+        name = re.search(r"versionName\s*=?\s*['\"]([^'\"]+)['\"]", text)
         code = re.search(r"versionCode\s*=?\s*(\d+)", text)
         if name or code:
             return " ".join(x for x in ((name.group(1) if name else ""),
