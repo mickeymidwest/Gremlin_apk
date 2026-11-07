@@ -68,6 +68,10 @@ HARNESS = "--harness" in sys.argv[1:] or os.environ.get("BENCH_HARNESS") == "1"
 # the chat-style parts too. Without it a Qwen3.5 spends the whole token
 # budget in <think> and "never stops" (2026-11-07). Set in main().
 NO_THINK = False
+# U6 think budget: with --harness, let the pilot think inside loop calls
+# only (code, math, format), with room for it; chat parts stay no-think.
+LOOP_THINK = os.environ.get("BENCH_LOOP_THINK") == "1"
+LOOP_THINK_TOKENS = int(os.environ.get("BENCH_LOOP_THINK_TOKENS", "2500"))
 
 
 def _nothink(text):
@@ -743,7 +747,7 @@ def main():
         NO_THINK = any(m.get("name") == args[0] and m.get("no_think") for m in cfg.get("models", []))
     parts = set((os.environ.get("BENCH_PARTS") or DEFAULT_PARTS).split(","))
     if HARNESS:
-        name += " +loops"
+        name += " +loops" + (" +think" if LOOP_THINK else "")
     system = gremlin_system_prompt()
     if parts & {"stop", "honesty", "chat", "norefuse", "honesty_ho"} and not system:
         raise SystemExit("couldn't read persona.system_prompt from config/models.yaml")
@@ -790,6 +794,16 @@ def main():
     grammars = {}
 
     def call(messages, max_tokens, temperature, grammar=None):
+        if LOOP_THINK and not grammar:  # a grammar can't start with <think>
+            last = messages[-1]
+            messages = messages[:-1] + [dict(last, content=last["content"].replace(" /no_think", ""))]
+            max_tokens = max(max_tokens, LOOP_THINK_TOKENS)
+            global NO_THINK
+            saved, NO_THINK = NO_THINK, False
+            try:
+                return run(messages, max_tokens, temperature)
+            finally:
+                NO_THINK = saved
         extra = {}
         if grammar:
             if grammar not in grammars:
@@ -882,6 +896,7 @@ def main():
         "think": THINK,
         "harness": HARNESS,
         "no_think": NO_THINK,
+        "loop_think": LOOP_THINK and HARNESS,
         # wall-clock per quality/heldout task: a loop that triples the
         # time per answer has to be worth it (Gemini review, U1)
         "wall_s_per_task": round(sum(walls) / len(walls), 1) if walls else None,
