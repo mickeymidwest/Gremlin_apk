@@ -80,3 +80,6 @@ Mickey: delete any that aren't really settled.
 ## Outside upgrades (ChatGPT review, Nov 2026)
 - USE: staged rollout per .gremlin/proposals.md: verification-as-code first (Batch 1).
 - NOT: dumping 100 skill cards in at once, or rejecting proposals without evidence (CALIBRATION.md §9).
+- USE (Mickey, 2026-11-07): don't turn down an upgrade just because the project isn't there yet. Check it with
+  Gemini, and if everyone agrees, add it to the future queue in proposals.md.
+- NOT: parking or dropping an idea on Claude's judgment alone.

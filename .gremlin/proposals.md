@@ -47,9 +47,9 @@ regression tracking (#14) = `magic/regression.py`; snapshots (#32) = `snapshots.
 Needs Mickey's call: temporary workers and parallel hypotheses (#1, #46-55). `models.yaml` says "Gremlin is one model now", and
 `decisions.md` keeps consult/specialists out. Sequential runs on one model may be different enough, but that's his decision.
 
-No current problem named, leave out for now: digital twins (#111), environment cloning (#33), harness evolution (#125), knowledge graph (#117).
+Moved to the hardware queue below: digital twins (#111), environment cloning (#33), harness evolution (#125), knowledge graph (#117).
 
-Not doing: the 200-upgrade master roadmap. `ROADMAP.md` already has a numbered list, and `decisions.md` says staged rollout.
+Waiting on Gemini: the rest of the 125 items and the 200-upgrade master roadmap. Claude passed on these without review, which `decisions.md` no longer allows.
 
 ## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
 Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
