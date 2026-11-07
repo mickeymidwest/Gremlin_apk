@@ -94,6 +94,21 @@ Rules: router and look-first rules stay general (task shape, live machine state)
 | U10 | **Lean context for small pilots**: `_build_prompt` adds profile, up to 2,500 chars of memory, 3 skills and away context every turn. With a small primary, include memory and skills only when they're relevant to the message | A small pilot loses track of the instruction when 1k+ tokens of unrelated memory come first (Gemini review) | PENDING |
 | U9 | **Pilot search**: bench stock and abliterated (Huihui) Qwen3.5-9B against Llama-3.1-8B-abliterated, bare and with the loops. Pick on loop score, honesty, stop, speed. Mickey wants unrestricted weights until Gremlin is done | Downloads started 2026-11-07. llama-cpp-python 0.3.34 already has qwen35 and gemma4. Bar to replace Llama 8B: quality >= 14/19 with no drop on the held-out set, stop 8/8, honesty >= 9/12 (with U2), chat >= 20/22 with no false alarms on controls, norefuse >= 18/20 (answers ordinary requests a censored model dodges: Mickey 2026-11-07 "I don't want it to limit me"), >= 30 tok/s and wall-clock per task no worse than Llama 8B with the same loops | IN PROGRESS |
 
+## Keep my phone and desktop safe (Mickey 2026-11-07)
+"It needs to understand exploits and how to defend against them for both Android Pixels and Manjaro
+Linux... I plan to go to a custom ROM and I want it to be like how you are in Termux but in the app, be able
+to watch stuff, help keep my phone safe." Defensive only: watch, explain, alert, propose a fix he confirms.
+Order: S2 + S3 first (no root needed), then S1, S6, S4; S5 after he flashes a ROM.
+
+| ID | Item | Why / evidence | Status |
+|---|---|---|---|
+| S1 | **Security know-how**: skill cards for attack classes and their defenses, each tied to a check Gremlin can run. Android: accessibility/device-admin/notification-listener abuse, sideloading, overlays, stalkerware, SIM swap, phishing. Linux: SSH brute force, exposed ports, packages with known CVEs, rogue cron/systemd units, sudo/SUID misconfig. Bench: a held-out security set graded by key terms like norefuse_hard | norefuse_hard (bench) checks he gets real answers; this makes them specific to his devices | PENDING |
+| S2 | **Desktop guard (Manjaro)**: look-first probes plus a nightly diff against a known-good baseline: listening ports (ss -tulpn), failed SSH logins (journal), new SUID files, new systemd units / cron entries, arch-audit CVEs, firewall state, pending security updates. Read-only; reports what changed | Extends U2 (look.py) and N13 (expected vs observed) | PENDING |
+| S3 | **Phone guard in the app (no root)**: the app snapshots installed packages + installer + install/update times, apps holding accessibility / device admin / notification access / overlay / VPN / install-unknown-apps / usage access, security patch level, screen lock, developer options and USB debugging; sends it to Gremlin, which diffs and alerts ("new app got accessibility since yesterday") | All readable by a normal app (QUERY_ALL_PACKAGES for a sideloaded personal build) | PENDING |
+| S4 | **Phone actions like Claude in Termux**: Gremlin proposes a command for the phone, he confirms, it runs through Termux's RUN_COMMAND intent; read-only allow-list first | Same confirm-before-acting rule as desktop actions | PENDING |
+| S5 | **Custom ROM / root level**: per-app network use, logcat, deeper monitoring once he flashes (GrapheneOS fits a Pixel and is built for this) | Needs the ROM | PARKED until he flashes |
+| S6 | **Network watch**: new or unknown devices on the LAN (neighbor table diff), duplicate MACs (ARP spoofing), Tailscale node list | Ties to his MITM question 2026-11-07 | PENDING |
+
 ## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
 Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
 
