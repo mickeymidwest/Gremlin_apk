@@ -43,7 +43,11 @@ _FORM_RE = re.compile(r"\bin the form\s+[`'\"]?([A-Za-z_][\w ]{0,20}?:)", re.I)
 
 
 def route(prompt: str) -> str:
-    """Which loop fits this task, from the format it asks for."""
+    """Which loop fits this task, from the format it asks for. Code blocks
+    and inline code are ignored: `return json` inside a pasted snippet is
+    not a request for JSON."""
+    prompt = re.sub(r"```.*?```", " ", prompt or "", flags=re.S)
+    prompt = re.sub(r"`[^`\n]*`", " ", prompt)
     if _JSON_RE.search(prompt):
         return JSON_ONLY
     if _TABLE_RE.search(prompt):

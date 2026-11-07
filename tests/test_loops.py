@@ -28,6 +28,8 @@ def fake(*replies):
     ("What's a good name for a cat?", loops.PLAIN),
     ("Explain what JSON is.", loops.PLAIN),
     ("Write a function that adds two numbers.", loops.PLAIN),
+    ("Why does this fail?\n```python\ndef f():\n    # make a table, return json only\n    pass\n```", loops.PLAIN),
+    ("What does `return only json` mean here?", loops.PLAIN),
 ])
 def test_route_by_requested_shape(prompt, kind):
     assert loops.route(prompt) == kind
