@@ -20,15 +20,16 @@ table inet gremlin_fw {
         type ipv6_addr; flags interval
         elements = { fe80::/10, fd00::/8 }
     }
-    # ssh, KDE Connect, robofuse bridge, Jellyseerr, Jellyfin, Gremlin
+    # ssh, KDE Connect (1716-1764: control plus transfers), robofuse bridge,
+    # Jellyseerr, Jellyfin, Gremlin
     set lan_tcp {
-        type inet_service
-        elements = { 22, 1716, 5000, 5055, 8096, 8765 }
+        type inet_service; flags interval
+        elements = { 22, 1716-1764, 5000, 5055, 8096, 8765 }
     }
     # KDE Connect, SSDP/DLNA, mDNS, Jellyfin discovery
     set lan_udp {
-        type inet_service
-        elements = { 1716, 1900, 5353, 7359 }
+        type inet_service; flags interval
+        elements = { 1716-1764, 1900, 5353, 7359 }
     }
 
     chain input {

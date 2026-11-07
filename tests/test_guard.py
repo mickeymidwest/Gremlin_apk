@@ -6,7 +6,7 @@ from gremlin_core import guard
 BASE = {
     "listening": ["tcp 0.0.0.0:22", "tcp 127.0.0.1:631", "tcp 100.122.0.1:8765"],
     "ssh": {"passwordauthentication": "no"},
-    "firewall": {"firewalld": "inactive", "nftables": "inactive", "ufw": "inactive", "iptables": "inactive"},
+    "firewall": {"gremlin-firewall": "inactive", "firewalld": "inactive", "nftables": "inactive", "ufw": "inactive", "iptables": "inactive"},
     "units": ["sshd.service", "user gremlin.service"],
     "cron": [],
     "failed_ssh_24h": 0,

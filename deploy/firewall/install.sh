@@ -13,6 +13,8 @@ OK=/tmp/gremlin-fw-ok
 
 nft -c -f "$RULES" || { echo "The rules didn't pass nft's check; nothing changed."; exit 1; }
 rm -f "$OK"
+# Ctrl-C or a dropped SSH session during the test window also reverts
+trap 'nft delete table inet gremlin_fw 2>/dev/null || true; echo "Interrupted: firewall removed."' INT TERM HUP
 nft -f "$RULES"
 echo "Firewall is ON. Waiting up to 120 s for confirmation (touch $OK)..."
 for _ in $(seq 120); do
@@ -24,6 +26,7 @@ if [ ! -e "$OK" ]; then
   echo "No confirmation: firewall removed again. Nothing was made permanent."
   exit 1
 fi
+trap - INT TERM HUP
 rm -f "$OK"
 install -m 644 "$RULES" /etc/gremlin-firewall.nft
 install -m 644 "$DIR/gremlin-firewall.service" /etc/systemd/system/gremlin-firewall.service
