@@ -25,42 +25,79 @@
             android:alpha="0.7"
             android:layout_marginBottom="10dp" />
 
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
         <Button
             android:id="@+id/show_commands_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Gremlin.Button.Row"
+            android:layout_marginBottom="6dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Gremlin commands" />
 
         <Button
             android:id="@+id/show_memory_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Gremlin.Button.Row"
+            android:layout_marginBottom="6dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="What Gremlin remembers" />
 
         <Button
             android:id="@+id/open_profile_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Gremlin.Button.Row"
+            android:layout_marginBottom="6dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="How I like things" />
 
         <Button
             android:id="@+id/open_security_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Gremlin.Button.Row"
+            android:layout_marginBottom="6dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Phone &amp; desktop safety" />
 
         <Button
             android:id="@+id/show_skills_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Gremlin.Button.Row"
+            android:layout_marginBottom="6dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Gremlin's skills" />
 
         <Button
             android:id="@+id/open_builds_button"
-            android:layout_width="wrap_content"
+            style="@style/Widget.Gremlin.Button.Row"
+            android:layout_marginBottom="6dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Desktop builds"
-            android:layout_marginBottom="20dp" />
+            android:text="Desktop builds" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -135,6 +172,7 @@
 
         <Button
             android:id="@+id/manual_pair_button"
+            style="@style/Widget.Gremlin.Button.Primary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Test and save" />
@@ -146,11 +184,19 @@
             android:textSize="12sp"
             android:layout_marginBottom="24dp" />
 
-        <View
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#22000000"
-            android:layout_marginBottom="20dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -238,20 +284,19 @@
             android:layout_height="wrap_content"
             android:text="Save" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#22000000"
-            android:layout_marginTop="24dp"
-            android:layout_marginBottom="20dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
-
-        <View
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#22000000"
-            android:layout_marginTop="24dp"
-            android:layout_marginBottom="20dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -309,12 +354,19 @@
             android:layout_height="wrap_content"
             android:text="Test voice" />
 
-        <View
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#22000000"
-            android:layout_marginTop="24dp"
-            android:layout_marginBottom="20dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
         <TextView
             android:layout_width="wrap_content"
@@ -364,12 +416,19 @@
             android:fontFamily="monospace"
             android:layout_marginBottom="20dp" />
 
-        <View
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="#22FFFFFF"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="20dp" />
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
 <Button
             android:id="@+id/admin_reboot_button"
@@ -377,6 +436,9 @@
             android:layout_height="wrap_content"
             android:text="Reboot Desktop"
             android:backgroundTint="#8B2020" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
 </ScrollView>
