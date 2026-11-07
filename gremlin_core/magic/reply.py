@@ -12,6 +12,7 @@ import re
 from typing import Optional
 
 from .. import notes
+from .. import profile
 from ..learning_log import append_learning_log
 from . import grounding
 
@@ -190,7 +191,12 @@ def _build_prompt(message: str, root: str, history: str):
     turns, this thread's history) as prior turns so the model answers in
     assistant mode with proper role separation -- not string-completing a
     'User: ...' line. Shared by answer() and answer_stream()."""
+    try:
+        prof = profile.prompt_block(root)
+    except Exception:
+        prof = ""
     context = "\n\n".join(p for p in (
+        prof,
         _memory_block(root),
         _skills_block(root, message),
         notes.recent_away_context(root),
@@ -234,21 +240,32 @@ async def _stream(backend, prompt: str, hist: list):
 
 
 async def _post_answer_bookkeeping(primary, message: str, root: str,
-                                   text: str, used_fallback: bool, used: str) -> None:
+                                   text: str, used_fallback: bool, used: str,
+                                   history: str = "") -> None:
     """autosave a durable fact + log what the fallback answered. Best-effort, never raises."""
+    # How Mickey likes things: a preference or a laugh becomes a guess in
+    # gremlin_profile.md. When it does, skip the fact/correction extractors
+    # below -- same message, and one extra model call per turn is enough.
     try:
-        await notes.maybe_autosave_note(primary, message, root)
+        learned = await profile.maybe_learn(
+            primary, message, profile.last_assistant_reply(history), root)
     except Exception:
-        pass
+        learned = None
+    if not learned:
+        try:
+            await notes.maybe_autosave_note(primary, message, root)
+        except Exception:
+            pass
     # The other half of "does talking to him help him grow": a
     # correction about HOW Gremlin should behave/talk (not a fact about
     # mickey) is noticed and saved the same automatic way, so it's a
     # real durable change from this point forward, not a one-turn
     # apology that evaporates the moment the reply is sent.
-    try:
-        await notes.maybe_autosave_correction(primary, message, root)
-    except Exception:
-        pass
+    if not learned:
+        try:
+            await notes.maybe_autosave_correction(primary, message, root)
+        except Exception:
+            pass
     if used_fallback:
         try:
             append_learning_log(root, {"prompt": message, "final_answer": text,
@@ -310,7 +327,7 @@ async def answer_stream(primary, message: str, root: str,
                 note = grounding.caveat(bad)
                 text += note
                 yield "delta", note
-        await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin")
+        await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin", history=history)
         yield "done", _reply(text, source="gremlin", ok=not stream_broke, usage=_stream_usage(primary))
         return
 
@@ -319,7 +336,7 @@ async def answer_stream(primary, message: str, root: str,
         text = (r.text or "").strip() or "I couldn't get an answer just now — try again."
         used = getattr(r, "model", "fallback")
         yield "delta", text
-        await _post_answer_bookkeeping(primary, message, root, text, True, used)
+        await _post_answer_bookkeeping(primary, message, root, text, True, used, history=history)
         yield "done", _reply(text, source=used)
         return
 
@@ -376,5 +393,5 @@ async def answer(primary, message: str, root: str,
             else:
                 text = text + grounding.caveat(bad)
 
-    await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used)
+    await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used, history=history)
     return _reply(text, source=used, from_memory=False, usage=usage or None)

@@ -596,6 +596,60 @@ async def _memory(args: str, ctx: CommandContext) -> dict:
                       "\n\n/memory forget <n>  ·  /memory clear"}
 
 
+async def _profile(args: str, ctx: CommandContext) -> dict:
+    """How Mickey Likes Things: show | keep <n> | drop <n> | add <section> <text>."""
+    from .. import profile
+    root = ctx.project_root
+    parts = args.split(None, 1)
+    sub = (parts[0].lower() if parts else "show")
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    sections = " | ".join(profile.SECTIONS)
+
+    if sub in ("keep", "drop"):
+        try:
+            n = int(rest)
+        except ValueError:
+            return {"ok": False, "answer": f"Usage: /profile {sub} <number from /profile>"}
+        if sub == "keep":
+            got = profile.keep(root, n)
+            return {"ok": bool(got), "action": "profile",
+                    "answer": (f"Kept #{n} under {got[0]}: {got[1]}" if got
+                               else f"#{n} isn't one of the guesses under Noticed.")}
+        gone = profile.drop(root, n)
+        return {"ok": bool(gone), "action": "profile",
+                "answer": f"Dropped #{n}: {gone}" if gone else f"No line #{n}."}
+
+    if sub == "add":
+        sec, _, text = rest.partition(" ")
+        sec = sec.lower().replace("'", "")
+        if sec not in profile.SECTIONS or not text.strip():
+            return {"ok": False, "answer": f"Usage: /profile add <{sections}> <text>"}
+        added = profile.add(root, sec, text)
+        return {"ok": bool(added), "action": "profile",
+                "answer": f"Added to {sec}: {added}" if added else "That's already in there."}
+
+    if sub not in ("show", "list"):
+        return {"ok": False, "answer": f"Usage: /profile [show | keep <n> | drop <n> | "
+                                       f"add <{sections}> <text>]"}
+
+    its = profile.items(root)
+    if not its:
+        return {"ok": True, "action": "profile",
+                "answer": "The profile is empty. Add a line with /profile add "
+                          f"<{sections}> <text>, or edit {profile.profile_path(root)}."}
+    out, last = [], None
+    for it in its:
+        head = "Noticed (guesses)" if it["noticed"] else it["section"]
+        if head != last:
+            out.append(f"\n{head}:")
+            last = head
+        out.append(f"  {it['n']}. {it['text']}")
+    return {"ok": True, "action": "profile",
+            "answer": "How Mickey likes things:" + "\n".join(out) +
+                      "\n\n/profile keep <n>  ·  /profile drop <n>  ·  "
+                      f"/profile add <{sections}> <text>"}
+
+
 async def _do(args: str, ctx: CommandContext) -> dict:
     """A bounded read-only ReAct loop: Gremlin actually runs df / ps /
     systemctl status / jadx / grep to answer a question about live state
@@ -700,6 +754,9 @@ COMMANDS: dict[str, Command] = {
                   "`do learn <q>` also keeps a skill card from how it did it.", _do),
     "memory": Command("memory", "What Gremlin remembers about you: list | forget <n> | clear. "
                       "(The file is ~/Downloads/gremlin_memory.txt -- editable by hand too.)", _memory),
+    "profile": Command("profile", "How Mickey likes things: show | keep <n> | drop <n> | "
+                       "add <section> <text>. Gremlin adds guesses from chat; you confirm "
+                       "them. (The file is ~/Downloads/gremlin_profile.md.)", _profile),
     "build": Command("build", "Gremlin builds a script / project / app on the desktop; "
                      "grab it from the app's Builds screen. `build android new <what "
                      "it does>` scaffolds a whole Android app from one sentence.", _build),

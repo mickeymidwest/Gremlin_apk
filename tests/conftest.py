@@ -9,3 +9,6 @@ def _isolate_memory(tmp_path, monkeypatch):
     shared pytest tmp dir and tests leak facts into each other -- see
     gremlin_core/notes.memory_file_path."""
     monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(tmp_path / "gremlin_memory.txt"))
+    # same for How Mickey Likes Things (gremlin_core/profile.py) -- the
+    # default path would be the real ~/Downloads/gremlin_profile.md
+    monkeypatch.setenv("GREMLIN_PROFILE_FILE", str(tmp_path / "gremlin_profile.md"))
