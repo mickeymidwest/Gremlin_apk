@@ -63,6 +63,9 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.show_commands_button).setOnClickListener { showCommandsReference() }
         findViewById<Button>(R.id.show_memory_button).setOnClickListener { showDesktopInfo("What Gremlin remembers", "/memory", "list") }
+        findViewById<Button>(R.id.open_profile_button).setOnClickListener {
+            startActivity(android.content.Intent(this, ProfileActivity::class.java))
+        }
         findViewById<Button>(R.id.show_skills_button).setOnClickListener { showDesktopInfo("Gremlin's skills", "/skill", "list") }
         findViewById<Button>(R.id.open_builds_button).setOnClickListener {
             startActivity(android.content.Intent(this, BuildsActivity::class.java))

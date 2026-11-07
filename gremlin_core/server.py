@@ -1186,6 +1186,33 @@ def create_app(
     def job_aborted(e):
         return jsonify({"error": "aborted", "job": str(e)}), 409
 
+    @app.route("/profile", methods=["GET", "PUT"])
+    def profile_route():
+        """How Mickey Likes Things, for the app's editor. GET returns the
+        file and its version; PUT {text, version} saves it, or answers 409
+        with the current text if Gremlin added a guess in the meantime."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import profile as profile_mod
+        root = str(project_root)
+        if request.method == "PUT":
+            body = request.get_json(silent=True) or {}
+            text = body.get("text")
+            if not isinstance(text, str):
+                return jsonify({"error": "text is required"}), 400
+            try:
+                ver = profile_mod.save_if_unchanged(root, text, str(body.get("version") or ""))
+            except profile_mod.Conflict as c:
+                return jsonify({"error": "changed", "text": c.current,
+                                "version": profile_mod.version(c.current)}), 409
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 413
+            mutation_log.append_mutation(root, {"kind": "profile_edit", "chars": len(text)})
+            return jsonify({"ok": True, "version": ver})
+        text = profile_mod.read_text(root)
+        return jsonify({"text": text, "version": profile_mod.version(text)})
+
     @app.route("/admin/defense", methods=["GET"])
     def admin_defense():
         """Roadmap #96 -- the app-facing half of gremlin-defense.timer.

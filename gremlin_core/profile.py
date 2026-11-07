@@ -305,12 +305,40 @@ def read_text(root: str) -> str:
     return "\n".join(_read_lines(root)) + "\n"
 
 
+def version(text: str) -> str:
+    """Short content hash. The app sends back the version it loaded, so a
+    guess Gremlin noticed while Mickey was editing isn't silently lost."""
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+class Conflict(Exception):
+    def __init__(self, current: str):
+        super().__init__("profile changed since it was loaded")
+        self.current = current
+
+
+def save_if_unchanged(root: str, text: str, base_version: str) -> str:
+    """write_text, but only if the file still matches base_version.
+    Returns the new version; raises Conflict with the current text."""
+    with _LOCK:
+        current = read_text(root)
+        if base_version and version(current) != base_version:
+            raise Conflict(current)
+        _write_unlocked(root, text)
+    return version(read_text(root))
+
+
 def write_text(root: str, text: str, max_bytes: int = 32_000) -> None:
     """Replace the whole file (the app's profile editor)."""
+    with _LOCK:
+        _write_unlocked(root, text, max_bytes)
+
+
+def _write_unlocked(root: str, text: str, max_bytes: int = 32_000) -> None:
     if len(text.encode("utf-8")) > max_bytes:
         raise ValueError(f"profile is over {max_bytes} bytes")
-    with _LOCK:
-        _write_lines(root, text.splitlines())
+    _write_lines(root, text.replace("\r\n", "\n").splitlines())
 
 
 # -- learning from ordinary chat --------------------------------------

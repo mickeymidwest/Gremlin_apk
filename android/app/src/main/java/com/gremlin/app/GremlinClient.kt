@@ -522,6 +522,63 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         }
     }
 
+    data class ProfileResult(
+        val ok: Boolean = false,
+        val text: String? = null,
+        val version: String? = null,
+        val conflictText: String? = null,
+        val error: String? = null,
+    )
+
+    /** GET /profile -- How Mickey Likes Things, plus its version. */
+    fun getProfile(): ProfileResult {
+        val host = prefs.getString("host", null) ?: return ProfileResult(error = "Not paired with the desktop yet.")
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return ProfileResult(error = "Not paired with the desktop yet.")
+        return try {
+            val c = (URL("http://$host:$port/profile").openConnection() as HttpURLConnection)
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.connectTimeout = 5_000; c.readTimeout = 10_000
+            val code = c.responseCode
+            if (code !in 200..299) return ProfileResult(error = "Desktop answered HTTP $code.")
+            val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            ProfileResult(ok = true, text = j.optString("text"), version = j.optString("version"))
+        } catch (e: Exception) {
+            ProfileResult(error = "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
+    /** PUT /profile. A 409 means the file changed since `version`; the
+     *  desktop's current text comes back in conflictText. */
+    fun putProfile(text: String, version: String): ProfileResult {
+        val host = prefs.getString("host", null) ?: return ProfileResult(error = "Not paired with the desktop yet.")
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return ProfileResult(error = "Not paired with the desktop yet.")
+        return try {
+            val c = (URL("http://$host:$port/profile").openConnection() as HttpURLConnection)
+            c.requestMethod = "PUT"; c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Content-Type", "application/json")
+            c.connectTimeout = 5_000; c.readTimeout = 10_000
+            c.outputStream.use {
+                it.write(JSONObject().put("text", text).put("version", version).toString().toByteArray())
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val j = try {
+                JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+            } catch (e: Exception) { JSONObject() }
+            when (code) {
+                in 200..299 -> ProfileResult(ok = true, version = j.optString("version"))
+                409 -> ProfileResult(conflictText = j.optString("text"), version = j.optString("version"))
+                413 -> ProfileResult(error = "That's too long to save.")
+                else -> ProfileResult(error = "Desktop answered HTTP $code.")
+            }
+        } catch (e: Exception) {
+            ProfileResult(error = "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
     data class ConversationInfo(val id: String, val title: String, val updated: Double)
 
     /** GET /conversations -- the recent-conversations list. */
@@ -564,6 +621,7 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
         val builtin = listOf(
             "chat" to "Talk to Gremlin",
             "skill" to "Add or improve a Magic skill",
+            "profile" to "How Mickey likes things",
             "build" to "Build a script / project / app on the desktop",
             "fix" to "Gremlin improves its own harness",
             "model" to "Pick / inspect the base model",

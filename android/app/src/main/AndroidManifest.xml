@@ -79,6 +79,12 @@
             android:label="Desktop Builds" />
 
         <activity
+            android:name=".ProfileActivity"
+            android:exported="false"
+            android:label="How Mickey likes things"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".ConversationsActivity"
             android:exported="false"
             android:label="Conversations" />

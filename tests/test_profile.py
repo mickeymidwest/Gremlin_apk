@@ -229,3 +229,39 @@ def test_keep_does_not_duplicate_a_confirmed_line(tmp_path):
     assert profile.keep(root, guess["n"])
     texts = [i["text"] for i in profile.items(root)]
     assert texts == ["Mickey likes room to explain"]
+
+
+def test_profile_route_get_put_and_conflict(tmp_path):
+    import asyncio as aio
+    import threading
+    from gremlin_core.server import create_app
+
+    class Reg:
+        def names(self):
+            return []
+
+        def primary_model_name(self):
+            return None
+
+    lp = aio.new_event_loop()
+    th = threading.Thread(target=lp.run_forever, daemon=True)
+    th.start()
+    try:
+        c = create_app(Reg(), router=None, project_root=tmp_path, loop=lp,
+                       token="t", admin_token="admin").test_client()
+        h = {"Authorization": "Bearer t"}
+        assert c.get("/profile").status_code == 401
+        r = c.get("/profile", headers=h).get_json()
+        assert "## Solving problems" in r["text"]
+        new = r["text"].replace("## How to talk\n", "## How to talk\n- Keep it loose\n")
+        ok = c.put("/profile", headers=h, json={"text": new, "version": r["version"]})
+        assert ok.status_code == 200
+        # a stale version is refused, and the reply carries the current text
+        stale = c.put("/profile", headers=h, json={"text": "x", "version": r["version"]})
+        assert stale.status_code == 409 and "Keep it loose" in stale.get_json()["text"]
+        assert "Keep it loose" in profile.prompt_block(str(tmp_path))
+        big = c.put("/profile", headers=h, json={"text": "x" * 40000, "version": ""})
+        assert big.status_code == 413
+    finally:
+        lp.call_soon_threadsafe(lp.stop)
+        th.join(timeout=5)
