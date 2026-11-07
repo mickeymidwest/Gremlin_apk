@@ -250,6 +250,7 @@ the list.
 | `/chat` | plain chat — folds in the memory file + recent away turns + this thread's history. The app's default. |
 | `/do` | answer a question that needs live data — Gremlin runs read-only shell (`df`, `ps`, `systemctl status`, `docker ps`) and shows the commands it ran |
 | `/memory` | what Gremlin remembers about you: `list` / `forget <n>` / `clear`. Same `~/Downloads/gremlin_memory.txt` you can edit by hand. |
+| `/profile` | how Mickey likes things: `show` / `keep <n>` / `drop <n>` / `add <section> <text>`. Guesses from chat land under Noticed until he keeps them. `~/Downloads/gremlin_profile.md`, editable by hand, never pushed. |
 | `/skill` | `list` / `show <name>` / `new <desc>` / `improve <name> \| <fix>` / `seed` (8 starter cards) / `suggest` (recurring asks → skill candidates). Drafts with Gremlin → Gemini fallback → the same gate as the auto-reckoning. |
 | `/defense` | check your own box: `surface` / `updates` / `ssh` / `secrets <path>` / `report`. Read-only, defensive. |
 | `/build` | `build android <dir> [as <name>]` builds an APK on the desktop → Settings → Builds. Freeform `/build <goal>` is desktop-CLI only (too heavy for the server). |

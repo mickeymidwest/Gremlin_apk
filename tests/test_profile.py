@@ -114,7 +114,8 @@ def test_laugh_detection():
     for m in ("lmao", "LMFAO", "hahaha that's good", "😂😂", "lol nice one"):
         assert profile.is_laugh(m), m
     for m in ("lol ok now fix the build and push it", "", "what is this",
-              "the old lollipop server"):
+              "the old lollipop server", "the daemon is dead", "lol fix the build",
+              "lol check the logs", "haha ok push it"):
         assert not profile.is_laugh(m), m
 
 
@@ -217,3 +218,14 @@ def test_bookkeeping_skips_fact_extractors_when_profile_learned(tmp_path, monkey
     _run(reply._post_answer_bookkeeping(b, "check the disk", root,
                                         "ok", False, "gremlin", history=""))
     assert called == ["note", "corr"]
+
+
+def test_keep_does_not_duplicate_a_confirmed_line(tmp_path):
+    root = str(tmp_path / "repo")
+    profile.note(root, "talking", "Mickey likes room to explain")
+    profile.write_text(root, profile.read_text(root).replace(
+        "## How to talk\n", "## How to talk\n- Mickey likes room to explain\n"))
+    guess = next(i for i in profile.items(root) if i["noticed"])
+    assert profile.keep(root, guess["n"])
+    texts = [i["text"] for i in profile.items(root)]
+    assert texts == ["Mickey likes room to explain"]

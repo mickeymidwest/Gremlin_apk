@@ -283,7 +283,11 @@ def keep(root: str, n: int) -> Optional[tuple[str, str]]:
             section = "talking"
         lines = _read_lines(root)
         del lines[it["idx"]]
-        lines = _insert_item(lines, SECTIONS[section], f"- {_clean(text)}")
+        # already confirmed elsewhere (hand-added after the guess) -- just
+        # drop the guess rather than writing the same line twice
+        want = _norm(text)
+        if not any(_norm(o["text"]) == want for o in its if not o["noticed"]):
+            lines = _insert_item(lines, SECTIONS[section], f"- {_clean(text)}")
         _write_lines(root, lines)
     return section, text
 
@@ -311,8 +315,15 @@ def write_text(root: str, text: str, max_bytes: int = 32_000) -> None:
 
 # -- learning from ordinary chat --------------------------------------
 
-_LAUGH = re.compile(r"\b(lmf?ao+|rofl|lol+|ha(ha)+h?|hah+|dead|i'?m crying)\b|😂|🤣|💀",
+_LAUGH = re.compile(r"\b(lmf?ao+|rofl|lol+|ha(ha)+h?|hah+|i'?m dead|i'?m crying)\b|😂|🤣|💀",
                     re.IGNORECASE)
+
+# "lol fix the build" -- lol as punctuation in front of an order, not a
+# reaction to the last reply. Seen as the first word left after the laugh.
+_COMMAND_WORD = re.compile(
+    r"^(fix|build|check|run|push|pull|make|do|go|start|stop|restart|install|update|"
+    r"delete|remove|add|show|open|send|try|test|merge|commit|look|find|give|tell|"
+    r"now|ok|okay|but|so|can|could|what|why|how|where|when)\b")
 
 _PREFERENCE_HINT = re.compile(
     r"\b("
@@ -337,8 +348,10 @@ def is_laugh(message: str) -> bool:
     if not m or len(m) > 60 or not _LAUGH.search(m):
         return False
     rest = _LAUGH.sub(" ", m)
-    rest = re.sub(r"[^a-z ]", " ", rest.lower())
-    return len(" ".join(rest.split())) <= 25
+    rest = " ".join(re.sub(r"[^a-z' ]", " ", rest.lower()).split())
+    if _COMMAND_WORD.match(rest):
+        return False
+    return len(rest) <= 25
 
 
 def looks_like_preference(message: str) -> bool:
