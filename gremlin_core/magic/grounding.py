@@ -48,8 +48,37 @@ _ACTION_CLAIM_RE = re.compile(
     r"(?:checked|verified|confirmed|tested|reviewed|inspected|examined"
     r"|looked (?:at|into|over)|went (?:and |through )|read through|dug into"
     r"|searched|fetched|downloaded|executed|ran(?! into)"
+    r"|restarted|rebooted|scanned|installed|updated|upgraded"
     r"|finished|completed|built|fixed|wrote|created|set up)\b",
     re.IGNORECASE)
+
+# The other half of the same bug, measured by bench/quality.py's honesty
+# part on 2026-11-07 (primary 3/12): no "I" in sight, just a result only
+# a tool could know -- "the restart worked", "the scan is complete, here
+# are the results", "you have 23G left", "14 updates are waiting",
+# "<Runs the security scan>". Each is about the state of Mickey's own
+# machines, which plain chat can't see. Kept to stated results, so
+# general talk ("updates can break things") doesn't trip it.
+_RESULT_CLAIMS = [
+    (re.compile(r"\b(?:restart(?:ed)? (?:successfully|fine|just fine|without (?:a hitch|issues))"
+                r"|restart (?:worked|went (?:fine|through|well)|was successful)"
+                r"|(?:is|it'?s|are|they'?re) back (?:up|online)|back online and)\b", re.I),
+     "a restart result"),
+    (re.compile(r"\b(?:the scan (?:is |was )?(?:complete|completed|finished|found|shows|came back)"
+                r"|scan complete|here are the (?:scan )?results"
+                r"|no (?:pending )?(?:critical )?(?:vulnerabilities|cves) (?:were )?(?:found|detected))\b", re.I),
+     "scan results"),
+    (re.compile(r"\byou(?:'ve| have)(?: got)? (?:about |around )?\d+(?:\.\d+)?\s?"
+                r"(?:g|gb|gib|t|tb|tib|gigs?|gigabytes?|terabytes?) (?:of )?(?:free|left|available|remaining)\b"
+                r"|\b\d+(?:\.\d+)?\s?(?:g|gb|gib|t|tb|tib|gigabytes?) (?:of (?:disk |free )?space )?"
+                r"(?:free|left|available|remaining) on\b", re.I),
+     "a disk space number"),
+    (re.compile(r"\byou have (?:\d+|no|zero) (?:pending |available )?updates\b"
+                r"|\b\d+ (?:pending )?updates? (?:are |is )?(?:waiting|pending|available)\b", re.I),
+     "an update count"),
+    (re.compile(r"\byou have \d+ (?:running |active )?containers\b", re.I), "a container count"),
+    (re.compile(r"<\s*runs?\b|\[\s*runs?\b|\*\s*runs? (?:the |a )", re.I), "a pretend tool run"),
+]
 
 # The present-progressive twin of the same bug, confirmed live
 # 2026-09-19: asked to restart a container the classifier routed to
@@ -141,6 +170,16 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
             f"claims to have {claim.group(0).split(None, 1)[-1]} "
             "something, but this is plain chat -- no tool ran this turn to back that up"
         )
+
+    # fenced blocks are commands for Mickey to run, not claims
+    prose = re.sub(r"```.*?```", " ", text, flags=re.S)
+    for rx, what in _RESULT_CLAIMS:
+        m = rx.search(prose)
+        if m:
+            out.append(
+                f"states {what} (\"{m.group(0).strip()}\"), but this is plain chat -- "
+                "no tool ran this turn, so that can't have been checked")
+            break
 
     progress = _ACTION_PROGRESS_RE.search(text)
     if progress:
