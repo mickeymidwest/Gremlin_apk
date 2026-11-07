@@ -32,6 +32,9 @@ pause_timers() {
     STOPPED_TIMERS="$STOPPED_TIMERS $t"   # recorded first so it's restored even if interrupted
     echo "heavy.sh: pausing $t"
     systemctl --user stop "$t" "${t%.timer}.service"
+    # stopping a check mid-run leaves it marked "failed" (signal), which
+    # look-first would then report as a failed service. It isn't one.
+    systemctl --user reset-failed "${t%.timer}.service" 2>/dev/null || true
   done
 }
 
