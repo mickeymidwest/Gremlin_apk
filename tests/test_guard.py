@@ -84,3 +84,7 @@ def test_missing_tools_dont_crash(monkeypatch):
     monkeypatch.setattr(guard.shutil, "which", lambda n: None)
     snap = guard.snapshot()
     assert snap["listening"] == [] and snap["failed_ssh_24h"] is None
+
+
+def test_first_run_with_nothing_to_flag_says_so():
+    assert guard.report([], first=True).startswith("First look: nothing stands out")

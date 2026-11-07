@@ -1305,6 +1305,50 @@ def create_app(
         text = profile_mod.read_text(root)
         return jsonify({"text": text, "version": profile_mod.version(text)})
 
+    @app.route("/guard/phone", methods=["POST"])
+    def guard_phone_route():
+        """S3 phone guard: the app posts a security snapshot of the phone;
+        the reply is what changed since the accepted baseline."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import phone_guard
+        if (request.content_length or 0) > phone_guard.MAX_SNAPSHOT_BYTES:
+            return jsonify({"error": "snapshot too large"}), 413
+        snap = request.get_json(silent=True)
+        try:
+            text, found = phone_guard.check(str(project_root), snap)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        from .guard import findings_json
+        return jsonify({"report": text, "findings": findings_json(found)})
+
+    @app.route("/guard/desktop", methods=["GET"])
+    def guard_desktop_route():
+        """S2 desktop guard from the app (no SUID scan; that's nightly)."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import guard
+        text, found = guard.run(str(project_root), full=False)
+        return jsonify({"report": text, "findings": guard.findings_json(found)})
+
+    @app.route("/guard/<which>/accept", methods=["POST"])
+    def guard_accept_route(which):
+        """Mark the latest phone or desktop snapshot as normal."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import guard, phone_guard
+        if which == "phone":
+            msg = phone_guard.accept(str(project_root))
+        elif which == "desktop":
+            msg = guard.accept(str(project_root))
+        else:
+            return jsonify({"error": "phone or desktop"}), 404
+        mutation_log.append_mutation(str(project_root), {"kind": "guard_accept", "which": which})
+        return jsonify({"ok": True, "message": msg})
+
     @app.route("/admin/defense", methods=["GET"])
     def admin_defense():
         """Roadmap #96 -- the app-facing half of gremlin-defense.timer.

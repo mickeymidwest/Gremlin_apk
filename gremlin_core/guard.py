@@ -214,7 +214,8 @@ def diff(base: dict, now: dict) -> list[Finding]:
 
 def report(findings: list[Finding], first: bool) -> str:
     if not findings:
-        return "Nothing changed since the baseline. All quiet."
+        return ("First look: nothing stands out. Saved as the baseline." if first
+                else "Nothing changed since the baseline. All quiet.")
     lines = ["First look (saved as the baseline):" if first else "Changed since the baseline:"]
     for f in sorted(findings, key=lambda f: _RANK.get(f.level, 9)):
         lines.append(f"- [{f.level}] {f.what}" + (f" ({f.why})" if f.why else ""))
