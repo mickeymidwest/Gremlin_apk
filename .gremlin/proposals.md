@@ -74,6 +74,23 @@ Claude and Gemini disagree with ChatGPT: a central policy engine (Gemini: duplic
 |---|----------|-------|--------|
 | A1 | **Polished Gremlin app** | New look, better chat screen, reorganized Settings, nicer Builds, Stop button, live status, model switcher, memory and skills views, profile editor once built | PARTLY DONE: 1.3 redesign, 1.4 profile editor. Left: Settings sections, Builds redesign |
 
+## Small pilot, big results (Mickey 2026-11-07)
+Goal: Magic should make a 2B-4B pilot answer like a 14B, by giving it better steps and loops, and Gremlin should
+also run the best unrestricted open-weights pilot that fits this box (RTX 2070 Super 8 GB, 7 GB RAM). No weight
+fine-tuning. Each loop has to show its gain on the bench or it doesn't stay.
+
+| ID | Item | Why / evidence | Status |
+|---|---|---|---|
+| U1 | **Uplift bench**: `bench/quality.py --harness` runs the same quality and honesty tasks through the harness loops, next to the bare score. Adds a held-out set (new tasks of the same kinds, never used while tuning loops) so the loops can't be fitted to the test | Target to beat: bare Qwen2.5-14B = 13/19 quality, 9/12 honesty. Without a held-out set a "2B looks like 14B" claim would be fitting the test | PENDING |
+| U2 | **Look first**: questions Gremlin can check get checked (disk space, updates, kernel/BIOS, versions, what's running) and answered from the real output | 2026-11-07 the primary invented a docker ps row and versions; the status check for containers shipped today (5d99e87). Honesty part is 2-3/12 on the primary | PARTLY DONE (containers) |
+| U3 | **Code loop**: write -> run in the sandbox against the prompt's own examples plus model-written asserts -> feed the error back -> retry (max 3) | 8 of the 19 quality tasks are code. Small models fix their own bugs well when shown the traceback; Magic battles already do this for /fix with pytest | PENDING |
+| U4 | **Math/logic loop**: have the pilot write a short Python calculation and run it instead of doing arithmetic in its head; vote across 3 samples when there's no program | reason_wordprob, age_algebra, trains, ledger_sum, seq. Arithmetic is where small models fail first | PENDING |
+| U5 | **Format loop**: GBNF grammar for JSON / ReAct / table outputs (grammars.py exists), validate, retry once with the validator's complaint | format_json_only, format_react, md_table | PENDING |
+| U6 | **Router + think budget**: cheap rule-first classification picks the loop; thinking mode on for code/math, off for chat; escalate to Qwen2.5-14B or Gemini only after the loop's checker fails twice, and log every escalation | Qwen3.5 has a thinking mode; on a small model it helps reasoning but costs tokens and speed, so it shouldn't be on for chat | PENDING |
+| U7 | **Long-context retrieval**: chunk long inputs, keyword-search, give the pilot only the relevant chunks | longctx_needle; small models lose facts in long prompts | PENDING |
+| U8 | **Learn from wins**: a loop run that passed its checker becomes a candidate skill card (existing store/lifecycle) | Magic's skill system already exists; this feeds it from real passes | PENDING |
+| U9 | **Pilot search**: bench stock and abliterated (Huihui) Qwen3.5-2B/4B/9B and Gemma 4 E4B, bare and with the loops. Pick on loop score, honesty, stop, speed. Mickey wants unrestricted weights until Gremlin is done | Downloads started 2026-11-07. llama-cpp-python 0.3.34 already has qwen35 and gemma4. Bar to replace Llama 8B: stop 8/8, honesty >= 9/12 (with U2), >= 30 tok/s | IN PROGRESS |
+
 ## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
 Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
 
