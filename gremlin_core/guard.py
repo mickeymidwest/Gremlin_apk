@@ -69,7 +69,9 @@ def ssh_settings(paths: tuple[str, ...] = ("/etc/ssh/sshd_config",), dropin: str
             line = line.split("#", 1)[0].strip()
             if not line or line.lower().startswith("match "):
                 continue
-            key, _, val = line.partition(" ")
+            # "Key value", "Key\tvalue" and "Key=value" are all valid sshd_config
+            parts = re.split(r"[\s=]+", line, maxsplit=1)
+            key, val = parts[0], (parts[1] if len(parts) > 1 else "")
             if key.lower() in want and key.lower() not in found:
                 found[key.lower()] = val.strip()
     return found

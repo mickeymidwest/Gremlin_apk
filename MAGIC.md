@@ -444,3 +444,17 @@ isn't a thing; skills come from the loop and from here.
   `GREMLIN_LOOPS=1`. Code that still fails gets one Gemini attempt, and the reply says so.
 - Measure with `bench/quality.py --harness` (U1): same suite as the bare run, plus the held-out set
   in `bench/heldout.py` that loops are never tuned on.
+
+
+## Keeping the phone and desktop safe (2026-11-07, defensive only)
+
+- `gremlin guard [--full|accept]` (S2): read-only desktop snapshot (listening ports, sshd settings,
+  firewall, enabled units, cron, failed SSH logins, kernel, optional SUID scan) diffed against a baseline
+  Mickey accepts. Also `GET /guard/desktop` from the app.
+- Phone guard (S3): the app's Settings -> Phone & desktop safety sends a no-root snapshot (apps, installer,
+  permissions, accessibility services, device admins, notification listeners, patch level, screen lock,
+  developer options, USB debugging) to `POST /guard/phone`; the reply is what changed since the baseline.
+  `POST /guard/<phone|desktop>/accept` marks the current state as normal.
+- `gremlin adb-audit [hours]` (S7): which apps used the mic, camera, location, texts, contacts, call log,
+  clipboard or files, and whether in the background, from Android's app-ops records over adb. Read-only;
+  also runs on the phone from Termux (`~/gremlin-phone/audit.py`) against its own wireless debugging.

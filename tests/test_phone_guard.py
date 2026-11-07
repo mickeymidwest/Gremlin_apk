@@ -79,8 +79,9 @@ def test_check_baseline_then_diff_then_accept(tmp_path):
     assert pg.accept(str(tmp_path)).startswith("This phone")
     text, _ = pg.check(str(tmp_path), now)
     assert text.startswith("Nothing changed")
-    with pytest.raises(ValueError):
-        pg.check(str(tmp_path), ["not", "a", "dict"])
+    for bad in (["not", "a", "dict"], {"packages": [1]}, {"accessibility": "x"}):
+        with pytest.raises(ValueError):
+            pg.check(str(tmp_path), bad)
 
 
 def test_guard_routes(tmp_path, monkeypatch):

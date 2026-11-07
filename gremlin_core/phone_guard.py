@@ -129,7 +129,10 @@ def diff(base: dict, now: dict) -> list[Finding]:
 def check(root: str, snap: dict) -> tuple[str, list[Finding]]:
     """Save the snapshot; compare with the accepted baseline (the first
     snapshot becomes it). Returns (report, findings)."""
-    if not isinstance(snap, dict) or not isinstance(snap.get("packages", []), list):
+    if (not isinstance(snap, dict) or not isinstance(snap.get("packages", []), list)
+            or not all(isinstance(p, dict) for p in snap.get("packages", []))
+            or not all(isinstance(snap.get(k, []), list)
+                       for k in ("accessibility", "device_admins", "notification_listeners"))):
         raise ValueError("not a phone snapshot")
     d = _dir(root)
     (d / "latest.json").write_text(json.dumps(snap))

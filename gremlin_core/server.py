@@ -1313,7 +1313,9 @@ def create_app(
         if auth_error:
             return auth_error
         from . import phone_guard
-        if (request.content_length or 0) > phone_guard.MAX_SNAPSHOT_BYTES:
+        # content_length is None for a chunked upload, so measure the body
+        if (request.content_length or 0) > phone_guard.MAX_SNAPSHOT_BYTES or \
+                len(request.get_data(cache=True)) > phone_guard.MAX_SNAPSHOT_BYTES:
             return jsonify({"error": "snapshot too large"}), 413
         snap = request.get_json(silent=True)
         try:

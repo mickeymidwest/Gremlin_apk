@@ -17,11 +17,11 @@ BASE = {
 
 def test_ssh_settings_dropin_wins(tmp_path):
     (tmp_path / "d").mkdir()
-    (tmp_path / "d" / "99-hard.conf").write_text("PasswordAuthentication no\n")
+    (tmp_path / "d" / "99-hard.conf").write_text("PasswordAuthentication\tno\nPort=2222\n")
     (tmp_path / "sshd_config").write_text("# comment\nPasswordAuthentication yes\nPermitRootLogin no\n"
                                           "Match User bob\n  PasswordAuthentication yes\n")
     s = guard.ssh_settings((str(tmp_path / "sshd_config"),), str(tmp_path / "d"))
-    assert s["passwordauthentication"] == "no" and s["permitrootlogin"] == "no"
+    assert s["passwordauthentication"] == "no" and s["permitrootlogin"] == "no" and s["port"] == "2222"
 
 
 def test_standing_findings():
