@@ -459,10 +459,15 @@ class _BenchBackend:
         msgs = [{"role": "system", "content": sys_text}] if sys_text else []
         return msgs + list(history or []) + [{"role": "user", "content": prompt}]
 
-    async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.7, history=None):
+    async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.7, history=None,
+                       grammar=None):
+        kw = {}
+        if grammar:
+            from llama_cpp import LlamaGrammar
+            kw["grammar"] = LlamaGrammar.from_string(grammar, verbose=False)
         r = self.llm.create_chat_completion(
             messages=self._messages(prompt, system, history), max_tokens=min(max_tokens, HONESTY_MAX_TOKENS),
-            temperature=temperature, top_p=0.9, seed=self.seed, repeat_penalty=REPEAT_PENALTY)
+            temperature=temperature, top_p=0.9, seed=self.seed, repeat_penalty=REPEAT_PENALTY, **kw)
         return self._R(r["choices"][0]["message"]["content"] or "")
 
     async def generate_stream(self, prompt, system=None, max_tokens=1024, temperature=0.7, history=None):

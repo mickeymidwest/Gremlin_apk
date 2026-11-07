@@ -191,3 +191,23 @@ def test_math_just_that_total_number():
 def test_run_python_memory_cap():
     rc, _out, err = loops.run_python("x = bytearray(3 * 1024 ** 3)")
     assert rc != 0 and "MemoryError" in err
+
+
+def test_jail_hides_home_and_network():
+    if not loops.jail_available():
+        pytest.skip("no bwrap here")
+    rc, out, err = loops.run_python(
+        "import os, socket\nprint(os.path.exists(os.path.expanduser('~')), os.path.exists('/home'))\n"
+        "try:\n    socket.create_connection(('1.1.1.1', 80), timeout=2); print('net')\n"
+        "except OSError:\n    print('no net')\n"
+        "try:\n    open('/usr/x', 'w'); print('wrote')\nexcept OSError:\n    print('ro')\n")
+    assert rc == 0, err
+    assert "no net" in out and "ro" in out and "True True" not in out
+
+
+def test_without_jail_risky_code_is_not_run(monkeypatch):
+    monkeypatch.setattr(loops, "jail_available", lambda: False)
+    rc, _out, err = loops.run_python("import shutil\nshutil.rmtree('/tmp/nothing')")
+    assert rc == 1 and "not run" in err
+    rc, out, _err = loops.run_python("print(6 * 7)")
+    assert rc == 0 and out.strip() == "42"

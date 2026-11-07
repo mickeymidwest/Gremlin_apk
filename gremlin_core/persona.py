@@ -70,6 +70,7 @@ class PersonaBackend(ModelBackend):
         max_tokens: int = 1536,
         temperature: float = 0.7,
         history: Optional[list] = None,
+        grammar=None,
     ) -> GenerationResult:
         combined_system = self._combined_system(system)
         candidates = [self.primary] + self.fallbacks
@@ -77,9 +78,12 @@ class PersonaBackend(ModelBackend):
 
         for backend in candidates:
             try:
+                # grammar (GBNF) only reaches the local primary; API
+                # fallbacks don't take it, and the loops validate anyway
+                kw = {"grammar": grammar} if grammar is not None and backend is self.primary else {}
                 result = await backend.generate(
                     prompt, system=combined_system, max_tokens=max_tokens,
-                    temperature=temperature, history=history,
+                    temperature=temperature, history=history, **kw,
                 )
             except TypeError:
                 result = await backend.generate(

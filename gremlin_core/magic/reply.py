@@ -186,6 +186,99 @@ def _repeat_nudge_and_clean(message: str, history: str) -> tuple[str, str]:
     return cleaned, nudge
 
 
+def loops_enabled(root: str) -> bool:
+    """persona.loops_in_chat in config/models.yaml (default off until the
+    uplift bench shows a gain, U6). GREMLIN_LOOPS=1/0 overrides."""
+    import os
+    env = os.environ.get("GREMLIN_LOOPS")
+    if env in ("0", "1"):
+        return env == "1"
+    try:
+        import yaml
+        from pathlib import Path
+        cfg = yaml.safe_load((Path(root) / "config" / "models.yaml").read_text()) or {}
+        return bool((cfg.get("persona") or {}).get("loops_in_chat", False))
+    except Exception:
+        return False
+
+
+def _loop_note(solved) -> str:
+    """One honest line about what the loop actually did."""
+    from . import loops
+    last = solved.trace[-1] if solved.trace else ""
+    if solved.route == loops.CODE:
+        if "all checks pass" in last or any("all checks pass" in t for t in solved.trace):
+            first = next((t for t in solved.trace if "example(s) from the request" in t), "")
+            return ("\n\n(I ran this in a sandbox: " + (first.removeprefix("code: ") or "it ran")
+                    + ", all passed.)")
+        problems = next((t for t in reversed(solved.trace) if t.startswith("code: try")), "")
+        return ("\n\n(I ran this in a sandbox and it still has problems: "
+                + problems.split(": ", 2)[-1][:200] + ")")
+    if solved.route == loops.MATH:
+        agree = next((t for t in reversed(solved.trace) if "programs agree" in t), "")
+        return f"\n\n({agree.removeprefix('math: ')}.)" if agree else ""
+    if solved.route == loops.VOTE:
+        agree = next((t for t in reversed(solved.trace) if " say " in t and " of " in t), "")
+        return f"\n\n({agree.removeprefix('vote: ')} when I thought it through separately.)" if agree else ""
+    return ""
+
+
+async def _loop_answer(primary, message: str, root: str, history: str, fallback=None):
+    """U6: run a task-shaped request (code, math, JSON/table/one-line,
+    yes/no) through its loop. Returns (text, solved, used_fallback) or
+    None for ordinary chat. Only this thread's history goes along, not the
+    memory dump: a coding or math request doesn't need it (U10)."""
+    import asyncio
+    from . import loops
+    if not loops_enabled(root):
+        return None
+    kind = loops.route(message)
+    if kind == loops.PLAIN:
+        return None
+    conv = []
+    if history:
+        conv = [{"role": "user", "content": "Earlier in this conversation:\n" + history},
+                {"role": "assistant", "content": "Got it, continuing from there."}]
+    ev_loop = asyncio.get_running_loop()
+
+    def make_call(backend):
+        def call(messages, max_tokens, temperature, grammar=None):
+            msgs = conv + list(messages)
+            prompt, hist = msgs[-1]["content"], msgs[:-1]
+            kw = {"grammar": grammar} if grammar else {}
+            try:
+                fut = asyncio.run_coroutine_threadsafe(
+                    backend.generate(prompt, max_tokens=max_tokens, temperature=temperature,
+                                     history=hist, **kw), ev_loop)
+                r = fut.result(timeout=300)
+            except TypeError:
+                fut = asyncio.run_coroutine_threadsafe(
+                    backend.generate(prompt, max_tokens=max_tokens, temperature=temperature,
+                                     history=hist), ev_loop)
+                r = fut.result(timeout=300)
+            text = (getattr(r, "text", "") or "").strip()
+            return text, "stop", text
+        return call
+
+    solved = await asyncio.to_thread(loops.solve, make_call(primary), message)
+    used_fallback = False
+    # escalation: the local pilot's code still fails its checks after its
+    # tries -> one attempt from the fallback (Gemini), with the failures
+    if (fallback is not None and solved.route == loops.CODE
+            and not any("all checks pass" in t for t in solved.trace)):
+        failing = next((t for t in reversed(solved.trace) if t.startswith("code: try")), "")
+        ask = (message + "\n\n(An earlier attempt failed these checks: "
+               + failing.split(": ", 2)[-1][:400] + ". Reply with the complete corrected code only.)")
+        alt = await asyncio.to_thread(loops.solve, make_call(fallback), ask)
+        if any("all checks pass" in t for t in alt.trace):
+            solved, used_fallback = alt, True
+            solved.trace.append("escalated to the fallback model after the local tries failed")
+    text = solved.text + _loop_note(solved)
+    if used_fallback:
+        text += "\n(Gemini helped with this one after my own tries failed.)"
+    return text, solved, used_fallback
+
+
 async def _look_first(message: str, root: str) -> tuple[list[str], str]:
     """(probe keys, evidence) for a question about this machine's live
     state, else ([], ''). U2: check before answering. Never raises."""
@@ -319,6 +412,20 @@ async def answer_stream(primary, message: str, root: str,
         return
 
     looked, evidence = await _look_first(message, root)
+    if not looked:
+        try:
+            looped = await _loop_answer(primary, message, root, history, fallback)
+        except Exception:
+            looped = None  # a loop failure falls back to an ordinary answer
+        if looped:
+            text, solved, used_fb = looped
+            yield "delta", text
+            await _post_answer_bookkeeping(primary, message, root, text, used_fb,
+                                           "fallback" if used_fb else "gremlin", history=history)
+            done = _reply(text, source="fallback" if used_fb else "gremlin")
+            done["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
+            yield "done", done
+            return
     prompt, hist, ctx = _build_prompt(message, root, history, evidence)
 
     acc = ""
@@ -383,6 +490,18 @@ async def answer(primary, message: str, root: str,
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
     looked, evidence = await _look_first(message, root)
+    if not looked:
+        try:
+            looped = await _loop_answer(primary, message, root, history, fallback)
+        except Exception:
+            looped = None
+        if looped:
+            text, solved, used_fb = looped
+            await _post_answer_bookkeeping(primary, message, root, text, used_fb,
+                                           "fallback" if used_fb else "gremlin", history=history)
+            out = _reply(text, source="fallback" if used_fb else "gremlin")
+            out["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
+            return out
     prompt, hist, ctx = _build_prompt(message, root, history, evidence)
 
     r = await _gen(primary, prompt, hist)

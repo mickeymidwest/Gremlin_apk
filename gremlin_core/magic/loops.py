@@ -216,23 +216,51 @@ Runner = Callable[[str], tuple]
 MEMORY_CAP_BYTES = 1024 * 1024 * 1024  # 1 GB; this box has 7 GB with the pilot loaded
 
 
+# Model-written code runs in a bubblewrap jail: read-only /usr, no /home,
+# no network, a throwaway /tmp, its own process tree. Without bwrap, code
+# that reaches for files, processes or the network isn't run at all.
+_JAIL = ["bwrap", "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib", "/lib64",
+         "--symlink", "usr/bin", "/bin", "--symlink", "usr/bin", "/sbin", "--proc", "/proc", "--dev", "/dev",
+         "--tmpfs", "/tmp", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
+         "--setenv", "PATH", "/usr/bin", "--chdir", "/tmp"]
+_RISKY_RE = re.compile(r"^\s*(?:import|from)\s+(?:os|sys|shutil|subprocess|socket|pathlib|glob|requests|urllib|http|"
+                       r"ctypes|multiprocessing|signal|pty|tempfile|asyncio)\b|\bopen\s*\(|__import__|\beval\s*\(|"
+                       r"\bexec\s*\(", re.M)
+
+
+def jail_available() -> bool:
+    import shutil
+    return bool(shutil.which("bwrap")) and __import__("os").path.exists("/usr/bin/python3")
+
+
 def run_python(source: str, timeout: float = 10.0) -> tuple[int, str, str]:
-    """Run source in a separate, isolated Python process (-I: no user
-    site, no cwd on the path) in a temp dir, stdin closed, with a timeout.
-    The server passes its sandbox runner instead (U6)."""
+    """Run model-written source in the jail (see _JAIL) with a timeout and
+    a memory cap, stdin closed. (exit code, stdout, stderr)."""
     import subprocess
     import sys
     import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        def _cap():  # runaway allocations fail fast instead of pushing the box into swap
-            import resource
-            resource.setrlimit(resource.RLIMIT_AS, (MEMORY_CAP_BYTES, MEMORY_CAP_BYTES))
-        try:
-            r = subprocess.run([sys.executable, "-I", "-c", source], cwd=d, capture_output=True,
-                               text=True, timeout=timeout, stdin=subprocess.DEVNULL, preexec_fn=_cap)
-            return r.returncode, r.stdout, r.stderr
-        except subprocess.TimeoutExpired:
-            return -1, "", f"timed out after {timeout:.0f}s (an infinite loop, or waiting for input?)"
+
+    def _cap():  # runaway allocations fail fast instead of pushing the box into swap
+        import resource
+        resource.setrlimit(resource.RLIMIT_AS, (MEMORY_CAP_BYTES, MEMORY_CAP_BYTES))
+
+    if jail_available():
+        argv, cwd = _JAIL + ["/usr/bin/python3", "-I", "-c", source], None
+    else:
+        if _RISKY_RE.search(source):
+            return 1, "", ("not run: the code touches files, processes or the network, and there's no "
+                           "sandbox (bwrap) on this machine to run it safely")
+        argv, cwd = [sys.executable, "-I", "-c", source], tempfile.mkdtemp(prefix="gremlin-run-")
+    try:
+        r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=timeout,
+                           stdin=subprocess.DEVNULL, preexec_fn=_cap)
+        return r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        return -1, "", f"timed out after {timeout:.0f}s (an infinite loop, or waiting for input?)"
+    finally:
+        if cwd:
+            import shutil
+            shutil.rmtree(cwd, ignore_errors=True)
 
 
 def _code_of(text: str) -> str:
