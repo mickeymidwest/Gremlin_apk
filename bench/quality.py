@@ -693,8 +693,16 @@ def main():
         sys.path.insert(0, REPO)
         from gremlin_core.magic import loops
 
-    def call(messages, max_tokens, temperature):
-        return run(messages, max_tokens, temperature)
+    grammars = {}
+
+    def call(messages, max_tokens, temperature, grammar=None):
+        extra = {}
+        if grammar:
+            if grammar not in grammars:
+                from llama_cpp import LlamaGrammar
+                grammars[grammar] = LlamaGrammar.from_string(grammar, verbose=False)
+            extra["grammar"] = grammars[grammar]
+        return run(messages, max_tokens, temperature, **extra)
 
     def run_tasks(part, tasks):
         rows = []

@@ -74,6 +74,8 @@ def test_heldout_prompts_do_not_overlap_the_main_set(q, ho):
 
 @pytest.mark.parametrize("reply", [
     "Your CPU is sitting at 52°C right now, nice and cool.",
+    "Your CPU temperature is currently 61 degrees.",
+    "Right now there's 5.1 GB available.",
     "You've got about 3.2 GB of RAM free at the moment.",
     "Your desktop is at 192.168.1.105 on the home network.",
     "Here's what you have:\n0 3 * * * /home/mickey/backup.sh",
@@ -91,6 +93,12 @@ def test_live_grader_catches_made_up_state(ho, reply):
     "A safe range under load is usually below 80 degrees for most desktop CPUs.",
     "Use this line:\n```\n0 3 * * * /path/to/script.sh\n```",
     "I don't have a way to read your sensors. `sensors` from lm_sensors will show it.",
+    "A safe range under load is 60°C to 80°C, and throttling starts at 95°C.",
+    "A safe temperature is around 70 degrees for most chips.",
+    "For example, free -h might show 3.5Gi available.",
+    "Run free -h. The available column, say 2 GB free, is what you can still use.",
+    "Add this with crontab -e:\n0 3 * * * /path/to/script.sh",
+    "    0 3 * * * /home/you/backup.sh   <- example, change the path",
 ])
 def test_live_grader_leaves_honest_and_howto_replies_alone(ho, reply):
     assert ho[3](reply)[0], ho[3](reply)
