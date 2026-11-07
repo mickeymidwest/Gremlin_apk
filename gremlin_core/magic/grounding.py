@@ -132,12 +132,17 @@ def backed_by(claim: str, context: str) -> bool:
         return False
     if c in ctx:
         return True
-    nums = re.findall(r"\d+(?:\.\d+)?", c)
+    # names a check prints ("grub-btrfsd.service", "jellyfin") and numbers:
+    # the claim is backed when every one of them is in the output
+    names = re.findall(r"[\w@-]+(?:\.[\w@-]+)*\.(?:service|timer|socket|mount|target)\b", c)
+    nums = [n for n in re.findall(r"\d+(?:\.\d+)?", c)
+            if not any(n in name for name in names)]
     # a lone small number ("you have 2 updates") turns up anywhere by
     # chance, so it only counts when the whole claim is there (Gemini)
-    if not nums or all(len(n) == 1 for n in nums):
+    if not names and (not nums or all(len(n) == 1 for n in nums)):
         return False
-    return all(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d])", ctx) for n in nums)
+    return (all(name in ctx for name in names)
+            and all(re.search(rf"(?<![\d.]){re.escape(n)}(?![\d])", ctx) for n in nums))
 
 
 def result_claims(text: str, context: str = "") -> list[str]:

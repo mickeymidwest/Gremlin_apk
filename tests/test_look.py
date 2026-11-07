@@ -75,6 +75,10 @@ def test_backed_by_matches_numbers_across_units():
     # a lone digit is everywhere; only the exact claim counts
     assert not grounding.backed_by("2 updates", "uptime: up 2 days")
     assert grounding.backed_by("2 updates", "checkupdates: 2 updates")
+    # unit names the check printed back a "failed" claim; made-up ones don't
+    ev = "$ systemctl --failed\ngrub-btrfsd.service loaded failed failed Regenerate grub-btrfs.cfg"
+    assert grounding.backed_by("grub-btrfsd.service` have failed", ev)
+    assert not grounding.backed_by("bridge.service failed", ev)
 
 
 def test_grounding_allows_i_checked_only_when_a_check_ran(tmp_path):
