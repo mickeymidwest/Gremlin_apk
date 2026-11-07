@@ -51,6 +51,18 @@ No current problem named, leave out for now: digital twins (#111), environment c
 
 Not doing: the 200-upgrade master roadmap. `ROADMAP.md` already has a numbered list, and `decisions.md` says staged rollout.
 
+## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
+Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
+
+| # | Proposal | Blueprint items | Unlocked by | Status |
+|---|----------|-----------------|-------------|--------|
+| H1 | Temporary workers and parallel hypotheses | #1, #46-55, stage 6 | More VRAM, or sequential on one model if Mickey OKs it | PENDING |
+| H2 | Digital twin and environment cloning | #33, #111, stage 7 | More RAM and an SSD | PENDING |
+| H3 | Harness evolution experiments | #125, stage 8 | N3 benchmark first, then more RAM and an SSD | PENDING |
+| H4 | Knowledge graph | #117, stage 9 | Not hardware: after N4 and O7 | PENDING |
+| H5 | Research frontiers | stages 11-15 | Better GPU and more RAM | PENDING |
+| H6 | Network and family protection | MAGIC.md §7 | After Mickey's move | PENDING |
+
 ## Rejected — out of scope per YOUR MAGIC.md §7 (own box / defensive only)
 Kept from the Gemini list for the record. Mickey confirmed: own devices (e.g. his Pixel 9 XL) fine, nothing aimed at others.
 | # | Proposal | Why | Status |
