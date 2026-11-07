@@ -26,6 +26,8 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin auto-fix
   gremlin edit <path> ["<problem description>"]
   gremlin serve [port]           (default: 8765) -- lets the phone app connect
+  gremlin adb-audit [hours]       -- what apps on the paired phone did with the mic, camera,
+                                   location, texts, contacts, clipboard (default 24h)
   gremlin guard [--full|accept]   -- desktop guard: what changed since the known-good
                                    baseline (--full adds the slow SUID scan)
   gremlin pair [port]             -- show the phone pairing URL + QR in this terminal
@@ -1003,6 +1005,10 @@ async def main():
             _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
+        elif cmd == "adb-audit":
+            from gremlin_core import adb_audit
+            hours = float(sys.argv[2]) if len(sys.argv) > 2 else 24.0
+            print(adb_audit.audit(hours)[0])
         elif cmd == "guard":
             from gremlin_core import guard
             if len(sys.argv) > 2 and sys.argv[2] == "accept":
