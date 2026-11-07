@@ -384,6 +384,15 @@ def _check_script(code: str, name: str, examples: list, smoke: list) -> str:
     per problem found."""
     lines = [code, "", "import json as _j", "def _report(kind, msg):",
              "    print('@@CHECK ' + _j.dumps({'kind': kind, 'msg': msg}))",
+             "import inspect as _i",
+             "def _fits(_a):",
+             "    try:",
+             "        _i.signature(_f).bind(*_a)",
+             "        return True",
+             "    except TypeError:",
+             "        return False",
+             "    except ValueError:",
+             "        return True",
              f"_f = globals().get({name!r})",
              "if _f is None:",
              f"    _report('missing', 'there is no function named {name}')",
@@ -398,11 +407,22 @@ def _check_script(code: str, name: str, examples: list, smoke: list) -> str:
             f"        _report('example', {call_src!r} + ' raised ' + type(_e).__name__ + ': ' + str(_e))",
         ]
     for args in smoke:
+        # Model-picked inputs are often the wrong shape (a list of intervals
+        # handed over as three arguments) or the wrong type. That's the
+        # input's fault, not the code's: skip inputs that don't fit the
+        # signature, and don't count TypeError/AttributeError from them
+        # (bench 2026-11-07: correct code got "fixed" 3 times over this).
         lines += [
-            "    try:",
-            f"        _f(*_j.loads({json.dumps(json.dumps(args))}))",
-            "    except Exception as _e:",
-            f"        _report('smoke', {name!r} + '(' + ', '.join(repr(a) for a in _j.loads({json.dumps(json.dumps(args))})) + ') raised ' + type(_e).__name__ + ': ' + str(_e))",
+            f"    _a = _j.loads({json.dumps(json.dumps(args))})",
+            "    if not _fits(_a) and _fits([_a]):",
+            "        _a = [_a]",
+            "    if _fits(_a):",
+            "        try:",
+            "            _f(*_a)",
+            "        except (TypeError, AttributeError):",
+            "            pass",
+            "        except Exception as _e:",
+            f"            _report('smoke', {name!r} + '(' + ', '.join(repr(x) for x in _a) + ') raised ' + type(_e).__name__ + ': ' + str(_e))",
         ]
     lines.append("    pass")
     return "\n".join(lines)
@@ -501,33 +521,48 @@ def _fmt(x: float) -> str:
 
 
 def _math_loop(call: Call, prompt: str, max_tokens: int, temperature: float, runner: Runner,
-               samples: int = 3) -> Optional[Solved]:
-    trace, calls, results = [], 0, []
-    for i in range(samples):
-        clean, _f, raw = call([{"role": "user", "content": _POT_PROMPT.format(q=prompt)}],
-                              max_tokens, temperature if i == 0 else 0.8, grammar=None)
+               rounds: int = 2) -> Optional[Solved]:
+    """Each round: one plain answer and one program. Stop as soon as any
+    two agree. The plain answer votes too: on pattern questions ("next
+    number") an 8B's programs scatter while its plain answer is right
+    (bench 2026-11-07: reason_seq programs said 22, 40, 36). With no
+    agreement, the first plain answer wins the tie."""
+    trace, calls, votes = [], 0, []  # (value, source, text, raw)
+    for r in range(rounds):
+        temp = temperature if r == 0 else 0.8
+        clean, _f, raw = call([{"role": "user", "content": prompt}], max_tokens, temp, grammar=None)
         calls += 1
-        code = _code_of(clean)
-        rc, out, err = runner(code)
-        val = _num(out) if rc == 0 else None
-        trace.append(f"math: program {i + 1} -> {_fmt(val) if val is not None else 'no number'}")
-        if val is not None:
-            results.append((round(val, 6), code, raw))
-        # two programs agreeing is enough
-        if len(results) >= 2 and results[-1][0] == results[-2][0]:
+        v = _num(clean)
+        trace.append(f"math: plain answer {r + 1} -> {_fmt(v) if v is not None else 'no number'}")
+        votes.append((round(v, 6) if v is not None else None, "plain", clean, raw))
+        pclean, _f, praw = call([{"role": "user", "content": _POT_PROMPT.format(q=prompt)}],
+                                max_tokens, temp, grammar=None)
+        calls += 1
+        code = _code_of(pclean)
+        rc, out, _err = runner(code)
+        pv = _num(out) if rc == 0 else None
+        trace.append(f"math: program {r + 1} -> {_fmt(pv) if pv is not None else 'no number'}")
+        votes.append((round(pv, 6) if pv is not None else None, "program", code, praw))
+        counted = [v for v, *_ in votes if v is not None]
+        if any(counted.count(x) >= 2 for x in counted):
             break
-    if not results:
+    counted = [v for v, *_ in votes if v is not None]
+    if not counted:
         return None
-    counts: dict = {}
-    for v, _c, _r in results:
-        counts[v] = counts.get(v, 0) + 1
-    winner = max(counts, key=lambda v: (counts[v], -[r[0] for r in results].index(v)))
-    code, raw = next((c, r) for v, c, r in results if v == winner)
-    trace.append(f"math: {counts[winner]} of {len(results)} programs agree on {_fmt(winner)}")
+    best = max(counted.count(x) for x in counted)
+    tied = [x for x in dict.fromkeys(counted) if counted.count(x) == best]
+    first_plain = next((v for v, src, *_ in votes if src == "plain" and v is not None), None)
+    winner = first_plain if first_plain in tied else tied[0]
+    trace.append(f"math: {best} of {len(counted)} answers agree on {_fmt(winner)}")
     if re.search(r"\b(?:just|only)\s+(?:that\s+|the\s+)?(?:final\s+|total\s+)*number\b", prompt, re.I):
-        text = _fmt(winner)
+        text, raw = _fmt(winner), next(r for v, _s, _t, r in votes if v == winner)
     else:
-        text = f"Worked it out with a quick calculation:\n```python\n{code}\n```\nAnswer: {_fmt(winner)}"
+        plain = next(((t, r) for v, src, t, r in votes if v == winner and src == "plain"), None)
+        if plain:
+            text, raw = plain
+        else:
+            code, raw = next((t, r) for v, src, t, r in votes if v == winner)
+            text = f"Worked it out with a quick calculation:\n```python\n{code}\n```\nAnswer: {_fmt(winner)}"
     return Solved(text, raw, MATH, calls, trace)
 
 

@@ -150,29 +150,53 @@ def test_code_loop_feeds_errors_back_and_fixes():
 def test_code_loop_keeps_the_best_try_when_a_fix_makes_it_worse():
     ok_code = "```python\ndef f(x):\n    return x * 2\n```"
     worse = "```python\ndef f(x):\n    return x +\n```"
-    # smoke input [None] crashes the good code, the "fix" is a syntax error, then still broken
+    # the example f(2) == 4 fails on purpose below, the "fix" is a syntax error, then still broken
+    ok_code = "```python\ndef f(x):\n    return x * 2 if x != 2 else 5\n```"
     call = fake(ok_code, "[[None], (3,)]", worse, worse)  # Python literals, not JSON
     out = loops.solve(call, "Write a Python function `f(x)` that doubles x so f(2) == 4. Only the code.")
-    assert "return x * 2" in out.text
+    assert "return x * 2 if x != 2" in out.text
     assert any("kept try 1" in t for t in out.trace)
 
 
-def test_math_loop_votes_on_program_results():
-    p1 = "```python\nprint(240 / (6 - 2))\n```"
-    p2 = "```python\nprint(60)\n```"
-    call = fake(p1, p2)
+def test_math_loop_plain_and_program_agree_early():
+    call = fake("It loses 4 L a minute, so 60", "```python\nprint(240 / (6 - 2))\n```")
     out = loops.solve(call, "A 240 L tank drains at 6 L/min and fills at 2 L/min. How many minutes until empty? End with the number.")
-    assert out.route == loops.MATH and out.text.endswith("Answer: 60") and out.calls == 2
+    assert out.route == loops.MATH and out.calls == 2
+    assert out.text == "It loses 4 L a minute, so 60"  # the plain answer is kept when it agrees
+
+
+def test_math_loop_plain_answer_wins_a_scattered_vote():
+    call = fake("The next number is 42", "```python\nprint(22)\n```", "It's 40", "```python\nprint(36)\n```")
+    out = loops.solve(call, "What is the next number: 2, 6, 12, 20, 30, ? End with the number.")
+    assert out.calls == 4 and out.text == "The next number is 42"
+
+
+def test_math_loop_program_wins_when_it_has_the_majority():
+    call = fake("I think 566.25", "```python\nprint(500 + 120 - 75.5 + 18 - 32.25)\n```",
+                "530.25", "```python\nprint(1)\n```")
+    out = loops.solve(call, "Start 500, add 120, minus 75.50, add 18, minus 32.25. What is the balance? End with the number.")
+    assert out.text == "530.25"
 
 
 def test_math_loop_just_the_number_and_fallback():
-    call = fake("```python\nprint(2 + 3)\n```", "```python\nprint(5)\n```")
+    call = fake("5", "```python\nprint(2 + 3)\n```")
     out = loops.solve(call, "What is the total of 2 and 3? Answer with just the number.")
     assert out.text == "5"
-    # no program yields a number: fall back to one plain answer
-    call = fake("no code here", "```python\nraise SystemExit(1)\n```", "nothing", "It's 7.")
+    # nothing produces a number: fall back to one plain answer
+    call = fake("no idea", "no code here", "still no idea", "```python\nraise SystemExit(1)\n```", "It's seven.")
     out = loops.solve(call, "How many is 3 plus 4 apples? End with the number.")
-    assert out.text == "It's 7." and out.route == loops.PLAIN
+    assert out.text == "It's seven." and out.route == loops.PLAIN
+
+
+def test_smoke_inputs_that_dont_fit_are_skipped():
+    code = "def merge(intervals):\n    return sorted(intervals)\n"
+    # [[1,3],[2,6]] handed over as two args -> wrapped into one; ints -> TypeError ignored
+    probs = loops.run_checks(code, "merge", [], [[[1, 3], [2, 6]], [5], [1, 2, 3]], loops.run_python)
+    assert probs == []
+    # a real crash on a fitting input still counts
+    code = "def first(xs):\n    return xs[0]\n"
+    probs = loops.run_checks(code, "first", [], [[[]]], loops.run_python)
+    assert probs and "IndexError" in probs[0][1]
 
 
 def test_vote_loop_majority_and_early_stop():
@@ -184,7 +208,7 @@ def test_vote_loop_majority_and_early_stop():
 
 
 def test_math_just_that_total_number():
-    call = fake("```python\nprint(4 + 6)\n```", "```python\nprint(10)\n```")
+    call = fake("4 and 6 make 10", "```python\nprint(4 + 6)\n```")
     assert loops.solve(call, "Prices: 4 and 6. End your reply with just that total number.").text == "10"
 
 

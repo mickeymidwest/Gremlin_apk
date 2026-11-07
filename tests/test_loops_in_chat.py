@@ -88,10 +88,10 @@ def test_failing_code_without_fallback_says_so(tmp_path, monkeypatch):
 
 def test_math_in_chat(tmp_path, monkeypatch):
     monkeypatch.setenv("GREMLIN_LOOPS", "1")
-    be = _Seq("```python\nprint(12 - 5)\n```", "```python\nprint(7)\n```")
+    be = _Seq("So 7 are free.", "```python\nprint(12 - 5)\n```")
     final = _run(be, "A bus has 12 seats and 5 are taken. How many are free?", tmp_path)
-    assert final["loop"]["route"] == "math" and "Answer: 7" in final["answer"]
-    assert "2 of 2 programs agree on 7" in final["answer"]
+    assert final["loop"]["route"] == "math" and final["answer"].startswith("So 7 are free.")
+    assert "2 of 2 answers agree on 7" in final["answer"]
 
 
 def test_ordinary_chat_untouched_when_enabled(tmp_path, monkeypatch):

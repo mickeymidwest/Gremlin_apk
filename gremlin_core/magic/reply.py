@@ -215,7 +215,7 @@ def _loop_note(solved) -> str:
         return ("\n\n(I ran this in a sandbox and it still has problems: "
                 + problems.split(": ", 2)[-1][:200] + ")")
     if solved.route == loops.MATH:
-        agree = next((t for t in reversed(solved.trace) if "programs agree" in t), "")
+        agree = next((t for t in reversed(solved.trace) if "answers agree" in t), "")
         return f"\n\n({agree.removeprefix('math: ')}.)" if agree else ""
     if solved.route == loops.VOTE:
         agree = next((t for t in reversed(solved.trace) if " say " in t and " of " in t), "")
