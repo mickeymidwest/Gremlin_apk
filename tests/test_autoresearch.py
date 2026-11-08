@@ -30,6 +30,15 @@ SEARCH = [
     "latest iphone",
     "gta 6 release date",
     "iphone 17 release date",
+    # embedded factual question that also carries an opinion word -- the
+    # opinion ("thought"/"awesome") must NOT veto the real "how many" lookup
+    # (the real-conversation screenshot bug, 2026-11-08)
+    "so i wonder how many ppl liked the new resident evil i thought it was awesome",
+    "the movie was top notch do you know the official rating for it or how much it made on opening day?",
+    "i loved it but who directed the new dune movie",
+    # a factual question addressed to Gremlin -- "you" must not veto it
+    "do you know who won the super bowl this year",
+    "can you tell me the current price of gold",
 ]
 
 # --- things he should NOT (stay instant / offline) ---------------------------
@@ -68,6 +77,11 @@ NO_SEARCH = [
     "oh nice the new season is out",
     "i just released my first app today",
     "we came out ahead this year",
+    # identity / self questions -- still never web-searched
+    "who are you",
+    "are you an ai",
+    "whats your code written in",
+    "what model are you running",
 ]
 
 

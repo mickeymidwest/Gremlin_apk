@@ -31,7 +31,14 @@ from . import web_search
 # About Gremlin himself, or the local machine -- never the open web. The
 # local-system path (_look_first) and plain chat handle these.
 _SELF_LOCAL = re.compile(
-    r"\b(you|your|yourself|yours|gremlin|magic)\b"
+    # Gremlin's own identity -- but NOT a bare "you"/"your", which also shows
+    # up in ordinary factual questions addressed to him ("do you know who won",
+    # "can you look up the price of X"). Only self-REFERENTIAL uses veto.
+    r"\byourself\b|\bgremlin\b|\bmagic\b"
+    r"|\byour\s+(name|code|source|repo|config|settings|self|version|model|"
+    r"maker|creator|prompt|training|memory|skills?|hardware|specs?)\b"
+    r"|\b(who|what)\s+(are|r)\s+(you|u)\b"
+    r"|\bare\s+you\s+(an?\s+)?(ai|robot|real|alive|conscious|sentient|human|a\s+bot)\b"
     r"|\b(this|my|the)\s+(desktop|box|machine|computer|pc|laptop|server|setup|"
     r"system|cpu|gpu|ram|memory|disk|drive|ssd|config|service|services|"
     r"container|containers|repo|code|network|firewall|phone)\b"
@@ -161,30 +168,39 @@ def should_search(message: str) -> bool:
     outside world. Deterministic and side-effect free -- this is the whole
     'cautious' contract, so it is unit-tested both ways.
 
-    The gate has three parts, all required:
-      1. NOT excluded -- not smalltalk, an opinion/creative ask, or about
-         this machine or Gremlin himself.
-      2. In an ASKING form -- a question (mark or interrogative lead), a
-         tight declarative-lookup phrase ("price of X", "weather in Y"), or
-         a terse topic lookup ("resident evil 2026", "latest iphone"). This
-         is what stops a casual statement that merely contains a time word
-         ("I had a rough day today", "my car broke down this week") from
-         firing a search, which an earlier version got wrong.
-      3. Carrying a factual / current-info SIGNAL -- a factual-lookup,
-         time-sensitive, declarative-lookup, or terse-lookup match."""
+    The gate, in order:
+      1. Questions about THIS machine or Gremlin himself never web-search
+         (they go through the local look / plain chat instead).
+      2. A "strong" lookup -- a factual-lookup phrase anywhere ("how many",
+         "who won", "what is the"), a declarative-lookup ("price of X"), or
+         a terse topic lookup ("resident evil 2026") -- always qualifies,
+         and crucially OVERRIDES a greeting or an opinion word in the same
+         message. That is what lets "how many people liked the new RE, I
+         thought it was awesome" search despite the word "thought".
+      3. With no strong lookup, a bare greeting or opinion/creative ask is
+         left offline, and a plain time word in a casual statement ("I had
+         a rough day today") does not qualify on its own."""
     text = (message or "").strip()
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
         return False
-    if _SMALLTALK.search(text) or _SELF_LOCAL.search(text) or _OPINION_CREATIVE.search(text):
+    if _SELF_LOCAL.search(text):
+        # never web-search a question about this box or Gremlin himself
         return False
+    fl = bool(_FACTUAL_LOOKUP.search(text))
     decl = bool(_DECLARATIVE_LOOKUP.search(text))
     terse = _terse_lookup(text)
-    asking = _looks_like_question(text) or decl or terse
-    if not asking:
+    strong = fl or decl or terse  # an explicit lookup phrase/shape, anywhere
+    # A greeting or an opinion/creative ask only vetoes when there is NO
+    # real lookup in the message (the screenshot bug: "thought" blocked a
+    # genuine "how many people liked X" question).
+    if (_SMALLTALK.search(text) or _OPINION_CREATIVE.search(text)) and not strong:
         return False
-    return bool(_FACTUAL_LOOKUP.search(text) or _TIME_SENSITIVE.search(text)
-                or decl or terse)
+    # asking form: a question, OR any explicit lookup phrase -- including one
+    # embedded mid-sentence like "...I wonder how many people liked X".
+    if not (strong or _looks_like_question(text)):
+        return False
+    return bool(strong or _TIME_SENSITIVE.search(text))
 
 
 def _evidence_block(query: str, results: list[dict]) -> str:
