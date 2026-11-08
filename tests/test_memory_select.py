@@ -43,3 +43,29 @@ def test_block_formats():
     b = ms.block(FACTS, "jellyfin docker", recent=1, matched=2)
     assert b.startswith("Things you (Gremlin) know") and "- " in b
     assert ms.block([], "x") == ""
+
+
+def test_huge_fact_does_not_evict_normal_facts():
+    facts = [
+        "Mickey's desktop is a Dell G5",                       # 0 old, relevant below
+        "A giant pasted blob: " + "y" * 3000,                 # 1 huge, in the older pool
+        "Mickey likes dark humor",                            # 2
+        "Mickey prefers short answers",                       # 3 newest
+    ]
+    out = ms.select(facts, "what desktop do I have", recent=2, matched=3, max_chars=800)
+    joined = " ".join(out)
+    assert "Dell G5" in joined                                # the relevant normal fact survives
+    assert "yyyy" not in joined                               # the huge blob didn't crowd it out
+    assert sum(len(o) + 3 for o in out) <= 800
+
+
+def test_lone_oversized_fact_is_truncated_not_dropped():
+    out = ms.select(["z" * 5000], "anything", recent=1, max_chars=400)
+    assert len(out) == 1 and len(out[0]) <= 400 and out[0].endswith("…")
+
+
+def test_common_words_do_not_false_match():
+    facts = ["Mickey's desktop is a Dell G5", "Mickey runs Jellyfin in Docker", "Mickey likes dark humor"]
+    # query shares only stopwords (from/their/them/mickey/just) with the facts
+    out = ms.select(facts, "just tell me about them from their side", recent=1, matched=3)
+    assert out == facts[-1:]                                  # nothing matched -> only the newest

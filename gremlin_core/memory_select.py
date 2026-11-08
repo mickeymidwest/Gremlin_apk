@@ -3,55 +3,79 @@ instead of always dumping the newest ones.
 
 Pure and dependency-free (no embeddings): a fact is scored by how many of
 the message's informative words it contains. A few of the newest facts are
-always kept so identity/preferences persist even when the message doesn't
-mention them; the rest of the budget goes to the best keyword matches, so an
-old-but-relevant fact ("my desktop is a Dell G5") surfaces when you ask
-about the desktop. Falls back to newest-first when the message has no
-informative words (a greeting).
+always kept so identity/preferences persist; the rest of the budget goes to
+the best keyword matches, so an old-but-relevant fact surfaces when you ask
+about it. Selection is built in PRIORITY order (newest, then best matches)
+and only facts that fit the budget are added, so a huge pasted fact can
+never evict the others. Falls back to newest-first for a greeting.
 """
 from __future__ import annotations
 
 import re
 
 _STOP = {
-    "the", "a", "an", "and", "or", "but", "if", "is", "are", "was", "were", "be", "been", "to", "of",
-    "in", "on", "for", "with", "at", "by", "it", "this", "that", "these", "those", "my", "your", "you",
-    "i", "me", "we", "he", "she", "they", "do", "does", "did", "can", "could", "would", "should", "will",
-    "what", "whats", "how", "when", "where", "which", "who", "why", "me", "im", "ive", "get", "got",
-    "have", "has", "had", "not", "no", "yes", "please", "tell", "about", "some", "any", "right", "now",
+    # articles / conjunctions / prepositions / pronouns / auxiliaries that
+    # carry no topic -- kept out so they don't create false fact matches
+    "the", "a", "an", "and", "or", "but", "if", "is", "are", "was", "were", "be", "been", "being",
+    "having", "doing", "to", "of", "in", "on", "for", "with", "at", "by", "it", "its", "this", "that",
+    "these", "those", "from", "into", "out", "off", "over", "under", "after", "before", "between",
+    "through", "during", "without", "within", "about", "my", "your", "youre", "you", "i", "im", "ive",
+    "me", "we", "were", "our", "he", "she", "they", "them", "their", "theyre", "his", "her", "do",
+    "does", "did", "dont", "cant", "wont", "didnt", "doesnt", "isnt", "arent", "wasnt", "werent",
+    "can", "could", "would", "should", "will", "what", "whats", "how", "when", "where", "which", "who",
+    "why", "thats", "theres", "here", "there", "get", "got", "have", "has", "had", "not", "no", "yes",
+    "please", "tell", "some", "any", "all", "both", "each", "few", "more", "most", "other", "such",
+    "only", "own", "same", "than", "too", "very", "just", "also", "even", "still", "back", "right",
+    "now", "like", "want", "need", "know", "think", "make", "made", "use", "used", "using",
+    # these start nearly every stored fact, so they'd match everything
+    "mickey", "gremlin",
 }
 
 
 def _tokens(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", (text or "").lower()) if len(w) >= 3 and w not in _STOP}
+    flat = (text or "").lower().replace("'", "").replace("’", "")
+    return {w for w in re.findall(r"[a-z0-9]+", flat) if len(w) >= 3 and w not in _STOP}
 
 
 def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int = 5,
            max_chars: int = 2500) -> list[str]:
     """fact_texts in file order (oldest first). Returns the chosen facts,
-    chronological (oldest kept -> newest), within max_chars."""
+    chronological (oldest kept -> newest), within max_chars. A single fact
+    bigger than the budget is only ever returned (truncated) if nothing
+    else was chosen, so it can never evict other facts."""
     facts = [f for f in fact_texts if f and f.strip()]
     if not facts:
         return []
     n = len(facts)
-    keep_idx = set(range(max(0, n - recent), n))  # the newest `recent`
 
+    # priority order: the newest `recent` (newest first), then the older
+    # facts with the best keyword overlap (best score first, newer breaks ties)
+    priority: list[int] = list(range(n - 1, max(-1, n - recent - 1), -1))
     q = _tokens(message)
     if q:
         scored = []
-        for i in range(n - recent):  # only the older facts compete on relevance
+        for i in range(n - recent):
             score = len(q & _tokens(facts[i]))
             if score:
                 scored.append((score, i))
-        scored.sort(key=lambda si: (-si[0], -si[1]))  # best score, then newer
-        for _score, i in scored[:matched]:
-            keep_idx.add(i)
+        scored.sort(key=lambda si: (-si[0], -si[1]))
+        priority += [i for _s, i in scored[:matched]]
 
-    chosen = [facts[i] for i in sorted(keep_idx)]
-    # trim to budget, dropping the OLDEST first (keep newest + best matches)
-    while chosen and sum(len(c) + 3 for c in chosen) > max_chars and len(chosen) > 1:
-        chosen.pop(0)
-    return chosen
+    chosen_idx: list[int] = []
+    budget = max_chars
+    for i in priority:
+        if i in chosen_idx:
+            continue
+        cost = len(facts[i]) + 3
+        if cost <= budget:
+            chosen_idx.append(i)
+            budget -= cost
+        elif not chosen_idx:  # a lone oversized fact: keep a truncated head
+            facts[i] = facts[i][: max(0, max_chars - 4)].rstrip() + " …"
+            chosen_idx.append(i)
+            budget = 0
+            break
+    return [facts[i] for i in sorted(chosen_idx)]
 
 
 def block(fact_texts: list[str], message: str, **kw) -> str:
