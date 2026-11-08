@@ -469,7 +469,7 @@ async def answer_stream(primary, message: str, root: str,
                 note = grounding.caveat(bad)
                 text += note
                 yield "delta", note
-        if web_sources and text:
+        if web_sources and text and not stream_broke:
             _figs = autoresearch.unverified_figures(text, web_ev)
             if _figs:
                 _cav = autoresearch.figures_caveat(_figs)
