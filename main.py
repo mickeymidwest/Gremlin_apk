@@ -30,7 +30,7 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
                                    location, texts, contacts, clipboard (default 24h)
   gremlin checkpoint              -- if the tests pass, tag this code as a known-good point
   gremlin restore [--list|<tag>]  -- roll the CODE back to a known-good point (keeps your
-                                   data, models and settings; asks before it does anything)
+                                   data, models and settings; use --dry-run to preview)
   gremlin safe-mode [port]        -- start Gremlin with local plugins and chat loops OFF
                                    (a clean baseline to recover from a bad change)
   gremlin guard [--full|accept]   -- desktop guard: what changed since the known-good

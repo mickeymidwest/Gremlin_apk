@@ -61,11 +61,13 @@ fi
 if [ $dry = 1 ]; then
     echo "Would restore the code (${present[*]}) to $cmd."
     echo "Your config, data, settings and local plugins would NOT be touched."
-    git diff --quiet -- "${present[@]}" || echo "Uncommitted code changes would be stashed first."
+    if ! git diff --quiet -- "${present[@]}" || ! git diff --cached --quiet -- "${present[@]}"; then
+        echo "Uncommitted code changes would be stashed first."
+    fi
     exit 0
 fi
 
-if ! git diff --quiet -- "${present[@]}"; then
+if ! git diff --quiet -- "${present[@]}" || ! git diff --cached --quiet -- "${present[@]}"; then
     git stash push -m "before restore to $cmd" -- "${present[@]}"
     echo "(Your uncommitted code changes were stashed -- get them back with: git stash pop)"
 fi
