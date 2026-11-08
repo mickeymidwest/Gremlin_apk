@@ -29,6 +29,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 import os
 import re
 import socket
+import sys
 import subprocess
 import threading
 import yaml
@@ -260,6 +261,7 @@ def _load_local_plugins(app, ctx: dict) -> None:
         try:
             spec = importlib.util.spec_from_file_location(f"gremlin_local_{f.stem}", f)
             mod = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = mod  # dataclasses etc. look the module up during import
             spec.loader.exec_module(mod)
             mod.register(app, ctx)
         except Exception as e:
@@ -1415,7 +1417,8 @@ def create_app(
         return jsonify({"date": latest.stem, "flagged": flagged, "report": latest.read_text()})
 
     _load_local_plugins(app, {"registry": registry, "project_root": project_root, "loop": loop,
-                              "check_auth": _check_auth, "run_coro": run_coro})
+                              "check_auth": _check_auth, "check_admin_auth": _check_admin_auth,
+                              "run_coro": run_coro})
     return app
 
 
