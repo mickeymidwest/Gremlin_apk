@@ -10,8 +10,10 @@ So the gate is a tight, deterministic heuristic (no extra model call, so
 it adds zero latency on the common case): we search only when the message
 is a genuine FACTUAL or CURRENT-INFO question about the outside world.
 Everything else falls straight through to a normal reply. If a search is
-warranted we fold the live results into the same `evidence` channel the
-local-system look already uses, so the model answers grounded in them.
+warranted we hand the live results to the reply through their own
+web-evidence channel -- kept separate from the local-system look output so
+they are never mislabeled as shell commands -- and the model answers
+grounded in them.
 
 Pure except for `gather()`, which calls web_search (itself best-effort
 and never-raising). `should_search()` / `is_time_sensitive()` are pure and
