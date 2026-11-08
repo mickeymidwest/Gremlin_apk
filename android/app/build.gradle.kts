@@ -15,8 +15,8 @@ android {
         applicationId = "com.gremlin.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.6"
+        versionCode = 8
+        versionName = "1.7"
 
         // Caps ML Kit's bundled OCR model, which ships .so files for
         // four ABIs (~41MB). Dropping this filter once took the APK from
@@ -50,4 +50,10 @@ dependencies {
     // The BUNDLED model: ships in the APK, works with no network and no
     // Google Play, like the rest of the app.
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Deep scan (S4b): the app's own ADB client for this phone's Wireless
+    // debugging (the library App Manager uses), Conscrypt for the TLS 1.3
+    // pairing, and the X.509 classes it needs to make its own certificate.
+    implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
+    implementation("com.github.MuntashirAkon:sun-security-android:1.1")
+    implementation("org.conscrypt:conscrypt-android:2.5.2")
 }

@@ -610,6 +610,8 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     fun postPhoneGuard(snapshot: JSONObject) = guardCall("/guard/phone", "POST", snapshot)
     fun getDesktopGuard() = guardCall("/guard/desktop", "GET")
     fun acceptGuard(which: String) = guardCall("/guard/$which/accept", "POST", JSONObject())
+    fun postAppops(ops: JSONObject, hours: Int = 24) =
+        guardCall("/guard/appops", "POST", JSONObject().put("ops", ops).put("hours", hours))
 
     data class ConversationInfo(val id: String, val title: String, val updated: Double)
 

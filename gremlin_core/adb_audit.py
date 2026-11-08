@@ -158,3 +158,26 @@ def audit(hours: float = 24.0, serial: Optional[str] = None) -> tuple[str, list[
         return f"Checked {len(pkgs)} apps: nothing used the sensitive stuff in the last {hours:g} hours.", []
     head = f"Checked {len(pkgs)} apps over the last {hours:g} hours."
     return head + "\n" + report(found, first=False).split("\n", 1)[1], found
+
+
+
+MAX_APPOPS_BYTES = 4_000_000
+
+
+def audit_collected(ops_by_pkg: dict, hours: float = 24.0) -> tuple[str, list[Finding]]:
+    """Same report as audit(), from appops text the phone collected itself
+    (the app's built-in ADB, S4b): {package: `appops get` output}."""
+    if not isinstance(ops_by_pkg, dict):
+        raise ValueError("expected {package: appops text}")
+    found: list[Finding] = []
+    n = 0
+    for pkg, text in ops_by_pkg.items():
+        if not isinstance(pkg, str) or not PKG_RE.match(pkg) or not isinstance(text, str):
+            continue
+        n += 1
+        found += findings_for(pkg, parse_appops(text), hours)
+    found.sort(key=lambda f: {HIGH: 0, MEDIUM: 1, INFO: 2}[f.level])
+    if not found:
+        return f"Checked {n} apps: nothing used the sensitive stuff in the last {hours:g} hours.", []
+    head = f"Checked {n} apps over the last {hours:g} hours."
+    return head + "\n" + report(found, first=False).split("\n", 1)[1], found

@@ -1325,6 +1325,26 @@ def create_app(
         from .guard import findings_json
         return jsonify({"report": text, "findings": findings_json(found)})
 
+    @app.route("/guard/appops", methods=["POST"])
+    def guard_appops_route():
+        """S4b deep scan: the app's built-in ADB collected `appops get` for
+        each app on the phone; this turns it into the audit report."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import adb_audit
+        if (request.content_length or 0) > adb_audit.MAX_APPOPS_BYTES or \
+                len(request.get_data(cache=True)) > adb_audit.MAX_APPOPS_BYTES:
+            return jsonify({"error": "too large"}), 413
+        body = request.get_json(silent=True) or {}
+        try:
+            hours = float(body.get("hours", 24))
+            text, found = adb_audit.audit_collected(body.get("ops"), hours)
+        except (ValueError, TypeError) as e:
+            return jsonify({"error": str(e)}), 400
+        from .guard import findings_json
+        return jsonify({"report": text, "findings": findings_json(found)})
+
     @app.route("/guard/desktop", methods=["GET"])
     def guard_desktop_route():
         """S2 desktop guard from the app (no SUID scan; that's nightly)."""

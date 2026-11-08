@@ -81,3 +81,40 @@ def test_audit_end_to_end(monkeypatch):
     text, found = aa.audit()
     assert text.startswith("Checked 2 apps") and found[0].level == "high"
     assert text.splitlines()[1].startswith("- [high] com.sneaky.app used the microphone")
+
+
+
+def test_audit_collected_skips_bad_names():
+    text, found = aa.audit_collected({"com.sneaky.app": NEW_FORMAT, "bad;rm": NEW_FORMAT, "a.b": 5})
+    assert text.startswith("Checked 1 apps") and found[0].level == "high"
+    import pytest
+    with pytest.raises(ValueError):
+        aa.audit_collected(["nope"])
+
+
+def test_appops_route(tmp_path):
+    import asyncio as aio
+    import threading
+    from gremlin_core.server import create_app
+
+    class Reg:
+        def names(self):
+            return []
+
+        def primary_model_name(self):
+            return None
+
+    lp = aio.new_event_loop()
+    th = threading.Thread(target=lp.run_forever, daemon=True)
+    th.start()
+    try:
+        c = create_app(Reg(), router=None, project_root=tmp_path, loop=lp,
+                       token="t", admin_token="admin").test_client()
+        h = {"Authorization": "Bearer t"}
+        assert c.post("/guard/appops", json={"ops": {}}).status_code == 401
+        r = c.post("/guard/appops", headers=h, json={"ops": {"com.sneaky.app": NEW_FORMAT}}).get_json()
+        assert "microphone while in the background" in r["report"]
+        assert c.post("/guard/appops", headers=h, json={"ops": ["x"]}).status_code == 400
+    finally:
+        lp.call_soon_threadsafe(lp.stop)
+        th.join(timeout=5)

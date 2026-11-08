@@ -2,8 +2,12 @@ package com.gremlin.app
 
 import android.app.AlertDialog
 import android.os.Bundle
+import android.text.InputType
 import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
+import com.gremlin.app.adb.DeepScan
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -30,7 +34,11 @@ class SecurityActivity : AppCompatActivity() {
         val phone = findViewById<Button>(R.id.security_check_phone)
         val desktop = findViewById<Button>(R.id.security_check_desktop)
         val accept = findViewById<Button>(R.id.security_accept)
-        buttons = listOf(phone, desktop, accept)
+        val pairAdb = findViewById<Button>(R.id.security_pair_adb)
+        val deep = findViewById<Button>(R.id.security_deep_scan)
+        buttons = listOf(phone, desktop, accept, pairAdb, deep)
+        pairAdb.setOnClickListener { askPairing() }
+        deep.setOnClickListener { deepScan(null) }
         phone.setOnClickListener { check("phone") }
         desktop.setOnClickListener { check("desktop") }
         accept.setOnClickListener { confirmAccept() }
@@ -41,6 +49,81 @@ class SecurityActivity : AppCompatActivity() {
     private fun setBusy(busy: Boolean) {
         buttons.forEach { it.isEnabled = !busy }
         if (!busy) buttons[2].isEnabled = lastChecked != null
+    }
+
+    private fun numberField(hint: String): EditText = EditText(this).apply {
+        this.hint = hint
+        inputType = InputType.TYPE_CLASS_NUMBER
+    }
+
+    /** Pair once: Wireless debugging > Pair device with pairing code shows a port and a 6-digit code. */
+    private fun askPairing() {
+        val port = numberField("Pairing port (from the popup)")
+        val code = numberField("6-digit pairing code")
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 16, 48, 0)
+            addView(port); addView(code)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Pair Gremlin with this phone")
+            .setMessage("Settings > Developer options > Wireless debugging > Pair device with pairing code. " +
+                        "Use split screen so the popup stays open.")
+            .setView(box)
+            .setPositiveButton("Pair") { _, _ ->
+                val p = port.text.toString().toIntOrNull()
+                val c = code.text.toString()
+                if (p == null || c.length < 6) {
+                    status.text = "That needs the pairing port and the 6-digit code."
+                } else {
+                    setBusy(true)
+                    status.text = "Pairing…"
+                    Thread {
+                        val err = DeepScan.pair(applicationContext, p, c)
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            status.text = err ?: "Paired. Deep scan can now look at what apps actually did."
+                            setBusy(false)
+                        }
+                    }.start()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Collect appops through the app's own ADB, let the desktop write the report. */
+    private fun deepScan(port: Int?) {
+        setBusy(true)
+        status.text = "Deep scan: connecting to this phone's Wireless debugging…"
+        Thread {
+            val r = DeepScan.collect(applicationContext, port)
+            val g = if (r.ops != null) client.postAppops(r.ops) else null
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when {
+                    r.error != null && port == null -> { status.text = r.error; askConnectPort() }
+                    r.error != null -> status.text = r.error
+                    g?.report != null -> {
+                        report.text = g.report
+                        status.text = "Deep scan of ${r.count} apps: what they did with the sensitive stuff in the last day."
+                    }
+                    else -> status.text = g?.error ?: "The desktop didn't answer."
+                }
+                setBusy(false)
+            }
+        }.start()
+    }
+
+    private fun askConnectPort() {
+        val port = numberField("Port under \"IP address & Port\"")
+        AlertDialog.Builder(this)
+            .setTitle("Couldn't find the port by itself")
+            .setMessage("On the Wireless debugging screen, the number after the colon in \"IP address & Port\".")
+            .setView(LinearLayout(this).apply { setPadding(48, 16, 48, 0); addView(port) })
+            .setPositiveButton("Scan") { _, _ -> port.text.toString().toIntOrNull()?.let { deepScan(it) } }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun check(which: String) {
