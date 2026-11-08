@@ -109,6 +109,35 @@ Order: S2 + S3 first (no root needed), then S1, S6, S4; S5 after he flashes a RO
 | S5 | **Custom ROM / root level**: per-app network use, logcat, deeper monitoring once he flashes (GrapheneOS fits a Pixel and is built for this) | Needs the ROM | PARKED until he flashes |
 | S6 | **Network watch**: new or unknown devices on the LAN (neighbor table diff), duplicate MACs (ARP spoofing), Tailscale node list | Ties to his MITM question 2026-11-07 | PENDING |
 
+## Road to hardware-bound (Mickey, deadline ~2026-11-14)
+Goal: get Gremlin + Magic to the point where the ONLY way to improve further is a physical
+upgrade to the desktop (more VRAM / RAM / a better GPU). Everything below is software-bound
+and reachable on the current RTX 2070 Super (8 GB) + 7.5 GB RAM. Each item: Gemini-reviewed,
+tested, merged. Order is by value toward "no longer needs Claude or Gemini".
+
+DONE (2026-11-07/08): new primary qwen3.5-9b; harness loops U1/U3/U4/U5 + U6 wiring (off until
+measured); look-first (U2); receipts; uplift bench + held-out + norefuse/norefuse_hard; desktop
+guard, phone guard, adb-audit, deep scan (in-app ADB), firewall; recovery (known-good checkpoints,
+gremlin restore, safe-mode, boot snapshots); local-plugin hook; private mode + attack drill
+(local only); qwen2.5-coder-14b as the local code reviewer.
+
+| ID | Item | Why it matters | Status |
+|---|---|---|---|
+| R1 | **Real-task benchmark**: a held-out set of the actual work he asks (Termux scripts, Kotlin, Docker/systemd fixes, multi-step jobs), mechanically graded. The 9B maxes the current quality bench, so nothing else here can be measured without this | Gate for R2-R5; without it "better" is a guess | NEXT |
+| R2 | **Self-edit autonomy**: local code reviewer (coder-14b, done) + a second independent local check or self-critique round, gated by R1 + the checkpoint net. When a local-only self-edit passes R1 and both local reviewers, Gremlin can edit its own code with no Claude/Gemini | THE milestone he asked for | PENDING |
+| R3 | **Agent mode**: plan -> act (confirm) -> verify -> receipt, for multi-step tasks ("find why Jellyfin is slow and fix it"). Builds on receipts + look-first + service control | Multi-step work without a human driving each step | PENDING |
+| R4 | **Memory upgrade**: retrieval/search over notes + past chats instead of dumping newest facts; dated facts so stale ones are flagged; summaries of long chats | Stays on-topic over long work; less context waste | PENDING |
+| R5 | **Speed**: cache the fixed prompt prefix (system + profile + memory) so replies start faster; measure a Qwen3.5 multi-token-prediction build | Faster chat on the same card | PENDING |
+| R6 | **Turn loops on in live chat**: measure U6 loops on R1; enable per task-type only where they help | The loops already built, pay off in real use | PENDING |
+| R7 | **Nightly self-check**: run the bench nightly, alert on a regression (checkpoint already runs the test suite nightly) | Catches a bad self-edit or drift automatically | PARTLY (tests nightly) |
+| R8 | **Learn from wins**: a loop/agent run that passed becomes a candidate skill card (existing lifecycle) | Gremlin gets better at his recurring tasks | PENDING |
+
+HARDWARE-BOUND after the above (needs an upgrade, NOT software):
+- A bigger/smarter model than a 9B (needs more VRAM).
+- Vision (the 9B's image half) resident alongside the model (tight on 8 GB).
+- Reviewer + primary resident at once / no swap stalls (needs VRAM).
+- Faster tokens/sec and longer context (needs a better GPU / more RAM).
+
 ## Queued for after hardware upgrades (parked 2026-11-07, not rejected)
 Bring these back up when the upgrade in the last column happens. The unlocks are Claude's estimates until Gemini has reviewed them.
 
