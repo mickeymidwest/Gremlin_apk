@@ -16,6 +16,7 @@ from .. import notes
 from .. import profile
 from ..learning_log import append_learning_log
 from . import grounding
+from .. import autoresearch
 
 _SYSTEM = None  # persona backend already carries the system prompt
 
@@ -425,6 +426,14 @@ async def answer_stream(primary, message: str, root: str,
             done["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
             yield "done", done
             return
+    web_sources = None
+    if not looked:
+        try:
+            web_sources, web_ev = await autoresearch.gather(message)
+        except Exception:
+            web_sources, web_ev = None, ""
+        if web_ev:
+            evidence = web_ev
     prompt, hist, ctx = _build_prompt(message, root, history, evidence)
 
     acc = ""
@@ -442,7 +451,7 @@ async def answer_stream(primary, message: str, root: str,
     # re-answers mid-stream; this is the same rule one layer up.)
     if acc.strip():
         text = acc.strip()
-        if _GROUNDING_CHECK and not stream_broke:
+        if _GROUNDING_CHECK and not stream_broke and not web_sources:
             # tokens are already on screen -- can't regenerate; append a
             # one-line flag if the answer named something that isn't real.
             try:
@@ -457,10 +466,17 @@ async def answer_stream(primary, message: str, root: str,
             note = look.footer(looked)
             text += note
             yield "delta", note
+        if web_sources:
+            wnote = autoresearch.footer(web_sources)
+            if wnote:
+                text += wnote
+                yield "delta", wnote
         await _post_answer_bookkeeping(primary, message, root, text, False, "gremlin", history=history)
         done = _reply(text, source="gremlin", ok=not stream_broke, usage=_stream_usage(primary))
         if looked:
             done["looked"], done["evidence"] = looked, evidence
+        if web_sources:
+            done["web"] = web_sources
         yield "done", done
         return
 
@@ -501,6 +517,14 @@ async def answer(primary, message: str, root: str,
             out = _reply(text, source="fallback" if used_fb else "gremlin")
             out["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
             return out
+    web_sources = None
+    if not looked:
+        try:
+            web_sources, web_ev = await autoresearch.gather(message)
+        except Exception:
+            web_sources, web_ev = None, ""
+        if web_ev:
+            evidence = web_ev
     prompt, hist, ctx = _build_prompt(message, root, history, evidence)
 
     r = await _gen(primary, prompt, hist)
@@ -515,7 +539,7 @@ async def answer(primary, message: str, root: str,
     # just contributes nothing, not a wrong number).
     usage = dict((getattr(r, "meta", None) or {}).get("usage") or {})
 
-    if _GROUNDING_CHECK and not used_fallback and text:
+    if _GROUNDING_CHECK and not used_fallback and text and not web_sources:
         try:
             bad = grounding.check(text, root, ctx)
         except Exception:
@@ -541,8 +565,12 @@ async def answer(primary, message: str, root: str,
 
     if looked:
         text += look.footer(looked)
+    if web_sources:
+        text += autoresearch.footer(web_sources)
     await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used, history=history)
     out = _reply(text, source=used, from_memory=False, usage=usage or None)
     if looked:
         out["looked"], out["evidence"] = looked, evidence
+    if web_sources:
+        out["web"] = web_sources
     return out
