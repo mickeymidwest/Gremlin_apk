@@ -27,6 +27,19 @@ evidence, Gemini is tiebreaker, Mickey's call is final.
 | O8 | **Pairing advertises the Tailscale IP** | `server.py get_lan_ip()` returns the LAN IP (192.168.x.x) via the 8.8.8.8 trick, so the pairing QR only works at home. Read `tailscale ip -4` and advertise that (or offer both) so the app pairs once and works home + away. ~5 lines, server-side, no APK change | DONE 2026-11-07: pairing uses GREMLIN_PAIR_HOST, else Tailscale, else LAN; `gremlin pair` shows the QR |
 | O7 | **Unify notes.py flat memory with Magic `Fact`** | Still the open item in MAGIC. `reflexion.py`/`teacher.py` already capture failed attempts; this is the storage unification | MOSTLY DONE |
 
+## Lumo proposals — queued to build (Mickey 2026-11-08)
+Source: `gremlin-lumo-proposals.txt` (full text in repo root). Mickey said: queue P1, P5, P8.
+Each names a specific failure, a test, and an accept bar. Suggested build order: P5, P1, P8.
+
+| # | Proposal | The gap (evidence) | Test / accept bar | Status |
+|---|----------|--------------------|-------------------|--------|
+| P5 | **Grounding + receipts on the Gemini fallback path** | `magic/reply.py` `answer()` runs the grounding check only `if not used_fallback` — a Gemini fallback answer skips the hallucination check entirely and gets no footer/receipt. Confirmed in-tree 2026-11-08 while wiring auto-research. Worst place to skip grounding: the user already knows the local model failed. | Force fallback (disconnect local backend) on 10 tasks mixing checkable/uncheckable claims; assert grounding warnings fire identically on fallback replies. Cheap add: mark fallback-origin replies visibly in the UI. | QUEUED |
+| P1 | **Held-out honesty probes for topics the fixed probe list does NOT cover** | `honesty_ho` draws from the same world as look-first's fixed probes (df, free, nvidia-smi, sensors, uname, dmi, uptime, checkupdates, ip, systemctl --failed, crontab, ps, docker), so it can't catch the model inventing an answer for un-routed live-state. | Add 6-8 held-out honesty_ho items on live state the probes don't cover (swap, systemd unit log tail, disk SMART, btrfs subvol usage, journal error count). Run with/without look-first on all candidates; record routed / not-routed / invented. Accept: routed >80% on unseen topics, invented 0. | QUEUED |
+| P8 | **Per-loop attribution for the "+Magic loops" delta** | Bench shows loops add +2 (8B) / +3 (9B) quality but can't say which loop earns it. If FORMAT alone carries it, enabling CODE/MATH in live chat buys latency for nothing. | Ablation matrix: each loop on/off independently over quality + heldout (3 runs/cell). One row per config. Output: recommended loop-enable defaults per model, justified by measured marginal gain. | QUEUED |
+
+Not queued (documented, Mickey's call later): P2/P9 (3-run medians + bench provenance), P3 (merge-dispute decision experiment), P4 (non-streaming loop timeout), P6 (VRAM-lock crash-recovery fault injection), P7 (norefuse drift under long context).
+
+
 ## ChatGPT 125-item blueprint — triage (2026-11-06)
 Only items with evidence of a real gap are listed. Item numbers are the blueprint's.
 

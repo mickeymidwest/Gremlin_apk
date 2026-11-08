@@ -1,0 +1,132 @@
+PROPOSALS FOR GREMLIN/MAGIC
+From: Lumo (via Mickey), 2026-11-08
+Context read: gremlin-magic-overview.txt, gremlin-proposal-decisions.md
+Rule followed: every proposal names a specific failure and a test.
+Mickey decides.
+
+----------------------------------------------------------------------
+P1. Held-out honesty probes must cover probe types ABSENT from the
+    fixed look-first list
+Failure: look-first routes on an asking-form + live-anchor + topic
+pattern, and the probe set is fixed (df, free, nvidia-smi, sensors,
+uname, dmi, uptime, checkupdates, ip, systemctl --failed, crontab,
+ps, docker). honesty_ho currently draws its questions from the same
+world as the probe list, so it cannot detect the failure mode where
+routing silently widens or narrows. A small pilot (8B/9B) that
+invents an answer for an un-routed live-state question regresses
+quietly.
+Test: add 6-8 held-out honesty_ho items asking live state the fixed
+probes do NOT directly cover (e.g. swapped-in-between probes, systemd
+unit log tail, disk SMART, ZFS/btrfs subvolume usage, journal error
+count). Run with and without look-first on all candidates. Record:
+routed / not routed / invented.
+Accept if: routed rate on unseen probe topics > 80%, invented rate 0.
+
+----------------------------------------------------------------------
+P2. Multi-seed benchmark protocol, formalized
+Failure: documented noise is +/-1 task, yet several decisions in the
+notes rest on 1-point gaps (Llama+loops 15/19 vs 13/19; Qwen3.5-9B
+"16-17/19" reads as unstable across runs).
+Test: rerun quality, heldout, honesty, norefuse three times per
+candidate; report median and spread per suite. Freeze this as the
+comparison protocol (like the suite-hash rule already does for
+like-for-like).
+Accept if: any model-vs-model claim in the pilot decision memo
+contains a 3-run median.
+
+----------------------------------------------------------------------
+P3. Settle the Model Laboratory dispute with one experiment, not a
+    roadmap
+Dispute: Gemini wants merges paused; Mickey wants the merge path as
+primary; Claude holds that merge v2's stop result (1 of 5 under
+Gremlin's prompt) does not settle it.
+Specific question: is v2's stop failure a MODEL trait or a PROMPT/
+tokenizer trait? If harness-fixable, the merge path stays alive and
+Gemini's objection evaporates; if not, Mickey's primary bet is dead
+and the lab should pivot.
+Test: take merge v2 and the abliterated 14B, run the stop suite with
+(A) default template, (B) greedy decoding, (C) explicit max-tokens +
+stop sequences in the scaffold, (D) truncated-context variants.
+Record where stop recovery happens.
+Decision rule: if any scaffold variant gets v2 to 5/5 stop without
+quality loss, merges continue. If none do, shelve TIES/DARE merges
+through 2026 and redirect merge effort to selecting the pilot.
+
+----------------------------------------------------------------------
+P4. Close the non-streaming loop-timer gap (already flagged as
+    "reduced")
+Failure: battle.py refuses a third identical action and
+output_health.py stops streamed loops, but the non-streaming path is
+uncovered. A hung non-streaming loop call blocks the whole chat
+server, and on 7.5 GB RAM there is no slack for waiting it out.
+Test: inject a model callable that sleeps forever into the
+non-streaming loop path in a unit test; assert a bounded-time
+failure + trace entry. Implementation is likely a shared timeout
+wrapper, not a new project.
+Accept if: test passes and total added code < 150 lines.
+
+----------------------------------------------------------------------
+P5. Grounding and receipts for the Gemini fallback path
+Failure: the grounding checker and Truth Engine target Gremlin's own
+replies, but PersonaBackend can hand the answer to Gemini. Nothing in
+the notes says fallback replies get the same grounded/footer/
+receipt treatment. A fallback answer citing a nonexistent file would
+be the worst possible place for a hallucination (the user already
+knows the local model failed).
+Test: bench suite that forces fallback (disconnect the local backend)
+on 10 tasks mixing checkable and uncheckable claims; assert grounding
+warnings fire identically on fallback replies.
+Cheap addition: mark fallback-origin replies visibly in the UI.
+
+----------------------------------------------------------------------
+P6. VRAM lock-script failure injection
+Failure: the lock script pauses the chat server, runs the big job,
+restores. Failure modes untested: crash mid-job, OOM kill of the job,
+watchdog firing during the locked window (restart loop), power loss.
+On this box any of these leaves chat down and the pilot unloaded.
+Test: table-driven fault injection: kill the job at each stage,
+verify the server always resumes and the model reloads; add a
+post-boot recovery check (systemd timer) for "chat service healthy
+and a model loaded".
+Accept if: a killed job in every stage converges to a healthy server
+within 60 s without manual action.
+
+----------------------------------------------------------------------
+P7. norefuse drift under long context
+Failure: abliterated models are known to behave differently as
+context grows, and norefuse is administered at short context. If the
+pilot starts refusing or moralizing in hour-long threads, the
+benchmark won't see it.
+Test: sample norefuse at thread lengths 1k / 8k / 16k context on each
+candidate; track delta. Include in the pilot bar as a non-regression
+check (>= norefuse(1k) - 1 at 16k).
+
+----------------------------------------------------------------------
+P8. Turn the "+Magic loops" delta into a per-loop attribution
+Failure: the benchmark shows loops add +2 quality (8B) and +3
+(9B), but cannot say WHICH loop earns the points. If FORMAT alone
+earns all of it, enabling CODE/MATH in live chat buys latency for
+nothing; if CODE carries it, the config switch defaults matter.
+Test: ablation matrix: each loop on/off independently over quality +
+heldout (3 runs per cell per P2). Emit one row per configuration in
+the results table.
+Output: recommended loop-enable defaults per model, justified by
+measured marginal gain, not vibes.
+
+----------------------------------------------------------------------
+P9. Benchmark provenance alongside suite hashing
+Failure: runs are hashed by suite, but the results table doesn't pin
+WHICH build produced them (model file hash, magic loop version,
+persona/agent prompt version). A rerun 3 weeks later after a scaffold
+change silently breaks like-for-like comparison.
+Test: extend the runner to emit (suite_hash, model_sha256, loop_cfg
+hash, gremlin commit) with every result; store with the score.
+Accept if: any historical score can be reproduced bit-identically
+from recorded provenance.
+
+----------------------------------------------------------------------
+Priority suggestion for Mickey
+P4 and P6 are small, hard failure modes (do first).
+P3 is the decision-maker for the pilot race (do before more merges).
+P2 gates every other claim (do once, keep forever).
+P1, P5, P7, P8, P9 ride along with the existing benchmark work.
