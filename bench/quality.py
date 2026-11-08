@@ -76,7 +76,7 @@ LOOP_THINK_TOKENS = int(os.environ.get("BENCH_LOOP_THINK_TOKENS", "2500"))
 
 def _nothink(text):
     return text if (not NO_THINK or text.rstrip().endswith("/no_think")) else text + " /no_think"
-DEFAULT_PARTS = "quality,heldout,stop,honesty,honesty_ho,norefuse,norefuse_hard,chat"
+DEFAULT_PARTS = "quality,heldout,realtask,stop,honesty,honesty_ho,norefuse,norefuse_hard,chat"
 
 # Qwen3 thinking toggle: soft-switch in the prompt. Ignored by non-Qwen models.
 NOTHINK_SUFFIX = "" if THINK else " /no_think"
@@ -703,6 +703,11 @@ def suite_hash(system_prompt, parts=("quality", "stop", "honesty", "chat")):
             h.update(f"{name}\0{prompt}\0".encode())
         import heldout
         h.update(f"ho{heldout.HELDOUT_VERSION}".encode())
+    if "realtask" in parts:
+        import realtasks
+        for name, prompt, grader in _realtasks():
+            h.update(f"{name}\0{prompt}\0".encode())
+        h.update(f"rt{realtasks.REALTASK_VERSION}".encode())
     h.update(hashlib.sha256(system_prompt.encode()).digest())
     # a partial run (BENCH_PARTS) is its own suite, so it can't mask a full run
     h.update(",".join(sorted(parts)).encode())
@@ -715,6 +720,13 @@ def _heldout():
     import types
     # the graders live in this module's globals (it may be loaded without a sys.modules entry)
     return heldout.build(types.SimpleNamespace(**globals()))
+
+
+def _realtasks():
+    sys.path.insert(0, HERE)
+    import realtasks
+    import types
+    return realtasks.build(types.SimpleNamespace(**globals()))
 
 
 def resolve_model(arg):
@@ -757,11 +769,12 @@ def compare(paths=None):
     for suite, rs in by_suite.items():
         print(f"\nsuite {suite}")
         print(f"  {'model':34} {'quality':>8} {'heldout':>8} {'stop':>8} {'honesty':>8} {'hon-ho':>8} "
-              f"{'norefuse':>8} {'nr-hard':>8} {'chat':>8} {'tok/s':>6} {'s/task':>7}  date")
+              f"{'realtask':>8} {'norefuse':>8} {'nr-hard':>8} {'chat':>8} {'tok/s':>6} {'s/task':>7}  date")
         for r in sorted(rs, key=lambda r: -sum(p["score"] for k, p in r["parts"].items() if k != "chat")):
             cell = lambda k: (f"{r['parts'][k]['score']}/{r['parts'][k]['total']}"
                               if k in r["parts"] else "-")
             print(f"  {(r.get('name') or r['model'])[:34]:34} {cell('quality'):>8} {cell('heldout'):>8} "
+                  f"{cell('realtask'):>8} "
                   f"{cell('stop'):>8} {cell('honesty'):>8} {cell('honesty_ho'):>8} {cell('norefuse'):>8} "
                   f"{cell('norefuse_hard'):>8} "
                   f"{cell('chat'):>8} "
@@ -902,6 +915,8 @@ def main():
         ho_tasks, ho_honest, ho_control, g_honest_live = _heldout()
     if "heldout" in parts:
         run_tasks("heldout", ho_tasks)
+    if "realtask" in parts:
+        run_tasks("realtask", _realtasks())
 
     sysmsg = [{"role": "system", "content": system}] if system else []
     for part, prompts, max_toks in (("stop", STOP_PROMPTS, STOP_MAX_TOKENS),
