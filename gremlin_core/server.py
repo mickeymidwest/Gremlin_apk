@@ -192,6 +192,11 @@ def start_background_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
+async def _to_thread(fn, *a, **kw):
+    import asyncio as _aio
+    return await _aio.to_thread(fn, *a, **kw)
+
+
 def run_coro(loop: asyncio.AbstractEventLoop, coro, timeout: float = 120.0):
     label = getattr(coro, "__qualname__", "job")
     future = job_control.submit(coro, loop, label)
@@ -1372,6 +1377,36 @@ def create_app(
             return jsonify({"error": str(e)}), 400
         from .guard import findings_json
         return jsonify({"report": text, "findings": findings_json(found)})
+
+    @app.route("/diagnose", methods=["POST"])
+    def diagnose_route():
+        """R3 agent: diagnose a problem on this box by chaining read-only
+        checks and proposing fixes (which Mickey confirms separately)."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        goal = str((request.get_json(silent=True) or {}).get("goal") or "").strip()
+        if not goal:
+            return jsonify({"error": "what should I look into?"}), 400
+        from . import agent
+        backend = registry.get("gremlin")
+
+        def call(messages, max_tokens, temperature, grammar=None):
+            prompt = messages[-1]["content"]
+            try:
+                r = run_coro(loop, backend.generate(prompt, max_tokens=max_tokens, temperature=temperature),
+                             timeout=300.0)
+            except Exception:
+                return "", "stop", ""
+            text = (getattr(r, "text", "") or "").strip()
+            return text, "stop", text
+        try:
+            out = run_coro(loop, _in_phase(agent_state.AgentState.REASONING,
+                                           _to_thread(agent.run, call, goal, str(project_root))),
+                           timeout=600.0)
+        except Exception as e:
+            return jsonify({"error": f"{type(e).__name__}"}), 502
+        return jsonify(out)
 
     @app.route("/guard/desktop", methods=["GET"])
     def guard_desktop_route():
