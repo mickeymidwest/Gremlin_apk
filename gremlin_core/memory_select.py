@@ -70,11 +70,11 @@ def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int
         if cost <= budget:
             chosen_idx.append(i)
             budget -= cost
-        elif not chosen_idx:  # a lone oversized fact: keep a truncated head
-            facts[i] = facts[i][: max(0, max_chars - 4)].rstrip() + " …"
-            chosen_idx.append(i)
-            budget = 0
-            break
+    # if every candidate was oversized, keep a truncated head of the top one
+    if not chosen_idx and priority:
+        i = priority[0]
+        facts[i] = facts[i][: max(0, max_chars - 4)].rstrip() + " …"
+        chosen_idx.append(i)
     return [facts[i] for i in sorted(chosen_idx)]
 
 
