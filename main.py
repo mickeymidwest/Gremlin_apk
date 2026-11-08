@@ -28,6 +28,11 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin serve [port]           (default: 8765) -- lets the phone app connect
   gremlin adb-audit [hours]       -- what apps on the paired phone did with the mic, camera,
                                    location, texts, contacts, clipboard (default 24h)
+  gremlin checkpoint              -- if the tests pass, tag this code as a known-good point
+  gremlin restore [--list|<tag>]  -- roll the CODE back to a known-good point (keeps your
+                                   data, models and settings; asks before it does anything)
+  gremlin safe-mode [port]        -- start Gremlin with local plugins and chat loops OFF
+                                   (a clean baseline to recover from a bad change)
   gremlin guard [--full|accept]   -- desktop guard: what changed since the known-good
                                    baseline (--full adds the slow SUID scan)
   gremlin pair [port]             -- show the phone pairing URL + QR in this terminal
@@ -1002,6 +1007,22 @@ async def main():
             # request thread this process ever spawns, not just the main
             # one. Costs nothing when nothing else wants the CPU -- niceness
             # only matters under real contention.
+            _throttle_background_work()
+            port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
+            server.serve(registry, router, PROJECT_ROOT, port=port)
+        elif cmd == "checkpoint":
+            import subprocess as _sp
+            _sp.run([os.path.join(PROJECT_ROOT, "deploy/recovery/checkpoint.sh")])
+        elif cmd == "restore":
+            from gremlin_core import recovery
+            print(recovery.restore(PROJECT_ROOT, sys.argv[2] if len(sys.argv) > 2 else None,
+                                   dry_run=("--dry-run" in sys.argv[3:] or (len(sys.argv) > 2 and sys.argv[2] == "--list"))))
+        elif cmd == "safe-mode":
+            # Start Gremlin with every extra off (local plugins, chat loops):
+            # a known-good baseline to answer and help you fix a bad change.
+            os.environ["GREMLIN_SAFE_MODE"] = "1"
+            os.environ["GREMLIN_LOOPS"] = "0"
+            print("Starting Gremlin in SAFE MODE: local plugins and chat loops are off.", flush=True)
             _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)

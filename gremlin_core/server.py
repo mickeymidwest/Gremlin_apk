@@ -252,6 +252,9 @@ def _load_local_plugins(app, ctx: dict) -> None:
     (per-box extras); it doesn't exist on a fresh clone. A broken plugin is
     skipped with a one-line note, never fatal."""
     import importlib.util
+    if os.environ.get("GREMLIN_SAFE_MODE") == "1":
+        print("safe mode: local plugins not loaded", flush=True)
+        return
     d = Path(ctx["project_root"]) / "local_plugins"
     if not d.is_dir():
         return
@@ -360,6 +363,7 @@ def create_app(
         primary = getattr(gremlin_backend, "primary", gremlin_backend)
         data["model_loaded"] = getattr(primary, "_llm", None) is not None
         data["primary_model"] = registry.primary_model_name()
+        data["safe_mode"] = os.environ.get("GREMLIN_SAFE_MODE") == "1"
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model

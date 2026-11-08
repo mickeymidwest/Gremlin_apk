@@ -190,6 +190,8 @@ def loops_enabled(root: str) -> bool:
     """persona.loops_in_chat in config/models.yaml (default off until the
     uplift bench shows a gain, U6). GREMLIN_LOOPS=1/0 overrides."""
     import os
+    if os.environ.get("GREMLIN_SAFE_MODE") == "1":
+        return False
     env = os.environ.get("GREMLIN_LOOPS")
     if env in ("0", "1"):
         return env == "1"
