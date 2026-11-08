@@ -31,6 +31,8 @@ rm -f "$OK"
 install -m 644 "$RULES" /etc/gremlin-firewall.nft
 install -m 644 "$DIR/gremlin-firewall.service" /etc/systemd/system/gremlin-firewall.service
 systemctl daemon-reload
-systemctl enable gremlin-firewall.service
+# --now: mark the unit active too (it re-applies the same rules; nft -f is idempotent here),
+# so systemctl and the desktop guard both report the firewall as on
+systemctl enable --now gremlin-firewall.service
 echo "Confirmed. Firewall is on and will come back after reboots."
 echo "To turn it off: sudo systemctl disable --now gremlin-firewall"
