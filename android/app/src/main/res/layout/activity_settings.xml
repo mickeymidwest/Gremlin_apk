@@ -441,7 +441,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Reboot Desktop"
-            android:backgroundTint="#8B2020" />
+            android:background="@drawable/bg_btn_danger"
+            android:textColor="#FFE3E3" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

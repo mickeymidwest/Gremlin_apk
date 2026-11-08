@@ -15,7 +15,6 @@
          waiting out a connect timeout for nothing. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Install the APK that Settings -> Builds pulls from the desktop.
          The user still gets the system installer's confirm screen; this

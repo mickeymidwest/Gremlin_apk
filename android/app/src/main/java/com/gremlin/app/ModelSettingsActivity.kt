@@ -86,7 +86,7 @@ class ModelSettingsActivity : AppCompatActivity() {
                 input.setText(model.opt(field)?.toString() ?: "")
                 input.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
 
-                val button = Button(this)
+                val button = com.google.android.material.button.MaterialButton(this)
                 button.text = "Save"
                 button.setOnClickListener { saveField(field, input.text.toString().trim()) }
 
