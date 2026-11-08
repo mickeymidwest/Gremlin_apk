@@ -265,13 +265,15 @@ def footer(sources: list[dict]) -> str:
 
 
 # Hard figures a small model most loves to fabricate: money, percentages,
-# magnitudes, and years. A standalone small integer ("the 2 games") is NOT
-# a sigfig -- only figures carrying $, %, a magnitude word, or a 4-digit
-# year, since those are the ones worth confirming.
+# magnitudes, years, measurements, and big counts. A standalone small
+# integer ("the 2 games") is NOT a sigfig -- only $/%/magnitude figures,
+# comma-grouped numbers (1,000+) and runs of 4+ digits, since those carry a
+# specific claim worth confirming.
 _SIGFIG = re.compile(
-    r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:billion|million|thousand|bn|k)?"   # money
-    r"|\d[\d,]*(?:\.\d+)?\s?(?:%|percent|billion|million|thousand)"   # pct / magnitudes
-    r"|\b(?:18|19|20)\d{2}\b",                                        # years
+    r"\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:billion|million|thousand|bn|k))?"  # money
+    r"|\d[\d,]*(?:\.\d+)?\s?(?:%|percent|billion|million|thousand)"      # pct / magnitudes
+    r"|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b"                                 # comma-grouped (1,000+)
+    r"|\b\d{4,}\b",                                                      # any 4+ digit run (incl. years)
     re.I,
 )
 

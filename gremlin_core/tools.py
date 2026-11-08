@@ -244,7 +244,7 @@ async def _tool_reboot(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]
 
 
 async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
-    from . import web_search
+    from . import web_search, autoresearch
     query = str(args.get("query") or "").strip()
     if not query:
         return {"answer": "What do you want me to search for?", "action": "web_search", "ok": False}
@@ -252,9 +252,29 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     if not results:
         return {"answer": f'No results for "{query}" -- either nothing came back or the '
                  f"desktop's internet is down.", "action": "web_search", "ok": False}
-    lines = [f"{i + 1}. {r['title']}\n   {r['url']}\n   {r['snippet']}"
-             for i, r in enumerate(results)]
-    return {"answer": "\n\n".join(lines), "action": "web_search", "ok": True}
+    sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
+    evidence = autoresearch._evidence_block(query, results)
+
+    # Synthesize a spoken answer grounded in the results, then run the same
+    # figure honesty check as the auto-research path. If the model can't
+    # answer, fall back to the plain list so this is never worse than before.
+    answer = ""
+    prompt = (evidence + "\n\nUsing ONLY those results, answer this clearly and "
+              "conversationally: " + query)
+    try:
+        res = await ctx.router.route("gremlin", prompt)
+        answer = (getattr(res, "text", "") or "").strip()
+    except Exception:
+        answer = ""
+    if not answer:
+        lines = [f"{i + 1}. {r['title']}\n   {r['url']}\n   {r['snippet']}"
+                 for i, r in enumerate(results)]
+        return {"answer": "\n\n".join(lines), "action": "web_search", "ok": True, "web": sources}
+    figs = autoresearch.unverified_figures(answer, evidence)
+    if figs:
+        answer += autoresearch.figures_caveat(figs)
+    answer += autoresearch.footer(sources)
+    return {"answer": answer, "action": "web_search", "ok": True, "web": sources}
 
 
 async def _tool_web_fetch(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
