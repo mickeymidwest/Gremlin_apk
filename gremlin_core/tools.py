@@ -112,7 +112,8 @@ def _review_models(ctx: "ExecContext") -> tuple[str, str]:
     a running API cost for this, and if he ever does pay for one it's to
     stop using Claude, not to review Gremlin's own homework. So the
     second reviewer is the biggest distinct LOCAL model instead --
-    qwen2.5-14b, already kept registered specifically for build/fix
+    qwen2.5-coder-14b (a code-specialised 14B, with qwen2.5-14b as the
+    fallback), kept registered specifically for build/fix
     battles "where agentic capability matters more than latency." Costs
     a model swap (VRAM governor unloads/reloads around it, same as any
     other battle), not a subscription.
@@ -120,7 +121,16 @@ def _review_models(ctx: "ExecContext") -> tuple[str, str]:
     Degrades to one real reviewer counted twice only when nothing else
     distinct is actually available (e.g. gemini down AND qwen2.5-14b
     unregistered) -- an honest fallback, not a silent lie about it."""
-    candidates = [n for n in ("gemini", "qwen2.5-14b") if ctx.registry.get(n) is not None]
+    def _has(name: str) -> bool:
+        # the registry raises KeyError for an unregistered name; some test
+        # doubles return None instead -- treat both as "not registered"
+        try:
+            return ctx.registry.get(name) is not None
+        except KeyError:
+            return False
+    # prefer the code-specialised local reviewer when it's registered
+    local = "qwen2.5-coder-14b" if _has("qwen2.5-coder-14b") else "qwen2.5-14b"
+    candidates = [n for n in ("gemini", local) if _has(n)]
     primary = ctx.registry.primary_model_name()
     if primary and primary not in candidates:
         candidates.append(primary)

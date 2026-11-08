@@ -16,6 +16,21 @@ models:
     chat_format: chatml
     footprint_mb: 7600
 
+  # Code-specialised 14B, same size/footprint as qwen2.5-14b. Used as the
+  # LOCAL reviewer for /fix and /build patches (see tools.py _review_models),
+  # so the second opinion on Gremlin's own code gets better as we move off
+  # Gemini. Not a chat model.
+  - name: qwen2.5-coder-14b
+    type: local_gguf
+    display_name: "Qwen2.5-Coder-14B-Instruct (IQ3_XS)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-Coder-14B-Instruct-IQ3_XS.gguf"
+    n_ctx: 8192
+    n_gpu_layers: -1
+    flash_attn: true
+    kv_cache_type: q4_0
+    chat_format: chatml
+    footprint_mb: 7600
+
   # The one uncensored option, for the rare case a base model balks at
   # something legitimate. Not the voice -- addressable by name only.
   - name: llama-3.1-8b-abliterated
