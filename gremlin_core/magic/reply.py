@@ -25,29 +25,20 @@ _SYSTEM = None  # persona backend already carries the system prompt
 _GROUNDING_CHECK = True
 
 
-def _memory_block(root: str) -> str:
+def _memory_block(root: str, message: str = "") -> str:
     """One memory surface: everything in gremlin_memory.txt -- what mickey
-    told Gremlin AND what Magic learned in battles -- parsed clean of
-    tags/ids by the store."""
+    told Gremlin AND what Magic learned in battles. R4: the facts most
+    relevant to `message` are surfaced (plus a few of the newest for
+    identity), instead of always dumping the newest ones."""
     from .store import Store
+    from .. import memory_select
     try:
         facts = Store(root).read_facts()
     except Exception:
         # a corrupt / unreadable memory file must never take down chat
         return ""
-    if not facts:
-        return ""
-    # newest first, capped at ~2500 chars so a few huge pasted facts can't
-    # crowd out the actual conversation
-    picked, total = [], 0
-    for f in reversed(facts):
-        line = f"- {f.text}"
-        if total + len(line) > 2500 and picked:
-            break
-        picked.append(line)
-        total += len(line)
-    return ("Things you (Gremlin) know about the user and this setup, kept "
-            "across sessions:\n" + "\n".join(reversed(picked)))
+    # read_facts is oldest-first; memory_select keeps that convention
+    return memory_select.block([f.text for f in facts], message, max_chars=2500)
 
 
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,
@@ -309,7 +300,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = ""):
         prof = ""
     context = "\n\n".join(p for p in (
         prof,
-        _memory_block(root),
+        _memory_block(root, message),
         _skills_block(root, message),
         notes.recent_away_context(root),
     ) if p)
