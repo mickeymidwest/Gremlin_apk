@@ -245,6 +245,27 @@ def _primary_n_ctx(registry: ModelRegistry) -> Optional[int]:
     return getattr(registry.get(name), "n_ctx", None)
 
 
+def _load_local_plugins(app, ctx: dict) -> None:
+    """Optional modules in <repo>/local_plugins/*.py can add routes: each
+    defines register(app, ctx). That folder is kept out of git on purpose
+    (per-box extras); it doesn't exist on a fresh clone. A broken plugin is
+    skipped with a one-line note, never fatal."""
+    import importlib.util
+    d = Path(ctx["project_root"]) / "local_plugins"
+    if not d.is_dir():
+        return
+    for f in sorted(d.glob("*.py")):
+        if f.name.startswith(("_", "test_")):
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location(f"gremlin_local_{f.stem}", f)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            mod.register(app, ctx)
+        except Exception as e:
+            print(f"local plugin {f.name} skipped: {type(e).__name__}: {e}", flush=True)
+
+
 def create_app(
     registry: ModelRegistry,
     router: Router,
@@ -1393,6 +1414,8 @@ def create_app(
             flagged = "**Flagged" in latest.read_text()
         return jsonify({"date": latest.stem, "flagged": flagged, "report": latest.read_text()})
 
+    _load_local_plugins(app, {"registry": registry, "project_root": project_root, "loop": loop,
+                              "check_auth": _check_auth, "run_coro": run_coro})
     return app
 
 
