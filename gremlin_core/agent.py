@@ -31,7 +31,7 @@ _PLAN_PROMPT = (
     "(nothing else).\n\nChecks: {keys}\n\nProblem: {goal}")
 
 
-def plan_checks(call, goal: str, *, max_checks: int = MAX_CHECKS) -> list[str]:
+def plan_checks(call, goal: str, *, max_checks: int = MAX_CHECKS, root: str = "") -> list[str]:
     """Ask the model which read-only checks to run; keep only real keys."""
     keys = _check_keys()
     prompt = _PLAN_PROMPT.format(keys=", ".join(keys), goal=goal)
@@ -47,6 +47,12 @@ def plan_checks(call, goal: str, *, max_checks: int = MAX_CHECKS) -> list[str]:
             seen.append(k)
     if not seen:  # fall back to keyword routing on the goal itself
         seen = [p.key for p in look.PROBES if p.topic.search(goal)]
+        # a goal that names an allow-listed container ("why is jellyfin down")
+        # should still reach the docker check even without the word "docker"
+        import re as _re
+        own = [n for n in look._own_names(root) if _re.search(rf"(?<![\w-]){_re.escape(n)}(?![\w-])", goal, _re.I)]
+        if own and "docker" not in seen:
+            seen.append("docker")
     return seen[:max_checks]
 
 
@@ -72,7 +78,7 @@ def run(call, goal: str, root: str, *, max_checks: int = MAX_CHECKS, gather=None
     """Diagnose `goal`. Returns {checks, evidence, report}. `gather` defaults
     to look.gather (the real read-only probes); injectable for tests."""
     gather = gather or look.gather
-    keys = plan_checks(call, goal, max_checks=max_checks)
+    keys = plan_checks(call, goal, max_checks=max_checks, root=root)
     if not keys:
         return {"checks": [], "evidence": "",
                 "report": "I couldn't tell which checks would help with that. Can you say which part "

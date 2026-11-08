@@ -1404,6 +1404,8 @@ def create_app(
             out = run_coro(loop, _in_phase(agent_state.AgentState.REASONING,
                                            _to_thread(agent.run, call, goal, str(project_root))),
                            timeout=600.0)
+        except job_control.JobAborted:
+            raise
         except Exception as e:
             return jsonify({"error": f"{type(e).__name__}"}), 502
         return jsonify(out)
