@@ -1109,6 +1109,7 @@ def create_app(
             self_improve.run_self_edit(
                 router, str(project_root), goal, model_names,
                 reviewer_a=reviewer_a, reviewer_b=reviewer_b, run_tests=run_tests,
+                teacher_model=reviewer_a,
                 allow_consult_override=allow_consult_override,
                 consult_models=registry.consult_models(),
             ),

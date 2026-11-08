@@ -388,7 +388,7 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     result = await self_improve.run_self_edit(
         ctx.router, ctx.project_root, goal, model_names,
         reviewer_a=reviewer_a, reviewer_b=reviewer_b,
-        run_tests=True,
+        run_tests=True, teacher_model=reviewer_a,
         consult_models=ctx.registry.consult_models(),
     )
     if result.get("applied"):
