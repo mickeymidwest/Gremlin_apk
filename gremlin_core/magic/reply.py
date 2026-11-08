@@ -289,7 +289,8 @@ async def _look_first(message: str, root: str) -> tuple[list[str], str]:
         return [], ""
 
 
-def _build_prompt(message: str, root: str, history: str, evidence: str = ""):
+def _build_prompt(message: str, root: str, history: str, evidence: str = "",
+                  web_evidence: str = ""):
     """(prompt, history_msgs) for the backend: the user's line as the
     prompt, everything else (durable memory, matching skills, away-mode
     turns, this thread's history) as prior turns so the model answers in
@@ -321,8 +322,16 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = ""):
         # last, right before the question, so the pilot can't miss it
         hist.append({"role": "user", "content": look.context_block(evidence)})
         hist.append({"role": "assistant", "content": "Got it -- I'll answer from that output only."})
+    if web_evidence:
+        # web results carry their own framing (autoresearch._evidence_block);
+        # must NOT pass through look.context_block, which labels content as
+        # local read-only shell output.
+        hist.append({"role": "user", "content": web_evidence})
+        hist.append({"role": "assistant", "content":
+                     "Got it -- I'll use those search results, and say so if they don't answer it."})
     return message, hist, "\n\n".join(p for p in (context, history,
-                                                    look.context_block(evidence) if evidence else "") if p)
+                                                    look.context_block(evidence) if evidence else "",
+                                                    web_evidence) if p)
 
 
 async def _gen(backend, prompt: str, hist: list):
@@ -426,15 +435,13 @@ async def answer_stream(primary, message: str, root: str,
             done["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
             yield "done", done
             return
-    web_sources = None
+    web_sources, web_ev = None, ""
     if not looked:
         try:
             web_sources, web_ev = await autoresearch.gather(message)
         except Exception:
             web_sources, web_ev = None, ""
-        if web_ev:
-            evidence = web_ev
-    prompt, hist, ctx = _build_prompt(message, root, history, evidence)
+    prompt, hist, ctx = _build_prompt(message, root, history, evidence, web_evidence=web_ev)
 
     acc = ""
     stream_broke = False
@@ -517,15 +524,13 @@ async def answer(primary, message: str, root: str,
             out = _reply(text, source="fallback" if used_fb else "gremlin")
             out["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
             return out
-    web_sources = None
+    web_sources, web_ev = None, ""
     if not looked:
         try:
             web_sources, web_ev = await autoresearch.gather(message)
         except Exception:
             web_sources, web_ev = None, ""
-        if web_ev:
-            evidence = web_ev
-    prompt, hist, ctx = _build_prompt(message, root, history, evidence)
+    prompt, hist, ctx = _build_prompt(message, root, history, evidence, web_evidence=web_ev)
 
     r = await _gen(primary, prompt, hist)
     used, used_fallback = getattr(r, "model", "gremlin"), False

@@ -85,6 +85,37 @@ _FACTUAL_LOOKUP = re.compile(
     re.I,
 )
 
+# Tight declarative lookups: unambiguous enough to count as "asking" even
+# without a question mark, so "current price of bitcoin" / "weather in
+# chicago" search, while "I had a rough day today" (bare time word, no
+# lookup shape) does not.
+_DECLARATIVE_LOOKUP = re.compile(
+    r"\b(price|cost)\s+of\b"
+    r"|\b(stock|share|ticket|gas)\s+price\b"
+    r"|\bweather\s+(in|for|near|at|today|tomorrow|this)\b"
+    r"|\bexchange\s+rate\b"
+    r"|\bhow\s+much\s+(is|are|does|do|would)\b",
+    re.I,
+)
+
+_QWORDS = {
+    "who", "whos", "what", "whats", "when", "where", "which", "whose", "why",
+    "how", "hows", "is", "are", "was", "were", "does", "do", "did", "can",
+    "could", "will", "would", "has", "have",
+}
+
+
+def _looks_like_question(text: str) -> bool:
+    """Ends with '?' or opens with an interrogative word. Apostrophes are
+    stripped so 'what's' / 'who's' count."""
+    t = text.strip()
+    if t.endswith("?"):
+        return True
+    m = re.match(r"\s*([a-z']+)", t, re.I)
+    if not m:
+        return False
+    return m.group(1).lower().replace("'", "") in _QWORDS
+
 
 def is_time_sensitive(message: str) -> bool:
     """A fact whose answer changes over time -- always worth a fresh look."""
@@ -96,20 +127,27 @@ def should_search(message: str) -> bool:
     outside world. Deterministic and side-effect free -- this is the whole
     'cautious' contract, so it is unit-tested both ways.
 
-    The gate is: a specific factual-lookup OR time-sensitive signal is
-    present, AND the message is not chat, an opinion/creative ask, a
-    greeting, or about this machine or Gremlin himself. We deliberately do
-    NOT require question punctuation -- "current price of bitcoin" and
-    "latest python version" are lookups phrased as statements -- because
-    the two signal regexes are already specific enough to carry the
-    decision, while the exclusions keep ordinary conversation offline."""
+    The gate has three parts, all required:
+      1. NOT excluded -- not smalltalk, an opinion/creative ask, or about
+         this machine or Gremlin himself.
+      2. In an ASKING form -- a question (mark or interrogative lead) or a
+         tight declarative-lookup phrase ("price of X", "weather in Y").
+         This is what stops a casual statement that merely contains a time
+         word ("I had a rough day today", "my car broke down this week")
+         from firing a search, which an earlier version got wrong.
+      3. Carrying a factual / current-info SIGNAL -- a factual-lookup,
+         time-sensitive, or declarative-lookup match."""
     text = (message or "").strip()
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
         return False
     if _SMALLTALK.search(text) or _SELF_LOCAL.search(text) or _OPINION_CREATIVE.search(text):
         return False
-    return bool(_TIME_SENSITIVE.search(text) or _FACTUAL_LOOKUP.search(text))
+    asking = _looks_like_question(text) or bool(_DECLARATIVE_LOOKUP.search(text))
+    if not asking:
+        return False
+    return bool(_FACTUAL_LOOKUP.search(text) or _TIME_SENSITIVE.search(text)
+                or _DECLARATIVE_LOOKUP.search(text))
 
 
 def _evidence_block(query: str, results: list[dict]) -> str:
@@ -135,7 +173,7 @@ def _domains(results: list[dict], limit: int = 3) -> list[str]:
         m = re.search(r"https?://([^/]+)", r.get("url") or "")
         if not m:
             continue
-        host = m.group(1).lower().lstrip("www.")
+        host = m.group(1).lower().removeprefix("www.")
         if host and host not in seen:
             seen.append(host)
         if len(seen) >= limit:

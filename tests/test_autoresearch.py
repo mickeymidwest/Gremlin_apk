@@ -44,6 +44,16 @@ NO_SEARCH = [
     "restart jellyfin",
     "what's your favorite color",
     "hi",
+    # casual declaratives that merely contain a time/state word -- must NOT
+    # fire a search just because "today"/"yesterday"/"this week" appears
+    # (regression guard for the reviewer-caught over-trigger)
+    "i had a rough day today",
+    "i went to the store yesterday",
+    "i'm tired right now",
+    "going to bed early tonight",
+    "it's not worth the hassle",
+    "my car broke down this week",
+    "that game was a blowout, we won by 30",
 ]
 
 
@@ -88,6 +98,29 @@ def test_footer_lists_domains_or_empty():
     assert "en.wikipedia.org" in f and "example.com" in f
     assert autoresearch.footer([]) == ""
     assert autoresearch.footer([{"title": "n", "url": "not-a-url"}]) == ""
+
+
+def test_domain_prefix_strip_only_removes_www():
+    # regression: lstrip("www.") would mangle any host starting with w/./.
+    srcs = [
+        {"title": "a", "url": "https://weather.com/today"},
+        {"title": "b", "url": "https://who.int/news"},
+        {"title": "c", "url": "https://www.wikipedia.org/x"},
+    ]
+    doms = autoresearch._domains(srcs, limit=3)
+    assert "weather.com" in doms          # not "eather.com"
+    assert "who.int" in doms              # not "ho.int"
+    assert "wikipedia.org" in doms        # the real www. prefix IS removed
+
+
+def test_declarative_lookup_searches(monkeypatch):
+    monkeypatch.setattr(autoresearch.web_search, "search",
+                        lambda *a, **k: [{"title": "BTC", "url": "https://x.com", "snippet": "$"}])
+    for m in ["current price of bitcoin", "weather in chicago today",
+              "how much is a tesla model 3"]:
+        assert autoresearch.should_search(m) is True, m
+        srcs, ev = asyncio.run(autoresearch.gather(m))
+        assert srcs, m
 
 
 def test_gather_skips_when_not_a_question(monkeypatch):
