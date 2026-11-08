@@ -60,6 +60,13 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.open_profile_button).setOnClickListener {
             startActivity(android.content.Intent(this, ProfileActivity::class.java))
         }
+        // Per-box extras compiled only into local builds (kept out of git) can add rows here.
+        try {
+            Class.forName("com.gremlin.app.local.LocalExtras")
+                .getMethod("addSettings", android.app.Activity::class.java).invoke(null, this)
+        } catch (e: ClassNotFoundException) {
+        } catch (e: Exception) {
+        }
         findViewById<Button>(R.id.open_security_button).setOnClickListener {
             startActivity(android.content.Intent(this, SecurityActivity::class.java))
         }
