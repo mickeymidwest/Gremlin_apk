@@ -4,8 +4,13 @@ import android.content.Context
 import android.os.Build
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbStream
+import org.bouncycastle.asn1.x500.X500Name
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.conscrypt.Conscrypt
 import java.io.File
+import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
@@ -44,7 +49,7 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
             kpg.initialize(2048, SecureRandom())
             val pair = kpg.generateKeyPair()
             privateKey = pair.private
-            certificate = CertMaker.selfSigned(pair.public, pair.private)
+            certificate = selfSigned(pair.public, pair.private)
             keyFile.writeBytes(privateKey.encoded)
             certFile.writeBytes(certificate.encoded)
         }
@@ -74,6 +79,17 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
                 }
                 return AdbManager(context.applicationContext).also { instance = it }
             }
+        }
+
+        /** Self-signed certificate for the ADB identity, via BouncyCastle (libadb already ships it). */
+        private fun selfSigned(publicKey: java.security.PublicKey, key: PrivateKey): Certificate {
+            val name = X500Name("CN=Gremlin")
+            val notBefore = java.util.Date()
+            val notAfter = java.util.Date(System.currentTimeMillis() + 10L * 365 * 24 * 3600 * 1000)
+            val serial = BigInteger.valueOf(SecureRandom().nextInt().toLong() and 0x7fffffffL)
+            val holder = JcaX509v3CertificateBuilder(name, serial, notBefore, notAfter, name, publicKey)
+                .build(JcaContentSignerBuilder("SHA256withRSA").build(key))
+            return JcaX509CertificateConverter().getCertificate(holder)
         }
 
     }

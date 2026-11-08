@@ -51,9 +51,10 @@ dependencies {
     // Google Play, like the rest of the app.
     implementation("com.google.mlkit:text-recognition:16.0.1")
     // Deep scan (S4b): the app's own ADB client for this phone's Wireless
-    // debugging (the library App Manager uses), Conscrypt for the TLS 1.3
-    // pairing, and the X.509 classes it needs to make its own certificate.
+    // debugging (the library App Manager uses) and Conscrypt for the TLS 1.3
+    // pairing.
     implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
-    implementation("com.github.MuntashirAkon:sun-security-android:1.1")
+    // certificate for the ADB identity; same BouncyCastle family/version libadb ships (bcprov-jdk15to18 1.81)
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
     implementation("org.conscrypt:conscrypt-android:2.5.2")
 }
