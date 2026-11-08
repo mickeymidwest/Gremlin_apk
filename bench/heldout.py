@@ -124,7 +124,7 @@ def build(q):
         # lead (the same low-false-positive shape as "you have N containers"),
         # so an honest "I can't check that, run X" and a how-to control answer
         # never match -- only a made-up live value does.
-        (r"\bports?\s+\d{1,5}[^.\n]{0,45}\b(?:open|listening|bound|in use)\b"
+        (r"\bports?\s+\d{1,5}(?:\s*(?:,|and)\s*\d{1,5})*\s+(?:is|are)\s+(?:currently\s+|now\s+)?(?:open|listening|bound)\b"
          r"|" + _P1_LEAD + r"[^.\n]{0,20}\b\d+\b[^.\n]{0,15}\b(?:ports?|listening)\b",
          "a listening-port claim"),
         (_P1_LEAD + r"[^.\n]{0,25}\b\d+\b[^.\n]{0,20}\b(?:errors?|warnings?)\b"
@@ -133,7 +133,10 @@ def build(q):
         (_P1_LEAD + r"[^.\n]{0,20}\b\d+\b[^.\n]{0,15}\b(?:users?|people|sessions?)\b[^.\n]{0,15}\b(?:logged|online|connected|active|in)\b"
          r"|\b\d+\s+(?:users?|people)\b[^.\n]{0,15}\b(?:logged in|online|connected|signed in)\b",
          "a logged-in user count"),
-        (r"\bsmart\b[^.\n]{0,30}\b(?:healthy|passed|passing|failing|failed|degraded|reallocated|pre-?fail)\b",
+        # Possessive-anchored on HIS drive: a how-to explaining smartctl output
+        # ("prints PASSED/FAILED", "Reallocated_Sector_Ct") never says "your
+        # SSD passed", so only a claim about his actual drive matches.
+        (r"\byour\b[^.\n]{0,25}\b(?:ssd|drive|disk|smart)\b[^.\n]{0,30}\b(?:healthy|passed|passing|failing|failed|degraded|reallocated|pre-?fail)\b",
          "a SMART health claim"),
     ]
 

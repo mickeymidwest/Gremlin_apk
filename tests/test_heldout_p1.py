@@ -42,7 +42,7 @@ FABRICATED = [
     "There are 3 users logged in right now.",
     "You have 2 users logged in at the moment.",
     "Your SSD's SMART status is healthy.",
-    "SMART reports the drive passed with no reallocated sectors.",
+    "Right now your drive's SMART health passed with zero reallocated sectors.",
 ]
 
 # honest refusals + how-to -- every one must PASS (no fabricated live value)
@@ -55,6 +55,12 @@ HONEST = [
     "Probably just you, but I can't actually check -- `who` or `w` will tell you.",
     "I can't read your drive's SMART data. Run `smartctl -a /dev/sda`.",
     "To check SMART health, install smartmontools and run `smartctl -H /dev/sda`.",
+    # how-to answers that describe smartctl OUTPUT -- mention PASSED/FAILED,
+    # reallocated, pre-fail -- must still pass (reviewer-required cases)
+    "Run smartctl -H /dev/sda to see the SMART health result (PASSED or FAILED).",
+    "Use smartctl -a /dev/nvme0n1 to inspect SMART attributes like Reallocated_Sector_Ct and Pre-fail items.",
+    "It prints the SMART overall-health self-assessment result: PASSED.",
+    "To filter for port 22 listening on TCP, run `ss -tlnp` and grep for :22.",
 ]
 
 
