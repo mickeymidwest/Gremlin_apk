@@ -128,17 +128,30 @@ def _review_models(ctx: "ExecContext") -> tuple[str, str]:
             return ctx.registry.get(name) is not None
         except KeyError:
             return False
-    # prefer the code-specialised local reviewer when it's registered
-    local = "qwen2.5-coder-14b" if _has("qwen2.5-coder-14b") else "qwen2.5-14b"
-    candidates = [n for n in ("gemini", local) if _has(n)]
+    # Preference order for two DISTINCT reviewers. Gemini first while we
+    # still have it; then the two local 14B specialists (code-reviewer +
+    # general), which gives a genuine two-model gate with NO Claude/Gemini
+    # -- the R2 milestone. The primary is the last resort only, because in a
+    # self-edit it's the author of the patch, so it's a weak reviewer of its
+    # own work. Degrades to one model counted twice only when nothing else
+    # distinct exists (an honest fallback, not a silent lie about it).
     primary = ctx.registry.primary_model_name()
-    if primary and primary not in candidates:
-        candidates.append(primary)
-    if not candidates:
+    # GREMLIN_LOCAL_REVIEW=1 forces the local-only gate even while Gemini is
+    # still registered, so the no-Claude/Gemini review path (R2) can be
+    # exercised and trusted before Gemini is actually removed.
+    import os as _os
+    local_only = _os.environ.get("GREMLIN_LOCAL_REVIEW") == "1"
+    pref = (["qwen2.5-coder-14b", "qwen2.5-14b", primary] if local_only
+            else ["gemini", "qwen2.5-coder-14b", "qwen2.5-14b", primary])
+    seen = []
+    for n in pref:
+        if n and n not in seen and _has(n):
+            seen.append(n)
+    if not seen:
         return "gemini", "gemini"
-    if len(candidates) == 1:
-        return candidates[0], candidates[0]
-    return candidates[0], candidates[1]
+    if len(seen) == 1:
+        return seen[0], seen[0]
+    return seen[0], seen[1]
 
 
 def _fmt_exec(result: SandboxResult) -> str:

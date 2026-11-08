@@ -58,3 +58,25 @@ def test_never_crashes_with_nothing_registered_at_all():
     ctx = _ctx(set(), primary=None)
     a, b = _review_models(ctx)
     assert a == b == "gemini"
+
+
+def test_local_only_gate_uses_two_distinct_14b_specialists_when_gemini_gone():
+    # the R2 milestone: no Claude/Gemini, yet two genuinely different local
+    # reviewers (code-specialist + general), neither of them the 9B author.
+    ctx = _ctx({"qwen2.5-coder-14b", "qwen2.5-14b", "qwen3.5-9b"}, primary="qwen3.5-9b")
+    a, b = _review_models(ctx)
+    assert {a, b} == {"qwen2.5-coder-14b", "qwen2.5-14b"}
+    assert a == "qwen2.5-coder-14b"  # code reviewer leads
+
+
+def test_local_only_falls_back_to_primary_when_only_one_14b():
+    ctx = _ctx({"qwen2.5-coder-14b", "qwen3.5-9b"}, primary="qwen3.5-9b")
+    a, b = _review_models(ctx)
+    assert a == "qwen2.5-coder-14b" and b == "qwen3.5-9b" and a != b
+
+
+def test_local_review_flag_skips_gemini_even_when_present(monkeypatch):
+    monkeypatch.setenv("GREMLIN_LOCAL_REVIEW", "1")
+    ctx = _ctx({"gemini", "qwen2.5-coder-14b", "qwen2.5-14b", "qwen3.5-9b"}, primary="qwen3.5-9b")
+    a, b = _review_models(ctx)
+    assert {a, b} == {"qwen2.5-coder-14b", "qwen2.5-14b"}  # gemini skipped on purpose
