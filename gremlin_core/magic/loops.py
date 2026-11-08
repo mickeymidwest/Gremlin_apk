@@ -21,6 +21,7 @@ is about; bench/heldout.py is not read while building loops.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -34,6 +35,32 @@ ONE_LINE = "one_line"
 CODE = "code"
 MATH = "math"
 VOTE = "vote"
+
+# --- loop ablation (P8): which loops are active this run. Default: all.
+# GREMLIN_LOOP_SET unset -> every loop on (normal behaviour). "" -> none
+# (every task answers PLAIN). "code,format" -> only those ("format" is
+# the JSON/TABLE/ONE_LINE structured-output trio). Lets the bench turn
+# one loop on at a time and measure its marginal gain, instead of only
+# the all-on "+loops" delta.
+_FORMAT_LOOPS = frozenset({JSON_ONLY, TABLE, ONE_LINE})
+_ALL_LOOPS = frozenset({CODE, MATH, VOTE}) | _FORMAT_LOOPS
+
+
+def _enabled_loops() -> frozenset:
+    env = os.environ.get("GREMLIN_LOOP_SET")
+    if env is None:
+        return _ALL_LOOPS
+    out = set()
+    for tok in env.lower().replace(" ", "").split(","):
+        if not tok:
+            continue
+        if tok == "all":
+            out |= _ALL_LOOPS
+        elif tok == "format":
+            out |= _FORMAT_LOOPS
+        elif tok in _ALL_LOOPS:
+            out.add(tok)
+    return frozenset(out)
 
 # ---------------------------------------------------------------- routing
 # How the request says the answer must look. Phrasing people use for an
@@ -64,9 +91,20 @@ _YESNO_RE = re.compile(r"\byes['\"]?\s*(?:or|/)\s*['\"]?no\b", re.I)
 
 
 def route(prompt: str) -> str:
-    """Which loop fits this task, from the format it asks for. Code blocks
-    and inline code are ignored: `return json` inside a pasted snippet is
-    not a request for JSON."""
+    """Which loop fits this task, gated by which loops are enabled this
+    run (P8 ablation). A disabled loop's task falls back to PLAIN -- the
+    same path a task with no matching loop already takes -- so a run with
+    one loop off measures exactly that loop's contribution."""
+    kind = _route_kind(prompt)
+    if kind == PLAIN:
+        return PLAIN
+    return kind if kind in _enabled_loops() else PLAIN
+
+
+def _route_kind(prompt: str) -> str:
+    """The natural best-fit loop from the format the task asks for. Code
+    blocks and inline code are ignored: `return json` inside a pasted
+    snippet is not a request for JSON."""
     prompt = re.sub(r"```.*?```", " ", prompt or "", flags=re.S)
     prompt = re.sub(r"`[^`\n]*`", " ", prompt)
     if _CODE_RE.search(prompt) and not _OTHER_LANG_RE.search(prompt):

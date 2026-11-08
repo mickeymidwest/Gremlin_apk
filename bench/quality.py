@@ -818,6 +818,9 @@ def main():
     parts = set((os.environ.get("BENCH_PARTS") or DEFAULT_PARTS).split(","))
     if HARNESS:
         name += " +loops" + (" +think" if LOOP_THINK else "")
+        _loopcfg = os.environ.get("GREMLIN_LOOP_SET")
+        if _loopcfg is not None:  # P8: record the ablation config in the run name
+            name += "[" + (_loopcfg.strip().lower().replace(" ", "") or "none") + "]"
     system = gremlin_system_prompt()
     if parts & {"stop", "honesty", "chat", "norefuse", "norefuse_hard", "honesty_ho"} and not system:
         raise SystemExit("couldn't read persona.system_prompt from config/models.yaml")
@@ -986,6 +989,7 @@ def main():
         "kv": kv or "f16",
         "think": THINK,
         "harness": HARNESS,
+        "loop_set": os.environ.get("GREMLIN_LOOP_SET"),
         "no_think": NO_THINK,
         "loop_think": LOOP_THINK and HARNESS,
         # wall-clock per quality/heldout task: a loop that triples the
