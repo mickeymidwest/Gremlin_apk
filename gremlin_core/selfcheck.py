@@ -20,12 +20,16 @@ def _runs(bench_dir: str) -> list[dict]:
     rows = []
     for fp in sorted(glob.glob(os.path.join(bench_dir, "quality-*.jsonl"))):
         try:
-            for line in open(fp):
-                r = json.loads(line)
-                if r.get("suite") and r.get("parts"):
-                    rows.append(r)
-        except (OSError, ValueError):
+            lines = open(fp).read().splitlines()
+        except OSError:
             continue
+        for line in lines:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue  # a partial write shouldn't skip the rest of the file
+            if r.get("suite") and r.get("parts"):
+                rows.append(r)
     return rows
 
 
