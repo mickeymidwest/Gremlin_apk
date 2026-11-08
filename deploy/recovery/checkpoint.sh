@@ -1,15 +1,18 @@
 #!/bin/bash
 # Known-good checkpoint (recovery item 1). Runs the test suite; if it
-# passes, tag the current main commit as a known-good point you can
-# restore to later. No AI involved. Meant to run nightly (a user timer)
-# and can be run by hand: deploy/recovery/checkpoint.sh
+# passes on a clean main, tag the commit known-good-<date>. Pure git, no
+# AI. Runs nightly (gremlin-checkpoint.timer) or by hand: gremlin checkpoint
 set -euo pipefail
-REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO="${GREMLIN_REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
 cd "$REPO"
 PY="$REPO/venv/bin/python"
 LOG="$REPO/.gremlin/checkpoint.log"
 mkdir -p "$REPO/.gremlin"
 ts() { date "+%Y-%m-%d %H:%M:%S"; }
+
+# don't run the whole suite while a heavy job (build/bench) holds the card/RAM
+exec 9>"$REPO/.gremlin/heavy.lock" || true
+if ! flock -n 9; then echo "$(ts) heavy job running; skipping" >>"$LOG"; exit 0; fi
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$branch" != "main" ]; then
@@ -32,6 +35,5 @@ fi
 tag="known-good-$(date +%Y%m%d-%H%M%S)"
 git tag -a "$tag" -m "all tests pass ($(tail -1 /tmp/checkpoint-tests.out | tr -d '\n'))"
 echo "$(ts) tagged $tag at $commit" >>"$LOG"
-# keep the 10 most recent known-good tags
 git tag -l 'known-good-*' | sort | head -n -10 | while read -r old; do git tag -d "$old" >/dev/null; done
 echo "$tag"

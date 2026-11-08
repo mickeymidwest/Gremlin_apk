@@ -15,6 +15,13 @@
 # location, not the real project directory, and main.py isn't there.
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
+# Recovery runs in pure bash + git, BEFORE loading any Python, so it still
+# works when a bad edit broke the app itself.
+case "${1:-}" in
+    restore)    exec "$SCRIPT_DIR/deploy/recovery/restore.sh" "${@:2}" ;;
+    checkpoint) exec "$SCRIPT_DIR/deploy/recovery/checkpoint.sh" "${@:2}" ;;
+esac
+
 if [ -f "$SCRIPT_DIR/venv/bin/python" ]; then
     PYTHON="$SCRIPT_DIR/venv/bin/python"
 else

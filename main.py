@@ -1010,13 +1010,6 @@ async def main():
             _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
-        elif cmd == "checkpoint":
-            import subprocess as _sp
-            _sp.run([os.path.join(PROJECT_ROOT, "deploy/recovery/checkpoint.sh")])
-        elif cmd == "restore":
-            from gremlin_core import recovery
-            print(recovery.restore(PROJECT_ROOT, sys.argv[2] if len(sys.argv) > 2 else None,
-                                   dry_run=("--dry-run" in sys.argv[3:] or (len(sys.argv) > 2 and sys.argv[2] == "--list"))))
         elif cmd == "safe-mode":
             # Start Gremlin with every extra off (local plugins, chat loops):
             # a known-good baseline to answer and help you fix a bad change.

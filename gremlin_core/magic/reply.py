@@ -60,6 +60,9 @@ def _reply(answer: str, *, action: str = "chat", ok: bool = True,
 
 
 def _skills_block(root: str, message: str, limit: int = 3) -> str:
+    import os
+    if os.environ.get("GREMLIN_SAFE_MODE") == "1":
+        return ""
     """Magic skill cards whose trigger matches this message, folded into
     the chat prompt as guidance. Until now skills only ever loaded into
     /fix battles -- so a skill mickey wrote (or a seed like
@@ -357,6 +360,9 @@ async def _post_answer_bookkeeping(primary, message: str, root: str,
                                    text: str, used_fallback: bool, used: str,
                                    history: str = "") -> None:
     """autosave a durable fact + log what the fallback answered. Best-effort, never raises."""
+    import os
+    if os.environ.get("GREMLIN_SAFE_MODE") == "1":
+        return  # safe mode: no auto-learning (profile/notes/corrections)
     # How Mickey likes things: a preference or a laugh becomes a guess in
     # gremlin_profile.md. When it does, skip the fact/correction extractors
     # below -- same message, and one extra model call per turn is enough.

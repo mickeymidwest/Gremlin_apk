@@ -102,3 +102,7 @@ merge_env/
 .gremlin/talk/
 *.kit-new
 .gremlin/remote/
+
+# Local-only extras (per-box, never committed) and runtime guard baselines
+local_plugins/
+data/guard/
