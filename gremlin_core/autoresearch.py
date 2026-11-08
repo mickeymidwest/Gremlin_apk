@@ -119,6 +119,38 @@ def _looks_like_question(text: str) -> bool:
     return m.group(1).lower().replace("'", "") in _QWORDS
 
 
+# A short topic phrase can be a real lookup without any question shape --
+# "resident evil 2026", "latest iphone", "gta 6 release date". We only
+# treat it as one when it is short AND does not open like a personal
+# statement, so casual lines ("going to bed early tonight", "that's the
+# latest") are still left offline.
+_CASUAL_LEAD = re.compile(
+    r"^\s*(i|im|ive|ill|id|we|were|my|our|he|she|they|them|it|its|that|thats|"
+    r"this|these|those|going|gonna|gotta|just|had|have|went|got|lol|lmao|haha|"
+    r"man|bro|dude|ok|okay|yeah|yep|nah|cool|nice|wow|oh|damn|hey|yo|sup)\b",
+    re.I,
+)
+_STRONG_RELEASE = re.compile(
+    r"\b(release\s+date|came?\s+out|comes?\s+out|coming\s+out|out\s+yet|"
+    r"latest|newest|just\s+released|release[sd]?)\b",
+    re.I,
+)
+_YEAR = re.compile(r"\b20[2-3]\d\b")
+
+
+def _terse_lookup(text: str) -> bool:
+    """A short topic phrase that's clearly a current-info lookup even with
+    no question shape. Guarded against casual statements by rejecting
+    first-person / narrative openers and anything long enough to be a real
+    sentence."""
+    words = text.split()
+    if not (1 <= len(words) <= 8):
+        return False
+    if _CASUAL_LEAD.match(text):
+        return False
+    return bool(_YEAR.search(text) or _STRONG_RELEASE.search(text))
+
+
 def is_time_sensitive(message: str) -> bool:
     """A fact whose answer changes over time -- always worth a fresh look."""
     return bool(_TIME_SENSITIVE.search(message or ""))
@@ -132,24 +164,27 @@ def should_search(message: str) -> bool:
     The gate has three parts, all required:
       1. NOT excluded -- not smalltalk, an opinion/creative ask, or about
          this machine or Gremlin himself.
-      2. In an ASKING form -- a question (mark or interrogative lead) or a
-         tight declarative-lookup phrase ("price of X", "weather in Y").
-         This is what stops a casual statement that merely contains a time
-         word ("I had a rough day today", "my car broke down this week")
-         from firing a search, which an earlier version got wrong.
+      2. In an ASKING form -- a question (mark or interrogative lead), a
+         tight declarative-lookup phrase ("price of X", "weather in Y"), or
+         a terse topic lookup ("resident evil 2026", "latest iphone"). This
+         is what stops a casual statement that merely contains a time word
+         ("I had a rough day today", "my car broke down this week") from
+         firing a search, which an earlier version got wrong.
       3. Carrying a factual / current-info SIGNAL -- a factual-lookup,
-         time-sensitive, or declarative-lookup match."""
+         time-sensitive, declarative-lookup, or terse-lookup match."""
     text = (message or "").strip()
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
         return False
     if _SMALLTALK.search(text) or _SELF_LOCAL.search(text) or _OPINION_CREATIVE.search(text):
         return False
-    asking = _looks_like_question(text) or bool(_DECLARATIVE_LOOKUP.search(text))
+    decl = bool(_DECLARATIVE_LOOKUP.search(text))
+    terse = _terse_lookup(text)
+    asking = _looks_like_question(text) or decl or terse
     if not asking:
         return False
     return bool(_FACTUAL_LOOKUP.search(text) or _TIME_SENSITIVE.search(text)
-                or _DECLARATIVE_LOOKUP.search(text))
+                or decl or terse)
 
 
 def _evidence_block(query: str, results: list[dict]) -> str:

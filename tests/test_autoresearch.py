@@ -22,6 +22,14 @@ SEARCH = [
     "how many moons does jupiter have",
     "who invented the telephone",
     "what's the weather in chicago today",
+    # terse topic lookups with no question shape -- a title/topic plus a
+    # year or a release signal (the "resident evil 2026" miss)
+    "resident evil 2026",
+    "new resident evil game 2026",
+    "best gpu 2025",
+    "latest iphone",
+    "gta 6 release date",
+    "iphone 17 release date",
 ]
 
 # --- things he should NOT (stay instant / offline) ---------------------------
@@ -54,6 +62,12 @@ NO_SEARCH = [
     "it's not worth the hassle",
     "my car broke down this week",
     "that game was a blowout, we won by 30",
+    # casual lines that happen to contain a release/time signal word, but
+    # open like a personal statement -- the terse-lookup guard must skip them
+    "that's the latest i heard",
+    "oh nice the new season is out",
+    "i just released my first app today",
+    "we came out ahead this year",
 ]
 
 
