@@ -19,6 +19,7 @@ existing, already-reviewed machinery, not a second implementation of it.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -248,7 +249,7 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     query = str(args.get("query") or "").strip()
     if not query:
         return {"answer": "What do you want me to search for?", "action": "web_search", "ok": False}
-    results = web_search.search(query, limit=5)
+    results = await asyncio.to_thread(web_search.search, query, 5)
     if not results:
         return {"answer": f'No results for "{query}" -- either nothing came back or the '
                  f"desktop's internet is down.", "action": "web_search", "ok": False}
@@ -263,7 +264,8 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
               "conversationally: " + query)
     try:
         res = await ctx.router.route("gremlin", prompt)
-        answer = (getattr(res, "text", "") or "").strip()
+        answer = ((getattr(res, "text", "") or "").strip()
+                  if getattr(res, "ok", True) else "")
     except Exception:
         answer = ""
     if not answer:
