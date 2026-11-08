@@ -19,9 +19,9 @@ provenance:
 - zoid_mb_klondike-apk_1788850352
 created: 1788850361.0420065
 record:
-  uses: 624
-  wins: 330
-  losses: 191
+  uses: 627
+  wins: 331
+  losses: 193
   score_deltas:
   - 0.5
   - 0.2
@@ -647,5 +647,8 @@ record:
   - 0.4154
   - 0.0
   - 0.5538
-  last_used_battle: zoid_mb_buildalot-apk_1794113936
-  battles_available: 265
+  - 0.0
+  - 0.0
+  - 0.6231
+  last_used_battle: zoid_mb_buildalot-apk_1794115489
+  battles_available: 266

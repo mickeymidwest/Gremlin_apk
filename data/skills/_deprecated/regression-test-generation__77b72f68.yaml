@@ -1,6 +1,6 @@
 id: skill_77b72f68
 name: regression-test-generation
-status: active
+status: deprecated
 destination: card
 council_reviewed: true
 purpose: Capture a fixed bug as a test so it can't return
@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 25
+  uses: 29
   wins: 13
-  losses: 10
+  losses: 14
   score_deltas:
   - 0.0
   - 0.4154
@@ -44,5 +44,9 @@ record:
   - 0.4154
   - 0.0
   - 0.5538
-  last_used_battle: zoid_mb_buildalot-apk_1794113936
-  battles_available: 0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0018_textutils
+  battles_available: 4
