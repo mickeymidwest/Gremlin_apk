@@ -133,6 +133,12 @@ gremlin restore, safe-mode, boot snapshots); local-plugin hook; private mode + a
 | R8 | **Learn from wins**: a loop/agent run that passed becomes a candidate skill card (existing lifecycle) | Gremlin gets better at his recurring tasks | PENDING |
 
 HARDWARE-BOUND after the above (needs an upgrade, NOT software):
+- CPU+GPU concurrency TESTED 2026-11-08: a 4B ran on the CPU while the 9b stayed live and
+  healthy on the GPU -- so two models at once IS possible -- but on this box it isn't useful:
+  CPU inference was ~1.8 tok/s (too slow for chat, and a 14B reviewer on CPU would be slower
+  than the current swap-and-reload), and an in-process CPU model still took ~1.1GB VRAM for
+  CUDA buffers (5.8+1.1 of 8GB). A pure-CPU helper needs a separate process with the GPU hidden,
+  and is only worth it for slow background jobs. Practical two-model use is RAM/CPU-bound ->
 - A bigger/smarter model than a 9B (needs more VRAM).
 - Vision (the 9B's image half) resident alongside the model (tight on 8 GB).
 - Reviewer + primary resident at once / no swap stalls (needs VRAM).
