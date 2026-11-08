@@ -28,6 +28,7 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
   gremlin serve [port]           (default: 8765) -- lets the phone app connect
   gremlin adb-audit [hours]       -- what apps on the paired phone did with the mic, camera,
                                    location, texts, contacts, clipboard (default 24h)
+  gremlin selfcheck [model]       -- compare the last two benchmark runs and flag a regression
   gremlin checkpoint              -- if the tests pass, tag this code as a known-good point
   gremlin restore [--list|<tag>]  -- roll the CODE back to a known-good point (keeps your
                                    data, models and settings; use --dry-run to preview)
@@ -1023,6 +1024,12 @@ async def main():
             from gremlin_core import adb_audit
             hours = float(sys.argv[2]) if len(sys.argv) > 2 else 24.0
             print(adb_audit.audit(hours)[0])
+        elif cmd == "selfcheck":
+            from gremlin_core import selfcheck
+            _reg, _msg = selfcheck.compare(os.path.join(PROJECT_ROOT, "bench"),
+                                           sys.argv[2] if len(sys.argv) > 2 else None)
+            print(_msg)
+            sys.exit(1 if _reg else 0)
         elif cmd == "guard":
             from gremlin_core import guard
             if len(sys.argv) > 2 and sys.argv[2] == "accept":
