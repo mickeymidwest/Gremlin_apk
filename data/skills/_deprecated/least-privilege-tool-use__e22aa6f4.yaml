@@ -1,6 +1,6 @@
 id: skill_e22aa6f4
 name: least-privilege-tool-use
-status: active
+status: deprecated
 destination: card
 council_reviewed: true
 purpose: Request only the permissions/scope a task needs
@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 62
+  uses: 67
   wins: 32
-  losses: 28
+  losses: 33
   score_deltas:
   - 0.0
   - 0.4154
@@ -81,5 +81,10 @@ record:
   - 0.0
   - 0.4154
   - 0.7714
-  last_used_battle: zoid_gen_tipcalc_1794112268
-  battles_available: 29
+  - 0.0
+  - -1.0
+  - -1.0
+  - -1.0
+  - 0.0
+  last_used_battle: zoid_mb_klondike-apk_1794113624
+  battles_available: 33
