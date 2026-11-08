@@ -168,8 +168,10 @@ def standing(snap: dict) -> list[Finding]:
         what = ("TCP ports " + ", ".join(tcp)) if tcp else ""
         if udp:
             what += (" plus " if what else "") + f"{len(udp)} UDP port{'s' if len(udp) != 1 else ''}"
+        fw_on = any(v == "active" for v in snap.get("firewall", {}).values())
         out.append(Finding(INFO, "Listening on every interface: " + what,
-                           "fine on a trusted LAN; a firewall would limit them to the LAN and Tailscale"))
+                           "the firewall limits them to the LAN and Tailscale" if fw_on
+                           else "fine on a trusted LAN; a firewall would limit them to the LAN and Tailscale"))
     n = snap.get("failed_ssh_24h")
     if n:
         out.append(Finding(MEDIUM if n < 50 else HIGH, f"{n} failed SSH logins in the last 24 hours",
