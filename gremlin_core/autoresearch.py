@@ -208,7 +208,10 @@ def _evidence_block(query: str, results: list[dict]) -> str:
         f'Live web search results for "{query.strip()}". Use them to answer '
         "accurately and up to date; weave the facts in naturally and don't "
         "just paste the list. If they don't actually answer the question, say "
-        "so plainly instead of guessing."
+        "so plainly instead of guessing. Do NOT state any number, date, "
+        "price, score, or statistic that does not appear in these results -- "
+        "if a specific isn't here, say you're not certain instead of giving a "
+        "figure."
     ]
     for i, r in enumerate(results, 1):
         title = (r.get("title") or "").strip()
@@ -259,3 +262,47 @@ def footer(sources: list[dict]) -> str:
     if not doms:
         return ""
     return "\n\n(Looked it up just now: " + ", ".join(doms) + ")"
+
+
+# Hard figures a small model most loves to fabricate: money, percentages,
+# magnitudes, and years. A standalone small integer ("the 2 games") is NOT
+# a sigfig -- only figures carrying $, %, a magnitude word, or a 4-digit
+# year, since those are the ones worth confirming.
+_SIGFIG = re.compile(
+    r"\$\s?\d[\d,]*(?:\.\d+)?\s?(?:billion|million|thousand|bn|k)?"   # money
+    r"|\d[\d,]*(?:\.\d+)?\s?(?:%|percent|billion|million|thousand)"   # pct / magnitudes
+    r"|\b(?:18|19|20)\d{2}\b",                                        # years
+    re.I,
+)
+
+
+def unverified_figures(answer: str, evidence: str) -> list[str]:
+    """Figures stated in a WEB-sourced answer whose digits do not appear in
+    the retrieved evidence -- the '$58 million', '98%', 'December 2016'
+    class of fabrication. Returned in order, deduped by digit value. Lenient
+    on purpose (a digit run present anywhere in the evidence counts as
+    confirmed), because the caveat it feeds is a soft 'couldn't confirm',
+    not an accusation -- better to under-flag than nag on a real number."""
+    if not answer or not evidence:
+        return []
+    ev_blob = re.sub(r"[^\d]", "", evidence)          # all evidence digits, joined
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in _SIGFIG.finditer(answer):
+        token = re.sub(r"\s+", " ", m.group(0).strip())
+        d = re.sub(r"[^\d]", "", token)
+        if not d or d in seen:
+            continue
+        seen.add(d)
+        if d in ev_blob:                               # digits appear in evidence
+            continue
+        out.append(token)
+    return out
+
+
+def figures_caveat(figs: list[str]) -> str:
+    if not figs:
+        return ""
+    shown = ", ".join(figs[:4])
+    return ("\n\n(Heads up: I couldn't confirm these specifics from what I "
+            f"found just now, so double-check them: {shown}.)")

@@ -469,6 +469,12 @@ async def answer_stream(primary, message: str, root: str,
                 note = grounding.caveat(bad)
                 text += note
                 yield "delta", note
+        if web_sources and text:
+            _figs = autoresearch.unverified_figures(text, web_ev)
+            if _figs:
+                _cav = autoresearch.figures_caveat(_figs)
+                text += _cav
+                yield "delta", _cav
         if looked:
             note = look.footer(looked)
             text += note
@@ -568,6 +574,10 @@ async def answer(primary, message: str, root: str,
             else:
                 text = text + grounding.caveat(bad)
 
+    if web_sources and text:
+        _figs = autoresearch.unverified_figures(text, web_ev)
+        if _figs:
+            text += autoresearch.figures_caveat(_figs)
     if looked:
         text += look.footer(looked)
     if web_sources:

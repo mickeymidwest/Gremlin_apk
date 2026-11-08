@@ -179,6 +179,38 @@ def test_gather_empty_results_is_not_an_error(monkeypatch):
     assert srcs is None and ev == ""
 
 
+def test_unverified_figures_flags_fabrications():
+    ev = ('Live web search results for "resident evil box office".\n'
+          '1. RE grossed 100 million worldwide — https://x.com\n'
+          '   Audience score sits at 70% on aggregate.')
+    ans = ("It made $58 million on opening day in 2016, with a 98% score, "
+           "on its way past 100 million.")
+    figs = autoresearch.unverified_figures(ans, ev)
+    # 58, 2016, 98 are NOT in the evidence; 100 IS -> only the first three flag
+    joined = " ".join(figs)
+    assert "58" in joined and "2016" in joined and "98" in joined
+    assert "100" not in joined
+
+
+def test_unverified_figures_clean_when_supported():
+    ev = "The film grossed 100 million in 2016 with a 98% audience score."
+    ans = "It made 100 million in 2016 and holds a 98% score."
+    assert autoresearch.unverified_figures(ans, ev) == []
+
+
+def test_unverified_figures_ignores_bare_small_ints_and_empty():
+    ev = "some evidence with the number 42 in it"
+    assert autoresearch.unverified_figures("there were 3 games and 2 wins", ev) == []
+    assert autoresearch.unverified_figures("", ev) == []
+    assert autoresearch.unverified_figures("it cost $500", "") == []
+
+
+def test_figures_caveat_text():
+    assert autoresearch.figures_caveat([]) == ""
+    c = autoresearch.figures_caveat(["$58 million", "98%", "2016"])
+    assert "double-check" in c and "$58 million" in c and "98%" in c
+
+
 def test_gather_survives_search_raising(monkeypatch):
     def _boom(*a, **k):
         raise RuntimeError("network down")
