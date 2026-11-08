@@ -17,6 +17,9 @@ import org.json.JSONObject
  */
 object DeepScan {
 
+    // one pairing or scan at a time on the shared connection, even across activity recreation
+    private val lock = Any()
+
     private val PKG = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+$")
 
     class Result(val ops: JSONObject? = null, val count: Int = 0, val error: String? = null)
@@ -24,7 +27,9 @@ object DeepScan {
     fun supported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R  // wireless debugging: Android 11+
 
     /** One-time pairing with the code from Wireless debugging > Pair device with pairing code. */
-    fun pair(context: Context, port: Int, code: String): String? = try {
+    fun pair(context: Context, port: Int, code: String): String? = synchronized(lock) { pairLocked(context, port, code) }
+
+    private fun pairLocked(context: Context, port: Int, code: String): String? = try {
         if (!supported()) "Wireless debugging needs Android 11 or newer."
         else if (AdbManager.get(context).pair("127.0.0.1", port, code.trim())) null
         else "Pairing didn't go through. Check the port and the 6-digit code, then try again."
@@ -33,7 +38,9 @@ object DeepScan {
     }
 
     /** Connect (finding the port by itself when it can), then collect appops for every app you installed. */
-    fun collect(context: Context, port: Int?): Result {
+    fun collect(context: Context, port: Int?): Result = synchronized(lock) { collectLocked(context, port) }
+
+    private fun collectLocked(context: Context, port: Int?): Result {
         if (!supported()) return Result(error = "Wireless debugging needs Android 11 or newer.")
         val adb = try { AdbManager.get(context) } catch (e: Exception) {
             return Result(error = "Couldn't set up ADB: ${e.message}")

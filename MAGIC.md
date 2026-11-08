@@ -458,3 +458,7 @@ isn't a thing; skills come from the loop and from here.
 - `gremlin adb-audit [hours]` (S7): which apps used the mic, camera, location, texts, contacts, call log,
   clipboard or files, and whether in the background, from Android's app-ops records over adb. Read-only;
   also runs on the phone from Termux (`~/gremlin-phone/audit.py`) against its own wireless debugging.
+- Deep scan in the app (S4b, 1.7): Settings -> Phone & desktop safety -> Pair ADB once with Wireless
+  debugging's pairing code, then Deep scan collects `appops get` for each installed app through the app's
+  own ADB client (libadb-android) and `POST /guard/appops` writes the report. Two fixed read-only commands;
+  package names checked on the phone and on the desktop. allowBackup is off.

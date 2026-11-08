@@ -71,7 +71,7 @@ class SecurityActivity : AppCompatActivity() {
                         "Use split screen so the popup stays open.")
             .setView(box)
             .setPositiveButton("Pair") { _, _ ->
-                val p = port.text.toString().toIntOrNull()
+                val p = port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 }
                 val c = code.text.toString()
                 if (p == null || c.length < 6) {
                     status.text = "That needs the pairing port and the 6-digit code."
@@ -121,7 +121,10 @@ class SecurityActivity : AppCompatActivity() {
             .setTitle("Couldn't find the port by itself")
             .setMessage("On the Wireless debugging screen, the number after the colon in \"IP address & Port\".")
             .setView(LinearLayout(this).apply { setPadding(48, 16, 48, 0); addView(port) })
-            .setPositiveButton("Scan") { _, _ -> port.text.toString().toIntOrNull()?.let { deepScan(it) } }
+            .setPositiveButton("Scan") { _, _ ->
+                val p = port.text.toString().toIntOrNull()?.takeIf { it in 1..65535 }
+                if (p != null) deepScan(p) else status.text = "That port doesn't look right."
+            }
             .setNegativeButton("Cancel", null)
             .show()
     }
