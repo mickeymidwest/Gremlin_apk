@@ -149,7 +149,9 @@ _SYS_KT = ("You write ONE Kotlin method body. Output ONLY the statements that go
            "no imports, no other methods. Use the exact constant and field names "
            "shown, and the exact signatures of any helper you call (a helper that "
            "takes an Int index wants an index -- iterate `for (i in plots.indices)`, "
-           "not `for (p in plots)`). Prefer early-return guards. Count your braces. "
+           "not `for (p in plots)`). On a Kotlin MutableList use `.isEmpty()` / "
+           "`.isNotEmpty()` (with parentheses), `.last()`, and `.removeAt(list.lastIndex)` "
+           "-- never `.peek()` or `.pop()`. Prefer early-return guards. Count your braces. "
            "A Kotlin { } body does NOT return its last expression -- if the method "
            "returns a value, EVERY path must end in an explicit `return <value>`. "
            "Implement EXACTLY what the test cases check -- nothing more. Do not add "
@@ -170,9 +172,28 @@ _RANDOM_HINT = re.compile(r"\b(shuffl|random|deck|deal|draw|seed)\w*", re.I)
 
 def _fix_trailing_return(body: str, stub: Stub) -> str:
     """A common 7B slip: ending a value-returning Kotlin { } body with a bare
-    `true` / `false` / a number instead of `return true`. Conservative --
-    only a genuinely standalone simple literal on the last line, never a
-    continuation of a multi-line expression."""
+    `true` / `false` / a number instead of `return true`, or writing a
+    single-line Python expression body (`int(round(dollars * 100))`) without
+    `return`. Conservative -- never wraps statements or side-effect calls."""
+    if stub.lang == "py":
+        ret_py = re.search(r"->\s*([^:]+):", stub.header)
+        if ret_py and ret_py.group(1).strip() == "None":
+            return body
+        lines = [ln for ln in body.rstrip().splitlines() if ln.strip()]
+        if len(lines) != 1:
+            return body
+        only = lines[0].strip()
+        if re.match(r"(return|raise|pass|if|for|while|with|try|def|class|assert|del|yield|import|from)\b", only):
+            return body
+        if re.search(r"(?<![=!<>])=(?!=)", only):
+            return body
+        if re.search(r"\b(print)\s*\(|\.(append|extend|insert|remove|pop|clear|sort|update)\s*\(", only):
+            return body
+        try:
+            compile(only, "<expr>", "eval")
+        except SyntaxError:
+            return body
+        return lines[0].replace(only, "return " + only, 1)
     if stub.lang != "kt":
         return body
     ret_t = re.search(r"\)\s*:\s*([\w<>?.\[\] ]+?)\s*\{?\s*$", stub.header)
@@ -195,7 +216,9 @@ def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
               fail_hint: str = "", temperature: float = 0.2, context: str = "") -> str:
     marked = full_src[:stub.start] + "\n<<<WRITE THE BODY HERE>>>\n" + full_src[stub.end:]
     if stub.lang == "kt":
-        sys = _SYS_KT + (_SYS_KT_RANDOM if _RANDOM_HINT.search(spec + " " + stub.header) else "")
+        needs_rng = ("seed" in stub.header.lower()
+                     or bool(re.search(r"\b(shuffl|random)\w*", stub.header, re.I)))
+        sys = _SYS_KT + (_SYS_KT_RANDOM if needs_rng else "")
     else:
         sys = _SYS_PY
     user = ""
@@ -207,8 +230,15 @@ def _gen_body(model: Model, stub: Stub, spec: str, full_src: str,
     if fail_hint:
         user += f"\nYour last attempt failed this check -- fix exactly this:\n{fail_hint}\n"
     user += f"\nNow output only the body of `{stub.name}`:"
-    txt = (model.complete([{"role": "user", "content": user}], system=sys,
-                          max_tokens=700).text or "")
+    old_t = getattr(model, "temperature", None)
+    try:
+        if old_t is not None:
+            model.temperature = temperature
+        txt = (model.complete([{"role": "user", "content": user}], system=sys,
+                              max_tokens=700).text or "")
+    finally:
+        if old_t is not None:
+            model.temperature = old_t
     txt = txt.strip()
     # strip a stray code fence / signature line if the model added one
     txt = re.sub(r"^```[a-z]*\n?|\n?```$", "", txt).strip()
@@ -286,6 +316,17 @@ def _reindent(body: str, n: int, *, _strategy: str = "mode") -> str:
         first = next((ln for ln in lines if ln.strip()), "")
         b = len(first) - len(first.lstrip())
         lines = [ln[b:] if ln[:b].strip() == "" else ln.lstrip() for ln in lines]
+    elif _strategy in ("pad_first_4", "pad_first_n"):
+        pad_first = "    " if _strategy == "pad_first_4" else " " * n
+        padded = []
+        done = False
+        for ln in lines:
+            if not done and ln.strip():
+                padded.append(pad_first + ln.lstrip())
+                done = True
+            else:
+                padded.append(ln)
+        lines = textwrap.dedent("\n".join(padded)).split("\n")
     else:
         lines = textwrap.dedent(src).split("\n")
     return _apply_indent(lines, n)
@@ -299,7 +340,7 @@ def _splice(src: str, stub: Stub, body: str) -> str:
     # python: the 7B's indentation is often internally inconsistent -- try
     # each normalisation and keep the first that yields a parseable file.
     fallback = ""
-    for strat in ("mode", "common", "first", "lstrip"):
+    for strat in ("mode", "common", "pad_first_4", "pad_first_n", "first", "lstrip"):
         ind = _reindent(body, stub.indent + 4, _strategy=strat)
         cand = src[:stub.start] + ind + "\n" + src[stub.end:]
         fallback = fallback or cand
@@ -495,6 +536,16 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 continue
             _bodies.add(_norm)
             trial = _splice(cur, stub, body)
+            if stub.lang == "py":
+                try:
+                    compile(trial, target_rel, "exec")
+                except SyntaxError as e:
+                    _cfails += 1
+                    _ce = f"SyntaxError: {e.msg} (line {e.lineno})"
+                    hint = (f"Your last body did NOT compile ({_ce}).\n"
+                            f"That body was:\n{body}\nFix the syntax/indentation and return a full body.")
+                    log(f"[method_builder] {name} try {attempt+1}: COMPILE FAIL -- {_ce}")
+                    continue
             tgt.write_text(trial)
             if compile_cmd:
                 cp, cf, cout = _run(compile_cmd, root, timeout=300)
@@ -518,7 +569,7 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                         f"\n\nRe-read the spec above carefully -- a guard condition may be "
                         f"inverted (e.g. `plots[i].owned` vs `!plots[i].owned`), or the "
                         f"order of operations is wrong. Return a corrected full body.")
-            if p > best_p or (p == best_p and f < best_f):
+            if p > best_p or (p > 0 and p == best_p and f < best_f):
                 best_src, best_p, best_f = trial, p, f
                 if f == 0:
                     break
@@ -579,6 +630,16 @@ def build_from_scaffold(repo: str, target_rel: str, verify_cmd: str, model: Mode
                 if not body:
                     continue
                 trial = _splice(cur, stub, body)
+                if stub.lang == "py":
+                    try:
+                        compile(trial, target_rel, "exec")
+                    except SyntaxError as e:
+                        _cfails += 1
+                        _ce = f"SyntaxError: {e.msg} (line {e.lineno})"
+                        hint = (f"Your last body did NOT compile ({_ce}).\n"
+                                f"Your last body:\n{body}\nFix the syntax, return a full body.")
+                        log(f"[method_builder] pass{_pass+2} {name} try {attempt+1}: COMPILE FAIL -- {_ce}")
+                        continue
                 tgt.write_text(trial)
                 if compile_cmd:
                     cp, cf, cout = _run(compile_cmd, root, timeout=300)

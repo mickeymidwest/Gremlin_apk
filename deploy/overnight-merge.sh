@@ -21,7 +21,8 @@ ts(){ echo "[$(date -Iseconds)] $*"; }
 restore_agent(){
   ts "restoring service + timers"
   systemctl --user start gremlin.service gremlin-watchdog.timer \
-                         gremlin-update.timer gremlin-distill.timer 2>&1
+                         gremlin-update.timer gremlin-distill.timer \
+                         gremlin-zoid.timer 2>&1
 }
 trap restore_agent EXIT   # agent comes back no matter how we exit
 

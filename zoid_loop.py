@@ -144,7 +144,7 @@ def targets() -> list[dict]:
 
     def _pybug(path, tid, mod):
         return dict(name=path.name.replace("_", "-"), repo=path, verifier=PytestVerifier(),
-            step_budget=16, max_tokens=2560, time_budget=900,
+            step_budget=16, max_tokens=2560, time_budget=900, protect_glob="test_*.py,*_test.py",
             task=Task(id=tid, prompt=(
                 f"{mod}.py has bugs -- each failing test in test_{mod}.py pins one down. "
                 f"Read {mod}.py and test_{mod}.py, fix the function/method BODIES only "
@@ -274,10 +274,10 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         import gremlin_core.magic.battle as _b
         turn = [0]
         _oc = model.complete
-        def _traced(msgs, system=None, max_tokens=4096):
+        def _traced(msgs, system=None, max_tokens=4096, grammar=None):
             turn[0] += 1
             tt = time.monotonic()
-            r = _oc(msgs, system=system, max_tokens=max_tokens)
+            r = _oc(msgs, system=system, max_tokens=max_tokens, grammar=grammar)
             log(f"     t{turn[0]} {time.monotonic()-tt:.0f}s :: "
                 f"{(r.text or '')[:120].replace(chr(10), ' ')}")
             return r
@@ -388,10 +388,10 @@ def one_campaign_battle(campaign: Campaign, model, best: dict, log) -> float:
     turn = [0]
     _oc = model.complete
 
-    def _traced(msgs, system=None, max_tokens=4096):
+    def _traced(msgs, system=None, max_tokens=4096, grammar=None):
         turn[0] += 1
         tt = time.monotonic()
-        r = _oc(msgs, system=system, max_tokens=max_tokens)
+        r = _oc(msgs, system=system, max_tokens=max_tokens, grammar=grammar)
         log(f"     t{turn[0]} {time.monotonic()-tt:.0f}s :: "
             f"{(r.text or '')[:120].replace(chr(10), ' ')}")
         return r

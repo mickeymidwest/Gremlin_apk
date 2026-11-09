@@ -155,7 +155,7 @@ async def _build(args: str, ctx: CommandContext) -> dict:
         name, goal = (p.strip() for p in args.split(":", 1))
     else:
         name, goal = build_project.sanitize_folder_name(args[:40]) or "gremlin-build", args
-    target = str(Path(ctx.project_root).parent / (build_project.sanitize_folder_name(name) or "gremlin-build"))
+    target = str(Path(ctx.project_root).resolve().parent / (build_project.sanitize_folder_name(name) or "gremlin-build"))
 
     coder = _coding_model_name(ctx)
     from . import vram
@@ -202,7 +202,7 @@ async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
     await vram.ensure_only(ctx.registry, keep=coder)
     model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("gremlin"), loop=ctx.loop)
     slug = sanitize_folder_name(name) or "gremlin-app"
-    dest = str(Path(ctx.project_root).parent / slug)
+    dest = str(Path(ctx.project_root).resolve().parent / slug)
 
     def _run():
         repo, verify = scaffold_from_spec(spec, dest, model)
@@ -236,7 +236,7 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     from .store import Store
     from .types import Task
 
-    root = Path(ctx.project_root)
+    root = Path(ctx.project_root).resolve()
     # Keep the repo copy AND the pytest run's temp off the system /tmp. On
     # this box /tmp is a small RAM-backed tmpfs (~half of 8GB RAM); copying
     # the repo there and running the full suite's tmp_path fixtures beside a
@@ -264,13 +264,20 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
     model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("gremlin"), loop=ctx.loop)
 
-    task = Task(id="fix", prompt=args, test_filter="")
+    tfilter = "" if "campaign" in args.lower() else "not campaign"
+    task = Task(id="fix", prompt=args, test_filter=tfilter)
+    verifier = PytestVerifier()
+
+    def _on_done():
+        s = verifier.score(task, str(work))
+        return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
 
     def _run():
         # run_battle is blocking + its model.complete() submits back to
         # the server loop -- so this MUST be off the loop, in a thread.
-        t = run_battle(task, str(work), model, skills, facts, step_budget=10, time_budget_s=420)
-        s = PytestVerifier().score(task, str(work), t)
+        t = run_battle(task, str(work), model, skills, facts,
+                       step_budget=10, time_budget_s=420, on_done=_on_done)
+        s = verifier.score(task, str(work), t)
         d = subprocess.run(
             ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",
              str(root), str(work)], capture_output=True, text=True).stdout

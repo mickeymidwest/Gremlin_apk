@@ -48,12 +48,14 @@ def test_build_campaign_threads_protect_glob_for_fuzz_style_targets(tmp_path):
 def test_one_campaign_battle_runs_a_real_battle_and_updates_best(tmp_path):
     store = Store(tmp_path / "store")
     tgt = _tgt(tmp_path)
-    camp = Z._build_campaign(store, DemoModel(), tgt)
+    model = DemoModel()
+    camp = Z._build_campaign(store, model, tgt)
     logs = []
 
-    score = Z.one_campaign_battle(camp, DemoModel(), {}, logs.append)
+    score = Z.one_campaign_battle(camp, model, {}, logs.append)
 
     assert score == 1.0  # DemoModel really fixes clamp; PytestVerifier really scores it
+    assert any("t1 " in ln for ln in logs)  # shared model -> _traced actually intercepted turns
     state = store.get_state(tgt["name"])
     assert state.battle_count == 1
 
