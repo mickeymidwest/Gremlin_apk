@@ -291,13 +291,58 @@ def search_query(message: str) -> str:
     return q
 
 
+# Second step of the in-chat tool chain (search -> read): when the snippets
+# are unlikely to carry the specific answer, actually fetch and read the top
+# result's page. This is what stops Gremlin giving up after a search when the
+# snippets only point at a general page (the Leafs-schedule / box-office case).
+_WANTS_PAGE = re.compile(
+    r"\bhow\s+(much|many|long|far)\b|\bwhat\s+time\b|\bbox\s*office\b"
+    r"|\bopening\s+(day|weekend|night)\b|\brating\b|\bscores?\b|\bfinal\b"
+    r"|\bresults?\b|\bstandings?\b|\bwho\s+won\b|\bwho\s+(is|are|'?s)\s+playing\b"
+    r"|\bmatchup\b|\bschedule\b|\blineup\b|\bodds\b|\bprice\b|\bcost\b",
+    re.I,
+)
+
+_FETCH_FAIL = ("[not a valid URL]", "[couldn't fetch", "[no readable text")
+
+
+def _should_fetch(message: str, results: list[dict]) -> bool:
+    """Read a page when the question wants a concrete current detail the
+    snippets usually don't carry, or when the snippets are too thin to
+    answer. Stable trivia ('how tall is Everest') stays snippet-only."""
+    snippet_chars = sum(len((r.get("snippet") or "")) for r in results)
+    return (is_time_sensitive(message) or bool(_WANTS_PAGE.search(message))
+            or snippet_chars < 120)
+
+
+async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500) -> str:
+    """Read the first readable page among the top results (never raises; ''
+    if none readable). Falls through to the 2nd if the 1st 403s/times out so
+    a single paywalled top link doesn't kill the read step."""
+    for r in results[:2]:
+        url = (r.get("url") or "").strip()
+        if not url:
+            continue
+        try:
+            page = await asyncio.to_thread(web_search.fetch_text, url, max_chars)
+        except Exception:
+            page = ""
+        if page and not page.startswith(_FETCH_FAIL):
+            return f"\n\nFull text read from the top result ({url}):\n{page.strip()}"
+    return ""
+
+
 async def gather(message: str, *, limit: int = 3):
     """If `message` warrants it, run a live web search and return
     (sources, evidence_text); otherwise (None, ""). Never raises --
     web_search already degrades to [] on any failure, and we treat an
     empty result set as 'just answer normally' rather than an error. The
     blocking HTTP call is pushed to a thread so it never stalls the
-    server's event loop (same as the explicit web_search tool)."""
+    server's event loop (same as the explicit web_search tool).
+
+    Two-step tool chain: search, then (when the snippets won't carry the
+    answer) read the top result's page -- so a schedule / box-office / score
+    question gets answered instead of giving up at the snippets."""
     if not should_search(message):
         return None, ""
     try:
@@ -307,7 +352,10 @@ async def gather(message: str, *, limit: int = 3):
     if not results:
         return None, ""
     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
-    return sources, _evidence_block(message, results)
+    evidence = _evidence_block(message, results)
+    if _should_fetch(message, results):
+        evidence += await _fetch_top_page(results)
+    return sources, evidence
 
 
 def footer(sources: list[dict]) -> str:

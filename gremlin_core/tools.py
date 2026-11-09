@@ -257,6 +257,9 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
                  f"desktop's internet is down.", "action": "web_search", "ok": False}
     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
     evidence = autoresearch._evidence_block(query, results)
+    # search -> read: pull the top page when the snippets won't carry the answer
+    if autoresearch._should_fetch(query, results):
+        evidence += await autoresearch._fetch_top_page(results)
 
     # Synthesize a spoken answer grounded in the results, then run the same
     # figure honesty check as the auto-research path. If the model can't
