@@ -1037,6 +1037,12 @@ async def main():
             else:
                 text, _found = guard.run(PROJECT_ROOT, full="--full" in sys.argv[2:])
                 print(text)
+        elif cmd == "contradictions":
+            from gremlin_core import contradiction
+            print(contradiction.report(contradiction.scan(PROJECT_ROOT)))
+        elif cmd == "self-audit":
+            from gremlin_core import self_audit
+            print(self_audit.run(PROJECT_ROOT))
         elif cmd == "pair":
             data_dir = Path(PROJECT_ROOT) / "data"
             token = server.get_or_create_token(data_dir)
