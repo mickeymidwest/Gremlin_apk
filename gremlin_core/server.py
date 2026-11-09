@@ -56,7 +56,7 @@ from . import self_improve
 from . import script_edit
 from . import snapshots as snapshots_mod
 from . import update_check
-from . import claude_override
+from . import claude_code
 from .sandbox import SecureExecutionSandbox
 from .status import get_status_data
 
@@ -944,12 +944,12 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    @app.route("/admin/claude-override", methods=["POST"])
-    def admin_claude_override():
+    @app.route("/admin/claude", methods=["POST"])
+    def admin_claude():
         # Admin-gated like /admin/execute, plus the app itself requires a
         # typed "confirm" step before ever sending this request at all
         # (same two-step pattern /rollback and /edit already use) -- see
-        # claude_override.py's module docstring for why this deliberately
+        # claude_code.py's module docstring for why this deliberately
         # runs with full autonomy instead of going through self_improve's
         # two-reviewer gate.
         auth_error = _check_admin_auth()
@@ -961,10 +961,10 @@ def create_app(
         if not prompt:
             return jsonify({"error": "empty prompt"}), 400
 
-        result = claude_override.run_override(str(project_root), prompt)
+        result = claude_code.run_claude(str(project_root), prompt)
 
         mutation_log.append_mutation(str(project_root), {
-            "kind": "claude_override",
+            "kind": "claude",
             "prompt": prompt,
             "ok": result["ok"],
         })
@@ -1155,7 +1155,7 @@ def create_app(
         """Gremlin fixing/editing something on the desktop that ISN'T its
         own code -- distinct on purpose from /admin/self-edit (this
         project's own source, two-reviewer gated) and
-        /admin/claude-override (shells out to the separate `claude` CLI
+        /admin/claude (shells out to the separate `claude` CLI
         under the user's own subscription instead of Gremlin's own
         models). This one runs entirely on Gremlin's own registered
         models end to end. See script_edit.py's module docstring for the

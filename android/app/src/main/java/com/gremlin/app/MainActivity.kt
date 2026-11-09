@@ -722,7 +722,7 @@ class MainActivity : AppCompatActivity() {
                         false,
                     )
                 } else {
-                    runAdminSlash { gremlinClient.claudeOverride(problem) }
+                    runAdminSlash { gremlinClient.runClaude(problem) }
                 }
             }
 

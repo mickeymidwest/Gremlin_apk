@@ -1,6 +1,6 @@
 """
-"Claude override" -- a break-glass remote-debugging command triggered
-from the phone app (see server.py's /admin/claude-override), gated the
+"/claude" -- a break-glass remote-debugging command triggered
+from the phone app (see server.py's /admin/claude), gated the
 same way /root already is (admin token) plus a typed "confirm" step
 (same two-step pattern /rollback and /edit already use). Shells out to
 the `claude` CLI already installed and authenticated on this desktop
@@ -24,7 +24,7 @@ import subprocess
 DEFAULT_TIMEOUT = 600  # a real Claude Code session doing actual work can run a while
 
 
-def run_override(project_root: str, prompt: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
+def run_claude(project_root: str, prompt: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     if not prompt.strip():
         return {"ok": False, "error": "empty prompt"}
 

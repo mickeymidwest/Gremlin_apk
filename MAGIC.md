@@ -152,7 +152,7 @@ KEEP (port): `backends/`, `registry.py`, `tools.py`, `history.py`, `persona.py`,
 `sandbox.py`, `hf_hub.py`.
 
 KEEP as tools: `build_project.py`, `builds.py`, `script_edit.py`,
-`update_check.py`, `away_sync.py`, `claude_override.py`.
+`update_check.py`, `away_sync.py`, `claude_code.py`.
 
 REBUILD into Magic's loop: `self_improve.py` + `review.py` + `teacher.py` +
 `mutation_log.py` → battle/reckoning/gate. `agent_state.py` → battle state machine.

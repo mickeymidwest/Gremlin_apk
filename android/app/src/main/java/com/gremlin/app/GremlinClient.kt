@@ -782,11 +782,11 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
      * (--dangerously-skip-permissions), gated by the admin token plus
      * the app's own required "confirm" step. A real Claude Code session
      * doing actual work can run a while, hence the long read timeout --
-     * matches claude_override.py's DEFAULT_TIMEOUT (600s) plus headroom. */
-    fun claudeOverride(prompt: String): AdminResult {
+     * matches claude_code.py's DEFAULT_TIMEOUT (600s) plus headroom. */
+    fun runClaude(prompt: String): AdminResult {
         val (host, port, adminToken) = adminCreds() ?: return AdminResult(false, adminCredsError())
         return try {
-            val url = URL("http://$host:$port/admin/claude-override")
+            val url = URL("http://$host:$port/admin/claude")
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
@@ -812,8 +812,8 @@ class GremlinClient(private val prefs: SharedPreferences, private val appContext
     /** Backs the `/fix <path> <problem> confirm` slash command -- Gremlin
      * fixing something on the desktop that ISN'T its own code, using its
      * own registered models end to end (not the separate `claude` CLI --
-     * see claudeOverride() for that). Long timeout for the same reason
-     * as claudeOverride: this involves real model generation plus a
+     * see runClaude() for that). Long timeout for the same reason
+     * as runClaude: this involves real model generation plus a
      * compile/verify check, not an instant response. */
     fun scriptFix(path: String, problem: String, verifyCommand: String? = null): AdminResult {
         val (host, port, adminToken) = adminCreds() ?: return AdminResult(false, adminCredsError())
