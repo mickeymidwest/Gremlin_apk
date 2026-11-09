@@ -337,6 +337,10 @@ class LlamaCppBackend(ModelBackend):
 
         fut = None
         self._last_stream_degeneration = None
+        # cleared at stream start so a mid-stream error can't make the caller
+        # report a PREVIOUS turn's token counts (usage is only set on the
+        # normal-completion path below).
+        self._last_stream_usage = {}
         try:
             await self._ensure_loaded()
             fut = loop.run_in_executor(self._executor, _run)

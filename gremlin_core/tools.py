@@ -169,7 +169,9 @@ def _fmt_exec(result: SandboxResult) -> str:
 # ------------------------------------------------------------- handlers
 
 async def _tool_update_check(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
-    result = update_check_mod.run_check()
+    # run_check() shells out (checkupdates) and makes HTTP calls -- off the
+    # event loop so it can't stall every other request/stream for ~20s.
+    result = await asyncio.to_thread(update_check_mod.run_check)
     if not result.get("ok"):
         return {"answer": result.get("error", "Couldn't check updates."), "action": "update_check", "ok": False}
     return {
@@ -284,7 +286,15 @@ async def _tool_web_fetch(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     url = str(args.get("url") or "").strip()
     if not url:
         return {"answer": "What URL should I read?", "action": "web_fetch", "ok": False}
-    return {"answer": web_search.fetch_text(url), "action": "web_fetch", "ok": True}
+    # off the event loop (requests.get blocks up to 12s); and fetch_text
+    # returns a "[...]" placeholder on a bad URL / failed fetch / empty page,
+    # so report ok honestly instead of always True.
+    text = await asyncio.to_thread(web_search.fetch_text, url)
+    # fetch_text's exact failure sentinels -- not a bare "[" (a real page can
+    # start with "[Skip to content]" or a JSON array).
+    ok = not text.startswith(("[not a valid URL]", "[couldn't fetch that page:",
+                              "[no readable text on that page]"))
+    return {"answer": text, "action": "web_fetch", "ok": ok}
 
 
 async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:

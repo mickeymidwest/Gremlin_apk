@@ -567,9 +567,12 @@ async def answer(primary, message: str, root: str,
                             "that actually exist here; if you're not sure something "
                             "exists, say so rather than naming it.]")
             r2 = await _gen(primary, retry_prompt, hist)
-            t2 = (r2.text or "").strip()
+            # only use the retry if it actually succeeded -- a failed r2
+            # ("error" text, ok=False) must not overwrite the real draft below.
+            t2 = (r2.text or "").strip() if getattr(r2, "ok", True) else ""
             for k, v in ((getattr(r2, "meta", None) or {}).get("usage") or {}).items():
-                usage[k] = usage.get(k, 0) + v
+                if isinstance(v, (int, float)) and isinstance(usage.get(k, 0), (int, float)):
+                    usage[k] = usage.get(k, 0) + v
             try:
                 still = grounding.check(t2, root, ctx) if t2 else bad
             except Exception:
