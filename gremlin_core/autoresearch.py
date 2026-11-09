@@ -35,25 +35,41 @@ _SELF_LOCAL = re.compile(
     # Gremlin's own identity -- but NOT a bare "you"/"your", which also shows
     # up in ordinary factual questions addressed to him ("do you know who won",
     # "can you look up the price of X"). Only self-REFERENTIAL uses veto.
-    r"\byourself\b|\bgremlin\b|\bmagic\b"
+    r"\byourself\b|\bgremlin\b"
     r"|\byour\s+(name|code|source|repo|config|settings|self|version|model|"
     r"maker|creator|prompt|training|memory|skills?|hardware|specs?)\b"
     r"|\b(who|what)\s+(are|r)\s+(you|u)\b"
     r"|\bare\s+you\s+(an?\s+)?(ai|robot|real|alive|conscious|sentient|human|a\s+bot)\b"
-    r"|\b(this|my|the)\s+(desktop|box|machine|computer|pc|laptop|server|setup|"
+    # possessive only -- "my/this desktop" is his machine; "THE box office" /
+    # "THE computer" are generic external topics and must stay searchable.
+    r"|\b(this|my)\s+(desktop|box|machine|computer|pc|laptop|server|setup|"
     r"system|cpu|gpu|ram|memory|disk|drive|ssd|config|service|services|"
     r"container|containers|repo|code|network|firewall|phone)\b"
     r"|\bthis\s+(thing|conversation|chat)\b",
     re.I,
 )
 
-# Opinion / creative / smalltalk -- a lookup would be wrong or pointless.
-_OPINION_CREATIVE = re.compile(
+# Creative / writing asks -- a web lookup is never right, even if a factual
+# phrase ("...who invented the time machine") is embedded. This is a HARD
+# veto: a strong lookup signal does NOT override it.
+_CREATIVE = re.compile(
+    r"\b(write|draft|compose|rewrite|make\s+up|imagine|pretend|roleplay|\brp\b|"
+    r"story|poem|poetry|song|lyrics?|joke|rap|essay|haiku|limerick|screenplay|"
+    r"script\s+for|dream\s+up|suppose|fiction)\b",
+    re.I,
+)
+
+# Opinion / personal check-in -- a lookup would be pointless. This is a SOFT
+# veto: a real embedded factual lookup ("how many people liked X, I thought
+# it was awesome") overrides it.
+_OPINION = re.compile(
     r"\b(think|thoughts?|feel|feeling|opinion|favou?rite|prefer|better\s+or|"
-    r"should\s+i|would\s+you|imagine|pretend|roleplay|write|draft|compose|"
-    r"story|poem|song|lyrics?|joke|rap|essay|haiku|dream|suppose)\b"
-    r"|\bhow\s+are\s+you\b|\bhow'?s?\s+it\s+going\b|\bwhat'?s?\s+up\b"
-    r"|\bwho\s+are\s+you\b|\bwhat\s+can\s+you\s+do\b",
+    r"should\s+i|would\s+you)\b"
+    r"|\bhow\s+(are|was|is|'?s)\s+(you|your)\b"       # how are you / how was your day
+    r"|\bhow'?s?\s+it\s+going\b|\bwhat'?s?\s+up\b"
+    r"|\bwho\s+are\s+you\b|\bwhat\s+can\s+you\s+do\b"
+    r"|\bare\s+you\s+(busy|free|ok|okay|good|tired|there|around|up)\b"
+    r"|\byour\s+(day|night|weekend|morning|evening|week)\b",
     re.I,
 )
 
@@ -90,8 +106,7 @@ _FACTUAL_LOOKUP = re.compile(
     r"|\bwhere\s+(is|are|was|were)\b"
     r"|\b(capital|population|height|length|distance|diameter|temperature|"
     r"gdp|currency|language|timezone)\s+of\b"
-    r"|\bhow\s+do\s+you\s+say\b"
-    r"|\bconvert\b.*\bto\b",
+    r"|\bhow\s+do\s+you\s+say\b",
     re.I,
 )
 
@@ -185,17 +200,18 @@ def should_search(message: str) -> bool:
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
         return False
-    if _SELF_LOCAL.search(text):
-        # never web-search a question about this box or Gremlin himself
+    if _SELF_LOCAL.search(text) or _CREATIVE.search(text):
+        # never web-search a question about this box / Gremlin himself, or a
+        # creative/writing ask (hard veto -- even with a factual phrase in it)
         return False
     fl = bool(_FACTUAL_LOOKUP.search(text))
     decl = bool(_DECLARATIVE_LOOKUP.search(text))
     terse = _terse_lookup(text)
     strong = fl or decl or terse  # an explicit lookup phrase/shape, anywhere
-    # A greeting or an opinion/creative ask only vetoes when there is NO
+    # A greeting or an opinion/personal check-in only vetoes when there is NO
     # real lookup in the message (the screenshot bug: "thought" blocked a
     # genuine "how many people liked X" question).
-    if (_SMALLTALK.search(text) or _OPINION_CREATIVE.search(text)) and not strong:
+    if (_SMALLTALK.search(text) or _OPINION.search(text)) and not strong:
         return False
     # asking form: a question, OR any explicit lookup phrase -- including one
     # embedded mid-sentence like "...I wonder how many people liked X".
@@ -265,7 +281,11 @@ def search_query(message: str) -> str:
     a year -- so 'who plays tonight' becomes a dated, answerable query
     instead of a stale one the snippets can't satisfy."""
     q = (message or "").strip()
-    if _RELATIVE_TIME.search(q) and not re.search(r"\b(?:19|20)\d\d\b", q):
+    # only stamp TODAY's date onto present-tense relative queries; "yesterday"
+    # / "tomorrow" would get a contradictory date, and a query already naming a
+    # year carries its own anchor.
+    if (_RELATIVE_TIME.search(q) and not re.search(r"\b(?:19|20)\d\d\b", q)
+            and not re.search(r"\b(?:yesterday|tomorrow)\b", q, re.I)):
         d = datetime.date.today()
         q = f"{q} {d.strftime('%B')} {d.day} {d.year}"
     return q
@@ -304,8 +324,8 @@ def footer(sources: list[dict]) -> str:
 # comma-grouped numbers (1,000+) and runs of 4+ digits, since those carry a
 # specific claim worth confirming.
 _SIGFIG = re.compile(
-    r"\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:billion|million|thousand|bn|k))?"  # money
-    r"|\d[\d,]*(?:\.\d+)?\s?(?:%|percent|billion|million|thousand)"      # pct / magnitudes
+    r"\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:billion|million|thousand|bn|k)\b)?"  # money
+    r"|\d[\d,]*(?:\.\d+)?\s?(?:%|(?:percent|billion|million|thousand)\b)"  # pct / magnitudes
     r"|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b"                                 # comma-grouped (1,000+)
     r"|\b\d{4,}\b",                                                      # any 4+ digit run (incl. years)
     re.I,
@@ -321,10 +341,19 @@ def unverified_figures(answer: str, evidence: str) -> list[str]:
     not an accusation -- better to under-flag than nag on a real number."""
     if not answer or not evidence:
         return []
-    # The model is told today's date (date_note), so it may echo the current
-    # year even when no snippet contains it -- seed the evidence digits with it
-    # so that never reads as an unverified figure.
-    ev_blob = re.sub(r"[^\d]", "", evidence) + str(datetime.date.today().year)
+    # The DISTINCT figures the evidence actually states, by digit value -- an
+    # EXACT-value set, not a concatenated-digit blob. (The old blob+substring
+    # check wrongly "verified" a fabricated $20M because "20" is a substring of
+    # the year "2026" or of "202"/result indices.) The model is told today's
+    # date, so the current year is added as its own value (it may echo it even
+    # when no snippet contains it).
+    # every standalone number in the evidence, by digit value (not just the
+    # _SIGFIG-shaped ones) -- a snippet may write "599 USD" / "58M" / "88 out
+    # of 100" where the model formats it as "$599" / "88%", and that is still
+    # supported. Exact value match, so "20" is NOT confirmed by "2026".
+    ev_figs = {re.sub(r"[^\d]", "", t) for t in re.findall(r"\d[\d,]*(?:\.\d+)?", evidence)}
+    ev_figs.discard("")
+    ev_figs.add(str(datetime.date.today().year))
     out: list[str] = []
     seen: set[str] = set()
     for m in _SIGFIG.finditer(answer):
@@ -333,7 +362,7 @@ def unverified_figures(answer: str, evidence: str) -> list[str]:
         if not d or d in seen:
             continue
         seen.add(d)
-        if d in ev_blob:                               # digits appear in evidence
+        if d in ev_figs:                               # exact figure match
             continue
         out.append(token)
     return out

@@ -301,7 +301,6 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     except Exception:
         prof = ""
     context = "\n\n".join(p for p in (
-        autoresearch.date_note(),
         prof,
         _memory_block(root, message),
         _skills_block(root, message),
@@ -309,6 +308,11 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
+    # the current date is ambient, not prior-work context -- give it to the
+    # model but keep it OUT of /ctx so grounding's empty-context
+    # back-reference check stays accurate.
+    hist.append({"role": "user", "content": autoresearch.date_note()})
+    hist.append({"role": "assistant", "content": "Noted."})
     if context:
         hist.append({"role": "user", "content": context})
         hist.append({"role": "assistant", "content": "Understood -- I'll keep that in mind."})
