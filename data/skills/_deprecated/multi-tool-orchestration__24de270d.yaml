@@ -1,6 +1,6 @@
 id: skill_24de270d
 name: multi-tool-orchestration
-status: active
+status: deprecated
 destination: card
 council_reviewed: true
 purpose: Coordinate several tools in a controlled, checked sequence
@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 31
+  uses: 33
   wins: 15
-  losses: 14
+  losses: 16
   score_deltas:
   - 0.0
   - 0.4154
@@ -50,5 +50,7 @@ record:
   - -1.0
   - 0.0
   - 0.4154
-  last_used_battle: zoid_mb_buildalot-apk_1794199413
-  battles_available: 2
+  - -1.0
+  - 0.0
+  last_used_battle: zoid_mb_klondike-apk_1794201070
+  battles_available: 3
