@@ -182,15 +182,23 @@ def test_override_needs_an_argument(tmp_path):
     assert not r["ok"] and "Usage" in r["answer"]
 
 
-def test_override_answers_directly_with_the_persona_system_prompt(tmp_path):
+def test_override_uses_the_no_gate_system_prompt_not_the_persona(tmp_path):
     backend = _FakeOverrideBackend(text="here's the straight answer")
+    # even though the config persona is set, /override ignores it and uses its
+    # own dedicated no-gate prompt.
     ctx = CommandContext(registry=_OverrideRegistry(backend, system_prompt="talk like mickey"),
                          project_root=str(tmp_path), config_path=str(tmp_path / "models.yaml"))
     r = asyncio.run(dispatch("/override whats the fuck up homie", ctx))
     assert r["ok"] and r["action"] == "override"
     assert r["answer"] == "here's the straight answer"
     assert backend.calls[0]["prompt"] == "whats the fuck up homie"
-    assert backend.calls[0]["system"] == "talk like mickey"
+    sysp = backend.calls[0]["system"]
+    assert sysp == commands._OVERRIDE_SYSTEM
+    assert sysp != "talk like mickey"                 # not the gated persona
+    low = sysp.lower()
+    assert "gremlin" in low                           # keeps identity
+    assert "no content filtering" in low or "no-filter" in low or "no refusals" in low
+    assert "moraliz" in low                           # explicitly drops moralizing
 
 
 def test_override_reports_missing_model(tmp_path):
