@@ -105,12 +105,15 @@ _ACTION_HINT = re.compile(
         stuck|hung|hanging|
         your\s+(own\s+)?(code|source|repo|config|self)|yourself|
         search|google|look\s*up|latest|news|current\s+(price|events|version)|
-        what.s\s+(happening|going\s+on|new)|read\s+(this|that)\s+(page|link|url|article)
+        what.s\s+(happening|going\s+on|new)|read\s+(this|that)\s+(page|link|url|article)|
+        inspect|reverse\s*engineer|decompile|disassemble|take\s+apart|
+        is\s+(this|that|it)\s+(safe|sketchy|malicious|legit)|what\s+does\s+(this|that|it)\s+(do|app|apk|file|binary|site|page)
       )\b
-    | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|go|rs|c|cpp|h)\b
+    | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|go|rs|c|cpp|h|apk|so|elf|bin|exe|jar|html?)\b
     | https?://\S+
     | \b(pacman|systemd|systemctl|docker|compose|cron|udev|grub)\b
     | \bpackages?\b | \bservices?\b | \bcontainers?\b
+    | \bapks?\b | \b(sketchy|malware|malicious|spyware|safe\s+to\s+(install|run))\b
     """,
     re.IGNORECASE | re.VERBOSE,
 )
