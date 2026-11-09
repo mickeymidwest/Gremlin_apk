@@ -538,7 +538,7 @@ def create_app(
             notes_mod.remember_fact(str(project_root), last)
             return jsonify(_chat_reply(f"Got it — I'll remember that: {last}"))
 
-        action_result = _handle_possible_action(message)
+        action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
         if action_result is not None:
             action_result["synced_count"] = synced_count
             # A tool action (web_search, run_command, ...) is a real
@@ -613,7 +613,7 @@ def create_app(
             out["receipt"] = receipt
         return out
 
-    def _handle_possible_action(message: str) -> Optional[dict]:
+    def _handle_possible_action(message: str, history: str = "") -> Optional[dict]:
         """Returns a response dict if this message was (or completed) an
         action, or None to let it be handled as ordinary conversation.
 
@@ -633,7 +633,7 @@ def create_app(
                     result = run_coro(
                         loop,
                         _in_phase(agent_state.AgentState.TOOL_EXECUTION,
-                                  actions.execute(pending, router, registry, str(project_root))),
+                                  actions.execute(pending, router, registry, str(project_root), history=history)),
                         timeout=900.0,
                     )
                 except job_control.JobAborted:
@@ -714,7 +714,7 @@ def create_app(
                 result = run_coro(
                     loop,
                     _in_phase(agent_state.AgentState.TOOL_EXECUTION,
-                              actions.execute(prepared, router, registry, str(project_root))),
+                              actions.execute(prepared, router, registry, str(project_root), history=history)),
                     timeout=900.0,
                 )
             except job_control.JobAborted:
@@ -794,7 +794,7 @@ def create_app(
             return Response(_sse({"type": "done", **done}),
                             mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        action_result = _handle_possible_action(message)
+        action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
         if action_result is not None:
             conversation_history.record(conv_key, message, action_result.get("answer", ""))
             action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)

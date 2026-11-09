@@ -443,7 +443,7 @@ async def answer_stream(primary, message: str, root: str,
     web_sources, web_ev = None, ""
     if not looked:
         try:
-            web_sources, web_ev = await autoresearch.gather(message)
+            web_sources, web_ev = await autoresearch.gather(message, history=history)
         except Exception:
             web_sources, web_ev = None, ""
     prompt, hist, ctx = _build_prompt(message, root, history, evidence, web_evidence=web_ev)
@@ -538,7 +538,7 @@ async def answer(primary, message: str, root: str,
     web_sources, web_ev = None, ""
     if not looked:
         try:
-            web_sources, web_ev = await autoresearch.gather(message)
+            web_sources, web_ev = await autoresearch.gather(message, history=history)
         except Exception:
             web_sources, web_ev = None, ""
     prompt, hist, ctx = _build_prompt(message, root, history, evidence, web_evidence=web_ev)

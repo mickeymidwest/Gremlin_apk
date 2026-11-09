@@ -32,6 +32,7 @@ async def execute(
     router: Router,
     registry: ModelRegistry,
     project_root: str,
+    history: str = "",
 ) -> dict[str, Any]:
     """Run an already-confirmed intent.
 
@@ -42,7 +43,7 @@ async def execute(
     tool = tools.REGISTRY.get(intent.action)
     if tool is None:
         return {"answer": "", "action": "chat", "ok": True}
-    ctx = tools.ExecContext(router=router, registry=registry, project_root=project_root)
+    ctx = tools.ExecContext(router=router, registry=registry, project_root=project_root, history=history)
     result = await tool.handler(intent.args or {}, ctx)
     # Roadmap #105: this is the one place every classified/confirmed
     # action actually runs, chat-triggered or otherwise -- self_edit and

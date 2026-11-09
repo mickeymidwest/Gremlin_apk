@@ -291,6 +291,69 @@ def search_query(message: str) -> str:
     return q
 
 
+# A follow-up that dropped its subject ("who are they playing", "how much did
+# IT make") needs the prior turn's topic attached, or the search goes off the
+# rails (the "who are the playing" -> movie theatres screenshot).
+# A pronoun anywhere means the message leans on the prior turn.
+_ANAPHORIC = re.compile(
+    r"\b(it|its|they|them|their|that|those|these|he|she|him|her|one|ones)\b"
+    r"|\bthe\s+(movie|film|game|show|team|player|book|song|album|episode|"
+    r"season|match|fight|company|stock)\b",
+    re.I,
+)
+# Question words, stopwords, common verbs, and GENERIC context-dependent
+# nouns. If nothing survives removing these from a message, it has no subject
+# of its own ("who are the playing", "whats the score") and needs the prior
+# topic; "how tall is mount everest" keeps "everest" and is left alone.
+_SUBJECTLESS = {
+    "who", "what", "when", "where", "which", "why", "how", "whats", "hows", "whos",
+    "is", "are", "was", "were", "the", "a", "an", "do", "does", "did", "done",
+    "to", "of", "in", "on", "for", "and", "or", "it", "its", "they", "them",
+    "that", "this", "these", "those", "he", "she", "his", "her", "about", "with",
+    "at", "by", "so", "you", "your", "i", "me", "my", "we", "us", "there", "here",
+    "get", "got", "make", "made", "making", "go", "going", "play", "playing",
+    "played", "win", "won", "winning", "cost", "costs", "much", "many", "yet",
+    # generic context-dependent nouns
+    "score", "scores", "price", "prices", "rating", "ratings", "result", "results",
+    "time", "winner", "game", "games", "matchup", "lineup", "odds", "deal", "deals",
+    "one", "ones", "thing", "things", "now", "today", "tonight", "still",
+}
+
+
+def _content_tokens(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9]+", (text or "").lower())
+            if len(w) >= 3 and w not in _SUBJECTLESS]
+
+
+def _needs_context(message: str) -> bool:
+    """The message has no subject of its own (nothing but question words /
+    verbs / generic nouns), or leans on the prior turn via a pronoun."""
+    return not _content_tokens(message) or bool(_ANAPHORIC.search(message))
+
+
+def _last_user_topic(history: str) -> str:
+    """The subject words from the most recent prior USER turn."""
+    users = [l[len("User:"):].strip() for l in (history or "").splitlines()
+             if l.startswith("User:")]
+    for line in reversed(users):
+        toks = _content_tokens(line)
+        if toks:
+            return " ".join(toks[:8])
+    return ""
+
+
+def contextual_query(message: str, history: str = "") -> str:
+    """search_query(), but a follow-up that dropped its subject gets the prior
+    turn's topic prepended first -- so 'who are they playing' after 'the maple
+    leafs game tonight' searches the leafs, not whatever the bare words match."""
+    m = (message or "").strip()
+    if history and _needs_context(m):
+        topic = _last_user_topic(history)
+        if topic and topic.lower() not in m.lower():
+            m = f"{topic} {m}"
+    return search_query(m)
+
+
 # Second step of the in-chat tool chain (search -> read): when the snippets
 # are unlikely to carry the specific answer, actually fetch and read the top
 # result's page. This is what stops Gremlin giving up after a search when the
@@ -332,7 +395,7 @@ async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500) -> str:
     return ""
 
 
-async def gather(message: str, *, limit: int = 3):
+async def gather(message: str, *, limit: int = 3, history: str = ""):
     """If `message` warrants it, run a live web search and return
     (sources, evidence_text); otherwise (None, ""). Never raises --
     web_search already degrades to [] on any failure, and we treat an
@@ -346,7 +409,7 @@ async def gather(message: str, *, limit: int = 3):
     if not should_search(message):
         return None, ""
     try:
-        results = await asyncio.to_thread(web_search.search, search_query(message), limit)
+        results = await asyncio.to_thread(web_search.search, contextual_query(message, history), limit)
     except Exception:
         results = []
     if not results:

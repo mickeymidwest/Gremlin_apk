@@ -45,6 +45,7 @@ class ExecContext:
     router: Router
     registry: ModelRegistry
     project_root: str
+    history: str = ""   # rendered recent conversation, for tools that need context (web_search)
 
 
 @dataclass
@@ -251,12 +252,16 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     query = str(args.get("query") or "").strip()
     if not query:
         return {"answer": "What do you want me to search for?", "action": "web_search", "ok": False}
-    results = await asyncio.to_thread(web_search.search, autoresearch.search_query(query), 5)
+    # resolve a follow-up's dropped subject from conversation history, and use
+    # that resolved query for the search AND the evidence label so the model
+    # summarising the snippets knows what the search was actually about.
+    cq = autoresearch.contextual_query(query, getattr(ctx, "history", ""))
+    results = await asyncio.to_thread(web_search.search, cq, 5)
     if not results:
         return {"answer": f'No results for "{query}" -- either nothing came back or the '
                  f"desktop's internet is down.", "action": "web_search", "ok": False}
     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
-    evidence = autoresearch._evidence_block(query, results)
+    evidence = autoresearch._evidence_block(cq, results)
     # search -> read: pull the top page when the snippets won't carry the answer
     if autoresearch._should_fetch(query, results):
         evidence += await autoresearch._fetch_top_page(results)
