@@ -589,11 +589,29 @@ def create_app(
             conversation_history.record(conv_key, message, result.get("answer", ""),
                                         prompt_tokens=turn_usage.get("prompt_tokens", 0),
                                         completion_tokens=turn_usage.get("completion_tokens", 0))
+        _maybe_compact(conv_key)
         result["synced_count"] = synced_count
         # Cumulative usage for the WHOLE conversation, not just this turn --
         # "like Claude Code" means a running total, not a per-message stat.
         result["conversation_usage"] = conversation_history.usage_totals(conv_key)
         return jsonify(result)
+
+    async def _summarize(_prompt: str) -> str:
+        try:
+            r = await registry.get("gremlin").generate(_prompt, max_tokens=400, temperature=0.2)
+            return getattr(r, "text", "") if getattr(r, "ok", True) else ""
+        except Exception:
+            return ""
+
+    def _maybe_compact(ck: str) -> None:
+        # long thread -> fold older turns into a running summary in the
+        # background (never blocks the reply; runs when the model is free).
+        try:
+            if len(conversation_history._load(ck)) >= conversation_history._max_turns:
+                asyncio.run_coroutine_threadsafe(
+                    conversation_history.compact(ck, _summarize), loop)
+        except Exception:
+            pass
 
     def _chat_reply(answer: str, action: str = "chat", ok: bool = True,
                     receipt: Optional[dict] = None) -> dict:
@@ -837,6 +855,7 @@ def create_app(
                                     conv_key, message, final.get("answer", ""),
                                     prompt_tokens=turn_usage.get("prompt_tokens", 0),
                                     completion_tokens=turn_usage.get("completion_tokens", 0))
+                            _maybe_compact(conv_key)
                             final["conversation_usage"] = conversation_history.usage_totals(conv_key)
                         try:
                             bridge.put_nowait((kind, payload))

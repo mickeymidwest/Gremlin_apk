@@ -257,9 +257,8 @@ class ConversationHistory:
         continuing, not as instructions or the current question. Trimmed
         from the OLD end to the char cap -- the most recent turns matter
         most and must survive."""
+        summary, _ = self._load_summary(key)
         dq = self._fresh(self._load(key))
-        if not dq:
-            return ""
 
         blocks: list[str] = []
         total = 0
@@ -271,15 +270,115 @@ class ConversationHistory:
             total += len(block)
         blocks.reverse()
 
-        return (
-            "Earlier in THIS ongoing conversation (most recent last -- "
-            "you are continuing it, not starting over):\n" + "\n\n".join(blocks)
-        )
+        parts: list[str] = []
+        if summary:
+            parts.append("Condensed summary of EARLIER in this same conversation "
+                         "(older messages, so you don't lose the thread): " + summary)
+        if blocks:
+            parts.append("Earlier in THIS ongoing conversation (most recent last -- "
+                         "you are continuing it, not starting over):\n" + "\n\n".join(blocks))
+        return "\n\n".join(parts)
 
     def clear(self, key: str) -> None:
-        """Wipe this conversation -- memory and the file both."""
+        """Wipe this conversation -- memory, the file, and the summary."""
         self._cache.pop(key, None)
+        for p in (self._path(key), self._summary_path(key)):
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+    # ---- long-thread compaction (summarise the aged-out older turns) -------
+
+    def _summary_path(self, key: str) -> Path:
+        return self._dir / f"{_key_id(key)}.summary.json"
+
+    def _load_summary(self, key: str) -> tuple[str, int]:
+        """(summary text, how many turns from the start are already summarised)."""
+        p = self._summary_path(key)
+        if not p.exists():
+            return "", 0
         try:
-            self._path(key).unlink()
+            d = json.loads(p.read_text(encoding="utf-8"))
+            return str(d.get("summary", "")), int(d.get("summarized_turns", 0))
+        except (OSError, ValueError):
+            return "", 0
+
+    def _save_summary(self, key: str, summary: str, count: int) -> None:
+        try:
+            self._dir.mkdir(parents=True, exist_ok=True)
+            self._summary_path(key).write_text(
+                json.dumps({"summary": summary, "summarized_turns": count}), encoding="utf-8")
         except OSError:
             pass
+
+    def _all_turns(self, key: str) -> list[Turn]:
+        """Every turn on disk (not just the in-memory tail) -- needed to
+        summarise the older turns that have already scrolled off."""
+        out: list[Turn] = []
+        path = self._path(key)
+        if not path.exists():
+            return out
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                out.append(Turn(user=d.get("user", ""), assistant=d.get("assistant", ""),
+                                at=d.get("at", 0.0)))
+        except OSError:
+            pass
+        return out
+
+    async def compact(self, key: str, summarize, *, keep_recent: int = 14,
+                      min_new: int = 6) -> bool:
+        """Fold the older turns (everything except the most recent
+        `keep_recent`) into a running summary, so a long thread keeps its
+        gist instead of silently losing it off the front. Incremental: only
+        turns not already summarised are sent, and only once at least
+        `min_new` of them have accumulated. `summarize` is an async
+        callable(prompt)->str. Best-effort: returns True if it updated the
+        summary, False (and never raises) otherwise."""
+        turns = self._all_turns(key)
+        summary, done = self._load_summary(key)
+        target = len(turns) - keep_recent
+        if target - done < min_new:
+            return False
+        # Process at most one render-budget's worth of older turns per call, so
+        # a pre-existing huge thread (done==0, hundreds of turns) doesn't stuff
+        # everything into one prompt and overflow n_ctx -- it catches up over
+        # several turns instead.
+        batch: list[Turn] = []
+        chars = 0
+        for t in turns[done:target]:
+            block = f"User: {t.user}\nGremlin: {t.assistant}"
+            if batch and chars + len(block) > self._max_render_chars:
+                break
+            batch.append(t)
+            chars += len(block)
+        if not batch:
+            return False
+        step = done + len(batch)
+        convo = "\n".join(f"User: {t.user}\nGremlin: {t.assistant}" for t in batch)
+        prompt = (
+            (f"Running summary of this conversation so far:\n{summary}\n\n" if summary else "")
+            + "More earlier messages from the SAME conversation:\n" + convo
+            + "\n\nUpdate the running summary into one concise paragraph (<= 1200 characters) that "
+              "keeps the people, facts, decisions, preferences, and any open threads, so the rest "
+              "of the conversation stays coherent. Write ONLY the summary paragraph, nothing else.")
+        try:
+            text = (await summarize(prompt) or "").strip()
+        except Exception:
+            return False
+        if not text:
+            return False
+        # the conversation may have been cleared while we awaited the model --
+        # don't resurrect a summary onto a wiped thread.
+        if len(self._all_turns(key)) < step:
+            return False
+        self._save_summary(key, text[:1500], step)
+        return True
