@@ -1,0 +1,23 @@
+id: s1_android_sideload_overlay
+name: android-sideload-overlay
+status: active
+destination: card
+council_reviewed: true
+purpose: a sideloaded app that can draw overlays or install packages can phish taps and push more malware
+trigger_when: a sideloaded app, install-unknown-apps, screen overlays, or an app asking to install others
+trigger_matcher: sideload|unknown source|install unknown|overlay|SYSTEM_ALERT_WINDOW|REQUEST_INSTALL|draw
+  over|tapjack
+procedure:
+- run the phone Check (phone_guard) -- it rates apps by store vs sideload and flags overlay / install-packages
+  / all-files access
+- inspect a suspect APK with the `inspect` tool first (permissions, the URLs/IPs it reaches) before installing
+- turn off install-unknown-apps for any app that doesn't need it; remove sideloads you can't account for
+supersedes: null
+provenance:
+- seed-security-S1
+created: 1794262452.1125803
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []

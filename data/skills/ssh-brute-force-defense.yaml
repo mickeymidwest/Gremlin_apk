@@ -1,0 +1,23 @@
+id: s1_ssh_brute_force_defense
+name: ssh-brute-force-defense
+status: active
+destination: card
+council_reviewed: true
+purpose: a box with SSH on a public/LAN port gets password-guessed; keys-only makes it pointless
+trigger_when: SSH exposure, failed logins, brute force, or hardening the desktop's remote access
+trigger_matcher: \bsshd?\b|brute[- ]?force|failed login|password auth|port 22|remote login
+procedure:
+- run `gremlin guard` -- it reports failed SSH logins in the last 24h and whether sshd allows password/root
+  login
+- if PasswordAuthentication isn't `no` or PermitRootLogin isn't `no`, propose setting them (keys only)
+  in a sshd_config.d drop-in
+- confirm the firewall limits port 22 to the LAN + Tailscale (gremlin-firewall), not every interface
+supersedes: null
+provenance:
+- seed-security-S1
+created: 1794262452.1125803
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []

@@ -1,0 +1,23 @@
+id: s1_rogue_persistence_units
+name: rogue-persistence-units
+status: active
+destination: card
+council_reviewed: true
+purpose: malware persists via a new systemd unit, cron job, or enabled service; a baseline diff catches
+  it
+trigger_when: persistence, a new/unknown service or scheduled job, autostart, or 'what changed on the
+  box'
+trigger_matcher: persistence|systemd unit|cron|crontab|timer|autostart|enabled service|startup|rc\.local
+procedure:
+- run `gremlin guard` -- it diffs enabled units and cron entries against the accepted baseline
+- for any NEW unit/job, check you added it on purpose; read its ExecStart / command before trusting it
+- if it's unknown, disable it and investigate before `gremlin guard accept` re-baselines
+supersedes: null
+provenance:
+- seed-security-S1
+created: 1794262452.1125803
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []

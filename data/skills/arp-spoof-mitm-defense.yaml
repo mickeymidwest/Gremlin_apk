@@ -1,0 +1,26 @@
+id: s1_arp_spoof_mitm_defense
+name: arp-spoof-mitm-defense
+status: active
+destination: card
+council_reviewed: true
+purpose: on a shared LAN an attacker can ARP-spoof to sit between you and the gateway (MITM); a MAC that
+  changes or answers for many IPs is the tell
+trigger_when: MITM, ARP spoofing, someone sniffing the LAN, a new device on the network, or untrusted
+  wifi
+trigger_matcher: \barp\b|mitm|man[- ]in[- ]the[- ]middle|spoof|sniff|\blan\b.*(attack|device)|rogue (device|ap)|evil
+  twin
+procedure:
+- run `gremlin guard` -- the S6 network watch flags a new LAN device, an IP whose MAC changed, or one
+  MAC answering for several IPs
+- a changed/duplicated MAC for the gateway IP is the classic ARP-spoof signal -- treat that network as
+  hostile
+- prefer Tailscale/HTTPS end-to-end so a MITM sees only ciphertext; avoid plain HTTP on untrusted wifi
+supersedes: null
+provenance:
+- seed-security-S1
+created: 1794262452.1125803
+record:
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
