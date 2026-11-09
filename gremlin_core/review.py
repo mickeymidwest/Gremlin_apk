@@ -133,8 +133,20 @@ async def _review_once(
     verdict = _parse_verdict(result.text)
     if verdict is None:
         # Couldn't parse a clean verdict -- fail closed rather than guess.
-        lowered = result.text.lower()
-        if "approve" in lowered and "request_changes" not in lowered and "request changes" not in lowered:
+        # The word "approve" alone is NOT enough: a prose disapproval
+        # ("I can't approve this, it weakens a safety check") contains it,
+        # so any negation/rejection signal forces not-approved. This is the
+        # self-edit gate -- a false reject just costs another round, a false
+        # approve could let a bad patch through, so we lean hard to reject.
+        # normalise apostrophes away (straight, curly, or dropped) so "can't
+        # approve" / "can’t approve" / "cant approve" all read as rejections.
+        flat = re.sub(r"['‘’]", "", result.text.lower())
+        rejected = any(w in flat for w in (
+            "request_changes", "request changes", "not approve", "nt approve",
+            "cannot approve", "do not approve", "would not approve", "wont approve",
+            "reject", "disapprove", "changes requested", "not safe to apply",
+            "should not be applied"))
+        if "approve" in flat and not rejected:
             return ReviewRound(reviewer=reviewer, approved=True, feedback="")
         return ReviewRound(reviewer=reviewer, approved=False,
                             feedback=f"reviewer response wasn't clear, treating as not approved: {result.text}")
