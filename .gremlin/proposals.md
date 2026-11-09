@@ -177,3 +177,17 @@ Kept from the Gemini list for the record. Mickey confirmed: own devices (e.g. hi
 | X2 | IP/identity rotation to dodge blacklists while scraping | §7 excludes detection-evasion / slipping past defenders | REJECTED |
 | X3 | eBPF traffic sniffing as a standing autonomous skill | §7 in-scope watching = own logs; fine interactively, not baked-in | REJECTED |
 | X4 | Auto reverse-SSH/ngrok tunnel opening the firewall | Not offense, but make it interactive + explicit-confirm like `/claude`, not autonomous | PENDING |
+
+
+## Future — protect test files in pybug battles (queued 2026-11-09)
+A Nov-7 attempt set `protect_glob="test_*.py,*_test.py"` on `_pybug` so the
+model can't edit the pinned tests to fake a pass. Gemini BLOCKED it (commit
+5f14886): `protect_glob` is overloaded -- `battle.py` treats ANY truthy
+`protect_glob` as "C fuzz-harness, no pytest", so it silently disabled
+`_auto_check` + the tunnel-vision guard and forced whole-file-rewrite DONE
+prompts; and `_restore_protected()` splits the glob on "/" not ",", so it
+never actually restored the tests. Removed for now. The INTENT is valid.
+Proper design (future): a separate `readonly_glob`/`no_edit_paths` concept
+distinct from the C-task `protect_glob`, that (a) still runs pytest auto-check
+and the tunnel guard, (b) keeps edit_file as the default, and (c) restores
+each comma-split glob before scoring. | PENDING

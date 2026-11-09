@@ -144,7 +144,7 @@ def targets() -> list[dict]:
 
     def _pybug(path, tid, mod):
         return dict(name=path.name.replace("_", "-"), repo=path, verifier=PytestVerifier(),
-            step_budget=16, max_tokens=2560, time_budget=900, protect_glob="test_*.py,*_test.py",
+            step_budget=16, max_tokens=2560, time_budget=900,
             task=Task(id=tid, prompt=(
                 f"{mod}.py has bugs -- each failing test in test_{mod}.py pins one down. "
                 f"Read {mod}.py and test_{mod}.py, fix the function/method BODIES only "
