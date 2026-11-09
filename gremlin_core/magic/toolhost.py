@@ -575,24 +575,116 @@ class ShellToolHost:
         # the query, so repo_map is still useful for Kotlin/JS/Go/etc.
         return self._nonpython_map(query)
 
-    _SRC_EXT = (".kt", ".kts", ".java", ".js", ".ts", ".tsx", ".go", ".rs",
+    # Regex symbol extractors for non-Python source (HARNESS-SURVEY #11).
+    # Conservative line-anchored patterns -- a map, not a compiler: better to
+    # miss an oddly-formatted decl than to print garbage. The capturing group
+    # that holds the name differs per pattern (see each finditer below).
+    _SYM_KTJAVA = re.compile(
+        r"""(?m)^[ \t]*(?:@[\w.]+[ \t]*)*"""
+        r"""(?:(?:public|private|protected|internal|open|abstract|sealed|final|"""
+        r"""data|companion|override|suspend|inline|external|static)[ \t]+)*"""
+        r"""(class|object|interface|enum[ \t]+class|enum)[ \t]+([A-Za-z_]\w*)""")
+    _SYM_KT_FUN = re.compile(
+        r"""(?m)^[ \t]*(?:@[\w.]+[ \t]*)*"""
+        r"""(?:(?:public|private|protected|internal|open|override|suspend|inline"""
+        r"""|operator|tailrec|external)[ \t]+)*"""
+        r"""fun[ \t]+(?:<[^>\n]+>[ \t]*)?(?:[\w.]+\.)?([A-Za-z_]\w*)[ \t]*\(""")
+    _SYM_JAVA_METH = re.compile(
+        r"""(?m)^[ \t]*(?:@[\w.]+[ \t]*)*"""
+        r"""(?:(?:public|private|protected|static|final|synchronized|abstract)[ \t]+)+"""
+        r"""[\w<>\[\],. ]+?[ \t]+([A-Za-z_]\w*)[ \t]*\([^;{)]*\)[ \t]*(?:throws[^{;]+)?\{""")
+    _SYM_JS = re.compile(
+        r"""(?m)^[ \t]*(?:export[ \t]+)?(?:default[ \t]+)?"""
+        r"""(?:async[ \t]+)?(?:function\*?[ \t]+([A-Za-z_$][\w$]*)"""
+        r"""|class[ \t]+([A-Za-z_$][\w$]*)"""
+        r"""|(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*=[ \t]*(?:async[ \t]+)?(?:\([^)]*\)|[\w$]+)[ \t]*=>)""")
+    _SYM_GO = re.compile(
+        r"""(?m)^[ \t]*(?:func[ \t]+(?:\([^)]*\)[ \t]*)?([A-Za-z_]\w*)[ \t]*\("""
+        r"""|type[ \t]+([A-Za-z_]\w*)[ \t]+(?:struct|interface)\b)""")
+    _SYM_RUST = re.compile(
+        r"""(?m)^[ \t]*(?:pub[ \t]+)?(?:async[ \t]+)?"""
+        r"""(?:fn[ \t]+([A-Za-z_]\w*)|struct[ \t]+([A-Za-z_]\w*)"""
+        r"""|enum[ \t]+([A-Za-z_]\w*)|trait[ \t]+([A-Za-z_]\w*))""")
+
+    @classmethod
+    def _source_symbols(cls, text: str, suffix: str) -> list[str]:
+        """Up to ~24 top declarations from a source file, in file order, as
+        short label strings like 'class Foo' / 'fun bar('. Empty if the
+        language isn't one we extract."""
+        out: list[str] = []
+        seen: set[str] = set()
+
+        def add(label: str):
+            if label not in seen:
+                seen.add(label)
+                out.append(label)
+
+        if suffix in (".kt", ".kts", ".java"):
+            pos = {}
+            for m in cls._SYM_KTJAVA.finditer(text):
+                kind = re.sub(r"\s+", " ", m.group(1))
+                pos.setdefault(m.start(), f"{kind} {m.group(2)}")
+            for m in cls._SYM_KT_FUN.finditer(text):
+                pos.setdefault(m.start(), f"fun {m.group(1)}(")
+            if suffix == ".java":
+                for m in cls._SYM_JAVA_METH.finditer(text):
+                    pos.setdefault(m.start(), f"{m.group(1)}(")
+            for _, label in sorted(pos.items()):
+                add(label)
+        elif suffix in (".js", ".ts", ".tsx", ".jsx", ".mjs"):
+            for m in cls._SYM_JS.finditer(text):
+                name = m.group(1) or m.group(2) or m.group(3)
+                if name:
+                    add(("class " if m.group(2) else "function ") + name)
+        elif suffix == ".go":
+            for m in cls._SYM_GO.finditer(text):
+                if m.group(1):
+                    add(f"func {m.group(1)}(")
+                elif m.group(2):
+                    add(f"type {m.group(2)}")
+        elif suffix in (".rs",):
+            for m in cls._SYM_RUST.finditer(text):
+                for kind, g in (("fn", 1), ("struct", 2), ("enum", 3), ("trait", 4)):
+                    if m.group(g):
+                        add(f"{kind} {m.group(g)}" + ("(" if kind == "fn" else ""))
+        return out[:24]
+
+    _SRC_EXT = (".kt", ".kts", ".java", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".go", ".rs",
                 ".c", ".h", ".cc", ".cpp", ".hpp", ".swift", ".rb", ".sh", ".gradle")
 
     def _nonpython_map(self, query: str) -> ToolResult:
-        files = []
+        qwords = set(re.findall(r"[a-z_]{3,}", query.lower()))
+        blocks: list[tuple[int, str]] = []   # (score, text)
+        files: list[tuple[str, int]] = []
         for p in sorted(self.root.rglob("*")):
             rel = p.relative_to(self.root)
             if any(part in self._SKIP_MAP_DIRS for part in rel.parts):
                 continue
-            if p.is_file() and (p.suffix in self._SRC_EXT or p.name in (
+            if not (p.is_file() and (p.suffix in self._SRC_EXT or p.name in (
                     "settings.gradle.kts", "build.gradle.kts", "AndroidManifest.xml",
-                    "package.json", "Cargo.toml", "go.mod")):
-                try:
-                    n = sum(1 for _ in p.open("rb"))
-                except OSError:
-                    n = 0
-                files.append((str(rel), n))
-        out = ["source files:"]
+                    "package.json", "Cargo.toml", "go.mod"))):
+                continue
+            try:
+                raw = p.read_bytes()
+            except OSError:
+                continue
+            n = len(raw.splitlines())
+            files.append((str(rel), n))
+            syms = self._source_symbols(
+                raw[:200_000].decode("utf-8", "replace"), p.suffix)
+            if not syms:
+                continue
+            text = "\n".join([str(rel)] + [f"    {x}" for x in syms])
+            hay = set(re.findall(r"[a-z_]{3,}", text.lower()))
+            score = len(qwords & hay) if qwords else 0
+            blocks.append((score, text))
+        out: list[str] = []
+        if blocks:
+            blocks.sort(key=lambda b: -b[0])
+            out.append("symbols (ranked toward your query):")
+            out += [t for _, t in blocks[:40]]
+            out.append("")
+        out.append("source files:")
         out += [f"  {r}  ({n} lines)" for r, n in files[:60]]
         if query:
             try:
