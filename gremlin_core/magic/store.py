@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -157,6 +158,8 @@ class Store:
     # strip a leading "- ", any number of "[tag]" prefixes (timestamp,
     # [user], [learned]...), and a trailing "<!--id-->"
     _FACT_RE = re.compile(r"^\s*-\s*(?:\[[^\]]*\]\s*)*(.*?)\s*(?:<!--\s*(\S+)\s*-->)?\s*$")
+    # the first bracketed [YYYY-MM-DD HH:MM] prefix is the save time
+    _TS_RE = re.compile(r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]")
 
     def _memory_path(self) -> Path:
         from ..notes import memory_file_path
@@ -176,7 +179,17 @@ class Store:
             if not text:
                 continue
             fid = (m.group(2) if m and m.group(2) else "fact_" + _hashid(text))
-            out.append(Fact(id=fid, text=text))
+            created = None
+            # only the LEADING bracketed tags, never a [date] inside the body
+            prefix = s[:m.start(1)] if m else ""
+            mt = self._TS_RE.search(prefix)
+            if mt:
+                try:
+                    created = time.mktime(time.strptime(mt.group(1), "%Y-%m-%d %H:%M"))
+                except (ValueError, OverflowError):
+                    created = None
+            out.append(Fact(id=fid, text=text, created=created) if created is not None
+                       else Fact(id=fid, text=text))
         return out
 
     def write_facts(self, facts: list[Fact]) -> None:

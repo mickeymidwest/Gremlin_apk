@@ -39,7 +39,8 @@ def _memory_block(root: str, message: str = "") -> str:
         # a corrupt / unreadable memory file must never take down chat
         return ""
     # read_facts is oldest-first; memory_select keeps that convention
-    return memory_select.block([f.text for f in facts], message, max_chars=2500)
+    return memory_select.block([f.text for f in facts], message, max_chars=2500,
+                               created=[f.created for f in facts])
 
 
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,

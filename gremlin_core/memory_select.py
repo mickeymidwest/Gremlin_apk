@@ -14,6 +14,7 @@ never evict the others. Falls back to newest-first for a greeting.
 from __future__ import annotations
 
 import re
+import time
 
 from . import embed
 
@@ -88,9 +89,21 @@ def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int
     return [facts[i] for i in sorted(chosen_idx)]
 
 
-def block(fact_texts: list[str], message: str, **kw) -> str:
+def block(fact_texts: list[str], message: str, *,
+          created: "list[float] | None" = None, stale_days: int = 120, **kw) -> str:
     chosen = select(fact_texts, message, **kw)
     if not chosen:
         return ""
+    if created:
+        # tag a chosen fact that is older than stale_days so the model
+        # doesn't state a months-old fact as if it were current.
+        when = {fact_texts[i]: created[i] for i in range(min(len(fact_texts), len(created)))
+                if created[i]}
+        now = time.time()
+        cutoff = stale_days * 86400
+        chosen = [
+            (f"{t}  (noted {time.strftime('%b %Y', time.localtime(when[t]))} -- may be out of date)"
+             if when.get(t) and (now - when[t]) > cutoff else t)
+            for t in chosen]
     return ("Things you (Gremlin) know about the user and this setup, kept "
             "across sessions:\n" + "\n".join(f"- {c}" for c in chosen))
