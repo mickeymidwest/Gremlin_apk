@@ -23,6 +23,7 @@ import os
 import subprocess
 import time
 import re
+from pathlib import Path
 from typing import Optional, Sequence
 
 from ._jsonx import extract_json
@@ -468,6 +469,44 @@ def _condense_messages(messages: list[dict], *, budget: int = _CONDENSE_CTX_CHAR
     return [head, {"role": "user", "content": note}, *tail], len(middle)
 
 
+# --- mid-battle checkpoint / resume (proposal O4) ----------------------
+#
+# Opt-in state persistence: with checkpoint=True, run_battle saves its running
+# messages + counters under <repo>/.gremlin/battle_ckpt/<task>.json each step,
+# resumes from that file if it is present at start, and clears it on any exit.
+# All I/O is best-effort (never raises), so turning it on can't break a battle.
+# The code changes themselves already persist via the per-step git snapshots.
+
+def _ckpt_path(repo: str, task_id: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", task_id or "task")[:80]
+    return Path(repo) / ".gremlin" / "battle_ckpt" / f"{safe}.json"
+
+
+def save_checkpoint(repo: str, task_id: str, state: dict) -> None:
+    try:
+        p = _ckpt_path(repo, task_id)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(state))
+    except Exception:
+        pass
+
+
+def load_checkpoint(repo: str, task_id: str):
+    try:
+        return json.loads(_ckpt_path(repo, task_id).read_text())
+    except Exception:
+        return None
+
+
+def clear_checkpoint(repo: str, task_id: str) -> None:
+    try:
+        _ckpt_path(repo, task_id).unlink()
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
@@ -475,7 +514,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
                readonly: bool = False, time_budget_s: float = 600.0,
                on_done=None, lessons: Sequence[str] = (), autocommit: bool = True,
                protect_glob: str | None = None,
-               grammar_constrained: bool = True) -> Transcript:
+               grammar_constrained: bool = True,
+               checkpoint: bool = False) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
@@ -519,6 +559,15 @@ def run_battle(task: Task, repo_path: str, model: Model,
     _file_edits: dict[str, int] = {}   # path -> consecutive edits with no pass-count gain
     _best_pass = -1                    # highest pytest pass count seen so far
     _start = time.monotonic()
+    if checkpoint:
+        _ck = load_checkpoint(repo_path, task.id)
+        if _ck and _ck.get("messages"):
+            messages = _ck["messages"]
+            _step_n = _ck.get("step_n", _step_n)
+            _best_pass = _ck.get("best_pass", _best_pass)
+            _edits_made = _ck.get("edits_made", _edits_made)
+            transcript.steps.append(StepRecord(
+                kind="note", content="resumed from a saved checkpoint (O4)"))
     for _ in range(step_budget):
         if time.monotonic() - _start > time_budget_s:
             transcript.final_message = "(gave up: time budget exhausted)"
@@ -530,6 +579,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
             transcript.steps.append(StepRecord(
                 kind="note",
                 content=f"harness: folded {_folded} older turns to stay within context"))
+        if checkpoint:
+            save_checkpoint(repo_path, task.id, {"messages": messages,
+                            "step_n": _step_n, "best_pass": _best_pass,
+                            "edits_made": _edits_made})
         # Grammar-constrain the turn to the ReAct envelope: optional
         # <think>, then a valid ACTION (a currently-allowed tool + a
         # well-formed JSON arg object in the fence, nothing after) or DONE.
@@ -735,6 +788,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
         # into a trajectory digest instead of raw-dropping it.)
     else:
         transcript.final_message = "(gave up: step budget exhausted)"
+    if checkpoint:
+        clear_checkpoint(repo_path, task.id)
 
     # §4 "invoke": a skill counts as used if the agent named it OR clearly
     # followed one of its concrete steps -- a 7B rarely types the card name.
