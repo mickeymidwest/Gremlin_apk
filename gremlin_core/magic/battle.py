@@ -28,6 +28,7 @@ from typing import Optional, Sequence
 from ._jsonx import extract_json
 from ..backends import grammars
 from .model import Model, QuotaExhausted
+from .. import embed
 from .toolhost import ShellToolHost, ToolCall
 from .types import Fact, Skill, StepRecord, Task, Transcript
 
@@ -144,7 +145,7 @@ def _assemble_system(task: Task, facts: Sequence[Fact], skills: Sequence[Skill],
     parts = [_PROTOCOL.replace("{tools}", toolhost.tool_help()).replace("{test_cmd}", test_cmd)]
 
     ranked = sorted(
-        ((_skill_score(s, task), i, s) for i, s in enumerate(skills)),
+        ((_skill_rank(s, task), i, s) for i, s in enumerate(skills)),
         key=lambda t: (-t[0], t[1]),
     )
     matched: list[Skill] = []
@@ -201,6 +202,21 @@ _STOP_WORDS = frozenset((
 
 def _skill_matches(skill: Skill, task: Task) -> bool:   # kept for _propose_skills
     return _skill_score(skill, task) >= 2
+
+
+def _skill_rank(skill: Skill, task: Task) -> int:
+    """Score used to RANK skills for selection into the opening context.
+    It is _skill_score plus an optional semantic bonus (HARNESS-SURVEY #12,
+    0 unless GREMLIN_EMBED=1 and the embed model is present). Deliberately
+    SEPARATE from _skill_score so the embed bonus steers which cards load
+    without polluting the >=2 match / >=6 invoked thresholds that drive
+    skill attribution and lifecycle (a semantic match is not a trigger
+    firing, and must not be counted as one)."""
+    r = _skill_score(skill, task)
+    if embed.enabled():
+        r += embed.bonus(f"{task.prompt} {' '.join(task.tags)}",
+                         f"{skill.name} {skill.purpose} {skill.trigger_when}")
+    return r
 
 
 _HALLUCINATED_RESULT_RE = re.compile(
@@ -337,7 +353,10 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2) -
     the stronger of two and the small model spends the ReAct loop executing
     rather than figuring out where to start."""
     ctx = f"TASK: {task.prompt}"
-    matched = [s for s in skills if _skill_matches(s, task)][:4]
+    # admit on _skill_rank (not _skill_matches) so a pure-semantic match
+    # reaches the plan context too, consistent with _assemble_system.
+    matched = sorted((s for s in skills if _skill_rank(s, task) >= 2),
+                     key=lambda s: -_skill_rank(s, task))[:4]
     if matched:
         ctx += "\n\nRelevant procedures from past runs:\n" + "\n".join(s.render() for s in matched)
     best, best_score = "", -4
