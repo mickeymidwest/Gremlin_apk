@@ -307,6 +307,97 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill]) -> str:
         return ""
 
 
+# --- history condensation (HARNESS-SURVEY #7, OpenHands) ----------------
+#
+# A battle appends the model's turn plus one or more tool-result blocks
+# (each up to the toolhost's max_output, 8000 chars) every step. Over a
+# 12-step battle that list outgrows n_ctx, and a backend that renders it
+# as ChatML silently truncates at the FRONT -- the model loses the TASK
+# and its PLAN exactly when it most needs them. Rather than ride that
+# limit, once the running transcript passes a char budget we fold the
+# older middle turns into a single compact "you already did this" note,
+# keeping messages[0] (task + plan) and the last few turns verbatim.
+# Deterministic on purpose: no extra model call, so it can't stall or
+# invent progress -- it only compresses what actually happened.
+
+_CONDENSE_CTX_CHARS = 30000   # ~8-9k tokens of running transcript; the
+                              # primary runs at n_ctx 16384 and the system
+                              # prompt + a 4096-token reply need the rest
+_CONDENSE_KEEP_RECENT = 6     # last N turns stay verbatim (recent errors
+                              # and the live tool output drive the next move)
+_FOLD_MARK = "[earlier steps folded to save context"   # a prior fold note
+
+
+def _msgs_chars(messages: Sequence[dict]) -> int:
+    return sum(len(m.get("content", "") or "") for m in messages)
+
+
+def _action_gist(text: str) -> str:
+    """One line for an assistant turn: its ACTION tool + a short arg, or
+    DONE, or the first non-empty line."""
+    m = re.search(r"ACTION:\s*([a-z_]+)", text)
+    if m:
+        tool = m.group(1)
+        arg = ""
+        j = re.search(r"\{.*\}", text[m.end():], re.S)
+        if j:
+            try:
+                d = json.loads(j.group(0))
+                if isinstance(d, dict):
+                    for k in ("cmd", "pattern", "query", "path", "search"):
+                        if d.get(k):
+                            arg = str(d[k])
+                            break
+            except Exception:
+                arg = ""
+        return (f"{tool} {arg}").strip()[:80]
+    if re.search(r"(?m)^\s*DONE\b", text):
+        return "DONE"
+    line = next((l.strip() for l in text.splitlines() if l.strip()), "")
+    return line[:80]
+
+
+def _result_gist(text: str) -> str:
+    """One line for a tool-result / harness-note turn."""
+    first = next((l.strip() for l in text.splitlines() if l.strip()), "")
+    return f"{first[:90]}  [{len(text)} chars]"
+
+
+def _condense_messages(messages: list[dict], *, budget: int = _CONDENSE_CTX_CHARS,
+                       keep_recent: int = _CONDENSE_KEEP_RECENT):
+    """Return (messages, folded_count). Folds middle turns only when the
+    transcript is over budget and there is a real middle to fold; the
+    opening and the last `keep_recent` turns are always kept verbatim, so
+    the latest user result stays last (BackendModel uses it as the
+    prompt)."""
+    if _msgs_chars(messages) <= budget or len(messages) <= keep_recent + 2:
+        return messages, 0
+    k = keep_recent
+    if len(messages) > k + 1 and messages[-k].get('role') != 'assistant':
+        k += 1   # open the kept tail on an assistant action, not a bare result
+    head, tail = messages[0], messages[-k:]
+    middle = messages[1:-k]
+    if not middle:
+        return messages, 0
+    lines: list[str] = []
+    for m in middle:
+        c = m.get('content', '') or ''
+        if c.startswith(_FOLD_MARK):
+            # an earlier fold note -- keep its already-digested body lines
+            # (don't re-gist it down to its header and lose that history)
+            parts = c.split('\n', 1)
+            if len(parts) == 2:
+                lines.extend(parts[1].splitlines())
+        elif m.get('role') == 'assistant':
+            lines.append(f"- did: {_action_gist(c)}")
+        else:
+            lines.append(f"    -> {_result_gist(c)}")
+    note = ("[earlier steps folded to save context -- you ALREADY did the "
+            "following this battle; build on it, do not start over]\n"
+            + "\n".join(lines))
+    return [head, {"role": "user", "content": note}, *tail], len(middle)
+
+
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
@@ -362,6 +453,13 @@ def run_battle(task: Task, repo_path: str, model: Model,
         if time.monotonic() - _start > time_budget_s:
             transcript.final_message = "(gave up: time budget exhausted)"
             break
+        # Keep the running transcript inside n_ctx (HARNESS-SURVEY #7):
+        # fold older turns before they push the task + plan off the front.
+        messages, _folded = _condense_messages(messages)
+        if _folded:
+            transcript.steps.append(StepRecord(
+                kind="note",
+                content=f"harness: folded {_folded} older turns to stay within context"))
         # Grammar-constrain the turn to the ReAct envelope: optional
         # <think>, then a valid ACTION (a currently-allowed tool + a
         # well-formed JSON arg object in the fence, nothing after) or DONE.
@@ -562,17 +660,9 @@ def run_battle(task: Task, repo_path: str, model: Model,
                     transcript.steps.append(StepRecord(
                         kind="note", content=f"harness: pushed off {_path} (no progress)"))
 
-        # Context hygiene: a 7B thrashes when the window fills with stale
-        # errors from bugs it already fixed. Keep the opening (task + plan
-        # + skills) and the most recent turns; drop the middle.
-        if len(messages) > 16:
-            head = messages[:1]
-            tail = messages[-10:]
-            if tail and tail[0].get("role") != "assistant":
-                tail = messages[-11:]   # don't start the tail on a bare result
-            messages[:] = head + [{"role": "user", "content":
-                "(earlier exploration trimmed to keep this focused -- "
-                "re-read a file if you need it again)"}] + tail
+        # (context hygiene is handled at the top of the loop by
+        # _condense_messages -- HARNESS-SURVEY #7 -- which folds the middle
+        # into a trajectory digest instead of raw-dropping it.)
     else:
         transcript.final_message = "(gave up: step budget exhausted)"
 
