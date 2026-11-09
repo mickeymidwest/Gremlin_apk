@@ -1,8 +1,10 @@
 """Memory retrieval (R4): pick the facts relevant to the current message
 instead of always dumping the newest ones.
 
-Pure and dependency-free (no embeddings): a fact is scored by how many of
-the message's informative words it contains. A few of the newest facts are
+By default pure and dependency-free: a fact is scored by how many of the
+message's informative words it contains. With GREMLIN_EMBED=1 an optional
+semantic bonus (gremlin_core/embed.py) is added so a relevant fact whose
+wording differs from the message still surfaces. A few of the newest facts are
 always kept so identity/preferences persist; the rest of the budget goes to
 the best keyword matches, so an old-but-relevant fact surfaces when you ask
 about it. Selection is built in PRIORITY order (newest, then best matches)
@@ -12,6 +14,8 @@ never evict the others. Falls back to newest-first for a greeting.
 from __future__ import annotations
 
 import re
+
+from . import embed
 
 _STOP = {
     # articles / conjunctions / prepositions / pronouns / auxiliaries that
@@ -53,9 +57,15 @@ def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int
     priority: list[int] = list(range(n - 1, max(-1, n - recent - 1), -1))
     q = _tokens(message)
     if q:
+        use_embed = embed.enabled()
         scored = []
         for i in range(n - recent):
             score = len(q & _tokens(facts[i]))
+            if use_embed:
+                # semantic lift (R4 / HARNESS-SURVEY #12), 0 unless GREMLIN_EMBED=1
+                # and the embed model is present -- surfaces an old-but-relevant
+                # fact whose wording differs from the message. Additive + graceful.
+                score += embed.bonus(message, facts[i])
             if score:
                 scored.append((score, i))
         scored.sort(key=lambda si: (-si[0], -si[1]))

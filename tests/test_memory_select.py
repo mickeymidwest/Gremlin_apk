@@ -69,3 +69,58 @@ def test_common_words_do_not_false_match():
     # query shares only stopwords (from/their/them/mickey/just) with the facts
     out = ms.select(facts, "just tell me about them from their side", recent=1, matched=3)
     assert out == facts[-1:]                                  # nothing matched -> only the newest
+
+
+# --- R4: optional semantic fact retrieval (HARNESS-SURVEY #12) ---------------
+import re as _re
+
+import pytest as _pytest
+
+from gremlin_core import embed as _E
+from gremlin_core import memory_select as _M
+
+# Synonym AXES: words on the same axis are semantically related but are
+# DIFFERENT words, so a query and a fact can match on an axis with ZERO token
+# overlap -- that is the only way these tests pass is via embed.bonus.
+_AXES = [
+    ("jellyfin", "transcode", "media", "streaming", "server"),
+    ("gpu", "graphics", "nvidia", "cuda"),
+    ("pixel", "graphene", "rom", "android"),
+]
+
+
+def _toy(text):
+    t = text.lower()
+    return [float(sum(len(_re.findall(rf"\b{w}\b", t)) for w in axis)) for axis in _AXES]
+
+
+@_pytest.fixture
+def _embed_on(monkeypatch):
+    monkeypatch.setenv("GREMLIN_EMBED", "1")
+    monkeypatch.setattr(_E, "_raw_embed", _toy)
+    _E._vec_cache.clear()
+    yield
+    _E._vec_cache.clear()
+
+
+# query and the target fact share NO token (media/server/streaming vs
+# jellyfin/hardware/transcode) -- keyword score is 0 for every fact.
+_FACTS = ["note about grocery shopping list",
+          "jellyfin does hardware transcode",
+          "weather was sunny today"]
+_MSG = "is the media server streaming"
+
+
+def test_fact_retrieval_semantic_only_match(_embed_on):
+    picked = _M.select(_FACTS, _MSG, recent=0, matched=2, max_chars=500)
+    # retrieved purely on the embedding bonus (same-axis synonyms), not keyword
+    assert "jellyfin does hardware transcode" in picked
+    # the genuinely unrelated facts are NOT pulled in on a semantic fluke
+    assert "weather was sunny today" not in picked
+
+
+def test_fact_retrieval_disabled_finds_nothing(monkeypatch):
+    monkeypatch.delenv("GREMLIN_EMBED", raising=False)
+    # with embeddings OFF and zero keyword overlap, nothing matches -> empty
+    picked = _M.select(_FACTS, _MSG, recent=0, matched=2, max_chars=500)
+    assert picked == []
