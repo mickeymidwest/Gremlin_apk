@@ -115,6 +115,36 @@ def suid_files() -> list[str]:
     return sorted(l for l in out.splitlines() if l.strip())
 
 
+def lan_neighbors() -> list[str]:
+    """'IP MAC' for each known LAN neighbour (ip neigh), stable entries only --
+    a device that joins the network shows up as an added row on the next diff."""
+    rows = set()
+    for fam in ("-4", "-6"):
+        out = _run(["ip", fam, "neigh", "show"]) or ""
+        for line in out.splitlines():
+            parts = line.split()
+            if "lladdr" not in parts:
+                continue
+            i = parts.index("lladdr")
+            if i + 1 >= len(parts):
+                continue
+            ip, mac, state = parts[0], parts[i + 1], parts[-1]
+            if mac and state not in ("FAILED", "INCOMPLETE"):
+                rows.add(f"{ip} {mac}")
+    return sorted(rows)
+
+
+def tailscale_nodes() -> list[str]:
+    """'host 100.x.y.z' for each Tailscale peer (tailscale status)."""
+    out = _run(["tailscale", "status"]) or ""
+    rows = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].count(".") == 3 and parts[0].split(".")[0] == "100":
+            rows.add(f"{parts[1]} {parts[0]}")
+    return sorted(rows)
+
+
 def snapshot(full: bool = False) -> dict:
     snap = {
         "taken": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -125,6 +155,8 @@ def snapshot(full: bool = False) -> dict:
         "cron": cron_entries(),
         "failed_ssh_24h": failed_ssh_logins(),
         "kernel": (_run(["uname", "-r"]) or "").strip(),
+        "lan_neighbors": lan_neighbors(),
+        "tailscale_nodes": tailscale_nodes(),
     }
     if full:
         snap["suid"] = suid_files()
@@ -176,6 +208,20 @@ def standing(snap: dict) -> list[Finding]:
     if n:
         out.append(Finding(MEDIUM if n < 50 else HIGH, f"{n} failed SSH logins in the last 24 hours",
                            "someone is trying passwords; keys-only SSH makes that pointless"))
+    by_mac = {}
+    for row in snap.get("lan_neighbors") or []:
+        if " " in row:
+            ip, mac = row.split(" ", 1)
+            if ":" not in ip:   # IPv4 only -- a host's v4+v6 legitimately share a MAC
+                by_mac.setdefault(mac, []).append(ip)
+    for mac, ips in by_mac.items():
+        if len(ips) > 1:
+            out.append(Finding(MEDIUM, f"One MAC ({mac}) answers for IPs " + ", ".join(sorted(ips)),
+                               "a router doing proxy-ARP, or ARP spoofing redirecting those IPs"))
+    nbrs = snap.get("lan_neighbors") or []
+    if nbrs:
+        out.append(Finding(INFO, f"{len(nbrs)} device(s) on the LAN right now",
+                           "saved as the baseline; a new one later gets flagged"))
     return out
 
 
@@ -209,6 +255,23 @@ def diff(base: dict, now: dict) -> list[Finding]:
             out.append(Finding(HIGH, f"Firewall {k} stopped"))
     if now.get("kernel") and base.get("kernel") and now["kernel"] != base["kernel"]:
         out.append(Finding(INFO, f"Kernel changed: {base['kernel']} -> {now['kernel']}"))
+    # S6 network watch
+    base_ips = {r.split(' ', 1)[0] for r in base.get('lan_neighbors') or []}
+    base_mac = dict(r.split(' ', 1) for r in (base.get('lan_neighbors') or []) if ' ' in r)
+    base_macs = set(base_mac.values())
+    for row in now.get('lan_neighbors') or []:
+        ip = row.split(' ', 1)[0]
+        mac = row.split(' ', 1)[1] if ' ' in row else ''
+        if ip in base_ips and base_mac.get(ip) and mac and base_mac[ip] != mac:
+            out.append(Finding(HIGH, f'LAN device {ip} changed MAC: {base_mac[ip]} -> {mac}',
+                               'a new device reusing the IP, or ARP spoofing on the LAN'))
+        elif mac and mac not in base_macs:
+            out.append(Finding(MEDIUM, f'New device on the LAN: {row}',
+                               'a device you do not recognise joined the network'))
+        # a known MAC on a new IP (a rotating IPv6, a new DHCP lease) is the
+        # same physical device -- not flagged.
+    for row in added('tailscale_nodes'):
+        out.append(Finding(MEDIUM, f'New Tailscale node: {row}', 'check it is a device you added'))
     for row in removed("listening"):
         out.append(Finding(INFO, f"No longer listening: {row}"))
     for row in removed("units"):
