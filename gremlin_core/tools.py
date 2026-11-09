@@ -549,6 +549,29 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
 
 # --------------------------------------------------------------- registry
 
+async def _tool_inspect(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    """Read-only reverse engineering / inspection of a file, APK, or URL the
+    user points at. Observe-only: reads/decompiles, never runs the target."""
+    from . import inspect as rev
+    target = str(args.get("target") or args.get("path") or args.get("url") or "").strip()
+    if not target:
+        return {"answer": "What should I inspect? A file path, an .apk, or an https:// URL.",
+                "action": "inspect", "ok": False}
+    low = target.lower()
+    if re.match(r"^https?://", target, re.I) or low.endswith((".js", ".html", ".htm")):
+        fn = rev.inspect_site
+    elif low.endswith(".apk"):
+        fn = rev.inspect_apk
+    else:
+        fn = rev.inspect_file
+    try:
+        report = await asyncio.to_thread(fn, target)
+    except Exception as e:
+        return {"answer": f"Couldn't inspect {target!r}: {type(e).__name__}",
+                "action": "inspect", "ok": False}
+    return {"answer": report, "action": "inspect", "ok": True}
+
+
 REGISTRY = ToolRegistry()
 
 REGISTRY.register(Tool(
@@ -566,6 +589,26 @@ REGISTRY.register(Tool(
         "required": ["query"],
     },
     handler=_tool_web_search,
+    destructive=False,
+    capability="read_only",
+))
+
+REGISTRY.register(Tool(
+    name="inspect",
+    description=(
+        "read-only reverse-engineering / inspection of a FILE or binary, an Android APK, or a "
+        "website / URL the user points at -- to understand what it is and flag sketchy behaviour: "
+        "the permissions an app asks for, the URLs/IPs a binary or script reaches for, obfuscated or "
+        "suspicious code, phishing/MITM red flags on a page. OBSERVE-ONLY -- it reads and decompiles "
+        "the target, never runs or changes it. Use for \"what does this file/app/site do\", \"is "
+        'this apk safe\", \"inspect X\", \"reverse engineer X\". args: {"target": "<file path, .apk, or https URL>"}'
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"target": {"type": "string", "description": "a file path, an .apk, or an https:// URL"}},
+        "required": ["target"],
+    },
+    handler=_tool_inspect,
     destructive=False,
     capability="read_only",
 ))
