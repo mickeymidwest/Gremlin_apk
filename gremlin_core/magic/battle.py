@@ -291,20 +291,71 @@ any path. Do NOT solve it here -- just the plan. No prose around it.
 """
 
 
-def _plan(task: Task, model: Model, skills: Sequence[Skill]) -> str:
-    """Pre-battle planning pass (MAGIC.md section 8, #5 + #7): one call
-    that turns into the opening move list, so the small model spends the
-    ReAct loop executing rather than figuring out where to start."""
+def _score_plan(plan: str, task: Task) -> int:
+    """A pure rubric for plan quality -- higher is better. Rewards the shape
+    that makes a small model execute well (a few concrete numbered steps that
+    look before touching and name something concrete from the task) and
+    penalises the shapes that waste the battle (an inline code solution, or a
+    wall of prose with no steps)."""
+    if not plan or not plan.strip():
+        return -3
+    lines = [l for l in plan.splitlines() if l.strip()]
+    steps = [l for l in lines if re.match(r"\s*\d+[.)]", l)]
+    score = 0
+    n = len(steps)
+    if 3 <= n <= 6:
+        score += 2
+    elif n >= 1:
+        score += 1
+    # step 1 looks/reads before editing
+    if steps and re.search(
+            r"\b(list_dir|repo_map|read|open|look|view|grep|find|inspect|examine|locate)\b",
+            steps[0], re.I):
+        score += 2
+    # the plan names something concrete from the task (a path, a file, a func)
+    toks = re.findall(r"[\w./-]+\.[A-Za-z0-9]+|\b[a-z_]{3,}\(\)|\b[A-Za-z_]\w{4,}", task.prompt)
+    low = plan.lower()
+    if any(t.lower() in low for t in toks if len(t) >= 4):
+        score += 2
+    # at least one concrete change verb
+    if re.search(r"\b(edit|writ|replac|chang|add|implement|fix|renam|return|remov|updat)\w*\b",
+                 plan, re.I):
+        score += 1
+    # penalise an inline solution (plans should not contain the code) ...
+    if "```" in plan or re.search(r"(?m)^\s*(def |class |function )\w", plan):
+        score -= 2
+    # ... and a stepless wall of prose
+    if n == 0 and len(plan) > 200:
+        score -= 1
+    return score
+
+
+def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2) -> str:
+    """Pre-battle planning pass (MAGIC.md section 8, #5 + #7): draws
+    `samples` plan drafts and keeps the best by _score_plan (a pure
+    structural rubric -- HARNESS-SURVEY #10), so the opening move list is
+    the stronger of two and the small model spends the ReAct loop executing
+    rather than figuring out where to start."""
     ctx = f"TASK: {task.prompt}"
     matched = [s for s in skills if _skill_matches(s, task)][:4]
     if matched:
         ctx += "\n\nRelevant procedures from past runs:\n" + "\n".join(s.render() for s in matched)
-    try:
-        reply = model.complete([{"role": "user", "content": ctx}],
-                               system=_PLAN_SYSTEM, max_tokens=600)
-        return (reply.text or "").strip()
-    except Exception:
-        return ""
+    best, best_score = "", -4
+    for _ in range(max(1, samples)):
+        try:
+            reply = model.complete([{"role": "user", "content": ctx}],
+                                   system=_PLAN_SYSTEM, max_tokens=600)
+        except QuotaExhausted:
+            raise                 # a hard quota wall -- fail fast, campaign.py handles it
+        except Exception:
+            continue
+        cand = (reply.text or "").strip()
+        if not cand:
+            continue
+        sc = _score_plan(cand, task)
+        if sc > best_score:
+            best, best_score = cand, sc
+    return best
 
 
 # --- history condensation (HARNESS-SURVEY #7, OpenHands) ----------------

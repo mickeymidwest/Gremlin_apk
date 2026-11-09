@@ -52,7 +52,11 @@ def test_run_battle_auto_checks_after_an_edit_on_pytest_tasks(tmp_path):
 def test_plan_pass_prepends_a_plan_note(tmp_path):
     (tmp_path / "greet.py").write_text("def greet():\n    return 'TODO'\n")
     model = ScriptedModel([
-        "1. read greet.py\n2. edit the return\n3. run tests",   # consumed as the plan
+        # best-of-2 plan (HARNESS-SURVEY #10): _plan draws two drafts and keeps
+        # the higher-scoring one -- the concrete, look-first, names-greet.py draft
+        # beats the vague one, and both are consumed before the ReAct loop starts.
+        "1. read greet.py\n2. edit the return\n3. run tests",   # draft A (kept)
+        "just change it",                                        # draft B (rejected)
         'ACTION: read_file\n```json\n{"path": "greet.py"}\n```',   # unlocks editing
         'ACTION: edit_file\n```json\n{"path": "greet.py", "search": "TODO", "replace": "hi"}\n```',
         "DONE\ndone",
