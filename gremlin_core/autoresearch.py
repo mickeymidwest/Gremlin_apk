@@ -26,6 +26,7 @@ import datetime
 import re
 
 from . import web_search
+from . import longctx
 
 # --- what makes something NOT a web question (checked first, any match wins)
 
@@ -378,7 +379,7 @@ def _should_fetch(message: str, results: list[dict]) -> bool:
             or snippet_chars < 120)
 
 
-async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500) -> str:
+async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500, query: str = "") -> str:
     """Read the first readable page among the top results (never raises; ''
     if none readable). Falls through to the 2nd if the 1st 403s/times out so
     a single paywalled top link doesn't kill the read step."""
@@ -387,10 +388,13 @@ async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500) -> str:
         if not url:
             continue
         try:
-            page = await asyncio.to_thread(web_search.fetch_text, url, max_chars)
+            # fetch more than we'll keep, then retrieve the parts relevant to
+            # the question (U7); longctx falls back to the head, never worse.
+            raw = await asyncio.to_thread(web_search.fetch_text, url, max(max_chars, 9000))
         except Exception:
-            page = ""
-        if page and not page.startswith(_FETCH_FAIL):
+            raw = ""
+        if raw and not raw.startswith(_FETCH_FAIL):
+            page = longctx.retrieve(raw, query, max_chars=max_chars)
             return f"\n\nFull text read from the top result ({url}):\n{page.strip()}"
     return ""
 
@@ -408,8 +412,9 @@ async def gather(message: str, *, limit: int = 3, history: str = ""):
     question gets answered instead of giving up at the snippets."""
     if not should_search(message):
         return None, ""
+    cq = contextual_query(message, history)
     try:
-        results = await asyncio.to_thread(web_search.search, contextual_query(message, history), limit)
+        results = await asyncio.to_thread(web_search.search, cq, limit)
     except Exception:
         results = []
     if not results:
@@ -417,7 +422,7 @@ async def gather(message: str, *, limit: int = 3, history: str = ""):
     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
     evidence = _evidence_block(message, results)
     if _should_fetch(message, results):
-        evidence += await _fetch_top_page(results)
+        evidence += await _fetch_top_page(results, query=cq)
     return sources, evidence
 
 
