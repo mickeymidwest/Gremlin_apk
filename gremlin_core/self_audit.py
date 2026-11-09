@@ -54,7 +54,7 @@ def mem_available_gb() -> "float | None":
 
 
 def compose(*, security: "list[tuple[str, str]]", drift: list, checkpoint_age_days,
-            disk_free: "float | None", mem_avail: "float | None",
+            disk_free: "float | None", mem_avail: "float | None", bench: "list[str] | None" = None,
             stale_checkpoint_days: int = 3, low_disk_gb: float = 15.0,
             low_mem_gb: float = 0.4) -> str:
     """Pure formatter -> the report text. `security` is (level, what) pairs."""
@@ -72,6 +72,14 @@ def compose(*, security: "list[tuple[str, str]]", drift: list, checkpoint_age_da
         lines.append(f"Doc/config drift: {len(drift)} contradiction(s) (run `gremlin contradictions`)")
     else:
         lines.append("Doc/config drift: none")
+
+    lines.append("")
+    if bench:
+        lines.append(f"Bench: {len(bench)} regression(s) vs the best prior run")
+        for b in bench[:6]:
+            lines.append(f"  [REGRESSED] {b}")
+    else:
+        lines.append("Bench: no regression")
 
     lines.append("")
     if checkpoint_age_days is None:
@@ -92,7 +100,7 @@ def compose(*, security: "list[tuple[str, str]]", drift: list, checkpoint_age_da
         lines.append("Headroom: " + ", ".join(head))
 
     lines.append("")
-    attention = bool(highs) or bool(drift) or checkpoint_age_days is None or \
+    attention = bool(highs) or bool(drift) or bool(bench) or checkpoint_age_days is None or \
         (checkpoint_age_days or 0) > stale_checkpoint_days or \
         (disk_free is not None and disk_free < low_disk_gb) or \
         (mem_avail is not None and mem_avail < low_mem_gb)
@@ -111,8 +119,13 @@ def run(root: str) -> str:
         drift = contradiction.scan(root)
     except Exception:
         drift = []
+    try:
+        with open(str(Path(root) / "data" / "bench-regression.txt")) as f:
+            bench = [l.strip() for l in f if l.strip()]
+    except OSError:
+        bench = []
     return compose(
-        security=security, drift=drift,
+        security=security, drift=drift, bench=bench,
         checkpoint_age_days=known_good_age_days(root),
         disk_free=disk_free_gb(), mem_avail=mem_available_gb())
 
