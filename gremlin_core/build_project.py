@@ -389,7 +389,16 @@ async def write_new_files(
 
     written = []
     for rel_path, content in files.items():
-        full_path = root_path / rel_path
+        # Defence in depth: never write outside the project folder, whatever
+        # the caller passed. parse_file_blocks already drops absolute/".."
+        # paths, but this file-writer must not trust that on its own.
+        full_path = (root_path / rel_path).resolve()
+        if full_path == root_path:   # "." / "" -> the folder itself, not a file
+            continue
+        try:
+            full_path.relative_to(root_path)
+        except ValueError:
+            continue
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)
         # A shebang means this is meant to be run directly (./script),

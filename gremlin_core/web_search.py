@@ -64,11 +64,16 @@ def search(query: str, limit: int = 5, timeout: int = 12) -> list[dict]:
     except Exception:
         return []
     body = resp.text
-    links = _RESULT_RE.findall(body)
-    snippets = _SNIPPET_RE.findall(body)
+    # Match each snippet to ITS OWN result block (between this result's link
+    # and the next one's), not by global index -- a result that happens to
+    # lack a snippet used to shift every later snippet onto the wrong result.
+    matches = list(_RESULT_RE.finditer(body))
     out = []
-    for i, (href, title) in enumerate(links[:limit]):
-        snippet = _clean(snippets[i]) if i < len(snippets) else ""
+    for i, m in enumerate(matches[:limit]):
+        href, title = m.group(1), m.group(2)
+        seg_end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
+        sm = _SNIPPET_RE.search(body, m.end(), seg_end)
+        snippet = _clean(sm.group(1)) if sm else ""
         out.append({"title": _clean(title), "url": _unwrap_ddg_redirect(href), "snippet": snippet})
     return out
 
