@@ -22,6 +22,7 @@ fully unit-tested, which is where "cautious" actually lives.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import re
 
 from . import web_search
@@ -237,6 +238,39 @@ def _domains(results: list[dict], limit: int = 3) -> list[str]:
     return seen
 
 
+# Relative time words that only mean something against the current date. A
+# query that already names a year is left alone (it carries its own anchor).
+_RELATIVE_TIME = re.compile(
+    r"\b(today|tonight|tomorrow|yesterday|right\s+now|this\s+"
+    r"(?:week|month|year|weekend|season|evening|morning|afternoon)|currently|"
+    r"at\s+the\s+moment|these\s+days|now)\b",
+    re.I,
+)
+
+
+def today_str() -> str:
+    d = datetime.date.today()
+    return d.strftime("%A, %B ") + str(d.day) + d.strftime(", %Y")
+
+
+def date_note() -> str:
+    """One line telling the model the current date, so 'today' / 'tonight' /
+    'this week' actually mean something to it instead of being a blank."""
+    return f"Today's date is {today_str()}."
+
+
+def search_query(message: str) -> str:
+    """What to actually send to the search engine: the message, plus the
+    concrete date when it uses a relative time word and doesn't already name
+    a year -- so 'who plays tonight' becomes a dated, answerable query
+    instead of a stale one the snippets can't satisfy."""
+    q = (message or "").strip()
+    if _RELATIVE_TIME.search(q) and not re.search(r"\b(?:19|20)\d\d\b", q):
+        d = datetime.date.today()
+        q = f"{q} {d.strftime('%B')} {d.day} {d.year}"
+    return q
+
+
 async def gather(message: str, *, limit: int = 3):
     """If `message` warrants it, run a live web search and return
     (sources, evidence_text); otherwise (None, ""). Never raises --
@@ -247,7 +281,7 @@ async def gather(message: str, *, limit: int = 3):
     if not should_search(message):
         return None, ""
     try:
-        results = await asyncio.to_thread(web_search.search, message.strip(), limit)
+        results = await asyncio.to_thread(web_search.search, search_query(message), limit)
     except Exception:
         results = []
     if not results:
@@ -287,7 +321,10 @@ def unverified_figures(answer: str, evidence: str) -> list[str]:
     not an accusation -- better to under-flag than nag on a real number."""
     if not answer or not evidence:
         return []
-    ev_blob = re.sub(r"[^\d]", "", evidence)          # all evidence digits, joined
+    # The model is told today's date (date_note), so it may echo the current
+    # year even when no snippet contains it -- seed the evidence digits with it
+    # so that never reads as an unverified figure.
+    ev_blob = re.sub(r"[^\d]", "", evidence) + str(datetime.date.today().year)
     out: list[str] = []
     seen: set[str] = set()
     for m in _SIGFIG.finditer(answer):

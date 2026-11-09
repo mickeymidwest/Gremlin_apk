@@ -301,6 +301,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     except Exception:
         prof = ""
     context = "\n\n".join(p for p in (
+        autoresearch.date_note(),
         prof,
         _memory_block(root, message),
         _skills_block(root, message),

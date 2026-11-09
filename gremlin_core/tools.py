@@ -249,7 +249,7 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     query = str(args.get("query") or "").strip()
     if not query:
         return {"answer": "What do you want me to search for?", "action": "web_search", "ok": False}
-    results = await asyncio.to_thread(web_search.search, query, 5)
+    results = await asyncio.to_thread(web_search.search, autoresearch.search_query(query), 5)
     if not results:
         return {"answer": f'No results for "{query}" -- either nothing came back or the '
                  f"desktop's internet is down.", "action": "web_search", "ok": False}
@@ -260,7 +260,7 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     # figure honesty check as the auto-research path. If the model can't
     # answer, fall back to the plain list so this is never worse than before.
     answer = ""
-    prompt = (evidence + "\n\nUsing ONLY those results, answer this clearly and "
+    prompt = (autoresearch.date_note() + "\n" + evidence + "\n\nUsing ONLY those results, answer this clearly and "
               "conversationally: " + query)
     try:
         res = await ctx.router.route("gremlin", prompt)
