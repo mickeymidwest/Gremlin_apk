@@ -4,11 +4,13 @@ status: active
 destination: card
 council_reviewed: true
 purpose: a new SUID binary or loose sudoers rule is a local privilege-escalation path to root
-trigger_when: privilege escalation, SUID/SETUID files, sudo misconfig, or 'how could someone get root'
+trigger_when: privilege escalation, SUID/SETUID files, sudo misconfig, or 'how could someone
+  get root'
 trigger_matcher: suid|setuid|privilege escalation|privesc|sudo|sudoers|root access|4755|getuid
 procedure:
 - run `gremlin guard --full` -- it scans for SUID files and diffs them against the baseline
-- a NEW SUID program outside a package install is suspicious; verify which package owns it (pacman -Qo)
+- a NEW SUID program outside a package install is suspicious; verify which package owns it
+  (pacman -Qo)
 - review sudoers for NOPASSWD or broad rules; least-privilege, no wildcard commands
 supersedes: null
 provenance:
@@ -19,3 +21,5 @@ record:
   wins: 0
   losses: 0
   score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -3,15 +3,18 @@ name: exposed-port-defense
 status: active
 destination: card
 council_reviewed: true
-purpose: a service listening on 0.0.0.0 is reachable from anywhere the network lets in; bind local or
-  firewall it
-trigger_when: open/listening ports, a service exposed to the internet, or reviewing the attack surface
-trigger_matcher: listening|open port|exposed|0\.0\.0\.0|\bbind\b|attack surface|reachable|ss -tuln|nmap
+purpose: a service listening on 0.0.0.0 is reachable from anywhere the network lets in; bind
+  local or firewall it
+trigger_when: open/listening ports, a service exposed to the internet, or reviewing the attack
+  surface
+trigger_matcher: listening|open port|exposed|0\.0\.0\.0|\bbind\b|attack surface|reachable|ss
+  -tuln|nmap
 procedure:
 - run `gremlin guard` -- it lists every listening socket and flags the ones on every interface
-- 'for each public one, decide: bind it to localhost/Tailscale, or let the gremlin-firewall limit it to
-  the LAN'
-- a public IPv6 means [::]-bound services may be internet-reachable -- check the firewall covers v6 too
+- 'for each public one, decide: bind it to localhost/Tailscale, or let the gremlin-firewall
+  limit it to the LAN'
+- a public IPv6 means [::]-bound services may be internet-reachable -- check the firewall
+  covers v6 too
 supersedes: null
 provenance:
 - seed-security-S1
@@ -21,3 +24,5 @@ record:
   wins: 0
   losses: 0
   score_deltas: []
+  last_used_battle: null
+  battles_available: 0

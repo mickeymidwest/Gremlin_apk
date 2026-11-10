@@ -3,16 +3,19 @@ name: sim-swap-phishing-awareness
 status: active
 destination: card
 council_reviewed: true
-purpose: SIM-swap and phishing bypass the device entirely by attacking the carrier and the human; no scanner
-  catches them, habits do
-trigger_when: SIM swap, phishing, smishing, account takeover, 2FA bypass, or a suspicious link/text/call
-trigger_matcher: sim swap|sim[- ]jacking|phish|smish|vishing|2fa|\botp\b|account takeover|suspicious (link|text|email|call)
+purpose: SIM-swap and phishing bypass the device entirely by attacking the carrier and the
+  human; no scanner catches them, habits do
+trigger_when: SIM swap, phishing, smishing, account takeover, 2FA bypass, or a suspicious
+  link/text/call
+trigger_matcher: sim swap|sim[- ]jacking|phish|smish|vishing|2fa|\botp\b|account takeover|suspicious
+  (link|text|email|call)
 procedure:
-- set a carrier port-out / SIM PIN so a SIM swap needs a code an attacker can't get; prefer an authenticator
-  app or hardware key over SMS 2FA
-- treat any link/attachment in an unexpected message as hostile -- verify the sender out-of-band before
-  acting; check the real domain
-- if an OTP arrives you didn't request, someone has your password -- change it and don't approve the prompt
+- set a carrier port-out / SIM PIN so a SIM swap needs a code an attacker can't get; prefer
+  an authenticator app or hardware key over SMS 2FA
+- treat any link/attachment in an unexpected message as hostile -- verify the sender out-of-band
+  before acting; check the real domain
+- if an OTP arrives you didn't request, someone has your password -- change it and don't approve
+  the prompt
 supersedes: null
 provenance:
 - seed-security-S1
@@ -22,3 +25,5 @@ record:
   wins: 0
   losses: 0
   score_deltas: []
+  last_used_battle: null
+  battles_available: 0

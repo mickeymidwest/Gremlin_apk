@@ -3,17 +3,19 @@ name: android-accessibility-abuse
 status: active
 destination: card
 council_reviewed: true
-purpose: accessibility / device-admin / notification-listener access lets an app read the screen and act
-  for you -- stalkerware's favourite grant
-trigger_when: an Android app with accessibility, device admin, or notification access; stalkerware; phone
-  acting weird
-trigger_matcher: accessibility|device admin|notification listener|stalkerware|spyware|screen reader|a11y|BIND_ACCESSIBILITY
+purpose: accessibility / device-admin / notification-listener access lets an app read the
+  screen and act for you -- stalkerware's favourite grant
+trigger_when: an Android app with accessibility, device admin, or notification access; stalkerware;
+  phone acting weird
+trigger_matcher: accessibility|device admin|notification listener|stalkerware|spyware|screen
+  reader|a11y|BIND_ACCESSIBILITY
 procedure:
-- run the phone Check (phone_guard) -- it flags any NEW app holding accessibility, device-admin, or notification-listener
-  access
-- 'for each, ask: does this app have a real reason for it? A flashlight/game with accessibility is a red
-  flag'
-- revoke it in Settings and, if unexplained, uninstall the app; keep only ones you deliberately granted
+- run the phone Check (phone_guard) -- it flags any NEW app holding accessibility, device-admin,
+  or notification-listener access
+- 'for each, ask: does this app have a real reason for it? A flashlight/game with accessibility
+  is a red flag'
+- revoke it in Settings and, if unexplained, uninstall the app; keep only ones you deliberately
+  granted
 supersedes: null
 provenance:
 - seed-security-S1
@@ -23,3 +25,5 @@ record:
   wins: 0
   losses: 0
   score_deltas: []
+  last_used_battle: null
+  battles_available: 0
