@@ -1043,6 +1043,11 @@ async def main():
         elif cmd == "self-audit":
             from gremlin_core import self_audit
             print(self_audit.run(PROJECT_ROOT))
+        elif cmd == "skill-collisions":
+            from gremlin_core.magic import skill_collision
+            from gremlin_core.magic.store import Store
+            print(skill_collision.report(
+                skill_collision.collisions(Store(PROJECT_ROOT).read_skills())))
         elif cmd == "pair":
             data_dir = Path(PROJECT_ROOT) / "data"
             token = server.get_or_create_token(data_dir)
