@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 22
+  uses: 24
   wins: 7
-  losses: 15
+  losses: 17
   score_deltas:
   - -1.0
   - -1.0
@@ -41,5 +41,7 @@ record:
   - -1.0
   - -1.0
   - -1.0
-  last_used_battle: battle_0024_tlvfuzz
-  battles_available: 22
+  - -1.0
+  - -1.0
+  last_used_battle: battle_0025_tlvfuzz
+  battles_available: 24
