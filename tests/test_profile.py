@@ -194,7 +194,9 @@ def test_reply_prompt_includes_profile(tmp_path, monkeypatch):
     root = str(tmp_path / "repo")
     profile.add(root, "talking", "Room to explain and have fun")
     _, hist, _ = reply._build_prompt("hey", root, "")
-    assert "Room to explain and have fun" in hist[0]["content"]
+    # the date note now leads the history, so the profile is no longer
+    # hist[0] -- check it is present in the rendered history at all.
+    assert any("Room to explain and have fun" in h["content"] for h in hist)
 
 
 def test_bookkeeping_skips_fact_extractors_when_profile_learned(tmp_path, monkeypatch):
