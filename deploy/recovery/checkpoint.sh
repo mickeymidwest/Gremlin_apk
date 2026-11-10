@@ -18,8 +18,12 @@ branch="$(git rev-parse --abbrev-ref HEAD)"
 if [ "$branch" != "main" ]; then
   echo "$(ts) not on main ($branch); skipping" >>"$LOG"; exit 0
 fi
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  echo "$(ts) uncommitted changes on main; skipping" >>"$LOG"; exit 0
+# Only the CODE paths matter for a known-good tag -- restore.sh restores
+# exactly these. The nightly zoid loop churns tracked runtime data
+# (data/magic/campaign_*.json); that must NOT block a code checkpoint.
+CODE="gremlin_core main.py bench scripts tests android MAGIC.md CALIBRATION.md"
+if [ -n "$(git status --porcelain --untracked-files=no -- $CODE)" ]; then
+  echo "$(ts) uncommitted CODE changes on main; skipping" >>"$LOG"; exit 0
 fi
 commit="$(git rev-parse HEAD)"
 if git tag --points-at HEAD | grep -q '^known-good-'; then
