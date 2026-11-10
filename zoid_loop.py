@@ -106,6 +106,29 @@ def _reclaim_memory(log) -> int:
     return _mem_available_mb()
 
 
+_DISK_FLOOR_GB = 3.0
+
+
+def _disk_free_gb(path: str = "/") -> float:
+    """Free GB on `path`'s filesystem; a huge number if it can't be read, so a
+    missing reading never stalls the loop."""
+    try:
+        return shutil.disk_usage(path).free / 1e9
+    except OSError:
+        return 999.0
+
+
+def _disk_gate(log, floor_gb: float = _DISK_FLOOR_GB, path: str = "/") -> bool:
+    """N9 preflight: a battle copies the target repo and runs pytest in a temp
+    dir, so a near-full disk fails it. Skip the round rather than thrash. True
+    = ok to proceed."""
+    free = _disk_free_gb(path)
+    if free < floor_gb:
+        log(f"  [disk] only {free:.1f}GB free (< {floor_gb}GB) -- skipping this round")
+        return False
+    return True
+
+
 def _mem_gate(log, floor: int = 900) -> None:
     """Before a round: if RAM is tight, reclaim; if still tight, wait it
     out. The autonomous loop must not be what crashes the box."""
@@ -687,6 +710,8 @@ def main() -> None:
             log("minute budget spent -- halting"); break
         log(f"\n=== round {round_i} ===")
         _mem_gate(log)
+        if not _disk_gate(log):
+            continue
         for tgt in T:
             if time.monotonic() > deadline:
                 log("  (deadline reached mid-round)"); break
