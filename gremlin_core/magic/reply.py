@@ -583,6 +583,18 @@ async def answer(primary, message: str, root: str,
             else:
                 text = text + grounding.caveat(bad)
 
+    if _GROUNDING_CHECK and used_fallback and text and not web_sources:
+        # P5: a fallback (Gemini) answer used to skip the honesty check
+        # entirely -- the worst place to skip it, since the local model
+        # already failed. We can't cheaply regenerate a fallback, so run
+        # the same check and flag a made-up claim with the same caveat.
+        try:
+            bad = grounding.check(text, root, ctx)
+        except Exception:
+            bad = []
+        if bad:
+            text = text + grounding.caveat(bad)
+
     if web_sources and text:
         _figs = autoresearch.unverified_figures(text, web_ev)
         if _figs:
