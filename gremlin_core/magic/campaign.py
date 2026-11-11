@@ -102,7 +102,9 @@ class Campaign:
         def on_done():
             _restore_protected()
             s = self.verifier.score(task, str(work))
-            return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
+            from .. import error_distill
+            _sig = error_distill.core(s.detail) or s.failure_signal or "not passing"
+            return s.value >= 0.999, _sig[:1500]
 
         transcript = run_battle(
             task, str(work), self.model,

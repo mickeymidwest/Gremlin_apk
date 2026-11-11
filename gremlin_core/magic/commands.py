@@ -270,7 +270,9 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
 
     def _on_done():
         s = verifier.score(task, str(work))
-        return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
+        from .. import error_distill
+        _sig = error_distill.core(s.detail) or s.failure_signal or "not passing"
+        return s.value >= 0.999, _sig[:1500]
 
     def _run():
         # run_battle is blocking + its model.complete() submits back to

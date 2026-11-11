@@ -692,7 +692,13 @@ def run_battle(task: Task, repo_path: str, model: Model,
             label = "ok"
         else:
             label = "error"
-        result_msg = f"RESULT ({label}):\n{result.output}"
+        _fed = result.output
+        if not result.ok:
+            from .. import error_distill
+            _c = error_distill.core(result.output)
+            if _c and len(_c) < len(result.output):
+                _fed = _c + "\n(trimmed to the core error; full output is in the record)"
+        result_msg = f"RESULT ({label}):\n{_fed}"
 
         if snapshotting and result.ok and call.name in ("write_file", "edit_file"):
             _git_snapshot(repo_path, f"step {_step_n}: {call.name} {call.args.get('path', '')}")
