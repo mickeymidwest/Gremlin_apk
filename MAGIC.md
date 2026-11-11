@@ -568,3 +568,35 @@ real registered tools — so the model physically cannot emit broken JSON or
 invent a tool, which is where a weak model otherwise drifts into garbage.
 (`grammars.react_turn_grammar`, `intent._classify_grammar`;
 `tests/magic/test_react_grammar.py`, `tests/test_intent_grammar.py`)
+
+
+## 12. Magic is the only layer that talks to the model (2026-11-11)
+
+**Law.** The person never talks to the raw LLM. Talking to "Gremlin" *is*
+talking to Magic, always. Every path from a human message to the model goes
+through a Magic entrypoint, and the reply comes back through Magic:
+
+- normal chat → `reply.answer` / `reply.answer_stream` (memory, skills,
+  pitfalls, grounding, self-correct, loops);
+- vision → `reply.answer_vision`;
+- an action → `intent.classify` → `actions.execute` (grammar-pinned, the
+  error ledger, self-correct);
+- a battle → `run_battle` (the Laws of a Battle, section 11);
+- private / immersive mode → `reply.answer_private`.
+
+No user-facing route calls the pilot raw. Magic's own internal uses of the model
+— the compaction summariser, best-of-2 plan drafting, the skill gate — are Magic
+using its own tools, not the user reaching past it. (The `/admin/claude`
+break-glass is a *different* model, the Claude CLI, not the local pilot — see
+[[override-vs-claude]].)
+
+**Abliterated when unfiltered.** When the unfiltered model is on, Magic is
+abliterated: it adds NO content or behavioural gate. `answer_private` drops the
+task-shaped layers (grounding, skills, self-correct, moralising) that would
+break immersion, and keeps only the non-content rails — the same split as
+`/override`: drop content gates, keep machine-safety rails. What stays is
+structural (the backend's degeneration re-roll, a fallback on an empty reply)
+plus one machine-safety rail: scrubbing the user's OWN secrets (API keys,
+tokens) out of the text, so a roleplay can't be steered into leaking the box's
+credentials. The content itself passes through verbatim.
+(`reply.answer_private`; `tests/test_answer_private.py`)

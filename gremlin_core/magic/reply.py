@@ -646,3 +646,49 @@ async def answer(primary, message: str, root: str,
     if web_sources:
         out["web"] = web_sources
     return out
+
+
+async def answer_private(backend, message: str, *, system: str,
+                         history_msgs: list, unfiltered: bool = False,
+                         fallback=None) -> dict:
+    """Magic's mediation for immersive / unfiltered mode (e.g. private
+    roleplay). Two laws meet here:
+
+      * Magic is ALWAYS the layer between the person and the model. This owns
+        the model call, so even private mode never talks to the raw LLM -- it
+        talks to Magic (MAGIC.md section 12).
+      * When the UNFILTERED model is on, Magic is ABLITERATED: it adds NO
+        content or behavioural gate -- no grounding, skills, self-correct, or
+        moralising. Those are the task-shaped layers; here they would only
+        break immersion and are not wanted.
+
+    What it DOES keep are the non-content rails, the same split as /override
+    (drop content gates, keep machine-safety rails):
+      * the backend's own degeneration re-roll (via generate),
+      * a fallback model on an empty/errored reply,
+      * scrubbing the user's OWN secrets (API keys, tokens) out of the text --
+        a machine-safety rail, never a content one, so a roleplay can't be
+        steered into leaking the box's credentials.
+
+    Returns {"answer", "ok", "error", "model"}. Never raises for a normal
+    model error -- the caller gets ok=False instead.
+    """
+    async def _one(be):
+        return await be.generate(message, system=system, max_tokens=900,
+                                 temperature=0.9, history=history_msgs)
+    try:
+        r = await _one(backend)
+    except Exception as e:  # noqa
+        if fallback is None:
+            return {"answer": "", "ok": False, "error": f"{type(e).__name__}", "model": ""}
+        r = await _one(fallback)
+    text = (getattr(r, "text", "") or "").strip()
+    if (not text or not getattr(r, "ok", True)) and fallback is not None:
+        try:
+            r = await _one(fallback)
+            text = (getattr(r, "text", "") or "").strip()
+        except Exception as e:  # noqa
+            return {"answer": "", "ok": False, "error": f"{type(e).__name__}", "model": ""}
+    from ..mutation_log import _scrub_str
+    return {"answer": _scrub_str(text), "ok": bool(text),
+            "error": getattr(r, "error", None), "model": getattr(r, "model", "gremlin")}
