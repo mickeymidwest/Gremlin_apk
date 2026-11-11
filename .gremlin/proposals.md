@@ -5,6 +5,49 @@ The uploaded MAGIC.md was stale; this reflects what's actually in the tree.
 Claude processes these per CALIBRATION.md §9: default YES for a real fix, reject only with
 evidence, Gemini is tiebreaker, Mickey's call is final.
 
+## RECONCILED 2026-11-11 -- the per-row STATUS cells below are STALE
+`gremlin contradictions` / a tree check shows most "PENDING" rows are actually
+built. Accurate status as of 2026-11-11:
+
+**Road to hardware-bound (R-list) -- COMPLETE.** R1-R8 all done/closed. By the
+definition here ("only a hardware upgrade improves it further"), Gremlin is at
+100% on this box.
+
+**Built (ignore the stale PENDING below):**
+- O4 mid-battle checkpoint/resume (d2c846c) · O5 action post-conditions (in
+  tools.py `_tool_service_restart`) · O6 anti-loop (done) · O7 memory unify (mostly)
+- N1 output health (output_health.py) · N2 real abort (job_control.py) · N4
+  Project Brain (ec6cfb3) · N6 build provenance (done) · N9 battle preflight
+  (f9d0c37) · N10 Contradiction Hunter (de29770) · N11 Skill-collision (2062650)
+  · N12 weekly self-audit `gremlin self-audit` (2603d92) · N14 fact dates
+  (860a17b) · N15 mutation_log secret scrub (f576ec8)
+- U7 long-context retrieval (df1befc) · U8 learn-from-wins (reckoning) · U10
+  lean context (memory_select relevance)
+- S1 security cards (646488a) · S2 desktop guard (guard.py) · S3 phone guard
+  (phone_guard.py) · S6 network watch (705172b)
+- R4 memory upgrade: semantic fact retrieval (c684b15) + dated/stale facts
+  (860a17b) + chat summaries (history.compact)
+- P5 grounding on the Gemini-fallback path (f10e054)
+- Harness: #7 condensation, #10 best-of-2 plan, #11 symbol repo_map, #12
+  embeddings; inspect-tool routing; /claude rename; /override gates dropped.
+- Gremlin's own asks: skill-mining `gremlin mine-skills` (c77eec2), fuzz crash
+  memory (ea3b60f), android-check (76634bf), context-bundle (e6d9741).
+- Private mode (structured character + scenario, local) + override "sudo"
+  session with 5-min dead-man + can-do allow-list (9738a20, f91ea4e, 6a0e170).
+- checkpoint.sh recovery net fixed -- known-good tags now generate nightly.
+
+**Genuinely still open (buildable here):** O2 QA verifier · O3 cgroup CPU
+throttle · P1/P8 bench-measurement experiments · S4 phone RUN_COMMAND actions ·
+X4 interactive reverse-SSH · the override "last mile" (service control via chat
++ uncensored-while-active). DEFERRED-by-choice: N13 (redundant with guard +
+self-audit + N10). IN PROGRESS: U9 pilot-model bench.
+
+**Hardware-gated (not buildable here):** H1-H6.
+
+NOTE: several of the above landed WITHOUT the Gemini gate (its quota 429'd
+2026-11-09, resets ~11-13); queued for retro-review (see [[pending-gemini-review]]).
+
+
 ## Already shipped — do NOT re-propose
 - Grammar/GBNF constraints on output — `gremlin_core/backends/grammars.py` (was "P14")
 - ~230 skill cards incl. anti-hallucination + reasoning + security sets ChatGPT/Gemini suggested
