@@ -868,3 +868,79 @@ REGISTRY.register(Tool(
     destructive=True,
     capability="mutates_external",
 ))
+
+
+# ---- read-only file tools (the Read / list / grep surface) -------------------
+async def _tool_read_file(args, ctx):
+    from . import fs_tools, override_session
+    path = str(args.get("path") or args.get("file") or "").strip()
+    if not path:
+        return {"answer": "Which file should I read?", "action": "read_file", "ok": False}
+    r = fs_tools.read_file(path, ctx.project_root, allow_home=override_session.is_active())
+    return {"answer": r.get("answer", ""), "action": "read_file", "ok": r.get("ok", False)}
+
+
+async def _tool_list_dir(args, ctx):
+    from . import fs_tools, override_session
+    path = str(args.get("path") or args.get("dir") or "").strip()
+    r = fs_tools.list_dir(path, ctx.project_root, allow_home=override_session.is_active())
+    return {"answer": r.get("answer", ""), "action": "list_dir", "ok": r.get("ok", False)}
+
+
+async def _tool_search_files(args, ctx):
+    from . import fs_tools, override_session
+    pattern = str(args.get("pattern") or args.get("query") or "").strip()
+    subdir = str(args.get("path") or args.get("dir") or "").strip()
+    r = fs_tools.search_files(pattern, ctx.project_root, subdir=subdir,
+                              allow_home=override_session.is_active())
+    return {"answer": r.get("answer", ""), "action": "search_files", "ok": r.get("ok", False)}
+
+
+REGISTRY.register(Tool(
+    name="read_file",
+    description=(
+        "read the contents of a text file on this box and show them "
+        "(\"read config/models.yaml\", \"what's in that script\", \"show me the service file\"). "
+        "Read-only. Jailed to the project by default; Override (sudo) widens it to your home. "
+        "Secret files (.ssh, *.key, .env, anything credential-shaped) are refused. "
+        'args: {"path": "<file path>"}'
+    ),
+    parameters={"type": "object",
+                "properties": {"path": {"type": "string", "description": "file path to read"}},
+                "required": ["path"]},
+    handler=_tool_read_file,
+    destructive=False,
+    capability="read_only",
+))
+
+REGISTRY.register(Tool(
+    name="list_dir",
+    description=(
+        "list the files and subfolders in a directory on this box "
+        "(\"what's in ~/Downloads\", \"list the scripts folder\"). Read-only, jailed like read_file. "
+        'args: {"path": "<directory, or empty for the project root>"}'
+    ),
+    parameters={"type": "object",
+                "properties": {"path": {"type": "string", "description": "directory path"}},
+                "required": []},
+    handler=_tool_list_dir,
+    destructive=False,
+    capability="read_only",
+))
+
+REGISTRY.register(Tool(
+    name="search_files",
+    description=(
+        "search the files on this box for a regex/text pattern and show the matching lines "
+        "(\"where is X defined\", \"grep the code for TODO\", \"find where we set the port\"). "
+        "Read-only, jailed like read_file; skips .git/venv/node_modules and secret files. "
+        'args: {"pattern": "<regex or text>", "path": "<optional subdir to search in>"}'
+    ),
+    parameters={"type": "object",
+                "properties": {"pattern": {"type": "string", "description": "regex or text to find"},
+                               "path": {"type": "string", "description": "optional subdir"}},
+                "required": ["pattern"]},
+    handler=_tool_search_files,
+    destructive=False,
+    capability="read_only",
+))

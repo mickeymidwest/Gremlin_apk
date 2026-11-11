@@ -112,6 +112,8 @@ _ACTION_HINT = re.compile(
     | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|go|rs|c|cpp|h|apk|so|elf|bin|exe|jar|html?)\b
     | https?://\S+
     | \b(pacman|systemd|systemctl|docker|compose|cron|udev|grub)\b
+    | \bgrep\b | \bread\s+(the\s+)?(file|contents)\b | \bwhat.?s\s+in\s+[~/\w.-]*\.\w{1,6}\b
+    | \blist\b(?:\s+\w+){0,4}?\s+(dir|directory|folder|files|contents)\b | \bcat\s+[~/]
     | \bpackages?\b | \bservices?\b | \bcontainers?\b
     | \bapks?\b | \b(sketchy|malware|malicious|spyware|safe\s+to\s+(install|run))\b
     """,
