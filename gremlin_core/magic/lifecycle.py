@@ -64,6 +64,32 @@ def audit(skills: Sequence[Skill]) -> list[str]:
             s.status = "deprecated"
             changes.append(f"{s.name}: candidate -> deprecated "
                            f"(never invoked in {s.record.battles_available} battles)")
+    changes += _dedupe_identical(skills)
+    return changes
+
+
+def _dedupe_identical(skills: Sequence[Skill]) -> list[str]:
+    """Fold true-duplicate ACTIVE cards (identical purpose + trigger_when, even
+    under different auto-generated names) into the best one and retire the rest
+    to deprecated. The library prunes its own duplicates as part of the normal
+    post-battle sweep, so near-dupes from reckoning can't accumulate and dilute
+    retrieval. Operates in place on the in-memory list; the caller's
+    write_skills persists it. Records are merged into the keeper so no earned
+    history is lost."""
+    from .skill_collision import _identical_active_groups
+    active = [s for s in skills if s.status != "deprecated"]
+    changes: list[str] = []
+    for group in _identical_active_groups(active):
+        keeper = max(group, key=lambda s: (s.record.wins, s.record.uses, -s.created))
+        for x in group:
+            if x.id == keeper.id:
+                continue
+            keeper.record.uses += x.record.uses
+            keeper.record.wins += x.record.wins
+            keeper.record.losses += x.record.losses
+            keeper.record.score_deltas = list(keeper.record.score_deltas) + list(x.record.score_deltas)
+            x.status = "deprecated"
+            changes.append(f"{x.name}: active -> deprecated (duplicate of {keeper.name})")
     return changes
 
 
