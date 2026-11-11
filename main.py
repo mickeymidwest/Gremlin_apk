@@ -1057,6 +1057,11 @@ async def main():
             from gremlin_core.magic import fuzz_state
             tgt = sys.argv[2] if len(sys.argv) > 2 else ""
             print(fuzz_state.summary(tgt) if tgt else "usage: gremlin fuzz-crashes <target>")
+        elif cmd == "context":
+            from gremlin_core.magic import context_bundle
+            seeds = [a for a in sys.argv[2:] if not a.startswith("-")]
+            print(context_bundle.report(PROJECT_ROOT, seeds) if seeds
+                  else "usage: gremlin context <file> [file...]")
         elif cmd == "android-check":
             from gremlin_core.magic import android_preflight
             adir = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else os.path.join(PROJECT_ROOT, "android")
