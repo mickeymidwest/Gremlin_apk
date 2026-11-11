@@ -37,20 +37,13 @@ def known_good_age_days(root: str) -> "float | None":
 
 
 def disk_free_gb(path: str = "/") -> "float | None":
-    try:
-        return shutil.disk_usage(path).free / 1e9
-    except OSError:
-        return None
+    from . import resource
+    return resource.disk_free_gb(path)
 
 
 def mem_available_gb() -> "float | None":
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                return int(re.search(r"(\d+)", line).group(1)) / 1e6  # kB -> GB
-    except (OSError, AttributeError):
-        pass
-    return None
+    from . import resource
+    return resource.ram_available_gb()
 
 
 def compose(*, security: "list[tuple[str, str]]", drift: list, checkpoint_age_days,
