@@ -22,6 +22,7 @@ from .store import Store
 from .types import BattleResult, CampaignState, Task, Transcript
 from .verifier import PytestVerifier
 from .battle import run_battle
+from .. import resource
 
 _IGNORE = shutil.ignore_patterns(
     ".git", "__pycache__", ".pytest_cache", ".venv", "venv", "*.pyc", ".magic-work",
@@ -158,6 +159,21 @@ class Campaign:
         solved = sum(1 for v in state.best_by_task.values() if v >= 0.999)
         return stalled_skills and plateaued and solved >= len(self.tasks) * 0.6
 
+    def _await_headroom(self, *, max_wait_s: float = 120.0, poll_s: float = 15.0) -> None:
+        """Organoid #4 gate: hold the next heavy battle while the box is low on
+        RAM/disk, so a campaign backs off instead of OOM-ing. Fail-safe -- after
+        max_wait_s it proceeds regardless, because a probe that stays low or
+        can't be read must never stall the loop forever (same stance as
+        resource.ok_for_heavy's own fail-open)."""
+        waited = 0.0
+        while waited < max_wait_s:
+            ok, why = resource.ok_for_heavy()
+            if ok:
+                return
+            self.log(f"  governor: holding battle -- {why}; retry in {poll_s:.0f}s")
+            time.sleep(poll_s)
+            waited += poll_s
+
     def _battle_and_bookkeep(self, state: CampaignState, skills, facts,
                              task: Task, bid: str) -> tuple[CampaignState, bool]:
         """One battle plus everything that happens after it: episode
@@ -239,6 +255,7 @@ class Campaign:
             state.battle_count += 1
             bid = f"battle_{state.battle_count:04d}_{task.id}"
 
+            self._await_headroom()
             state, ok = self._battle_and_bookkeep(state, skills, facts, task, bid)
             if not ok:
                 return state
