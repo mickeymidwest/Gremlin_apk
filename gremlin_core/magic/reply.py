@@ -230,6 +230,15 @@ async def _loop_answer(primary, message: str, root: str, history: str, fallback=
     from . import loops
     if not loops_enabled(root):
         return None
+    # Governor gate (Organoid #4): auto-invoking a loop is heavier than a
+    # one-shot answer, so when the box is low on RAM/disk fall back to a plain
+    # answer instead of making chat wait or risking an OOM.
+    try:
+        from .. import resource
+        if not resource.ok_for_heavy()[0]:
+            return None
+    except Exception:
+        pass
     kind = loops.route(message)
     if kind == loops.PLAIN:
         return None
