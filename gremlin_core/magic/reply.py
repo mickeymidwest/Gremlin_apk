@@ -412,6 +412,9 @@ def _stream_usage(backend) -> Optional[dict]:
     return dict(usage) if usage else None
 
 
+_DEGEN_NOTE = ("\n\n(I caught myself repeating there and stopped early — ask me to try again if that got cut short.)")
+
+
 async def answer_stream(primary, message: str, root: str,
                         history: str = "", fallback=None):
     """Streaming twin of answer(). Async generator: yields ('delta', str)
@@ -457,6 +460,7 @@ async def answer_stream(primary, message: str, root: str,
             yield "delta", delta
     except Exception:
         stream_broke = True
+    _degen = getattr(primary, "_last_stream_degeneration", None)
 
     # Anything already on the client's screen stays the answer -- falling
     # back now would splice a second full answer onto the partial one the
@@ -464,6 +468,9 @@ async def answer_stream(primary, message: str, root: str,
     # re-answers mid-stream; this is the same rule one layer up.)
     if acc.strip():
         text = acc.strip()
+        if _degen and not stream_broke:
+            text += _DEGEN_NOTE
+            yield "delta", _DEGEN_NOTE
         if _GROUNDING_CHECK and not stream_broke and not web_sources:
             # tokens are already on screen -- can't regenerate; append a
             # one-line flag if the answer named something that isn't real.

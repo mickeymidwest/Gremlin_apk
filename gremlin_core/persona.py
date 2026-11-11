@@ -122,6 +122,7 @@ class PersonaBackend(ModelBackend):
         failure just stops -- we don't re-answer with a second backend on
         top of a partial reply."""
         combined_system = self._combined_system(system)
+        self._last_stream_degeneration = None
         last_err: Optional[BaseException] = None
         for backend in [self.primary] + self.fallbacks:
             produced = False
@@ -138,10 +139,14 @@ class PersonaBackend(ModelBackend):
                     produced = True
                     yield delta
                 if produced:
+                    self._last_stream_degeneration = getattr(
+                        backend, "_last_stream_degeneration", None)
                     return
             except BaseException as e:  # noqa
                 last_err = e
                 if produced:
+                    self._last_stream_degeneration = getattr(
+                        backend, "_last_stream_degeneration", None)
                     return
         if last_err is not None:
             raise last_err
