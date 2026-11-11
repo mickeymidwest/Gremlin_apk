@@ -21,7 +21,10 @@ def _jaccard(a: set, b: set) -> float:
 
 
 def collisions(skills, *, min_jaccard: float = 0.6) -> "list[tuple[str, str, str]]":
-    """(id_a, id_b, reason) for each overlapping pair, worst first."""
+    """(id_a, id_b, reason) for each overlapping pair, worst first. Deprecated
+    cards are skipped -- they are already retired to _deprecated/ (the lifecycle
+    keeps one active copy), so counting them would just re-report handled dupes."""
+    skills = [s for s in skills if getattr(s, "status", "") != "deprecated"]
     sigs = [(s, _sig(s)) for s in skills]
     out: "list[tuple[float, str, str, str]]" = []
     for i in range(len(sigs)):
