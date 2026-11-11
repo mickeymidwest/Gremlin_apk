@@ -94,19 +94,31 @@ async def ensure_only(registry, keep: str | None) -> None:
     until the card actually has room."""
     set_active(keep)
     big = footprint_mb(_model_path(registry, keep)) if keep else 0
+    unloaded = False
     for name, be in _local_gguf_backends(registry).items():
         if name == keep:
             continue
         if getattr(be, "_llm", None) is not None:
             try:
                 await be.unload()
+                unloaded = True
             except Exception:  # noqa
                 pass
-    if big >= 7000:
-        # give the driver a moment to actually reclaim, then sanity-check
-        await asyncio.sleep(0.5)
+    # unload() returns before the DRIVER actually frees the VRAM, so a load
+    # started too soon OOMs ("Failed to load model from file"). If we unloaded
+    # something to make room for `keep`, don't return until the card really has
+    # headroom. This used to run only for >=7000MB models, but a 5.3GB model
+    # swapping with another 5.3GB one on an 8GB card is exactly as tight -- that
+    # gap was the intermittent private-model load failure.
+    if unloaded and big > 0:
+        need = min(big + 400, 7600)        # footprint + a little KV headroom
+        for _ in range(24):                # poll up to ~6s for the reclaim
+            f = free_mb()
+            if f is None or f >= need:
+                break
+            await asyncio.sleep(0.25)
         f = free_mb()
-        if f is not None and f < big:
+        if f is not None and f < need:
             print(f"[vram] warning: keeping {keep} (~{big}MB) but only {f}MB free after unloads")
 
 
