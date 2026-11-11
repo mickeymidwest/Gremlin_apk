@@ -220,6 +220,33 @@ def _parse_classification(raw: str) -> Optional[Intent]:
     return Intent(action=action, args=args, confidence=confidence)
 
 
+
+
+_CLASSIFY_GRAMMAR_CACHE: "tuple[int, dict] | None" = None
+
+
+def _classify_grammar() -> dict:
+    """A JSON-schema grammar that pins the classifier's output shape and limits
+    `action` to the real registered tools (+ chat), so the model can neither
+    emit broken JSON nor invent a tool. Cached; rebuilt only if the registry
+    changes size (e.g. a tool registered at runtime)."""
+    global _CLASSIFY_GRAMMAR_CACHE
+    actions = sorted({t.name for t in tools_mod.REGISTRY.all() if t.classifier_visible}
+                     | {"chat"})
+    if _CLASSIFY_GRAMMAR_CACHE is None or _CLASSIFY_GRAMMAR_CACHE[0] != len(actions):
+        schema = {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": actions},
+                "args": {"type": "object"},
+                "confidence": {"type": "number"},
+            },
+            "required": ["action", "confidence"],
+        }
+        _CLASSIFY_GRAMMAR_CACHE = (len(actions), schema)
+    return _CLASSIFY_GRAMMAR_CACHE[1]
+
+
 async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6) -> Intent:
     """Decide what the user actually wants.
 
@@ -254,7 +281,8 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
         return Intent(action="chat", confidence=1.0)
 
     try:
-        result = await router.route(model_name, _CLASSIFY_PROMPT + text)
+        result = await router.route(model_name, _CLASSIFY_PROMPT + text,
+                                     grammar=_classify_grammar())
     except Exception:
         return Intent(action="chat", confidence=1.0)
     if not result.ok:
