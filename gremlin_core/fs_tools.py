@@ -178,3 +178,34 @@ def search_files(pattern: str, project_root: str, *, allow_home: bool = False,
     if not hits:
         return {"ok": True, "answer": f"No matches for /{pattern}/ under {base} ({scanned} files scanned)."}
     return {"ok": True, "answer": f"Matches for /{pattern}/:\n" + "\n".join(hits)}
+
+
+def find_files(name: str, project_root: str, *, allow_home: bool = False,
+               subdir: str = "", max_hits: int = MAX_HITS) -> dict:
+    """Find files whose NAME matches a glob/substring (the Glob surface). A bare
+    word is treated as *word*; shell wildcards (* ? [) are honored as given."""
+    import fnmatch
+    if not (name or "").strip():
+        return {"ok": False, "answer": "What filename should I look for?"}
+    base = _resolve(subdir, project_root, allow_home=allow_home) if subdir \
+        else Path(project_root).resolve()
+    if base is None or not base.exists():
+        return {"ok": False, "answer": f"Can't search {subdir or project_root!r} -- outside scope."}
+    pat = name if any(c in name for c in "*?[") else f"*{name}*"
+    hits: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+        for fn in filenames:
+            fp = Path(dirpath) / fn
+            if _denied(fp):
+                continue
+            if fnmatch.fnmatch(fn.lower(), pat.lower()):
+                hits.append("  " + str(fp.relative_to(base)))
+                if len(hits) >= max_hits:
+                    hits.append("  ... (more; narrow the name)")
+                    break
+        if len(hits) >= max_hits:
+            break
+    if not hits:
+        return {"ok": True, "answer": f"No files matching {pat!r} under {base}."}
+    return {"ok": True, "answer": f"Files matching {pat!r}:\n" + "\n".join(hits)}

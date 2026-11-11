@@ -944,3 +944,30 @@ REGISTRY.register(Tool(
     destructive=False,
     capability="read_only",
 ))
+
+
+async def _tool_find_files(args, ctx):
+    from . import fs_tools, override_session
+    name = str(args.get("name") or args.get("pattern") or args.get("query") or "").strip()
+    subdir = str(args.get("path") or args.get("dir") or "").strip()
+    r = fs_tools.find_files(name, ctx.project_root, subdir=subdir,
+                            allow_home=override_session.is_active())
+    return {"answer": r.get("answer", ""), "action": "find_files", "ok": r.get("ok", False)}
+
+
+REGISTRY.register(Tool(
+    name="find_files",
+    description=(
+        "find files by NAME on this box (\"find the config file\", \"where is reply.py\", "
+        "\"locate every *.service file\"). A bare word matches *word*; wildcards work. "
+        "Read-only, jailed like read_file. Use search_files instead to grep file CONTENTS. "
+        'args: {"name": "<filename or glob>", "path": "<optional subdir>"}'
+    ),
+    parameters={"type": "object",
+                "properties": {"name": {"type": "string", "description": "filename or glob"},
+                               "path": {"type": "string", "description": "optional subdir"}},
+                "required": ["name"]},
+    handler=_tool_find_files,
+    destructive=False,
+    capability="read_only",
+))
