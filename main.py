@@ -1080,6 +1080,31 @@ async def main():
                     print(f"{_srv}: " + ", ".join(t for t in _tools if t))
                 print(f"({n} MCP tool(s) registered)")
             mcp_bridge.shutdown()
+        elif cmd == "recipes":
+            from gremlin_core import recipes
+            rows = recipes.list_recipes(PROJECT_ROOT)
+            if not rows:
+                print("No recipes. Add data/recipes/<name>.yaml.")
+            for _r in rows:
+                _flag = "" if _r["ok"] else "  [INVALID]"
+                print(f"{_r['name']} [{_r['mode']}] " + "{" + ", ".join(_r["params"]) + "}"
+                      + f" -- {_r['description']}{_flag}")
+        elif cmd == "recipe":
+            from gremlin_core import recipes
+            if len(sys.argv) < 3:
+                print("usage: gremlin recipe <name> key=val ...")
+            else:
+                _rec = recipes.load_recipe(PROJECT_ROOT, sys.argv[2])
+                if not _rec:
+                    print(f"no recipe {sys.argv[2]!r}")
+                else:
+                    _out = recipes.render(_rec, recipes.parse_args(sys.argv[3:]))
+                    if _out["ok"]:
+                        print(f"[mode: {_out['mode']}]\n{_out['prompt']}")
+                    elif _out["missing"]:
+                        print("missing: " + ", ".join(_out["missing"]))
+                    else:
+                        print("invalid: " + "; ".join(_out["errors"]))
         elif cmd == "context":
             from gremlin_core.magic import context_bundle
             seeds = [a for a in sys.argv[2:] if not a.startswith("-")]

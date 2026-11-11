@@ -1,0 +1,14 @@
+name: audit-service
+description: Read-only security sweep of a service on this box
+mode: plan
+parameters:
+  - name: service
+    required: true
+  - name: depth
+    default: quick
+prompt: |
+  Do a {depth} read-only security review of the "{service}" service on this
+  desktop. Check: its systemd unit file and what it runs, which ports it has
+  open, the permissions/owner of its working directory, and whether it is
+  reachable from outside. Report concrete findings and anything that looks
+  risky. Do not change anything.

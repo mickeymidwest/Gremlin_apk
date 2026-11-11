@@ -780,6 +780,47 @@ async def _defense(args: str, ctx: CommandContext) -> dict:
     return {"ok": True, "action": "defense", "answer": await loop.run_in_executor(None, run)}
 
 
+
+async def _recipe(args: str, ctx) -> dict:
+    """Run a saved parameterized workflow. `list` shows them; `<name> k=v...`
+    renders the recipe and runs it in its MODE (chat / plan=read-only /
+    build=battle). The deterministic core is gremlin_core.recipes."""
+    from .. import recipes
+    toks = (args or "").split()
+    if not toks or toks[0] == "list":
+        rows = recipes.list_recipes(ctx.project_root)
+        if not rows:
+            return {"ok": True, "action": "chat",
+                    "answer": "No recipes yet. Add data/recipes/<name>.yaml "
+                              "(name, mode: chat|plan|build, parameters, prompt)."}
+        lines = []
+        for r in rows:
+            ps = (" {" + ", ".join(r["params"]) + "}") if r["params"] else ""
+            tag = "" if r["ok"] else "  [INVALID: " + "; ".join(r["errors"][:1]) + "]"
+            lines.append(f"/recipe {r['name']} [{r['mode']}]{ps} -- {r['description']}{tag}")
+        return {"ok": True, "action": "chat", "answer": "Recipes:\n" + "\n".join(lines)}
+    name = toks[0]
+    recipe = recipes.load_recipe(ctx.project_root, name)
+    if recipe is None:
+        return {"ok": False, "action": "chat",
+                "answer": f"No recipe named {name!r}. `/recipe list` to see them."}
+    out = recipes.render(recipe, recipes.parse_args(toks[1:]))
+    if not out["ok"]:
+        if out["missing"]:
+            ex = " ".join(f"{m}=..." for m in out["missing"])
+            return {"ok": False, "action": "chat",
+                    "answer": f"Recipe '{name}' needs: {', '.join(out['missing'])}.\n"
+                              f"e.g. /recipe {name} {ex}"}
+        return {"ok": False, "action": "chat",
+                "answer": f"Recipe '{name}' is invalid: " + "; ".join(out["errors"])}
+    prompt, mode = out["prompt"], out["mode"]
+    if mode == "plan":
+        return await _do(prompt, ctx)
+    if mode == "build":
+        return await _fix(prompt, ctx)
+    return await _chat(prompt, ctx)
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Gremlin. No tools, no routing.", _chat),
     "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
@@ -800,6 +841,7 @@ COMMANDS: dict[str, Command] = {
                      "it does>` scaffolds a whole Android app from one sentence.", _build),
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
                    "and shows the diff.", _fix),
+    "recipe": Command("recipe", "Saved parameterized workflows: list | <name> key=val ... (modes chat/plan/build). Files: data/recipes/*.yaml.", _recipe),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }
