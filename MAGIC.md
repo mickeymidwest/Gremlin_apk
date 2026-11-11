@@ -464,3 +464,61 @@ isn't a thing; skills come from the loop and from here.
   debugging's pairing code, then Deep scan collects `appops get` for each installed app through the app's
   own ADB client (libadb-android) and `POST /guard/appops` writes the report. Two fixed read-only commands;
   package names checked on the phone and on the desktop. allowBackup is off.
+
+## 10. The Organoid core — four self-healing functions (2026-11-11)
+
+The pilot is the LLM (intelligence, intent). The Zoid is this harness (frame,
+tools, armor). The **Organoid** is what turns a brittle script into a living
+system: persistent DNA, a regenerative engine, multi-mind fusion, and a
+resource governor. These four are CORE — every one has a "when something is
+wrong → the steps to get it right" loop, and together they keep Gremlin on
+track in every mode (normal, action, private).
+
+**1. Persistent state & DNA.** State survives the LLM's per-turn amnesia.
+- Organs: `notes.py` + `memory_select.py` (relevance + embeddings, dated/stale
+  flagging), `history.py` (long-thread compaction into a running summary),
+  `project_brain.py` (per-project memory), MAGIC.md / `.gremlin/decisions.md`.
+- Recovery: a corrupt/unreadable memory file must never crash chat → read in a
+  try/except and fall back to newest-first; a fact with no parseable date is
+  never treated as fresh; `gremlin restore` + known-good checkpoint tags are the
+  DNA rollback when a change goes bad.
+
+**2. Regenerative engine (self-correction).** Catch a failure, diagnose it, heal
+before the human steps in.
+- Organs: the battle loop (`battle.py`: stderr capture → feed the traceback back
+  → retry → reflection nudge → tunnel-vision guard → condensation); the live
+  path's `self_correct.py` (a failed action gets "what went wrong + the steps to
+  fix", not a dead-end); `output_health.py` (stop a generation that loops or
+  won't stop); grounding (`magic/grounding.py`, flags invented claims, now on
+  the fallback path too — P5).
+- Recovery: an action fails → `self_correct.enrich` classifies it (not-allowed →
+  override/can-do, permission → override, bad name → list units, OOM → free RAM,
+  compile/test fail → fix the first error) and says the steps; a degenerate
+  reply is stopped at the token level; a DONE with a still-failing check is
+  rejected and fed back. TODO: regenerate (not just stop) after a degeneration.
+
+**3. Multi-model fusion.** Route reasoning between distinct minds; no single
+model's blind spot lands a change.
+- Organs: the two-reviewer self-edit gate (`review.py` + Gemini via
+  `scripts/ask-gemini.sh`), `reckoning.py` (one model proposes, a second gates),
+  the Gemini fallback in `magic/reply.py`.
+- Recovery: when Gemini is absent/quota-walled, degrade — `GREMLIN_LOCAL_REVIEW=1`
+  swaps in two distinct LOCAL reviewers (qwen2.5-coder-14b + qwen2.5-14b, per R2)
+  so the gate still holds; a `QuotaExhausted` is a hard wall that stops the run
+  cleanly rather than retrying into it.
+
+**4. Resource governor.** Keep the machine at max without redlining the 8GB
+card / 7.5GB RAM.
+- Organs: `magic/vram.py` `ensure_only` (never two local GGUFs resident),
+  `heavy.sh` (pause the daemon + timers for a heavy job, flock one at a time),
+  zram + `deploy/ram_watchdog.py`, zoid's `_mem_gate` (reclaim idle JVM daemons)
+  and `_disk_gate` (N9).
+- Recovery: tight RAM → reclaim Gradle/Kotlin daemons, then wait it out; low disk
+  → skip the round; a heavy job already holding the card → refuse a second.
+  TODO (O3): cgroup v2 CPU throttling so a battle can run under the live server.
+
+**On-track principle:** every organ fails safe (try/except, never crash the
+turn), says what to do next when it can't fix something itself, and the modes
+share the same spine — private mode keeps the scene via the system prompt;
+normal mode keeps the task via self-correction; the battle loop keeps the fix
+via its retry/reflect/verify cycle.
