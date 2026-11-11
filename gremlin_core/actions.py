@@ -69,6 +69,14 @@ async def execute(
             })
         except Exception:
             pass
+    # Self-correction (Organoid regenerative engine): a failed action
+    # gets 'what went wrong + the steps to fix' instead of a dead-end error.
+    if not result.get("ok", True):
+        try:
+            from . import self_correct
+            result["answer"] = self_correct.enrich(result.get("answer", ""))
+        except Exception:
+            pass
     return result
 
 
