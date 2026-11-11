@@ -1,6 +1,6 @@
 id: skill_6fca1698
 name: identify-bug-and-fix
-status: deprecated
+status: candidate
 destination: card
 council_reviewed: false
 purpose: Ensure the agent correctly identifies and fixes the failing test before declaring

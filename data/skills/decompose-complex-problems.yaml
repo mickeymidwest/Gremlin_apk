@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 223
+  uses: 227
   wins: 47
-  losses: 172
+  losses: 176
   score_deltas:
   - 0.0
   - 0.0
@@ -242,5 +242,9 @@ record:
   - 0.875
   - 0.0818
   - 0.6231
-  last_used_battle: zoid_mb_buildalot-apk_1794379569
-  battles_available: 154
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0030_textutils
+  battles_available: 158
