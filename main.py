@@ -1068,6 +1068,18 @@ async def main():
         elif cmd == "error-ledger":
             from gremlin_core import error_ledger
             print(error_ledger.summary(PROJECT_ROOT))
+        elif cmd == "mcp-tools":
+            from gremlin_core import mcp_bridge
+            n = mcp_bridge.register_all(PROJECT_ROOT)
+            reg = mcp_bridge.list_registered()
+            if not reg:
+                print("No MCP servers configured. Add data/mcp_servers.json "
+                      "(a list of {name, command, args, read_only}).")
+            else:
+                for _srv, _tools in reg.items():
+                    print(f"{_srv}: " + ", ".join(t for t in _tools if t))
+                print(f"({n} MCP tool(s) registered)")
+            mcp_bridge.shutdown()
         elif cmd == "context":
             from gremlin_core.magic import context_bundle
             seeds = [a for a in sys.argv[2:] if not a.startswith("-")]

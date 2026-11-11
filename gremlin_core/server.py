@@ -286,6 +286,15 @@ def create_app(
 ) -> Flask:
     app = Flask(__name__)
     config_path = project_root / "config" / "models.yaml"
+    # Bridge any configured MCP servers' tools into the registry so they
+    # sit alongside the native ones (no-op when none are configured).
+    try:
+        from . import mcp_bridge
+        _n_mcp = mcp_bridge.register_all(str(project_root))
+        if _n_mcp:
+            print(f"[mcp] registered {_n_mcp} tool(s) from configured MCP servers", flush=True)
+    except Exception:
+        pass
 
     # One pending action per paired client, awaiting a plain-English
     # yes/no -- see gremlin_core/intent.py. Lives for the server's
