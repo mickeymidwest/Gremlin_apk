@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Optional, Sequence
 
-from . import lifecycle, reckoning, reflexion, regression
+from . import lifecycle, reckoning, reflect, reflexion, regression
 from .model import Model, QuotaExhausted
 from .store import Store
 from .types import BattleResult, CampaignState, Task, Transcript
@@ -87,7 +87,7 @@ class Campaign:
     def _battle(self, task: Task, battle_id: str, skills, facts) -> BattleResult:
         work = _fresh_workdir(self.target_repo, self.store.battle_workdir(battle_id))
         root = str(self.store.root)
-        lessons = reflexion.load_lessons(root, task)
+        lessons = reflect.load_lessons(root, task)
 
         def _restore_protected():
             # a fuzz target must be scored against its ORIGINAL (buggy)
@@ -112,15 +112,9 @@ class Campaign:
         )
         _restore_protected()
         score = self.verifier.score(task, str(work), transcript)
-        # Reflexion: a lost battle leaves a one-line lesson for next time.
+        # Reflection core: a lost battle leaves a one-line lesson for next time.
         if score.value < 0.999:
-            try:
-                lesson = reflexion.distil_lesson(self.model, task, transcript)
-                reflexion.save_lesson(root, task, lesson)
-                if lesson:
-                    self.log(f"  lesson: {lesson}")
-            except Exception:  # noqa -- never let reflexion break a campaign
-                pass
+            reflect.lesson_on_loss(self.model, task, transcript, root, self.log)
         return BattleResult(battle_id=battle_id, task_id=task.id,
                             transcript=transcript, score=score)
 
@@ -206,9 +200,8 @@ class Campaign:
 
         lifecycle.update_records(skills, result, delta)
 
-        proposals = reckoning.reckon(self.model, result, skills, facts)
-        kept = reckoning.gate(self.model, proposals, skills, facts)
-        applied = reckoning.apply_proposals(kept, bid, skills, facts)
+        _refl = reflect.on_battle(self.model, result, skills, facts, bid)
+        applied = _refl["applied"]
         state.accepted_history.append(applied)
         transitions = lifecycle.audit(skills)
 
@@ -219,7 +212,7 @@ class Campaign:
         self.log(
             f"[{state.battle_count}/{self.budget}] {task.id} "
             f"score={result.score.value:.2f} (d{delta:+.2f}) "
-            f"proposed={len(proposals)} accepted={applied} "
+            f"proposed={_refl['proposed']} accepted={applied} "
             f"skills={_skill_counts(skills)}"
             + (f"  {'; '.join(transitions)}" if transitions else "")
         )

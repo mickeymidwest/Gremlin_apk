@@ -496,7 +496,7 @@ def _model_for(ctx: CommandContext, name: str = "gremlin"):
 
 
 async def _skill(args: str, ctx: CommandContext) -> dict:
-    from . import reckoning
+    from . import reflect
     from .store import Store
     store = Store(ctx.project_root)
     skills = store.read_skills()
@@ -540,7 +540,7 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
         return {"ok": True, "action": "skill", "answer": "\n".join(lines)}
 
     if sub == "show":
-        s = next((x for x in skills if x.name == reckoning._slug(rest)), None)
+        s = next((x for x in skills if x.name == reflect.slug(rest)), None)
         return {"ok": bool(s), "action": "skill",
                 "answer": s.render() if s else f"no skill '{rest}'"}
 
@@ -557,20 +557,20 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
     if sub == "new":
         if not rest:
             return {"ok": False, "answer": "Usage: /skill new <what the skill should do>"}
-        prop = await _ex(lambda: reckoning.draft_skill(model, rest, skills))
+        prop = await _ex(lambda: reflect.draft_skill(model, rest, skills))
         drafter = "gremlin"
         if prop is None and gemini is not None:
-            prop, drafter = await _ex(lambda: reckoning.draft_skill(gemini, rest, skills)), "gemini"
+            prop, drafter = await _ex(lambda: reflect.draft_skill(gemini, rest, skills)), "gemini"
         if prop is None:
             return {"ok": False, "answer": "couldn't turn that into a skill — try describing the steps"}
-        kept = await _ex(lambda: reckoning.gate(model, [prop], skills, facts))
+        kept = await _ex(lambda: reflect.gate(model, [prop], skills, facts))
         if not kept and gemini is not None:
-            kept = await _ex(lambda: reckoning.gate(gemini, [prop], skills, facts))
+            kept = await _ex(lambda: reflect.gate(gemini, [prop], skills, facts))
         if not kept:
             return {"ok": False, "action": "skill",
                     "answer": "draft was rejected by the gate (vague, or duplicates an existing "
                               f"skill). draft:\n{json.dumps(prop.payload, indent=2)}"}
-        reckoning.apply_proposals(kept, "authored", skills, facts)
+        reflect.apply_proposals(kept, "authored", skills, facts)
         store.write_skills(skills)
         new = next(s for s in skills if s.name == prop.payload["name"])
         return {"ok": True, "action": "skill",
@@ -581,20 +581,20 @@ async def _skill(args: str, ctx: CommandContext) -> dict:
         if "|" not in rest:
             return {"ok": False, "answer": "Usage: /skill improve <name> | <what's wrong with it>"}
         name, _, whats_wrong = rest.partition("|")
-        s = next((x for x in skills if x.name == reckoning._slug(name.strip())
+        s = next((x for x in skills if x.name == reflect.slug(name.strip())
                   and x.status != "deprecated"), None)
         if s is None:
             return {"ok": False, "answer": f"no active skill '{name.strip()}'"}
-        prop = await _ex(lambda: reckoning.draft_revision(model, s, whats_wrong.strip()))
+        prop = await _ex(lambda: reflect.draft_revision(model, s, whats_wrong.strip()))
         if prop is None and gemini is not None:
-            prop = await _ex(lambda: reckoning.draft_revision(gemini, s, whats_wrong.strip()))
+            prop = await _ex(lambda: reflect.draft_revision(gemini, s, whats_wrong.strip()))
         if prop is None:
             return {"ok": False, "answer": "couldn't draft a revision"}
-        kept = await _ex(lambda: reckoning.gate(model, [prop], skills, facts)) or (
-            await _ex(lambda: reckoning.gate(gemini, [prop], skills, facts)) if gemini else [])
+        kept = await _ex(lambda: reflect.gate(model, [prop], skills, facts)) or (
+            await _ex(lambda: reflect.gate(gemini, [prop], skills, facts)) if gemini else [])
         if not kept:
             return {"ok": False, "action": "skill", "answer": "revision rejected by the gate"}
-        reckoning.apply_proposals(kept, "authored", skills, facts)
+        reflect.apply_proposals(kept, "authored", skills, facts)
         store.write_skills(skills)
         new = next(x for x in skills if x.name == s.name and x.status != "deprecated")
         return {"ok": True, "action": "skill",
@@ -736,9 +736,9 @@ async def _do(args: str, ctx: CommandContext) -> dict:
         if learn and len([s for s in tr.steps if s.kind == "tool"]) >= 3:
             res = BattleResult(battle_id=f"do_{int(__import__('time').time())}",
                                task_id="do", transcript=tr, score=Score(0.6, ""))
-            props = reckoning.reckon(model, res, skills, facts, ctx.project_root)
-            kept = reckoning.gate(model, props, skills, facts)
-            n = reckoning.apply_proposals(kept, res.battle_id, skills, facts)
+            props = reflect.reckon(model, res, skills, facts, ctx.project_root)
+            kept = reflect.gate(model, props, skills, facts)
+            n = reflect.apply_proposals(kept, res.battle_id, skills, facts)
             if n:
                 store.write_skills(skills)
                 learned = [p.payload.get("name") or p.payload.get("target", "?") for p in kept]
