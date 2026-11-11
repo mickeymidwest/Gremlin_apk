@@ -95,6 +95,17 @@ _SYSTEMD_SUFFIX = (".service", ".timer", ".socket", ".target", ".path",
                    ".mount", ".scope", ".slice")
 
 
+_FRIENDLY = {
+    "battles": "gremlin-zoid.timer", "the battles": "gremlin-zoid.timer",
+    "battle": "gremlin-zoid.timer", "battle test": "gremlin-zoid.timer",
+    "battle tests": "gremlin-zoid.timer", "nightly battles": "gremlin-zoid.timer",
+    "training": "gremlin-zoid.timer", "nightly training": "gremlin-zoid.timer",
+    "zoid": "gremlin-zoid.timer", "the nightly": "gremlin-zoid.timer",
+    "updates": "gremlin-update.timer", "auto update": "gremlin-update.timer",
+    "update timer": "gremlin-update.timer", "auto updates": "gremlin-update.timer",
+}
+
+
 def resolve_unit(project_root: str, name: str, *, allow_any: bool = False) -> Optional[tuple[str, str]]:
     """(kind, canonical_name) if `name` is on the allow-list, else None.
     Exact match only -- no globbing, no prefix matching -- so an allow
@@ -102,6 +113,7 @@ def resolve_unit(project_root: str, name: str, *, allow_any: bool = False) -> Op
     name = (name or "").strip()
     if not name:
         return None
+    name = _FRIENDLY.get(name.lower(), name)   # "the battles" -> gremlin-zoid.timer
     allow = _load_allowlist(project_root)
     if name in allow["docker"]:
         return "docker", name

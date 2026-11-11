@@ -334,7 +334,8 @@ async def _tool_service_status(args: dict[str, Any], ctx: ExecContext) -> dict[s
     name = str(args.get("name") or "").strip()
     if not name:
         return {"answer": "Status on what -- which service/container?", "action": "service_status", "ok": False}
-    resolved = service_control.resolve_unit(ctx.project_root, name)
+    from . import override_session
+    resolved = service_control.resolve_unit(ctx.project_root, name, allow_any=override_session.is_active())
     if resolved is None:
         return _service_not_allowed(ctx, name, "service_status")
     kind, canonical = resolved
@@ -346,7 +347,8 @@ async def _tool_service_restart(args: dict[str, Any], ctx: ExecContext) -> dict[
     name = str(args.get("name") or "").strip()
     if not name:
         return {"answer": "Restart what -- which service/container?", "action": "service_restart", "ok": False}
-    resolved = service_control.resolve_unit(ctx.project_root, name)
+    from . import override_session
+    resolved = service_control.resolve_unit(ctx.project_root, name, allow_any=override_session.is_active())
     if resolved is None:
         return _service_not_allowed(ctx, name, "service_restart")
     kind, canonical = resolved
@@ -774,6 +776,32 @@ REGISTRY.register(Tool(
     capability="mutates_external",
 ))
 
+async def _tool_service_stop(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return {"answer": "Stop/pause what -- which service/container?", "action": "service_stop", "ok": False}
+    from . import override_session
+    resolved = service_control.resolve_unit(ctx.project_root, name, allow_any=override_session.is_active())
+    if resolved is None:
+        return _service_not_allowed(ctx, name, "service_stop")
+    kind, canonical = resolved
+    result = await service_control.stop(kind, canonical)
+    return {"answer": _fmt_exec(result), "action": "service_stop", "ok": result.ok}
+
+
+async def _tool_service_start(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        return {"answer": "Start what -- which service/container?", "action": "service_start", "ok": False}
+    from . import override_session
+    resolved = service_control.resolve_unit(ctx.project_root, name, allow_any=override_session.is_active())
+    if resolved is None:
+        return _service_not_allowed(ctx, name, "service_start")
+    kind, canonical = resolved
+    result = await service_control.start(kind, canonical)
+    return {"answer": _fmt_exec(result), "action": "service_start", "ok": result.ok}
+
+
 REGISTRY.register(Tool(
     name="service_status",
     description=(
@@ -806,6 +834,37 @@ REGISTRY.register(Tool(
         "required": ["name"],
     },
     handler=_tool_service_restart,
+    destructive=True,
+    capability="mutates_external",
+))
+
+REGISTRY.register(Tool(
+    name="service_stop",
+    description=(
+        'stop / pause a named service or container ("pause the battles", "stop jellyfin"). '
+        'args: {"name": "<service/container, or a phrase like \'the battles\'>"}. Normally only '
+        "allow-listed names; while override (sudo) is ON it can stop any of your own user "
+        "units/containers, so \"pause the battles\" stops gremlin-zoid.timer."
+    ),
+    parameters={"type": "object",
+                "properties": {"name": {"type": "string", "description": "the service/container or a phrase"}},
+                "required": ["name"]},
+    handler=_tool_service_stop,
+    destructive=True,
+    capability="mutates_external",
+))
+
+REGISTRY.register(Tool(
+    name="service_start",
+    description=(
+        'start / resume a named service or container ("start the battles again", "start jellyfin"). '
+        'args: {"name": "<service/container, or a phrase like \'the battles\'>"}. Allow-listed names, '
+        "plus any of your own user units/containers while override (sudo) is ON."
+    ),
+    parameters={"type": "object",
+                "properties": {"name": {"type": "string", "description": "the service/container or a phrase"}},
+                "required": ["name"]},
+    handler=_tool_service_start,
     destructive=True,
     capability="mutates_external",
 ))
