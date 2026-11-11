@@ -455,11 +455,63 @@ def create_app(
 
         return jsonify(_note_answer(result) if (result.get("action") == "chat") else result)
 
+    @app.route("/override/on", methods=["POST"])
+    def override_on():
+        e = _check_auth()
+        if e:
+            return e
+        from . import override_session
+        override_session.activate()
+        return jsonify(override_session.status())
+
+    @app.route("/override/off", methods=["POST"])
+    def override_off():
+        e = _check_auth()
+        if e:
+            return e
+        from . import override_session
+        override_session.deactivate()
+        return jsonify(override_session.status())
+
+    @app.route("/override/status", methods=["GET"])
+    def override_status():
+        e = _check_auth()
+        if e:
+            return e
+        from . import override_session
+        return jsonify(override_session.status())
+
+    @app.route("/allowlist", methods=["GET"])
+    def allowlist_get():
+        e = _check_auth()
+        if e:
+            return e
+        from . import service_control
+        return jsonify({"allowed": service_control.allowed_names(str(project_root))})
+
+    @app.route("/allowlist", methods=["POST"])
+    def allowlist_post():
+        e = _check_auth()
+        if e:
+            return e
+        from . import service_control
+        b = request.get_json(silent=True) or {}
+        name = str(b.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "name required"}), 400
+        if b.get("action") == "remove":
+            merged = service_control.remove_allow(str(project_root), name)
+        else:
+            merged = service_control.add_allow(str(project_root), str(b.get("kind") or "systemd"), name)
+        return jsonify({"allowed": sorted(set(merged["docker"]) | set(merged["systemd"]))})
+
     @app.route("/chat", methods=["POST"])
     def chat():
         auth_error = _check_auth()
         if auth_error:
             return auth_error
+        from . import override_session
+        override_session.touch()
 
         body = request.get_json(silent=True) or {}
         message = body.get("message", "").strip()
