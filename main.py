@@ -1057,6 +1057,13 @@ async def main():
             from gremlin_core.magic import fuzz_state
             tgt = sys.argv[2] if len(sys.argv) > 2 else ""
             print(fuzz_state.summary(tgt) if tgt else "usage: gremlin fuzz-crashes <target>")
+        elif cmd == "android-check":
+            from gremlin_core.magic import android_preflight
+            adir = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else os.path.join(PROJECT_ROOT, "android")
+            if "--fix" in sys.argv[2:]:
+                for d in android_preflight.fix(adir):
+                    print("fixed:", d)
+            print(android_preflight.report(android_preflight.check(adir)))
         elif cmd == "pair":
             data_dir = Path(PROJECT_ROOT) / "data"
             token = server.get_or_create_token(data_dir)
