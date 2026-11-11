@@ -10,6 +10,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.Spinner
@@ -169,6 +170,95 @@ class SettingsActivity : AppCompatActivity() {
                 .setNegativeButton("Cancel", null)
                 .show()
         }
+
+        // Override (sudo) toggle + Gremlin's can-do list (added programmatically)
+        val root = findViewById<LinearLayout>(R.id.settings_root)
+        val overrideBtn = Button(this).apply { text = "Override (sudo)" }
+        root.addView(overrideBtn)
+        overrideBtn.setOnClickListener { toggleOverride(prefs, overrideBtn) }
+        val canDoBtn = Button(this).apply { text = "Gremlin's can-do list" }
+        root.addView(canDoBtn)
+        canDoBtn.setOnClickListener { showCanDo(prefs) }
+        refreshOverrideLabel(prefs, overrideBtn)
+    }
+
+    // ----------------------------------------- override (sudo) + can-do list
+
+    private fun creds(prefs: SharedPreferences): Triple<String, Int, String>? {
+        val h = prefs.getString("host", null); val p = prefs.getInt("port", 0)
+        val t = prefs.getString("token", null)
+        return if (h != null && p != 0 && t != null) Triple(h, p, t) else null
+    }
+
+    private fun httpJson(host: String, port: Int, token: String, path: String,
+                         method: String, body: String?): JSONObject? = try {
+        val c = URL("http://$host:$port$path").openConnection() as HttpURLConnection
+        c.requestMethod = method
+        c.setRequestProperty("Authorization", "Bearer $token")
+        c.connectTimeout = 6_000; c.readTimeout = 10_000
+        if (body != null) {
+            c.doOutput = true
+            c.setRequestProperty("Content-Type", "application/json")
+            OutputStreamWriter(c.outputStream).use { it.write(body) }
+        }
+        val code = c.responseCode
+        val stream = if (code in 200..299) c.inputStream else c.errorStream
+        JSONObject(stream.bufferedReader().use { it.readText() })
+    } catch (e: Exception) { null }
+
+    private fun refreshOverrideLabel(prefs: SharedPreferences, btn: Button) {
+        val c = creds(prefs) ?: return
+        Thread {
+            val st = httpJson(c.first, c.second, c.third, "/override/status", "GET", null)
+            val active = st?.optBoolean("active") ?: false
+            runOnUiThread {
+                btn.text = if (active) "Override: ON — tap to turn off" else "Override (sudo) — tap to turn on"
+            }
+        }.start()
+    }
+
+    private fun toggleOverride(prefs: SharedPreferences, btn: Button) {
+        val c = creds(prefs) ?: run { Toast.makeText(this, "Pair with a desktop first", Toast.LENGTH_SHORT).show(); return }
+        Thread {
+            val st = httpJson(c.first, c.second, c.third, "/override/status", "GET", null)
+            val active = st?.optBoolean("active") ?: false
+            val res = httpJson(c.first, c.second, c.third, if (active) "/override/off" else "/override/on", "POST", "{}")
+            runOnUiThread {
+                val nowOn = res?.optBoolean("active") ?: false
+                Toast.makeText(this,
+                    if (nowOn) "Override ON — sudo mode. Auto-off after 5 min idle."
+                    else "Override OFF — normal rules are back.", Toast.LENGTH_LONG).show()
+                refreshOverrideLabel(prefs, btn)
+            }
+        }.start()
+    }
+
+    private fun showCanDo(prefs: SharedPreferences) {
+        val c = creds(prefs) ?: run { Toast.makeText(this, "Pair with a desktop first", Toast.LENGTH_SHORT).show(); return }
+        val text = TextView(this)
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        text.setPadding(pad, pad, pad, pad); text.setTextIsSelectable(true); text.text = "Loading…"
+        val input = EditText(this).apply { hint = "add a service (e.g. gremlin-zoid.timer)" }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(text); addView(input) }
+        AlertDialog.Builder(this).setTitle("Gremlin's can-do list").setView(box)
+            .setPositiveButton("Add") { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotEmpty()) Thread {
+                    val kind = if (name.contains(".")) "systemd" else "docker"
+                    httpJson(c.first, c.second, c.third, "/allowlist", "POST",
+                        JSONObject().put("kind", kind).put("name", name).toString())
+                    runOnUiThread { Toast.makeText(this, "Added $name", Toast.LENGTH_SHORT).show() }
+                }.start()
+            }
+            .setNegativeButton("Close", null).show()
+        Thread {
+            val j = httpJson(c.first, c.second, c.third, "/allowlist", "GET", null)
+            val arr = j?.optJSONArray("allowed")
+            val list = if (arr != null && arr.length() > 0)
+                (0 until arr.length()).joinToString("\n") { "• " + arr.getString(it) }
+            else "(nothing yet)"
+            runOnUiThread { text.text = "Gremlin can control:\n$list" }
+        }.start()
     }
 
     /** Just a reference -- these all run from the chat input on the main
