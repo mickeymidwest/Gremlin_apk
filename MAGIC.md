@@ -522,3 +522,49 @@ turn), says what to do next when it can't fix something itself, and the modes
 share the same spine — private mode keeps the scene via the system prompt;
 normal mode keeps the task via self-correction; the battle loop keeps the fix
 via its retry/reflect/verify cycle.
+
+
+## 11. The Laws of a Battle — gather, plan, verify, self-correct, deliver (2026-11-11)
+
+Every battle — `/fix`, `/do`, `/build`, and the nightly campaign — obeys these
+laws. They are **not** optional loop tricks; they are how Magic turns a weak,
+fixed local model into a reliable engineer (the uplift is the scaffolding, not
+the weights — see [[harness-uplift-goal]]). Each law names where it is enforced
+and the test that guards it, so a law can't silently rot into "just a loop."
+
+**Law 1 — Gather context first.** The model may not touch code before it has
+looked. `run_battle` phase-gates the toolset to EXPLORE_TOOLS (list_dir /
+repo_map / grep / view_file) until the model has explored; the system prompt
+orders list_dir/repo_map as the first action; a symbol-level repo_map is
+assembled into the opening. (`battle._assemble_system`, `phase_gate`;
+`tests/magic/test_phase_gate_repomap.py`)
+
+**Law 2 — Plan, then act.** A best-of-2 plan is drawn and scored before the
+first action; the winner rides in the opening and the ReAct loop follows it.
+(`battle._plan` / `_score_plan`)
+
+**Law 3 — Verify silently in a sandbox.** Changes land in a throwaway copy of
+the repo and the real test suite is the oracle; the user never sees unverified
+code. (`PytestVerifier`, the `on_done` closure, the work-copy in commands.py /
+campaign.py)
+
+**Law 4 — Self-correct on failure, trimmed to the core.** A failing check is
+not a dead end: the error is distilled to its core line (`error_distill.core`)
+and fed back as "that broke it — fix exactly this," and a premature DONE is
+rejected until the check passes. Old tool outputs fold to their core too
+(`_condense_messages` / `_result_gist`), so the model never drowns in its own
+logs. (`tests/test_error_distill.py`, `tests/test_condense_gist.py`,
+`tests/magic/test_battle_laws.py`)
+
+**Law 5 — Deliver only when green.** DONE is accepted only when `on_done`
+reports the check passing (score ≥ 0.999). Anything less loops back to Law 4;
+nothing half-working is ever presented as done.
+(`tests/magic/test_battle_laws.py`)
+
+**Supporting law — structured output is enforced, not requested.** Every ReAct
+turn is GBNF-grammar-constrained (an allowed tool + well-formed JSON args,
+nothing after), and intent classification is grammar-pinned to an enum of the
+real registered tools — so the model physically cannot emit broken JSON or
+invent a tool, which is where a weak model otherwise drifts into garbage.
+(`grammars.react_turn_grammar`, `intent._classify_grammar`;
+`tests/magic/test_react_grammar.py`, `tests/test_intent_grammar.py`)
