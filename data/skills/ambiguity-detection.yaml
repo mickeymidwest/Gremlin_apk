@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 150
+  uses: 156
   wins: 0
-  losses: 150
+  losses: 156
   score_deltas:
   - 0.0
   - 0.0
@@ -169,5 +169,11 @@ record:
   - 0.0
   - 0.0
   - 0.0
-  last_used_battle: battle_0028_csvreport
-  battles_available: 150
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0029_csvreport
+  battles_available: 156
