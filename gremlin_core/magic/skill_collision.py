@@ -49,3 +49,42 @@ def report(items) -> str:
     for a, b, why in items:
         lines.append(f"  {a} / {b} -- {why}")
     return "\n".join(lines)
+
+
+def _identical_active_groups(active) -> "list[list]":
+    """Active cards grouped by (purpose, trigger_when) -- an EXACT match on both
+    is a true duplicate even when the names differ (auto-generated near-dupes).
+    Only groups of >1."""
+    from collections import defaultdict
+    g = defaultdict(list)
+    for s in active:
+        g[(s.purpose.strip().lower(), s.trigger_when.strip().lower())].append(s)
+    return [v for v in g.values() if len(v) > 1]
+
+
+def dedupe(root: str, *, apply: bool = False) -> dict:
+    """Merge true-duplicate ACTIVE cards: keep the best (most wins/uses), fold
+    the losers' records into it, and retire the losers to _deprecated/
+    (recoverable, never deleted). Dry-run unless apply=True. Returns a plan."""
+    from .store import Store
+    store = Store(root)
+    allsk = store.read_skills()
+    active = [s for s in allsk if getattr(s, "status", "") != "deprecated"]
+    groups = _identical_active_groups(active)
+    plan = []
+    for group in groups:
+        keeper = max(group, key=lambda s: (s.record.wins, s.record.uses, -s.created))
+        losers = [s for s in group if s.id != keeper.id]
+        plan.append({"keep": keeper.name, "merge": [x.name for x in losers]})
+        if apply:
+            for x in losers:
+                keeper.record.uses += x.record.uses
+                keeper.record.wins += x.record.wins
+                keeper.record.losses += x.record.losses
+                keeper.record.score_deltas = list(keeper.record.score_deltas) + list(x.record.score_deltas)
+                x.status = "deprecated"
+    if apply and plan:
+        store.write_skills(allsk)
+    return {"groups": len(groups),
+            "merged": sum(len(p["merge"]) for p in plan),
+            "applied": apply, "plan": plan}

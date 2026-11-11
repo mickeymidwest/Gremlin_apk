@@ -1048,6 +1048,14 @@ async def main():
             from gremlin_core.magic.store import Store
             print(skill_collision.report(
                 skill_collision.collisions(Store(PROJECT_ROOT).read_skills())))
+        elif cmd == "skill-dedupe":
+            from gremlin_core.magic import skill_collision
+            apply = "--apply" in sys.argv[2:]
+            r = skill_collision.dedupe(PROJECT_ROOT, apply=apply)
+            for p in r["plan"]:
+                print(f"  keep {p['keep']!r}, retire {p['merge']}")
+            verb = "retired" if apply else "would retire (use --apply)"
+            print(f"{r['merged']} duplicate card(s) {verb}; {r['groups']} group(s).")
         elif cmd == "mine-skills":
             from gremlin_core.magic import skill_mining
             from gremlin_core.magic.store import Store
