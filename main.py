@@ -1065,6 +1065,9 @@ async def main():
             from gremlin_core.magic import fuzz_state
             tgt = sys.argv[2] if len(sys.argv) > 2 else ""
             print(fuzz_state.summary(tgt) if tgt else "usage: gremlin fuzz-crashes <target>")
+        elif cmd == "error-ledger":
+            from gremlin_core import error_ledger
+            print(error_ledger.summary(PROJECT_ROOT))
         elif cmd == "context":
             from gremlin_core.magic import context_bundle
             seeds = [a for a in sys.argv[2:] if not a.startswith("-")]

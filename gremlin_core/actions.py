@@ -27,6 +27,15 @@ from .registry import ModelRegistry
 from .router import Router
 
 
+def _action_context(tool, intent) -> str:
+    """A stable, human-readable description of the step being attempted, used
+    as the error-ledger key: the tool name plus its salient scalar args (the
+    command / unit / path), so the same step fingerprints the same each time."""
+    args = intent.args or {}
+    salient = " ".join(str(v) for v in args.values() if isinstance(v, (str, int, float)))
+    return f"{getattr(tool, 'name', '?')} {salient}".strip()
+
+
 async def execute(
     intent: Intent,
     router: Router,
@@ -44,6 +53,12 @@ async def execute(
     if tool is None:
         return {"answer": "", "action": "chat", "ok": True}
     ctx = tools.ExecContext(router=router, registry=registry, project_root=project_root, history=history)
+    _ctx = _action_context(tool, intent)
+    try:
+        from . import error_ledger
+        _pre = error_ledger.preflight_note(project_root, _ctx)
+    except Exception:
+        _pre = ""
     result = await tool.handler(intent.args or {}, ctx)
     # Roadmap #105: this is the one place every classified/confirmed
     # action actually runs, chat-triggered or otherwise -- self_edit and
@@ -73,8 +88,14 @@ async def execute(
     # gets 'what went wrong + the steps to fix' instead of a dead-end error.
     if not result.get("ok", True):
         try:
-            from . import self_correct
-            result["answer"] = self_correct.enrich(result.get("answer", ""))
+            from . import self_correct, error_ledger
+            _err = result.get("error") or result.get("answer", "") or ""
+            error_ledger.record(project_root, _ctx, _err)
+            result["answer"] = self_correct.enrich(result.get("answer", ""), _err)
+            if _pre:
+                # recompute after record so the count is cumulative (2x on the
+                # second failure, not the 1x that recall saw before this run)
+                result["answer"] = (result.get("answer", "") or "") + error_ledger.preflight_note(project_root, _ctx)
         except Exception:
             pass
     return result
