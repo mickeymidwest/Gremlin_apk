@@ -429,8 +429,20 @@ def _action_gist(text: str) -> str:
 
 
 def _result_gist(text: str) -> str:
-    """One line for a tool-result / harness-note turn."""
+    """One line for an old tool-result / harness-note turn. For an error or
+    test result, keep the CORE line (what broke) so folding prunes the banner
+    noise WITHOUT losing the signal the model needs; otherwise the first
+    line. A [N chars] tag marks how much was pruned."""
     first = next((l.strip() for l in text.splitlines() if l.strip()), "")
+    if re.search(r"\b\d+ (failed|error)\b|FAILED|AssertionError|assert |error:|Exception|Traceback", text):
+        try:
+            from .. import error_distill
+            c = error_distill.core(text, max_lines=2, max_chars=180)
+            if c:
+                one = c.replace("\n", " | ")
+                return f"{one[:160]}  [{len(text)} chars]"
+        except Exception:
+            pass
     return f"{first[:90]}  [{len(text)} chars]"
 
 
