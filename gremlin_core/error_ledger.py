@@ -141,6 +141,19 @@ def preflight_note(root: str, context: str) -> str:
         return ""
 
 
+def top_recurring(root: str, *, min_count: int = 2, limit: int = 3) -> list:
+    """The box's most-repeated failure modes (count >= min_count), worst
+    first -- the ones worth warning the model about up front. Empty when
+    nothing has actually recurred, so a healthy box injects no noise."""
+    try:
+        data = _load(root)
+    except Exception:
+        return []
+    hits = [e for e in data.values() if int(e.get("count", 0)) >= min_count]
+    return sorted(hits, key=lambda e: (int(e.get("count", 0)), e.get("last_seen", 0)),
+                  reverse=True)[:limit]
+
+
 def summary(root: str, limit: int = 20) -> str:
     """Human-readable 'what keeps biting me' list, worst first -- for a CLI."""
     data = _load(root)

@@ -299,6 +299,25 @@ async def _look_first(message: str, root: str) -> tuple[list[str], str]:
         return [], ""
 
 
+def _pitfalls_block(root: str) -> str:
+    """Standing awareness of this box's recurring failure modes, injected
+    into the prompt so the model avoids a known mistake WHILE generating --
+    the preventive half of the error ledger. Only failures seen 2x+ go in,
+    so a healthy box adds nothing."""
+    try:
+        from .. import error_ledger
+        hits = error_ledger.top_recurring(root)
+    except Exception:
+        return ""
+    if not hits:
+        return ""
+    lines = ["Known pitfalls on this box (do not repeat these):"]
+    for e in hits:
+        first = (e.get("steps") or [""])[0]
+        lines.append(f"- {e.get('what', '')} -> {first}")
+    return "\n".join(lines)
+
+
 def _build_prompt(message: str, root: str, history: str, evidence: str = "",
                   web_evidence: str = ""):
     """(prompt, history_msgs) for the backend: the user's line as the
@@ -314,6 +333,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         prof,
         _memory_block(root, message),
         _skills_block(root, message),
+        _pitfalls_block(root),
         notes.recent_away_context(root),
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
