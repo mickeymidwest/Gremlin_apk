@@ -971,3 +971,36 @@ REGISTRY.register(Tool(
     destructive=False,
     capability="read_only",
 ))
+
+
+async def _tool_check_file(args, ctx):
+    from . import diagnostics, fs_tools, override_session
+    path = str(args.get("path") or args.get("file") or "").strip()
+    p = fs_tools._resolve(path, ctx.project_root, allow_home=override_session.is_active()) if path else None
+    if p is None:
+        return {"answer": "Which file should I check? (must be in scope)",
+                "action": "check_file", "ok": False}
+    r = diagnostics.check_file(str(p))
+    if not r.get("checker_ran"):
+        return {"answer": f"No diagnostics checker for {path} (unknown language).",
+                "action": "check_file", "ok": True}
+    return {"answer": f"{path}: {diagnostics.summary(r)}",
+            "action": "check_file", "ok": bool(r.get("ok"))}
+
+
+REGISTRY.register(Tool(
+    name="check_file",
+    description=(
+        "statically check a code file for errors WITHOUT running it -- syntax /"
+        " parse errors, and lint problems when a linter is installed "
+        "(\"does auth.py have errors\", \"check this script compiles\", \"lint config.json\"). "
+        "Read-only, jailed like read_file. Python/JS/shell/JSON/YAML. "
+        'args: {"path": "<file path>"}'
+    ),
+    parameters={"type": "object",
+                "properties": {"path": {"type": "string", "description": "file to check"}},
+                "required": ["path"]},
+    handler=_tool_check_file,
+    destructive=False,
+    capability="read_only",
+))

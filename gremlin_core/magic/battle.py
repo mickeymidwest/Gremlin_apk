@@ -714,6 +714,20 @@ def run_battle(task: Task, repo_path: str, model: Model,
 
         if snapshotting and result.ok and call.name in ("write_file", "edit_file"):
             _git_snapshot(repo_path, f"step {_step_n}: {call.name} {call.args.get('path', '')}")
+        # LSP-lite (OpenCode-style diagnostics): the moment the model edits
+        # a file, run a deterministic syntax check and surface any problem
+        # right now -- don't let it build three more steps on code that does
+        # not even parse. No LLM, no test run needed.
+        if result.ok and call.name in ("write_file", "edit_file"):
+            _ep = call.args.get("path", "")
+            if _ep:
+                try:
+                    from .. import diagnostics
+                    _dg = diagnostics.check_file(os.path.join(repo_path, _ep))
+                    if _dg.get("checker_ran") and not _dg.get("ok"):
+                        result_msg += f"\n\n[diagnostics {_ep}] " + diagnostics.summary(_dg)
+                except Exception:
+                    pass
 
         # Progress accounting (a resource-limit concern, the harness's job):
         # an agent that re-runs the check without editing between runs is
