@@ -1048,6 +1048,11 @@ async def main():
             from gremlin_core.magic.store import Store
             print(skill_collision.report(
                 skill_collision.collisions(Store(PROJECT_ROOT).read_skills())))
+        elif cmd == "mine-skills":
+            from gremlin_core.magic import skill_mining
+            from gremlin_core.magic.store import Store
+            print(skill_mining.report(
+                skill_mining.suggest(PROJECT_ROOT, Store(PROJECT_ROOT).read_skills())))
         elif cmd == "pair":
             data_dir = Path(PROJECT_ROOT) / "data"
             token = server.get_or_create_token(data_dir)
