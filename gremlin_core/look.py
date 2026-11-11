@@ -201,7 +201,10 @@ LIVE_MARK = "LIVE CHECK --"
 
 
 def context_block(evidence: str) -> str:
-    return (LIVE_MARK + " I (Gremlin) just ran these read-only commands on this desktop, a moment ago:\n\n"
+    from . import injection_guard
+    _g = injection_guard.guard_note(evidence, "command output")
+    _g = (_g + "\n\n") if _g else ""
+    return (_g + LIVE_MARK + " I (Gremlin) just ran these read-only commands on this desktop, a moment ago:\n\n"
             + evidence +
             "\n\nAnswer the user's question from this output only. Quote the real numbers and names from it. "
             "If the output doesn't answer the question (a tool missing, nothing listed), say that plainly "

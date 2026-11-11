@@ -222,7 +222,10 @@ def should_search(message: str) -> bool:
 
 
 def _evidence_block(query: str, results: list[dict]) -> str:
-    lines = [
+    from . import injection_guard
+    _blob = " ".join(((r.get("title") or "") + " " + (r.get("snippet") or "")) for r in results)
+    _guard = injection_guard.guard_note(_blob, "web")
+    lines = ([_guard] if _guard else []) + [
         f'Live web search results for "{query.strip()}". Use them to answer '
         "accurately and up to date; weave the facts in naturally and don't "
         "just paste the list. If they don't actually answer the question, say "
