@@ -495,7 +495,7 @@ before the human steps in.
   override/can-do, permission → override, bad name → list units, OOM → free RAM,
   compile/test fail → fix the first error) and says the steps; a degenerate
   reply is stopped at the token level; a DONE with a still-failing check is
-  rejected and fed back. TODO: regenerate (not just stop) after a degeneration.
+  rejected and fed back; a degenerate non-stream reply is now re-rolled once (a fresh sample usually comes out clean; the stream path still just stops).
 
 **3. Multi-model fusion.** Route reasoning between distinct minds; no single
 model's blind spot lands a change.

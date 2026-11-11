@@ -256,11 +256,25 @@ class LlamaCppBackend(ModelBackend):
                 fut = loop.run_in_executor(self._executor, _run)
                 await _wait_for_worker(fut)
                 result = fut.result()
+                text = result["choices"][0]["message"]["content"]
+                # Degeneration recovery (Organoid regenerative engine): if the
+                # answer looped or wouldn't stop and we aren't grammar-bound,
+                # roll it once more -- a fresh sample usually comes out clean,
+                # instead of handing back a broken reply.
+                if _grammar is None and output_health.degeneration(text):
+                    try:
+                        fut2 = loop.run_in_executor(self._executor, _run)
+                        await _wait_for_worker(fut2)
+                        r2 = fut2.result()
+                        t2 = r2["choices"][0]["message"]["content"]
+                        if t2 and not output_health.degeneration(t2):
+                            result, text = r2, t2
+                    except Exception:
+                        pass
                 self._last_used = time.monotonic()
             finally:
                 self._lock.release()
 
-            text = result["choices"][0]["message"]["content"]
             usage = result.get("usage") or {}
             meta = {"usage": usage} if usage else {}
             if self.strip_reasoning:
