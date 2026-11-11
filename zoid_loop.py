@@ -84,15 +84,11 @@ def _readme_goal(repo: Path, fallback: str) -> str:
 
 
 def _mem_available_mb() -> int:
-    """MemAvailable from /proc/meminfo. 99999 if it can't be read -- a
-    missing reading must never be a reason to stall the loop."""
-    try:
-        for ln in Path("/proc/meminfo").read_text().splitlines():
-            if ln.startswith("MemAvailable:"):
-                return int(ln.split()[1]) // 1024
-    except Exception:
-        pass
-    return 99999
+    """MemAvailable in MB, via the unified resource governor. 99999 if it
+    can't be read -- a missing reading must never stall the loop."""
+    from gremlin_core import resource
+    gb = resource.ram_available_gb()
+    return int(gb * 1024) if gb is not None else 99999
 
 
 def _reclaim_memory(log) -> int:
@@ -110,12 +106,10 @@ _DISK_FLOOR_GB = 3.0
 
 
 def _disk_free_gb(path: str = "/") -> float:
-    """Free GB on `path`'s filesystem; a huge number if it can't be read, so a
-    missing reading never stalls the loop."""
-    try:
-        return shutil.disk_usage(path).free / 1e9
-    except OSError:
-        return 999.0
+    """Free GB via the unified resource governor; huge number if unreadable."""
+    from gremlin_core import resource
+    v = resource.disk_free_gb(path)
+    return v if v is not None else 999.0
 
 
 def _disk_gate(log, floor_gb: float = _DISK_FLOOR_GB, path: str = "/") -> bool:

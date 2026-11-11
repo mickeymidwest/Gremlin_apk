@@ -539,6 +539,16 @@ def run_battle(task: Task, repo_path: str, model: Model,
     _auto_check = "pytest" in _check_cmd and not readonly and not protect_glob
 
     transcript = Transcript(task_id=task.id, skills_available=available_skill_ids)
+    # Governor preflight (Organoid #4): note if we're starting a battle under
+    # low resources, so a later OOM/disk failure has context.
+    try:
+        from .. import resource
+        _rok, _rwhy = resource.ok_for_heavy()
+        if not _rok:
+            transcript.steps.append(StepRecord(
+                kind="note", content=f"harness: starting under low resources -- {_rwhy}"))
+    except Exception:
+        pass
     opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
     if lessons:
         opening += ("\n\nLESSONS from past attempts at tasks like this "
