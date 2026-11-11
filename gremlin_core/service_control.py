@@ -18,6 +18,7 @@ Two kinds, matching what's actually real on this box:
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -26,16 +27,66 @@ import yaml
 from .sandbox import SandboxResult, SecureExecutionSandbox
 
 
+def _extra_allow_path(project_root: str) -> Path:
+    # Mickey-added "can-do" entries live here, NOT in models.yaml, so adding a
+    # service never rewrites the hand-maintained config (comments and all).
+    return Path(project_root) / "data" / "service_allow.json"
+
+
+def _load_extra(project_root: str) -> dict:
+    try:
+        d = json.loads(_extra_allow_path(project_root).read_text())
+    except (OSError, json.JSONDecodeError):
+        return {"docker": [], "systemd": []}
+    return {"docker": [str(x) for x in (d.get("docker") or [])],
+            "systemd": [str(x) for x in (d.get("systemd") or [])]}
+
+
+def add_allow(project_root: str, kind: str, name: str) -> dict:
+    """Add a service/container to the can-do list (the extra file). kind is
+    'docker' or 'systemd'. Returns the merged allow-list."""
+    kind = "systemd" if kind not in ("docker", "systemd") else kind
+    name = (name or "").strip()
+    extra = _load_extra(project_root)
+    if name and name not in extra[kind]:
+        extra[kind].append(name)
+        p = _extra_allow_path(project_root)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(extra, indent=2))
+        except OSError:
+            pass
+    return _load_allowlist(project_root)
+
+
+def remove_allow(project_root: str, name: str) -> dict:
+    """Remove a name from the can-do extra file (never touches models.yaml)."""
+    name = (name or "").strip()
+    extra = _load_extra(project_root)
+    changed = False
+    for k in ("docker", "systemd"):
+        if name in extra[k]:
+            extra[k] = [x for x in extra[k] if x != name]
+            changed = True
+    if changed:
+        try:
+            _extra_allow_path(project_root).write_text(json.dumps(extra, indent=2))
+        except OSError:
+            pass
+    return _load_allowlist(project_root)
+
+
 def _load_allowlist(project_root: str) -> dict:
     path = Path(project_root) / "config" / "models.yaml"
     try:
         data = yaml.safe_load(path.read_text()) or {}
     except Exception:
-        return {"docker": [], "systemd": []}
+        data = {}   # no/unreadable config -> still merge the extra can-do file
     sc = data.get("service_control") or {}
+    extra = _load_extra(project_root)
     return {
-        "docker": [str(n) for n in (sc.get("docker") or [])],
-        "systemd": [str(n) for n in (sc.get("systemd") or [])],
+        "docker": sorted(set([str(n) for n in (sc.get("docker") or [])]) | set(extra["docker"])),
+        "systemd": sorted(set([str(n) for n in (sc.get("systemd") or [])]) | set(extra["systemd"])),
     }
 
 
