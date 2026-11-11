@@ -1053,6 +1053,10 @@ async def main():
             from gremlin_core.magic.store import Store
             print(skill_mining.report(
                 skill_mining.suggest(PROJECT_ROOT, Store(PROJECT_ROOT).read_skills())))
+        elif cmd == "fuzz-crashes":
+            from gremlin_core.magic import fuzz_state
+            tgt = sys.argv[2] if len(sys.argv) > 2 else ""
+            print(fuzz_state.summary(tgt) if tgt else "usage: gremlin fuzz-crashes <target>")
         elif cmd == "pair":
             data_dir = Path(PROJECT_ROOT) / "data"
             token = server.get_or_create_token(data_dir)

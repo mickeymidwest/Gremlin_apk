@@ -125,6 +125,15 @@ class FuzzVerifier:
         execs = [int(m.group(1)) for m in _EXECS_RE.finditer(out)]
         max_execs = max(execs) if execs else 0
         crash = bool(_CRASH_RE.search(out))
+        if crash:
+            # Fuzzing crash memory (Gremlin's request): keep the crashing
+            # input + signature before the temp dir is wiped, deduped per target.
+            try:
+                from . import fuzz_state
+                art = next((f.read_bytes() for f in sorted(work.glob('crash-*'))), None)
+                fuzz_state.record_crash(task.id, output=out, artifact=art)
+            except Exception:
+                pass
         shutil.rmtree(work, ignore_errors=True)
 
         if crash:

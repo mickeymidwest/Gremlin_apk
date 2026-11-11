@@ -106,3 +106,4 @@ merge_env/
 # Local-only extras (per-box, never committed) and runtime guard baselines
 local_plugins/
 data/guard/
+data/fuzz_state/
