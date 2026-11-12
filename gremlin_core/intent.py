@@ -121,7 +121,30 @@ _ACTION_HINT = re.compile(
 )
 
 
-def _build_classify_prompt() -> str:
+_WORD_RE = re.compile(r"[a-z]+")
+
+
+def _relevant_tool_names(message: str, limit: int = 6) -> "list[str]":
+    """Tools worth showing the classifier for THIS message, ranked by word
+    overlap with each tool's name+description, so the prompt stays lean (a
+    weak model is confused + token-bloated by 20+ tool schemas). A catch-all
+    (run_command) is always kept so a genuine action can still route."""
+    msg = set(_WORD_RE.findall((message or "").lower()))
+    vis = [t for t in tools_mod.REGISTRY.all() if t.classifier_visible]
+
+    def _score(t):
+        hay = set(_WORD_RE.findall((t.name + " " + t.description).lower()))
+        return len(msg & hay)
+
+    ranked = sorted(vis, key=lambda t: (-_score(t), t.name))
+    chosen = [t.name for t in ranked if _score(t) > 0][:limit]
+    for core in ("run_command",):
+        if core not in chosen and tools_mod.REGISTRY.get(core) is not None:
+            chosen.append(core)
+    return chosen
+
+
+def _build_classify_prompt(tool_names=None) -> str:
     """Assembled from tools.py's ToolRegistry so this prompt can never
     drift out of sync with the actual dispatch table in actions.py --
     the old failure mode was a new tool registered in actions.py's
@@ -142,7 +165,7 @@ def _build_classify_prompt() -> str:
         "a project\" -- not just \"write\").",
     ]
     for tool in tools_mod.REGISTRY.all():
-        if tool.classifier_visible:
+        if tool.classifier_visible and (tool_names is None or tool.name in tool_names):
             lines.append(f"- {tool.name}: {tool.description}")
     lines += [
         "",
@@ -225,26 +248,25 @@ def _parse_classification(raw: str) -> Optional[Intent]:
 _CLASSIFY_GRAMMAR_CACHE: "tuple[int, dict] | None" = None
 
 
-def _classify_grammar() -> dict:
+def _classify_grammar(tool_names=None) -> dict:
     """A JSON-schema grammar that pins the classifier's output shape and limits
-    `action` to the real registered tools (+ chat), so the model can neither
-    emit broken JSON nor invent a tool. Cached; rebuilt only if the registry
-    changes size (e.g. a tool registered at runtime)."""
-    global _CLASSIFY_GRAMMAR_CACHE
-    actions = sorted({t.name for t in tools_mod.REGISTRY.all() if t.classifier_visible}
-                     | {"chat"})
-    if _CLASSIFY_GRAMMAR_CACHE is None or _CLASSIFY_GRAMMAR_CACHE[0] != len(actions):
-        schema = {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": actions},
-                "args": {"type": "object"},
-                "confidence": {"type": "number"},
-            },
-            "required": ["action", "confidence"],
-        }
-        _CLASSIFY_GRAMMAR_CACHE = (len(actions), schema)
-    return _CLASSIFY_GRAMMAR_CACHE[1]
+    `action` to the tools SHOWN this call (+ chat) -- so the model can neither
+    emit broken JSON nor pick a tool it wasn't offered. Built per call;
+    grammars.compile caches by content, so a repeated enum reuses the GBNF."""
+    if tool_names is None:
+        names = {t.name for t in tools_mod.REGISTRY.all() if t.classifier_visible}
+    else:
+        names = set(tool_names)
+    actions = sorted(names | {"chat"})
+    return {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": actions},
+            "args": {"type": "object"},
+            "confidence": {"type": "number"},
+        },
+        "required": ["action", "confidence"],
+    }
 
 
 async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6) -> Intent:
@@ -281,8 +303,9 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
         return Intent(action="chat", confidence=1.0)
 
     try:
-        result = await router.route(model_name, _CLASSIFY_PROMPT + text,
-                                     grammar=_classify_grammar())
+        _rel = _relevant_tool_names(text)
+        result = await router.route(model_name, _build_classify_prompt(_rel) + text,
+                                     grammar=_classify_grammar(_rel))
     except Exception:
         return Intent(action="chat", confidence=1.0)
     if not result.ok:
