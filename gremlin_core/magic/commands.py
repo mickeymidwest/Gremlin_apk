@@ -821,6 +821,70 @@ async def _recipe(args: str, ctx) -> dict:
     return await _chat(prompt, ctx)
 
 
+
+async def _forge(args: str, ctx) -> dict:
+    """The Tool Forge from chat/app. `new <name>: <what it should do>` has Magic
+    WRITE the tool (model), validate + security-scan + sandbox it, and load it
+    live. Also: list | test <name> [json] | remove <name>."""
+    from .. import tool_forge
+    toks = (args or "").strip().split(None, 1)
+    sub = (toks[0] if toks else "list").lower()
+    rest = toks[1] if len(toks) > 1 else ""
+
+    if sub in ("", "list"):
+        rows = tool_forge.list_forged(ctx.project_root)
+        if not rows:
+            return {"ok": True, "action": "chat",
+                    "answer": "No forged tools yet. Try: /forge new <name>: <what it should do>"}
+        body = "\n".join(f"forged_{r['name']} [{r['capability']}] -- {r['description']}" for r in rows)
+        return {"ok": True, "action": "chat", "answer": "Forged tools:\n" + body}
+
+    if sub == "remove":
+        nm = rest.strip()
+        gone = tool_forge.remove(nm, ctx.project_root)
+        return {"ok": gone, "action": "chat",
+                "answer": (f"Removed {nm} (restart to unregister it live)." if gone
+                           else f"No forged tool named {nm!r}.")}
+
+    if sub == "test":
+        import json as _j
+        parts = rest.split(None, 1)
+        nm = parts[0] if parts else ""
+        try:
+            a = _j.loads(parts[1]) if len(parts) > 1 else {}
+        except Exception:
+            a = {}
+        out = await tool_forge.run_forged(nm, a, ctx.project_root)
+        return {"ok": bool(out.get("ok")), "action": "chat", "answer": out.get("answer", "")}
+
+    if sub == "new":
+        if ":" in rest:
+            nm, desc = rest.split(":", 1)
+            nm, desc = nm.strip() or None, desc.strip()
+        else:
+            nm, desc = None, rest.strip()
+        if not desc:
+            return {"ok": False, "action": "chat",
+                    "answer": "Usage: /forge new <name>: <what the tool should do>"}
+        backend = ctx.registry.get("gremlin")
+        if backend is None:
+            return {"ok": False, "action": "chat", "answer": "no model available"}
+        from .model import BackendModel
+        model = BackendModel(backend, loop=ctx.loop)
+        r = tool_forge.author(desc, model, ctx.project_root, name=nm)
+        if not r.get("ok"):
+            extra = f"\n\n(draft:\n{r.get('code', '')[:500]})" if r.get("code") else ""
+            return {"ok": False, "action": "chat",
+                    "answer": f"Couldn't forge it: {r.get('error', 'failed')}{extra}"}
+        tool_forge.load_into_registry(ctx.project_root)
+        return {"ok": True, "action": "chat",
+                "answer": (f"Forged `forged_{r['name']}` and loaded it (runs sandboxed). "
+                           f"Code:\n\n{r.get('code', '')[:800]}")}
+
+    return {"ok": False, "action": "chat",
+            "answer": "/forge list | new <name>: <desc> | test <name> [json] | remove <name>"}
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Gremlin. No tools, no routing.", _chat),
     "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
@@ -842,6 +906,7 @@ COMMANDS: dict[str, Command] = {
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
                    "and shows the diff.", _fix),
     "recipe": Command("recipe", "Saved parameterized workflows: list | <name> key=val ... (modes chat/plan/build). Files: data/recipes/*.yaml.", _recipe),
+    "forge": Command("forge", "The Tool Forge -- Magic builds its own tools: list | new <name>: <what it should do> | test <name> [json] | remove <name>. Forged tools are security-scanned and run sandboxed.", _forge),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }

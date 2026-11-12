@@ -66,6 +66,57 @@ def _dir(root: str) -> Path:
     return Path(root) / _DIR
 
 
+# --- self-building: the model writes its own tool -----------------------------
+_CODE_BLOCK = re.compile(r"```(?:python)?\s*(.*?)```", re.S)
+_AUTHOR_PROMPT = """Write ONE Python function that implements this tool:
+
+    {description}
+
+Rules:
+- the signature must be exactly:  def run(args):   (args is a dict)
+- return a dict shaped like {{"ok": True, "answer": "<result text>"}}
+- standard library only; no network calls, no destructive actions
+- no shell=True, no os.system, no eval/exec/__import__, no sudo
+Return ONLY the function in a ```python code block, nothing else."""
+
+
+def _extract_code(text: str) -> str:
+    m = _CODE_BLOCK.search(text or "")
+    code = m.group(1) if m else (text or "")
+    idx = code.find("def run")
+    return (code[idx:] if idx >= 0 else code).strip()
+
+
+def _name_from(description: str) -> str:
+    words = re.findall(r"[a-z]+", (description or "").lower())
+    return ("_".join(words[:3]) or "tool")[:40]
+
+
+def author(description: str, model, root: str, *, name: str | None = None,
+           capability: str = "read_only") -> dict:
+    """Self-building: have the MODEL write a forged tool for `description`, then
+    run it through the same forge (security scan + diagnostics + persist). The
+    result carries the generated `code` so a caller can show it before it is
+    trusted. Never raises. This is Agent Zero's 'tool creation is just another
+    task' -- with Magic's validation + sandbox as the seatbelt."""
+    try:
+        r = model.complete([{"role": "user", "content": _AUTHOR_PROMPT.format(description=description)}],
+                           system="You write small, safe, single-purpose Python tools.",
+                           max_tokens=700)
+        text = getattr(r, "text", "") or ""
+    except Exception as e:  # noqa
+        return {"ok": False, "error": f"model error: {type(e).__name__}"}
+    code = _extract_code(text)
+    if "def run" not in code:
+        return {"ok": False, "error": "the model did not return a usable run() function",
+                "code": code[:400]}
+    nm = name or _name_from(description)
+    out = forge(nm, description, code, root=root, capability=capability)
+    out["code"] = code
+    out.setdefault("name", nm)
+    return out
+
+
 def security_scan(code: str) -> list:
     """List of hard-blocked pattern names found in the code. Empty = clean."""
     text = code or ""
