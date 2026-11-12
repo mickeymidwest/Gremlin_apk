@@ -269,16 +269,24 @@ class ShellToolHost:
         # left untouched -- this is an instance-level override.
         self._forged_root = forged_root or str(Path(root).resolve())
         self._forged_names = set()
+        extra = {}
         if forged:
-            extra = {}
             for f in forged:
                 if readonly and f.get("capability") != "read_only":
                     continue
                 nm = "forged_" + f.get("name", "")
                 extra[nm] = (f"{nm}(args)  -- [forged] " + f.get("description", ""))[:160]
                 self._forged_names.add(nm)
-            if extra:
-                self.TOOLS = {**self.TOOLS, **extra}
+        # A building (non-readonly) battle may FORGE a new tool mid-run when it
+        # lacks a capability. (A readonly battle writes nothing, so no forging.)
+        if forged_root and not readonly:
+            extra["forge_tool"] = (
+                "forge_tool(name, description, code)  -- CREATE a new tool for yourself when you "
+                "lack a capability. `code` must define run(args)->dict, standard library only, no "
+                "destructive actions; it is security-checked + sandboxed, then usable immediately "
+                "as forged_<name>.")
+        if extra:
+            self.TOOLS = {**self.TOOLS, **extra}
         self.allowed = tuple(allowed) if allowed is not None else tuple(self.TOOLS)
         self.readonly = readonly
         # paths (relative-glob) the agent may READ but not write -- e.g. the
@@ -546,6 +554,28 @@ class ShellToolHost:
                 "method header, replace is the whole method with its body).")
         p.write_text(updated)
         return ToolResult(True, f"{verb} {rel} ({len(original)} -> {len(updated)} chars)")
+
+    def _t_forge_tool(self, args: dict) -> "ToolResult":
+        """Create a new tool mid-battle and make it usable right now. Runs the
+        same forge as /forge (security scan + diagnostics + sandbox). The new
+        tool is added to THIS toolhost's allowed set immediately."""
+        from .. import tool_forge
+        name = self._val(args, "name", "tool", "tool_name")
+        desc = self._val(args, "description", "desc", "purpose")
+        code = args.get("code") or args.get("source") or args.get("body") or ""
+        if not name or not str(code).strip():
+            return ToolResult(False, "forge_tool needs {name, description, code}; "
+                              "code must define run(args) and return a dict")
+        r = tool_forge.forge(name, desc, str(code), root=self._forged_root,
+                             capability="mutates_external")
+        if not r.get("ok"):
+            return ToolResult(False, "couldn't forge it: " + str(r.get("error", "")))
+        nm = "forged_" + r["name"]
+        self.TOOLS = {**self.TOOLS, nm: (f"{nm}(args)  -- [forged] " + (desc or ""))[:160]}
+        self._forged_names.add(nm)
+        if nm not in self.allowed:
+            self.allowed = tuple(self.allowed) + (nm,)
+        return ToolResult(True, f"forged {nm} -- you can call it now as  ACTION: {nm}")
 
     def unlock_all(self) -> None:
         """Called by battle.py once the agent has actually looked at the
