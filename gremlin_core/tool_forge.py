@@ -336,6 +336,42 @@ async def run_forged(name: str, args: dict, root: str, *, timeout: int = 30) -> 
             "answer": out or (res.stderr or "").strip() or "(no output)"}
 
 
+_SIZES = ("70b", "32b", "30b", "27b", "24b", "22b", "14b", "13b", "9b", "8b", "7b", "4b", "3b")
+
+
+def _size_key(name: str) -> int:
+    low = (name or "").lower()
+    for s in _SIZES:
+        if s in low:
+            return int(s[:-1])
+    return 0
+
+
+def best_coder_model(registry) -> "str | None":
+    """The strongest locally-available CODING model for self-authoring. A 14B+
+    coder (e.g. qwen2.5-coder-14b) writes cleaner tool code than the 8-9B pilot,
+    so self-modification is more reliable (and pairs with approval mode). Returns
+    a model name, or None -> the caller uses the pilot. Skips abliterated models
+    (tuned for freedom, not clean syntax) and non-local providers."""
+    try:
+        names = [m.get("name") for m in (getattr(registry, "raw_config", {}) or {}).get("models", [])]
+    except Exception:
+        return None
+
+    def present(n):
+        try:
+            return bool(n) and registry.get(n) is not None
+        except Exception:
+            return False
+
+    local = [n for n in names if present(n) and "abliterated" not in (n or "").lower()]
+    coders = [n for n in local if "coder" in (n or "").lower()]
+    if coders:
+        return max(coders, key=_size_key)
+    big = [n for n in local if _size_key(n) >= 13]
+    return max(big, key=_size_key) if big else None
+
+
 def load_into_registry(root: str, *, registry=None) -> int:
     """Register every forged tool as a first-class, sandboxed Tool. Returns the
     count. A tool whose files are malformed is skipped."""

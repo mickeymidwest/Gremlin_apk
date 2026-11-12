@@ -872,27 +872,49 @@ async def _forge(args: str, ctx) -> dict:
         if backend is None:
             return {"ok": False, "action": "chat", "answer": "no model available"}
         from .model import BackendModel
-        model = BackendModel(backend, loop=ctx.loop)
-        # author() calls model.complete synchronously -- run it OFF the event
-        # loop (like /do/_fix) so it never blocks the server (a blocked loop
-        # makes /status time out and the watchdog restarts mid-forge).
+        from . import vram
         import asyncio as _asyncio
+        # Self-modification is more reliable with a stronger coder model:
+        # swap in the best local coder (e.g. qwen2.5-coder-14b) to WRITE the
+        # tool, then restore the pilot.
+        _coder = tool_forge.best_coder_model(ctx.registry)
+        _primary = ctx.registry.primary_model_name()
+        _swapped = bool(_coder and _coder != _primary)
+        _ab = backend
+        if _swapped:
+            try:
+                await vram.ensure_only(ctx.registry, keep=_coder)
+                _ab = ctx.registry.get(_coder) or backend
+            except Exception:
+                _swapped = False
+        _authored_by = _coder if _swapped else "gremlin"
+        _author_model = BackendModel(_ab, loop=ctx.loop)
         _req = tool_forge.approval_required(ctx.project_root)
-        r = await _asyncio.get_event_loop().run_in_executor(
-            None, lambda: tool_forge.author(desc, model, ctx.project_root, name=nm,
-                                            require_approval=_req))
+        try:
+            r = await _asyncio.get_event_loop().run_in_executor(
+                None, lambda: tool_forge.author(desc, _author_model, ctx.project_root, name=nm,
+                                                require_approval=_req))
+        finally:
+            if _swapped:
+                try:
+                    await vram.ensure_only(ctx.registry, keep=_primary)
+                    _pb = ctx.registry.get(_primary)
+                    if _pb is not None:
+                        await _pb.warmup()
+                except Exception:
+                    pass
         if not r.get("ok"):
             extra = f"\n\n(draft:\n{r.get('code', '')[:500]})" if r.get("code") else ""
             return {"ok": False, "action": "chat",
                     "answer": f"Couldn't forge it: {r.get('error', 'failed')}{extra}"}
         if r.get("pending"):
             return {"ok": True, "action": "chat",
-                    "answer": (f"Forged `{r['name']}` -- PENDING your approval (not active yet).\n"
+                    "answer": (f"Forged `{r['name']}` (written by {_authored_by}) -- PENDING your approval (not active yet).\n"
                                f"`/forge approve {r['name']}` to enable it, or `/forge reject "
                                f"{r['name']}` to discard.\n\nCode:\n\n{r.get('code', '')[:800]}")}
         tool_forge.load_into_registry(ctx.project_root)
         return {"ok": True, "action": "chat",
-                "answer": (f"Forged `forged_{r['name']}` and loaded it (runs sandboxed). "
+                "answer": (f"Forged `forged_{r['name']}` (written by {_authored_by}) and loaded it (runs sandboxed). "
                            f"Code:\n\n{r.get('code', '')[:800]}")}
 
     if sub == "pending":
