@@ -15,9 +15,9 @@ provenance:
 - proposed
 created: 1793752469.3142495
 record:
-  uses: 248
-  wins: 68
-  losses: 176
+  uses: 258
+  wins: 71
+  losses: 183
   score_deltas:
   - 0.0
   - 0.0
@@ -267,5 +267,15 @@ record:
   - 0.0
   - 0.0
   - 0.0
-  last_used_battle: battle_0030_textutils
-  battles_available: 158
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.625
+  - 0.0
+  - 0.4154
+  - 1.0
+  last_used_battle: zoid_gen_tipcalc_1794458115
+  battles_available: 164
