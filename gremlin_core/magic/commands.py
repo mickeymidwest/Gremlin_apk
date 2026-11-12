@@ -201,6 +201,10 @@ async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
     coder = _coding_model_name(ctx)
     await vram.ensure_only(ctx.registry, keep=coder)
     model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("gremlin"), loop=ctx.loop)
+    # Concurrent CPU helper: a 2nd plan draft on the 4B (CPU, zero VRAM) runs
+    # alongside the GPU model's draft -- two heads, no swap.
+    _cpu = ctx.registry.get("qwen3.5-4b-cpu")
+    _plan_helper = BackendModel(_cpu, loop=ctx.loop) if _cpu is not None else None
     slug = sanitize_folder_name(name) or "gremlin-app"
     dest = str(Path(ctx.project_root).resolve().parent / slug)
 
@@ -279,7 +283,7 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
         # the server loop -- so this MUST be off the loop, in a thread.
         t = run_battle(task, str(work), model, skills, facts,
                        step_budget=10, time_budget_s=420, on_done=_on_done,
-                       forged_root=ctx.project_root)
+                       forged_root=ctx.project_root, plan_helper=_plan_helper)
         s = verifier.score(task, str(work), t)
         d = subprocess.run(
             ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",

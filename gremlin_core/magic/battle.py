@@ -347,7 +347,7 @@ def _score_plan(plan: str, task: Task) -> int:
     return score
 
 
-def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2) -> str:
+def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2, helper=None) -> str:
     """Pre-battle planning pass (MAGIC.md section 8, #5 + #7): draws
     `samples` plan drafts and keeps the best by _score_plan (a pure
     structural rubric -- HARNESS-SURVEY #10), so the opening move list is
@@ -360,16 +360,36 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2) -
                      key=lambda s: -_skill_rank(s, task))[:4]
     if matched:
         ctx += "\n\nRelevant procedures from past runs:\n" + "\n".join(s.render() for s in matched)
+    drafts: list = []
+    if helper is not None:
+        # Two heads at once: the GPU model + the CPU helper, concurrently
+        # (no VRAM contention), so planning gets model diversity in
+        # max(gpu, cpu) time rather than serial.
+        import concurrent.futures as _cf
+        def _one(m):
+            try:
+                r = m.complete([{"role": "user", "content": ctx}],
+                               system=_PLAN_SYSTEM, max_tokens=500)
+                return (r.text or "").strip()
+            except QuotaExhausted:
+                raise
+            except Exception:
+                return ""
+        with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
+            for _f in [_ex.submit(_one, model), _ex.submit(_one, helper)]:
+                drafts.append(_f.result())
+    else:
+        for _ in range(max(1, samples)):
+            try:
+                reply = model.complete([{"role": "user", "content": ctx}],
+                                       system=_PLAN_SYSTEM, max_tokens=600)
+            except QuotaExhausted:
+                raise                 # a hard quota wall -- fail fast, campaign.py handles it
+            except Exception:
+                continue
+            drafts.append((reply.text or "").strip())
     best, best_score = "", -4
-    for _ in range(max(1, samples)):
-        try:
-            reply = model.complete([{"role": "user", "content": ctx}],
-                                   system=_PLAN_SYSTEM, max_tokens=600)
-        except QuotaExhausted:
-            raise                 # a hard quota wall -- fail fast, campaign.py handles it
-        except Exception:
-            continue
-        cand = (reply.text or "").strip()
+    for cand in drafts:
         if not cand:
             continue
         sc = _score_plan(cand, task)
@@ -528,7 +548,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
                protect_glob: str | None = None,
                grammar_constrained: bool = True,
                checkpoint: bool = False,
-               forged_root: str | None = None) -> Transcript:
+               forged_root: str | None = None,
+               plan_helper=None) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
@@ -574,7 +595,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
         opening += ("\n\nLESSONS from past attempts at tasks like this "
                     "(avoid repeating these):\n" + "\n".join(f"- {x}" for x in lessons[:4]))
     if plan:
-        p = _plan(task, model, skills)
+        p = _plan(task, model, skills, helper=plan_helper)
         if p:
             transcript.steps.append(StepRecord(kind="note", content=f"PLAN\n{p}"))
             opening += f"\n\nYour plan:\n{p}\n\nFollow it. Adjust only if a step turns out wrong."
