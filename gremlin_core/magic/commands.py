@@ -877,19 +877,55 @@ async def _forge(args: str, ctx) -> dict:
         # loop (like /do/_fix) so it never blocks the server (a blocked loop
         # makes /status time out and the watchdog restarts mid-forge).
         import asyncio as _asyncio
+        _req = tool_forge.approval_required(ctx.project_root)
         r = await _asyncio.get_event_loop().run_in_executor(
-            None, lambda: tool_forge.author(desc, model, ctx.project_root, name=nm))
+            None, lambda: tool_forge.author(desc, model, ctx.project_root, name=nm,
+                                            require_approval=_req))
         if not r.get("ok"):
             extra = f"\n\n(draft:\n{r.get('code', '')[:500]})" if r.get("code") else ""
             return {"ok": False, "action": "chat",
                     "answer": f"Couldn't forge it: {r.get('error', 'failed')}{extra}"}
+        if r.get("pending"):
+            return {"ok": True, "action": "chat",
+                    "answer": (f"Forged `{r['name']}` -- PENDING your approval (not active yet).\n"
+                               f"`/forge approve {r['name']}` to enable it, or `/forge reject "
+                               f"{r['name']}` to discard.\n\nCode:\n\n{r.get('code', '')[:800]}")}
         tool_forge.load_into_registry(ctx.project_root)
         return {"ok": True, "action": "chat",
                 "answer": (f"Forged `forged_{r['name']}` and loaded it (runs sandboxed). "
                            f"Code:\n\n{r.get('code', '')[:800]}")}
 
+    if sub == "pending":
+        rows = tool_forge.list_pending(ctx.project_root)
+        if not rows:
+            return {"ok": True, "action": "chat", "answer": "No tools pending approval."}
+        body = "\n".join(f"{r['name']} -- {r['description']}" for r in rows)
+        return {"ok": True, "action": "chat",
+                "answer": "Pending your approval (`/forge approve <name>`):\n" + body}
+    if sub == "approve":
+        nm = rest.strip()
+        if tool_forge.approve(ctx.project_root, nm):
+            tool_forge.load_into_registry(ctx.project_root)
+            return {"ok": True, "action": "chat", "answer": f"Approved and loaded forged_{nm}."}
+        return {"ok": False, "action": "chat", "answer": f"No pending tool {nm!r}."}
+    if sub == "reject":
+        nm = rest.strip()
+        gone = tool_forge.reject(ctx.project_root, nm)
+        return {"ok": gone, "action": "chat",
+                "answer": (f"Discarded pending {nm}." if gone else f"No pending tool {nm!r}.")}
+    if sub == "approval":
+        want = rest.strip().lower()
+        if want in ("on", "off"):
+            tool_forge.set_approval(ctx.project_root, want == "on")
+            tail = (" Model-forged tools stage for your approval." if want == "on"
+                    else " Model-forged tools go live immediately (trust mode).")
+            return {"ok": True, "action": "chat", "answer": f"Forge approval is now {want.upper()}." + tail}
+        cur = tool_forge.approval_required(ctx.project_root)
+        return {"ok": True, "action": "chat",
+                "answer": f"Forge approval is {'ON' if cur else 'OFF'}. `/forge approval on|off` to change."}
     return {"ok": False, "action": "chat",
-            "answer": "/forge list | new <name>: <desc> | test <name> [json] | remove <name>"}
+            "answer": "/forge list | new <name>: <desc> | test <name> [json] | remove <name> | "
+                      "pending | approve <name> | reject <name> | approval on|off"}
 
 
 COMMANDS: dict[str, Command] = {

@@ -1120,6 +1120,32 @@ async def main():
                 print("usage: gremlin forge-rm <name>")
             else:
                 print("removed" if tool_forge.remove(sys.argv[2], PROJECT_ROOT) else "not found")
+        elif cmd == "forge-pending":
+            from gremlin_core import tool_forge
+            rows = tool_forge.list_pending(PROJECT_ROOT)
+            if not rows:
+                print("Nothing pending approval.")
+            for _t in rows:
+                print(f"{_t['name']} -- {_t['description']}")
+        elif cmd == "forge-approve":
+            from gremlin_core import tool_forge
+            if len(sys.argv) < 3:
+                print("usage: gremlin forge-approve <name>")
+            else:
+                print("approved" if tool_forge.approve(PROJECT_ROOT, sys.argv[2]) else "not found")
+        elif cmd == "forge-reject":
+            from gremlin_core import tool_forge
+            if len(sys.argv) < 3:
+                print("usage: gremlin forge-reject <name>")
+            else:
+                print("rejected" if tool_forge.reject(PROJECT_ROOT, sys.argv[2]) else "not found")
+        elif cmd == "forge-approval":
+            from gremlin_core import tool_forge
+            if len(sys.argv) > 2 and sys.argv[2] in ("on", "off"):
+                tool_forge.set_approval(PROJECT_ROOT, sys.argv[2] == "on")
+                print(f"forge approval {sys.argv[2]}")
+            else:
+                print("approval ON" if tool_forge.approval_required(PROJECT_ROOT) else "approval OFF")
         elif cmd == "recipes":
             from gremlin_core import recipes
             rows = recipes.list_recipes(PROJECT_ROOT)

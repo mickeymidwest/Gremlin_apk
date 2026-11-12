@@ -66,6 +66,87 @@ def _dir(root: str) -> Path:
     return Path(root) / _DIR
 
 
+def _approval_path(root: str) -> Path:
+    return Path(root) / "data" / "forge_approval.json"
+
+
+def approval_required(root: str) -> bool:
+    """Default True -- forging needs manual approval until the user turns it off
+    (a small local model can save a flawed tool; approve before it goes live)."""
+    try:
+        return bool(json.loads(_approval_path(root).read_text()).get("required", True))
+    except (OSError, ValueError):
+        return True
+
+
+def set_approval(root: str, required: bool) -> bool:
+    try:
+        p = _approval_path(root)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"required": bool(required)}))
+        return True
+    except OSError:
+        return False
+
+
+def _pending_dir(root: str) -> Path:
+    return _dir(root) / "_pending"
+
+
+def list_pending(root: str) -> list:
+    d = _pending_dir(root)
+    out = []
+    if not d.is_dir():
+        return out
+    for p in sorted(d.glob("*.json")):
+        try:
+            m = json.loads(p.read_text())
+            out.append({"name": m.get("name", p.stem),
+                        "description": m.get("description", ""),
+                        "capability": m.get("capability", "mutates_external")})
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def pending_code(root: str, name: str) -> str:
+    try:
+        return (_pending_dir(root) / f"{name}.py").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def approve(root: str, name: str) -> bool:
+    """Move a pending tool into the live set so it loads + runs."""
+    pd, d = _pending_dir(root), _dir(root)
+    d.mkdir(parents=True, exist_ok=True)
+    moved = False
+    for ext in (".py", ".json"):
+        src = pd / f"{name}{ext}"
+        if src.exists():
+            try:
+                src.rename(d / f"{name}{ext}")
+                moved = True
+            except OSError:
+                pass
+    return moved
+
+
+def reject(root: str, name: str) -> bool:
+    pd = _pending_dir(root)
+    gone = False
+    for ext in (".py", ".json"):
+        p = pd / f"{name}{ext}"
+        if p.exists():
+            try:
+                p.unlink()
+                gone = True
+            except OSError:
+                pass
+    return gone
+
+
+
 # --- self-building: the model writes its own tool -----------------------------
 _CODE_BLOCK = re.compile(r"```(?:python)?\s*(.*?)```", re.S)
 _AUTHOR_PROMPT = """Write ONE Python function that implements this tool:
@@ -93,7 +174,7 @@ def _name_from(description: str) -> str:
 
 
 def author(description: str, model, root: str, *, name: str | None = None,
-           capability: str = "read_only") -> dict:
+           capability: str = "read_only", require_approval: bool = False) -> dict:
     """Self-building: have the MODEL write a forged tool for `description`, then
     run it through the same forge (security scan + diagnostics + persist). The
     result carries the generated `code` so a caller can show it before it is
@@ -111,7 +192,8 @@ def author(description: str, model, root: str, *, name: str | None = None,
         return {"ok": False, "error": "the model did not return a usable run() function",
                 "code": code[:400]}
     nm = name or _name_from(description)
-    out = forge(nm, description, code, root=root, capability=capability)
+    out = forge(nm, description, code, root=root, capability=capability,
+                require_approval=require_approval)
     out["code"] = code
     out.setdefault("name", nm)
     return out
@@ -128,7 +210,8 @@ def _valid_name(name: str) -> bool:
 
 
 def forge(name: str, description: str, code: str, *, parameters: dict | None = None,
-          root: str, capability: str = "mutates_external", allow_unsafe: bool = False) -> dict:
+          root: str, capability: str = "mutates_external", allow_unsafe: bool = False,
+          require_approval: bool = False) -> dict:
     """Validate and persist a new tool. Returns {ok, error|name, blocked}.
     `code` must define `run(args: dict) -> dict`. The stdin/stdout harness is
     appended by the forge; the author writes only run()."""
@@ -149,7 +232,8 @@ def forge(name: str, description: str, code: str, *, parameters: dict | None = N
                     + diagnostics.summary(dg)}
     except Exception:
         pass
-    d = _dir(root)
+    approval = bool(require_approval)
+    d = _pending_dir(root) if approval else _dir(root)
     try:
         d.mkdir(parents=True, exist_ok=True)
         (d / f"{name}.py").write_text(code.rstrip() + "\n" + _HARNESS, encoding="utf-8")
@@ -162,7 +246,7 @@ def forge(name: str, description: str, code: str, *, parameters: dict | None = N
         (d / f"{name}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     except OSError as e:
         return {"ok": False, "error": f"couldn't write the tool: {e}"}
-    return {"ok": True, "name": name, "blocked": blocked}
+    return {"ok": True, "name": name, "blocked": blocked, "pending": approval}
 
 
 def list_forged(root: str) -> list:

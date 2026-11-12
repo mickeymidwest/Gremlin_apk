@@ -566,10 +566,14 @@ class ShellToolHost:
         if not name or not str(code).strip():
             return ToolResult(False, "forge_tool needs {name, description, code}; "
                               "code must define run(args) and return a dict")
+        _req = tool_forge.approval_required(self._forged_root)
         r = tool_forge.forge(name, desc, str(code), root=self._forged_root,
-                             capability="mutates_external")
+                             capability="mutates_external", require_approval=_req)
         if not r.get("ok"):
             return ToolResult(False, "couldn't forge it: " + str(r.get("error", "")))
+        if r.get("pending"):
+            return ToolResult(True, f"forged {r['name']!r} -- it is PENDING the user's "
+                              "approval, so it is NOT available in this battle. Carry on without it.")
         nm = "forged_" + r["name"]
         self.TOOLS = {**self.TOOLS, nm: (f"{nm}(args)  -- [forged] " + (desc or ""))[:160]}
         self._forged_names.add(nm)

@@ -1,6 +1,7 @@
-"""Mid-battle forge: a building battle creates a tool and uses it immediately."""
+"""Mid-battle forge: a building battle creates a tool and uses it."""
 import json
 
+from gremlin_core import tool_forge as TF
 from gremlin_core.magic.battle import run_battle
 from gremlin_core.magic.model import ScriptedModel
 from gremlin_core.magic.types import Task
@@ -15,6 +16,7 @@ def _forge_action():
 
 
 def test_battle_forges_a_tool_midrun_and_uses_it(tmp_path):
+    TF.set_approval(str(tmp_path), False)   # trust mode: mid-battle forge is live now
     (tmp_path / "x.txt").write_text("hi")
     model = ScriptedModel([
         'ACTION: read_file\n```json\n{"path": "x.txt"}\n```',   # explore -> unlocks forge_tool
@@ -32,6 +34,26 @@ def test_battle_forges_a_tool_midrun_and_uses_it(tmp_path):
     assert used and "forged says: hello" in used[0].tool_result
     # and it persisted to disk
     assert (tmp_path / "data" / "forged_tools" / "sayer.py").exists()
+
+
+def test_midbattle_forge_stages_to_pending_when_approval_on(tmp_path):
+    # default = approval ON: a mid-battle forge is staged, NOT usable this battle
+    (tmp_path / "x.txt").write_text("hi")
+    model = ScriptedModel([
+        'ACTION: read_file\n```json\n{"path": "x.txt"}\n```',
+        _forge_action(),
+        'ACTION: forged_sayer\n```json\n{"m": "hello"}\n```',   # should NOT be available
+        "DONE\ndone",
+    ])
+    tr = run_battle(Task(id="pend", prompt="forge a sayer"), str(tmp_path), model,
+                    skills=[], facts=[], step_budget=6, plan=False, forged_root=str(tmp_path))
+    forged_step = [s for s in tr.steps if s.kind == "tool" and s.tool_name == "forge_tool"]
+    assert forged_step and forged_step[0].content == "ok"       # forge itself succeeded
+    # it went to _pending, not live, and the call to use it was refused
+    assert (tmp_path / "data" / "forged_tools" / "_pending" / "sayer.py").exists()
+    assert not (tmp_path / "data" / "forged_tools" / "sayer.py").exists()
+    used = [s for s in tr.steps if s.kind == "tool" and s.tool_name == "forged_sayer"]
+    assert used and used[0].content == "error"
 
 
 def test_forge_tool_unavailable_in_readonly_battle(tmp_path):
