@@ -52,3 +52,19 @@ def test_error_without_fallback_returns_not_ok():
         async def generate(s, *a, **k): raise RuntimeError("down")
     out = _run(reply_mod.answer_private(_Boom(), "hi", system="s", history_msgs=[]))
     assert out["ok"] is False and out["answer"] == ""
+
+
+def test_private_mode_flags_a_fabricated_command_run():
+    import asyncio
+    txt = "Sure. `nmap -sV localhost`\n*Scanning...*\nResults are in: open ports: 80, 443."
+    be = _Be("unfiltered", text=txt)
+    out = _run(reply_mod.answer_private(be, "scan localhost", system="s", history_msgs=[], unfiltered=True))
+    assert "did not actually run" in out["answer"]      # honesty flag appended
+    assert "nmap" in out["answer"]                        # content itself untouched
+
+
+def test_private_mode_leaves_roleplay_alone():
+    import asyncio
+    be = _Be("unfiltered", text="*She scans the dim room, running a hand through her hair.*")
+    out = _run(reply_mod.answer_private(be, "hi", system="s", history_msgs=[], unfiltered=True))
+    assert "did not actually run" not in out["answer"]   # immersion intact

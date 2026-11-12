@@ -690,5 +690,15 @@ async def answer_private(backend, message: str, *, system: str,
         except Exception as e:  # noqa
             return {"answer": "", "ok": False, "error": f"{type(e).__name__}", "model": ""}
     from ..mutation_log import _scrub_str
-    return {"answer": _scrub_str(text), "ok": bool(text),
+    _ans = _scrub_str(text)
+    # Action-honesty rail -- STAYS ON even unfiltered (it is honesty, not a
+    # content gate). This mode executes nothing, so a claim of having run a
+    # real command/tool + output is fabricated; flag it without touching the
+    # content (roleplay narration is not flagged).
+    try:
+        from .. import action_honesty
+        _ans += action_honesty.caveat(action_honesty.claims_execution(_ans))
+    except Exception:
+        pass
+    return {"answer": _ans, "ok": bool(text),
             "error": getattr(r, "error", None), "model": getattr(r, "model", "gremlin")}
