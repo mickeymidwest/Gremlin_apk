@@ -69,6 +69,15 @@ models:
     chat_format: chatml-nothink
 
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
+  # CPU offload helper (Mickey's GPU-primary + CPU-helper design): runs on the
+  # CPU in a CUDA-isolated subprocess (zero VRAM) so it is CONCURRENT with the
+  # GPU primary. Used for cheap calls (a 2nd plan draft, etc.), never swapped.
+  - name: qwen3.5-4b-cpu
+    type: local_cpu
+    display_name: "Qwen3.5-4B (CPU helper)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen3.5-4B-Q4_K_M.gguf"
+    n_ctx: 4096
+
   - name: gemini
     type: gemini
     display_name: "Gemini"

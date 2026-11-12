@@ -69,6 +69,11 @@ class ModelRegistry:
                     n_ctx=entry.get("n_ctx", 4096),
                     n_gpu_layers=entry.get("n_gpu_layers", -1),
                 )
+            elif entry["type"] == "local_cpu":
+                from .backends.cpu_backend import CpuChatBackend
+                backend = CpuChatBackend(
+                    info, model_path=entry["model_path"],
+                    n_ctx=entry.get("n_ctx", 8192))
             elif entry["type"] == "anthropic":
                 backend = AnthropicBackend(
                     info,
