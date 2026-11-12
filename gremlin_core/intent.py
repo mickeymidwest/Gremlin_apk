@@ -304,8 +304,21 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
 
     try:
         _rel = _relevant_tool_names(text)
-        result = await router.route(model_name, _build_classify_prompt(_rel) + text,
-                                     grammar=_classify_grammar(_rel))
+        _cprompt = _build_classify_prompt(_rel) + text
+        _cgrammar = _classify_grammar(_rel)
+        # Opt-in: offload classification to the CPU helper (set
+        # GREMLIN_CLASSIFY_ON_CPU=1). Grammar-constrained there too, so it stays
+        # reliable, and it keeps the GPU's conversation context warm. Off by
+        # default -- CPU prompt-eval of the classify prompt is slow; this is an
+        # A/B knob. A CPU failure falls back to the GPU model for that call.
+        _cname = model_name
+        if (os.environ.get("GREMLIN_CLASSIFY_ON_CPU") == "1"
+                and getattr(router, "registry", None) is not None
+                and router.registry.get("qwen3.5-4b-cpu") is not None):
+            _cname = "qwen3.5-4b-cpu"
+        result = await router.route(_cname, _cprompt, grammar=_cgrammar)
+        if (not getattr(result, "ok", True)) and _cname != model_name:
+            result = await router.route(model_name, _cprompt, grammar=_cgrammar)
     except Exception:
         return Intent(action="chat", confidence=1.0)
     if not result.ok:
