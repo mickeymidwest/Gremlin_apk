@@ -355,15 +355,23 @@ def load_into_registry(root: str, *, registry=None) -> int:
             continue
         cap = m.get("capability", "mutates_external")
         schema = m.get("parameters") or {"type": "object", "properties": {}}
-        desc = f"[forged] {m.get('description', '').strip()} args: {json.dumps(schema)[:200]}"
+        status = (m.get("record") or {}).get("status", "candidate")
+        # Graduation: a promoted (active) forged tool becomes a first-class
+        # capability -- registered under its BARE name with no [forged] tag --
+        # as long as that name is not already taken by another tool.
+        graduated = status == "active" and registry.get(name) is None
+        reg_name = (name if graduated else f"forged_{name}")[:60]
+        _base = m.get("description", "").strip()
+        desc = ((_base if graduated else "[forged] " + _base)
+                + f" args: {json.dumps(schema)[:200]}")
 
-        async def handler(args, ctx, _name=name, _root=root):
+        async def handler(args, ctx, _name=name, _root=root, _rn=reg_name):
             r = await run_forged(_name, args or {}, _root)
-            return {"answer": r.get("answer", ""), "action": f"forged_{_name}",
+            return {"answer": r.get("answer", ""), "action": _rn,
                     "ok": bool(r.get("ok", False))}
 
         registry.register(tools_mod.Tool(
-            name=f"forged_{name}"[:60], description=desc, parameters=schema,
+            name=reg_name, description=desc, parameters=schema,
             handler=handler, destructive=(cap != "read_only"), capability=cap))
         n += 1
     return n
