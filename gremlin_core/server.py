@@ -295,6 +295,13 @@ def create_app(
             print(f"[mcp] registered {_n_mcp} tool(s) from configured MCP servers", flush=True)
     except Exception:
         pass
+    try:
+        from . import tool_forge
+        _n_forge = tool_forge.load_into_registry(str(project_root))
+        if _n_forge:
+            print(f"[forge] loaded {_n_forge} forged tool(s)", flush=True)
+    except Exception:
+        pass
 
     # One pending action per paired client, awaiting a plain-English
     # yes/no -- see gremlin_core/intent.py. Lives for the server's

@@ -1080,6 +1080,42 @@ async def main():
                     print(f"{_srv}: " + ", ".join(t for t in _tools if t))
                 print(f"({n} MCP tool(s) registered)")
             mcp_bridge.shutdown()
+        elif cmd == "forge-tools":
+            from gremlin_core import tool_forge
+            rows = tool_forge.list_forged(PROJECT_ROOT)
+            if not rows:
+                print("No forged tools. Create one: gremlin forge <name> <desc> <codefile.py>")
+            for _t in rows:
+                print(f"forged_{_t['name']} [{_t['capability']}] -- {_t['description']}")
+        elif cmd == "forge":
+            from gremlin_core import tool_forge
+            if len(sys.argv) < 5:
+                print("usage: gremlin forge <name> <description> <codefile.py> [--unsafe]")
+            else:
+                _name, _desc, _cf = sys.argv[2], sys.argv[3], sys.argv[4]
+                _unsafe = "--unsafe" in sys.argv[5:]
+                try:
+                    _code = open(_cf).read()
+                except OSError as _e:
+                    print(f"cannot read {_cf}: {_e}"); _code = None
+                if _code is not None:
+                    _r = tool_forge.forge(_name, _desc, _code, root=PROJECT_ROOT, allow_unsafe=_unsafe)
+                    print(f"forged {_name}" if _r["ok"] else f"refused: {_r['error']}")
+        elif cmd == "forge-test":
+            import json as _json
+            from gremlin_core import tool_forge
+            if len(sys.argv) < 3:
+                print("usage: gremlin forge-test <name> [json-args]")
+            else:
+                _a = _json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
+                _out = await tool_forge.run_forged(sys.argv[2], _a, PROJECT_ROOT)
+                print(_json.dumps(_out))
+        elif cmd == "forge-rm":
+            from gremlin_core import tool_forge
+            if len(sys.argv) < 3:
+                print("usage: gremlin forge-rm <name>")
+            else:
+                print("removed" if tool_forge.remove(sys.argv[2], PROJECT_ROOT) else "not found")
         elif cmd == "recipes":
             from gremlin_core import recipes
             rows = recipes.list_recipes(PROJECT_ROOT)

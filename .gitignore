@@ -107,3 +107,4 @@ merge_env/
 local_plugins/
 data/guard/
 data/fuzz_state/
+data/forged_tools/
