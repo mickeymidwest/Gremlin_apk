@@ -117,6 +117,13 @@ class CpuChatBackend(ModelBackend):
         import asyncio
         req = {"prompt": prompt, "system": system, "max_tokens": max_tokens,
                "temperature": temperature, "history": history or []}
+        # Grammar crosses the pipe as a SPEC (compiled grammars can't serialize):
+        # a JSON-schema dict or a raw GBNF string; the worker compiles it. A
+        # pre-compiled LlamaGrammar is dropped (unconstrained -- still safe).
+        if isinstance(grammar, dict):
+            req["grammar_schema"] = grammar
+        elif isinstance(grammar, str):
+            req["grammar_gbnf"] = grammar
         t0 = time.monotonic()
         res = await asyncio.to_thread(self._request, req)
         if "error" in res:

@@ -26,3 +26,13 @@ def test_readline_timeout_returns_none():
             time.sleep(5)
             return "late\n"
     assert _readline(_Slow(), timeout=0.2) is None
+
+
+def test_grammar_does_not_break_the_error_path():
+    import asyncio
+    # a schema grammar is serialized into the request; on a bad model the call
+    # still fails safe (no crash, error set) rather than raising
+    be = CpuChatBackend(ModelInfo(name="x", kind="local"), "/nope.gguf", n_ctx=256)
+    schema = {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}
+    r = asyncio.run(be.generate("hi", max_tokens=4, grammar=schema))
+    assert r.error is not None and r.text == ""
