@@ -52,9 +52,15 @@ class Campaign:
                  step_budget: int = 12, seed: int = 0, log=print,
                  name: str = "default", max_tokens: int = 4096,
                  phase_gate: bool = True, time_budget_s: float = 600.0,
-                 protect_glob: Optional[str] = None):
+                 protect_glob: Optional[str] = None,
+                 reflect_model: Optional[Model] = None):
         self.store = store
         self.model = model
+        # Reflection (lesson distillation) can run on a CPU helper, in the
+        # background, so it overlaps the next GPU battle. Defaults to the GPU
+        # model (no change) unless a reflect_model is injected.
+        self.reflect_model = reflect_model or model
+        self._lesson_threads: list = []
         self.target_repo = str(Path(target_repo).resolve())
         self.tasks = {t.id: t for t in tasks}
         self.verifier = verifier or PytestVerifier()
@@ -118,7 +124,17 @@ class Campaign:
         score = self.verifier.score(task, str(work), transcript)
         # Reflection core: a lost battle leaves a one-line lesson for next time.
         if score.value < 0.999:
-            reflect.lesson_on_loss(self.model, task, transcript, root, self.log)
+            # Background on the CPU reflect model: it writes the lessons file
+            # (no skills race), so it overlaps the next GPU battle instead of
+            # blocking. Daemon + best-effort (lessons never break a campaign).
+            import threading
+            self._lesson_threads = [t for t in self._lesson_threads if t.is_alive()]
+            _lt = threading.Thread(
+                target=reflect.lesson_on_loss,
+                args=(self.reflect_model, task, transcript, root, self.log),
+                daemon=True)
+            _lt.start()
+            self._lesson_threads.append(_lt)
         return BattleResult(battle_id=battle_id, task_id=task.id,
                             transcript=transcript, score=score)
 

@@ -369,7 +369,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
         shutil.rmtree(work, ignore_errors=True)
 
 
-def _build_campaign(store: Store, model, tgt: dict, log=lambda *a: None) -> Campaign:
+def _build_campaign(store: Store, model, tgt: dict, log=lambda *a: None, reflect_model=None) -> Campaign:
     """One Campaign per one_battle()-style target, built once (not per
     round) so its rng/skills/persisted state stay coherent across the
     whole run -- see main()'s campaigns dict. budget/trial_every are
@@ -392,6 +392,7 @@ def _build_campaign(store: Store, model, tgt: dict, log=lambda *a: None) -> Camp
         time_budget_s=tgt.get("time_budget", 1500.0),
         protect_glob=tgt.get("protect_glob"),
         log=log,
+        reflect_model=reflect_model,
     )
 
 
@@ -669,6 +670,10 @@ def main() -> None:
     # otherwise runs.
     coder = reg.get("llama-3.1-8b-abliterated")
     model = BackendModel(coder, temperature=0.2)
+    # CPU reflect helper: lesson distillation runs on the 4B (CPU, zero VRAM)
+    # in the background, overlapping the next GPU battle. None -> stays on GPU.
+    _cpu_refl = reg.get("qwen3.5-4b-cpu")
+    reflect_model = BackendModel(_cpu_refl, temperature=0.2) if _cpu_refl is not None else None
     # gemini if configured (API, no VRAM) -- writes failure lessons
     try:
         _LESSON_MODELS.append(BackendModel(reg.get("gemini"), temperature=0.0))
@@ -689,7 +694,7 @@ def main() -> None:
     # this whole process run. See _build_campaign()'s docstring for why
     # budget/trial_every are effectively unbounded.
     campaigns = {
-        t["name"]: _build_campaign(store, model, t, log)
+        t["name"]: _build_campaign(store, model, t, log, reflect_model=reflect_model)
         for t in T if not t.get("generate") and not t.get("builder")
     }
 
