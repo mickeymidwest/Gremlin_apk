@@ -33,11 +33,11 @@ def _classify(router, msg, act):
 
 def test_toggle_state(tmp_path):
     root = str(tmp_path)
+    assert act_mode.is_on(root) is True     # default ON
+    act_mode.set_on(root, False)
     assert act_mode.is_on(root) is False
     act_mode.set_on(root, True)
     assert act_mode.is_on(root) is True
-    act_mode.set_on(root, False)
-    assert act_mode.is_on(root) is False
 
 
 def test_off_no_hint_stays_chat(monkeypatch):

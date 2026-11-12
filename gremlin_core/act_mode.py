@@ -4,7 +4,8 @@ pre-filter), is more willing to pick an action, and is told to prefer running
 the matching tool for any "check / run / show / restart X" request -- so Gremlin
 executes and reports REAL output instead of getting stuck in plain chat.
 
-OFF by default. Persisted in data/act_mode.json. This decides WHETHER to act, NOT
+ON by default (Gremlin acts on your requests out of the box); /act off reverts to
+conservative plain-chat routing. Persisted in data/act_mode.json. This decides WHETHER to act, NOT
 whether to skip safety: the confirmation prompt + capability gates still apply
 (and Override/sudo is still the separate thing that elevates + auto-confirms).
 """
@@ -20,9 +21,9 @@ def _path(root: str) -> Path:
 
 def is_on(root: str) -> bool:
     try:
-        return bool(json.loads(_path(root).read_text()).get("on", False))
+        return bool(json.loads(_path(root).read_text()).get("on", True))
     except (OSError, ValueError):
-        return False
+        return True   # default ON -- Gremlin acts on your requests unless you /act off
 
 
 def set_on(root: str, on: bool) -> bool:
