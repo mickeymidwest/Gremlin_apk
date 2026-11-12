@@ -527,17 +527,25 @@ def run_battle(task: Task, repo_path: str, model: Model,
                on_done=None, lessons: Sequence[str] = (), autocommit: bool = True,
                protect_glob: str | None = None,
                grammar_constrained: bool = True,
-               checkpoint: bool = False) -> Transcript:
+               checkpoint: bool = False,
+               forged_root: str | None = None) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
     (see reflexion.py), shown in the opening.
     autocommit: git-snapshot the working copy after every successful edit
     so the battle is a readable, revertible history (Aider's pattern)."""
+    _forged = None
+    if forged_root:
+        try:
+            from .. import tool_forge
+            _forged = tool_forge.list_forged(forged_root)
+        except Exception:
+            _forged = None
     toolhost = ShellToolHost(
         repo_path, readonly=readonly,
         allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
-        protect_glob=protect_glob,
+        protect_glob=protect_glob, forged=_forged, forged_root=forged_root,
     )
     if readonly:
         phase_gate = False

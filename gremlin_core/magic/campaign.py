@@ -112,6 +112,7 @@ class Campaign:
             max_tokens=self.max_tokens, phase_gate=self.phase_gate,
             time_budget_s=self.time_budget_s, on_done=on_done,
             lessons=lessons, protect_glob=self.protect_glob,
+            forged_root=str(self.store.root),
         )
         _restore_protected()
         score = self.verifier.score(task, str(work), transcript)

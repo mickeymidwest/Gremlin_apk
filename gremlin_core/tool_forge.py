@@ -193,6 +193,36 @@ def remove(name: str, root: str) -> bool:
     return gone
 
 
+def run_forged_sync(name: str, args: dict, root: str, *, timeout: int = 30) -> dict:
+    """Synchronous twin of run_forged, for the (synchronous) battle loop. Same
+    confinement as the sandbox -- cwd pinned to the forged-tools dir, a minimal
+    PATH, a timeout, args piped as JSON on stdin. Never raises."""
+    import os
+    import subprocess
+    script = _dir(root) / f"{name}.py"
+    if not script.exists():
+        return {"ok": False, "answer": f"no forged tool named {name!r}"}
+    try:
+        r = subprocess.run(["python3", script.name], cwd=str(_dir(root)),
+                           input=json.dumps(args or {}), capture_output=True,
+                           text=True, timeout=timeout,
+                           env={**os.environ, "PATH": "/usr/bin:/bin"})
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "answer": f"forged tool {name} timed out (> {timeout}s)"}
+    except Exception as e:  # noqa
+        return {"ok": False, "answer": f"forged tool error: {type(e).__name__}: {e}"}
+    out = (r.stdout or "").strip()
+    try:
+        parsed = json.loads(out.splitlines()[-1]) if out else {}
+        if isinstance(parsed, dict):
+            parsed.setdefault("ok", r.returncode == 0)
+            return parsed
+    except Exception:
+        pass
+    return {"ok": r.returncode == 0 and bool(out),
+            "answer": out or (r.stderr or "").strip() or "(no output)"}
+
+
 async def run_forged(name: str, args: dict, root: str, *, timeout: int = 30) -> dict:
     """Execute a forged tool SANDBOXED. Returns its {ok, answer} dict, or an
     error dict. Never raises."""

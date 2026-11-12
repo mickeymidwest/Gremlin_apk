@@ -278,7 +278,8 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
         # run_battle is blocking + its model.complete() submits back to
         # the server loop -- so this MUST be off the loop, in a thread.
         t = run_battle(task, str(work), model, skills, facts,
-                       step_budget=10, time_budget_s=420, on_done=_on_done)
+                       step_budget=10, time_budget_s=420, on_done=_on_done,
+                       forged_root=ctx.project_root)
         s = verifier.score(task, str(work), t)
         d = subprocess.run(
             ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",
@@ -729,7 +730,8 @@ async def _do(args: str, ctx: CommandContext) -> dict:
     def run():
         tr = run_battle(task, do_root, model,
                         skills=lifecycle.loadable(skills), facts=facts,
-                        step_budget=10 if learn else 8, plan=False, readonly=True)
+                        step_budget=10 if learn else 8, plan=False, readonly=True,
+                        forged_root=ctx.project_root)
         cmds = [f"$ {s.tool_args.get('cmd', '')}" for s in tr.steps
                 if s.kind == "tool" and s.tool_name == "run_shell"]
         ans = (tr.final_message or "(no answer)") + (

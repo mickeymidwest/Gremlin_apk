@@ -259,10 +259,26 @@ class ShellToolHost:
 
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
                  allowed: "tuple[str, ...] | None" = None, readonly: bool = False,
-                 protect_glob: str | None = None):
+                 protect_glob: str | None = None, forged=None, forged_root=None):
         self.root = Path(root).resolve()
         self.shell_timeout = shell_timeout
         self.max_output = max_output
+        # Forged tools (data/forged_tools) joined into THIS instance's tool
+        # space so a battle can call them as `forged_<name>`. In a readonly
+        # battle only read_only forged tools are offered. The class TOOLS is
+        # left untouched -- this is an instance-level override.
+        self._forged_root = forged_root or str(Path(root).resolve())
+        self._forged_names = set()
+        if forged:
+            extra = {}
+            for f in forged:
+                if readonly and f.get("capability") != "read_only":
+                    continue
+                nm = "forged_" + f.get("name", "")
+                extra[nm] = (f"{nm}(args)  -- [forged] " + f.get("description", ""))[:160]
+                self._forged_names.add(nm)
+            if extra:
+                self.TOOLS = {**self.TOOLS, **extra}
         self.allowed = tuple(allowed) if allowed is not None else tuple(self.TOOLS)
         self.readonly = readonly
         # paths (relative-glob) the agent may READ but not write -- e.g. the
@@ -320,6 +336,15 @@ class ShellToolHost:
         if name != call.name:
             call = ToolCall(name=name, args=call.args)
         fn = getattr(self, f"_t_{call.name}", None)
+        if fn is None and call.name in getattr(self, "_forged_names", ()):
+            if call.name not in self.allowed:
+                return ToolResult(False, f"{call.name} isn't available yet. "
+                                  f"Right now you can use: {', '.join(self.allowed)}. "
+                                  "Look at the code first.")
+            from .. import tool_forge
+            _res = tool_forge.run_forged_sync(call.name[len("forged_"):], call.args,
+                                              self._forged_root, timeout=self.shell_timeout)
+            return ToolResult(bool(_res.get("ok")), str(_res.get("answer", "")))
         if fn is None:
             return ToolResult(False, f"unknown tool {call.name!r}. available: {', '.join(self.allowed)}")
         if call.name not in self.allowed:
