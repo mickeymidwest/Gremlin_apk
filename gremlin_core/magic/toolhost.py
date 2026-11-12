@@ -219,11 +219,12 @@ class ShellToolHost:
         "undo_last":  "undo_last()                     -- revert your most recent edit "
                       "(rolls back the last per-step snapshot)",
         "list_dir":   "list_dir(path)                  -- list a directory (defaults to '.')",
+        "read_ref":   "read_ref(ref, start, count)     -- read more of a large output that was stored as a ref (you will see 'stored as ref N'); pages `count` lines from line `start`",
     }
 
     # Phase-gated tool space (MAGIC.md section 8, #2): a small model does
     # much better when it can't edit before it has looked.
-    EXPLORE_TOOLS = ("repo_map", "grep", "read_file", "view_file", "list_dir", "run_shell")
+    EXPLORE_TOOLS = ("repo_map", "grep", "read_file", "view_file", "list_dir", "run_shell", "read_ref")
 
     # Shell verbs that can change state -- blocked in read-only mode so
     # /do can answer "what's using my disk" by actually checking, without
@@ -301,6 +302,10 @@ class ShellToolHost:
         # check its own work (seen on the first real run).
         self._env = dict(os.environ)
         self._env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + self._env.get("PATH", "")
+        # NOOA pass-by-reference: large outputs are stored here and shown as a
+        # short preview + ref handle instead of dumped into context.
+        self._refs: list = []
+        self._ref_threshold = 1500
 
     def tool_help(self) -> str:
         return "\n".join(f"  {self.TOOLS[n]}" for n in self.TOOLS if n in self.allowed)
@@ -321,11 +326,21 @@ class ShellToolHost:
         return any(fnmatch.fnmatch(r, g.strip()) for g in self.protect_glob.split(","))
 
     def _clip(self, text: str) -> str:
-        if len(text) <= self.max_output:
+        """Pass-by-reference (NOOA): a small result is returned whole; a large
+        one is STORED and replaced with a short preview + a ref handle, so a
+        weak model is not flooded with a long dump. It reads more on demand
+        with read_ref."""
+        if len(text) <= self._ref_threshold:
             return text
-        head = text[: self.max_output // 2]
-        tail = text[-self.max_output // 2:]
-        return f"{head}\n...[{len(text) - self.max_output} chars clipped]...\n{tail}"
+        self._refs.append(text)
+        rid = len(self._refs)
+        preview = "\n".join(text.splitlines()[:15])
+        if len(preview) > 900:
+            preview = preview[:900]
+        return (f"{preview}\n... [{len(text)} chars total -- stored as ref {rid}. "
+                f"Use read_ref with {{\"ref\": {rid}}} (optionally \"start\", \"count\" "
+                f"lines) to read more; the full output is NOT repeated here, to save "
+                f"your context.]")
 
     # -- dispatch --------------------------------------------------
 
@@ -554,6 +569,27 @@ class ShellToolHost:
                 "method header, replace is the whole method with its body).")
         p.write_text(updated)
         return ToolResult(True, f"{verb} {rel} ({len(original)} -> {len(updated)} chars)")
+
+    def _t_read_ref(self, args: dict) -> "ToolResult":
+        """Read a slice of a large output stored by pass-by-reference."""
+        try:
+            rid = int(self._val(args, "ref", "id", "n", "value") or 0)
+        except (TypeError, ValueError):
+            rid = 0
+        if rid < 1 or rid > len(self._refs):
+            return ToolResult(False, (f"no ref {rid}. Refs available: 1..{len(self._refs)}"
+                              if self._refs else "no stored refs yet"))
+        lines = self._refs[rid - 1].splitlines()
+        try:
+            start = max(1, int(args.get("start", 1) or 1))
+            count = max(1, min(200, int(args.get("count", 80) or 80)))
+        except (TypeError, ValueError):
+            start, count = 1, 80
+        chunk = lines[start - 1:start - 1 + count]
+        more = ("" if start - 1 + count >= len(lines)
+                else f"\n... [more -- read_ref ref={rid} start={start + count}]")
+        return ToolResult(True, f"ref {rid}, lines {start}-{start + len(chunk) - 1} of "
+                          f"{len(lines)}:\n" + "\n".join(chunk) + more)
 
     def _t_forge_tool(self, args: dict) -> "ToolResult":
         """Create a new tool mid-battle and make it usable right now. Runs the
