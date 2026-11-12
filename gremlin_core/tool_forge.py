@@ -156,7 +156,9 @@ def forge(name: str, description: str, code: str, *, parameters: dict | None = N
         meta = {"name": name, "description": description or "",
                 "parameters": parameters or {"type": "object", "properties": {}},
                 "capability": capability, "created": time.time(),
-                "unsafe_allowed": bool(blocked and allow_unsafe)}
+                "unsafe_allowed": bool(blocked and allow_unsafe),
+                "record": {"uses": 0, "wins": 0, "losses": 0, "battles_available": 0,
+                           "created": time.time(), "last_used": None, "status": "candidate"}}
         (d / f"{name}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     except OSError as e:
         return {"ok": False, "error": f"couldn't write the tool: {e}"}

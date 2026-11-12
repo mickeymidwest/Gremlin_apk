@@ -1087,6 +1087,10 @@ async def main():
                 print("No forged tools. Create one: gremlin forge <name> <desc> <codefile.py>")
             for _t in rows:
                 print(f"forged_{_t['name']} [{_t['capability']}] -- {_t['description']}")
+            from gremlin_core import forge_lifecycle as _fl
+            _st = _fl.summary(PROJECT_ROOT)
+            if rows and _st != "no forged tools":
+                print("-- lifecycle --"); print(_st)
         elif cmd == "forge":
             from gremlin_core import tool_forge
             if len(sys.argv) < 5:

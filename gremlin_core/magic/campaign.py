@@ -198,6 +198,16 @@ class Campaign:
             return state, False
 
         self.store.append_episode(result)
+        # Forged-tool lifecycle: credit the forged tools this battle used.
+        try:
+            from .. import forge_lifecycle, tool_forge
+            _ftu = [s.tool_name[7:] for s in result.transcript.steps
+                    if s.kind == "tool" and (s.tool_name or "").startswith("forged_")]
+            _fta = [t["name"] for t in tool_forge.list_forged(str(self.store.root))]
+            forge_lifecycle.record_usage(str(self.store.root), _ftu,
+                                         result.score.value >= 0.999, _fta)
+        except Exception:
+            pass
 
         prev_best = state.best_by_task.get(task.id, 0.0)
         delta = result.score.value - prev_best
@@ -223,6 +233,13 @@ class Campaign:
         applied = _refl["applied"]
         state.accepted_history.append(applied)
         transitions = lifecycle.audit(skills)
+        try:
+            from .. import forge_lifecycle as _fl
+            _ftt = _fl.audit(str(self.store.root))
+            if _ftt:
+                transitions = list(transitions) + ["forged " + _c for _c in _ftt]
+        except Exception:
+            pass
 
         self.store.write_skills(skills)
         self.store.write_facts(facts)
