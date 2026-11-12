@@ -7,11 +7,11 @@ def test_scrub_redacts_known_secret_shapes():
         "export GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789 and "
         "AWS AKIAIOSFODNN7EXAMPLE and key sk-abcdefghijklmnopqrstuvwx and "
         "google AIzaSyDaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa and "
-        "node 100.122.58.85")
+        "node 100.64.0.1")
     assert "ghp_" not in s and "AKIAIOSFODNN7EXAMPLE" not in s
     assert "sk-abcdefghijklmnopqrstuvwx" not in s
     assert "AIzaSyD" not in s
-    assert "100.122.58.85" not in s
+    assert "100.64.0.1" not in s
     assert s.count("[REDACTED]") >= 5
 
 

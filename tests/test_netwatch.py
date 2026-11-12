@@ -18,26 +18,26 @@ def test_lan_neighbors_parses_stable_entries(monkeypatch):
 def test_tailscale_nodes_parses_peers(monkeypatch):
     def fake_run(argv, timeout=30.0):
         if argv[:1] == ["tailscale"]:
-            return ("100.122.58.85  manjaro      mickey@  linux   -\n"
-                    "100.64.0.9     pixel        mickey@  android active; direct\n"
+            return ("100.0.0.1  manjaro      mickey@  linux   -\n"
+                    "100.0.0.2     pixel        mickey@  android active; direct\n"
                     "# header line that should not match\n")
         return ""
     monkeypatch.setattr(guard, "_run", fake_run)
-    assert guard.tailscale_nodes() == ["manjaro 100.122.58.85", "pixel 100.64.0.9"]
+    assert guard.tailscale_nodes() == ["manjaro 100.0.0.1", "pixel 100.0.0.2"]
 
 
 def test_diff_flags_new_device_and_mac_change_and_node():
     base = {"lan_neighbors": ["192.168.1.1 aa:bb:cc:dd:ee:01", "192.168.1.50 de:ad:be:ef:00:01"],
-            "tailscale_nodes": ["manjaro 100.122.58.85"]}
+            "tailscale_nodes": ["manjaro 100.0.0.1"]}
     now = {"lan_neighbors": ["192.168.1.1 aa:bb:cc:dd:ee:01",      # unchanged
                              "192.168.1.50 de:ad:be:ef:99:99",      # MAC CHANGED -> spoof signal
                              "192.168.1.80 11:22:33:44:55:66"],     # NEW device
-           "tailscale_nodes": ["manjaro 100.122.58.85", "pixel 100.64.0.9"]}  # NEW node
+           "tailscale_nodes": ["manjaro 100.0.0.1", "pixel 100.0.0.2"]}  # NEW node
     found = guard.diff(base, now)
     whats = " || ".join(f"{f.level}:{f.what}" for f in found)
     assert "high:LAN device 192.168.1.50 changed MAC" in whats
     assert "medium:New device on the LAN: 192.168.1.80 11:22:33:44:55:66" in whats
-    assert "medium:New Tailscale node: pixel 100.64.0.9" in whats
+    assert "medium:New Tailscale node: pixel 100.0.0.2" in whats
     # the unchanged device is not reported
     assert "192.168.1.1" not in whats
 
