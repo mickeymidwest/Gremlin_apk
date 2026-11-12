@@ -871,7 +871,12 @@ async def _forge(args: str, ctx) -> dict:
             return {"ok": False, "action": "chat", "answer": "no model available"}
         from .model import BackendModel
         model = BackendModel(backend, loop=ctx.loop)
-        r = tool_forge.author(desc, model, ctx.project_root, name=nm)
+        # author() calls model.complete synchronously -- run it OFF the event
+        # loop (like /do/_fix) so it never blocks the server (a blocked loop
+        # makes /status time out and the watchdog restarts mid-forge).
+        import asyncio as _asyncio
+        r = await _asyncio.get_event_loop().run_in_executor(
+            None, lambda: tool_forge.author(desc, model, ctx.project_root, name=nm))
         if not r.get("ok"):
             extra = f"\n\n(draft:\n{r.get('code', '')[:500]})" if r.get("code") else ""
             return {"ok": False, "action": "chat",
