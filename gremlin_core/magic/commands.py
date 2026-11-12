@@ -973,6 +973,17 @@ async def _forge(args: str, ctx) -> dict:
                       "pending | approve <name> | reject <name> | approval on|off"}
 
 
+async def _act_cmd(args: str, ctx) -> dict:
+    """Toggle Act mode: when ON, Gremlin runs your "check/run/show X" requests
+    on the box (real output) instead of staying in plain chat. `on | off`."""
+    from .. import act_mode
+    sub = (args or "").strip().lower()
+    if sub in ("on", "off"):
+        act_mode.set_on(ctx.project_root, sub == "on")
+    return {"ok": True, "action": "chat", "answer": act_mode.status(ctx.project_root)
+            + ("" if sub in ("on", "off") else "\n(/act on | off)")}
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Gremlin. No tools, no routing.", _chat),
     "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
@@ -994,6 +1005,7 @@ COMMANDS: dict[str, Command] = {
     "fix": Command("fix", "Gremlin runs Magic's battle loop on its own harness code "
                    "and shows the diff.", _fix),
     "recipe": Command("recipe", "Saved parameterized workflows: list | <name> key=val ... (modes chat/plan/build). Files: data/recipes/*.yaml.", _recipe),
+    "act": Command("act", "Act mode: when ON I RUN your check/run/show requests on the box (real output) instead of just talking. `on | off`.", _act_cmd),
     "forge": Command("forge", "The Tool Forge -- Magic builds its own tools: list | new <name>: <what it should do> | test <name> [json] | remove <name>. Forged tools are security-scanned and run sandboxed.", _forge),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),

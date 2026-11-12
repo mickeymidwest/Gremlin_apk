@@ -269,7 +269,17 @@ def _classify_grammar(tool_names=None) -> dict:
     }
 
 
-async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6) -> Intent:
+_ACT_PREAMBLE = (
+    "ACT MODE IS ON: the user wants things actually DONE on this machine, not just "
+    "discussed. For ANY request to check, run, inspect, restart, show, or look up real "
+    "system state (processes, services, ports, files, disk, a command's output), pick "
+    "the matching action and extract its args -- prefer run_command / service_* / "
+    "service_status / inspect / read_file / search_files over chat. Only answer as chat "
+    "if the message is purely conversational.\n\n")
+
+
+async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6,
+                   act_mode: bool = False) -> Intent:
     """Decide what the user actually wants.
 
     Order: fast path (free, unambiguous phrasings skip the model call
@@ -294,17 +304,19 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
     quick = fast_path(text)
     if quick:
         return _finalize(Intent(action=quick, args={}, confidence=1.0), text)
+    if act_mode:
+        min_confidence = min(min_confidence, 0.4)   # act mode: more willing to act
 
     # No action-suggestive word or path anywhere -> it's conversation.
     # Skip the classifier call (keeps the primary model out of the loop
     # on plain chat); the model would almost always answer "chat" here
     # anyway. See _ACTION_HINT.
-    if not _ACTION_HINT.search(text):
+    if not act_mode and not _ACTION_HINT.search(text):
         return Intent(action="chat", confidence=1.0)
 
     try:
         _rel = _relevant_tool_names(text)
-        _cprompt = _build_classify_prompt(_rel) + text
+        _cprompt = (_ACT_PREAMBLE if act_mode else "") + _build_classify_prompt(_rel) + text
         _cgrammar = _classify_grammar(_rel)
         # Opt-in: offload classification to the CPU helper (set
         # GREMLIN_CLASSIFY_ON_CPU=1). Grammar-constrained there too, so it stays

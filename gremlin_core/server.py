@@ -777,11 +777,13 @@ def create_app(
         # main.py's cmd_serve), and an unhandled TimeoutError here was
         # taking down messages that had nothing to do with any action at
         # all. Treat any failure here the same as "not an action."
+        from . import act_mode as _act_mode
+        _act_on = _act_mode.is_on(str(project_root))
         try:
             detected = run_coro(
                 loop,
                 _in_phase(agent_state.AgentState.REASONING,
-                          intent_mod.classify(router, "gremlin", message)),
+                          intent_mod.classify(router, "gremlin", message, act_mode=_act_on)),
                 timeout=90.0,
             )
         except job_control.JobAborted:

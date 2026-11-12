@@ -504,7 +504,9 @@ async def _handle_cli_action(
             return result["answer"]
         pending_confirmations.clear(key)
 
-    detected = await intent.classify(router, "gremlin", message)
+    from gremlin_core import act_mode as _act_mode
+    detected = await intent.classify(router, "gremlin", message,
+                                     act_mode=_act_mode.is_on(PROJECT_ROOT))
     if detected.is_chat:
         return None
 
