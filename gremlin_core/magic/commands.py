@@ -292,11 +292,30 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
 
     import asyncio
     tr, score, diff = await asyncio.get_event_loop().run_in_executor(None, _run)
+    # Escalation: if the pilot didn't get it green, pull in the stronger 14B
+    # coder on the GPU and try once more (a swap is affordable on the CLI).
+    _escalated = False
+    _strong = ctx.registry.get("qwen2.5-coder-14b")
+    if score.value < 0.999 and _strong is not None and coder != "qwen2.5-coder-14b":
+        await vram.ensure_only(ctx.registry, keep="qwen2.5-coder-14b")
+        model = BackendModel(_strong, loop=ctx.loop)
+        _old_work = work
+        work = Path(tempfile.mkdtemp(prefix="magic-fix2-", dir=str(big_tmp))) / "repo"
+        shutil.copytree(root, work, ignore=shutil.ignore_patterns(
+            ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
+            "data", "tools", "*.pyc", "*.gguf", ".magic-tmp", ".finetune-venv",
+            ".finetune-venv-scripts", "merge_out", "merge_scratch", "merge_inputs",
+            "merge_env", "gremlin-build"))
+        tr2, score2, diff2 = await asyncio.get_event_loop().run_in_executor(None, _run)
+        shutil.rmtree(_old_work.parent, ignore_errors=True)
+        if score2.value > score.value:
+            tr, score, diff, _escalated = tr2, score2, diff2, True
     shutil.rmtree(work.parent, ignore_errors=True)
 
     return {
         "ok": score.value >= 0.999,
-        "answer": (f"{tr.final_message}\n\ntests: {score.value:.2f}"
+        "answer": (("[escalated to the 14B coder after the 9B fell short]\n" if _escalated else "")
+                   + f"{tr.final_message}\n\ntests: {score.value:.2f}"
                    + (f" ({score.failure_signal})" if score.failure_signal else "")
                    + ("\n\n" + diff if diff.strip() else "\n\n(no changes)")),
         "score": score.value, "diff": diff, "action": "fix",
