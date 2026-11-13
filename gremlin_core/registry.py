@@ -73,7 +73,8 @@ class ModelRegistry:
                 from .backends.cpu_backend import CpuChatBackend
                 backend = CpuChatBackend(
                     info, model_path=entry["model_path"],
-                    n_ctx=entry.get("n_ctx", 8192))
+                    n_ctx=entry.get("n_ctx", 8192),
+                    pinned=entry.get("pin", False))
             elif entry["type"] == "anthropic":
                 backend = AnthropicBackend(
                     info,

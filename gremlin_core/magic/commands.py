@@ -265,7 +265,9 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("gremlin"), loop=ctx.loop)
     # Concurrent CPU helper: a 2nd plan draft on the 4B (CPU, zero VRAM) runs
     # alongside the GPU model's draft -- two heads, no swap.
-    _cpu = ctx.registry.get("qwen3.5-4b-cpu")
+    # Hive coder specialist drafts the second plan head (code tasks want a
+    # code-tuned model); falls back to the general 4B if it isn't registered.
+    _cpu = ctx.registry.get("qwen2.5-coder-3b-cpu") or ctx.registry.get("qwen3.5-4b-cpu")
     _plan_helper = BackendModel(_cpu, loop=ctx.loop) if _cpu is not None else None
 
     tfilter = "" if "campaign" in args.lower() else "not campaign"
@@ -999,6 +1001,36 @@ async def _act_cmd(args: str, ctx) -> dict:
             + ("" if sub in ("on", "off") else "\n(/act on | off)")}
 
 
+async def _hive_cmd(args: str, ctx) -> dict:
+    """Inspect / run the CPU specialist hive. `list` shows the team;
+    `<specialist> <text>` runs one on the CPU helper, bounded + best-effort."""
+    from . import hive as _hive
+    h = _hive.build_hive(ctx.registry, loop=ctx.loop)
+    parts = (args or "").strip().split(None, 1)
+    sub = parts[0].lower() if parts else "list"
+    if sub in ("", "list"):
+        return {"ok": True, "action": "chat",
+                "answer": "Hive specialists (CPU lane):\n" + h.roster()
+                          + "\n\nRun one: `/hive <name> <text>`"}
+    if h.get(sub) is None:
+        return {"ok": False, "action": "chat",
+                "answer": f"No specialist '{sub}'. Team:\n" + h.roster()}
+    text = parts[1] if len(parts) > 1 else ""
+    if not text.strip():
+        return {"ok": False, "action": "chat",
+                "answer": f"Give it something to work on: `/hive {sub} <text>`"}
+    import asyncio
+    r = await asyncio.get_event_loop().run_in_executor(None, lambda: h.ask(sub, text))
+    if r.dropped:
+        return {"ok": False, "action": "chat",
+                "answer": f"[{sub}] dropped -- overran its {int(h.get(sub).budget_s)}s CPU budget."}
+    if not r.ok:
+        return {"ok": False, "action": "chat",
+                "answer": f"[{sub}] couldn't run (model unavailable or errored)."}
+    return {"ok": True, "action": "chat",
+            "answer": f"[{sub} \u00b7 {r.model} \u00b7 {r.secs}s]\n{r.text}"}
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Gremlin. No tools, no routing.", _chat),
     "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
@@ -1022,6 +1054,7 @@ COMMANDS: dict[str, Command] = {
     "recipe": Command("recipe", "Saved parameterized workflows: list | <name> key=val ... (modes chat/plan/build). Files: data/recipes/*.yaml.", _recipe),
     "act": Command("act", "Act mode: when ON I RUN your check/run/show requests on the box (real output) instead of just talking. `on | off`.", _act_cmd),
     "forge": Command("forge", "The Tool Forge -- Magic builds its own tools: list | new <name>: <what it should do> | test <name> [json] | remove <name>. Forged tools are security-scanned and run sandboxed.", _forge),
+    "hive": Command("hive", "The CPU specialist hive: `list` shows the team (watchdog, summarizer, critic, ...); `<name> <text>` runs one on the CPU helper, bounded + best-effort so it never blocks the top-dog.", _hive_cmd),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }

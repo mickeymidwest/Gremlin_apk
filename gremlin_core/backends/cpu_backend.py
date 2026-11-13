@@ -17,6 +17,14 @@ from typing import Optional
 
 from .base import ModelBackend, ModelInfo, GenerationResult
 
+# Cap how many CPU model workers stay resident at once. Each holds its GGUF
+# in RAM; this box has ~5.8GB free, so >2 small models OOM. The hive loads a
+# specialist's model on demand and evicts the least-recently-used NON-pinned
+# worker past the cap; a pinned model (the tiny classifier) stays hot.
+_MAX_RESIDENT = int(os.environ.get("GREMLIN_CPU_MAX_RESIDENT", "2"))
+_RESIDENT: list = []
+_RESIDENT_LOCK = threading.Lock()
+
 _READY_TIMEOUT = 240.0   # CPU load of a 4B is slow the first time
 _GEN_TIMEOUT = 180.0
 
@@ -40,12 +48,44 @@ def _readline(stream, timeout: float) -> Optional[str]:
 
 
 class CpuChatBackend(ModelBackend):
-    def __init__(self, info: ModelInfo, model_path: str, n_ctx: int = 8192):
+    def __init__(self, info: ModelInfo, model_path: str, n_ctx: int = 8192,
+                 pinned: bool = False):
         super().__init__(info)
         self._model_path = model_path
         self._n_ctx = n_ctx
         self._proc: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
+        self._pinned = pinned
+        self._last_used = 0.0
+
+    def _register_resident(self) -> None:
+        """Mark this worker resident and evict LRU non-pinned ones past the
+        cap, so several CPU specialist models never OOM the box."""
+        with _RESIDENT_LOCK:
+            if self not in _RESIDENT:
+                _RESIDENT.append(self)
+            while len(_RESIDENT) > _MAX_RESIDENT:
+                victims = sorted((b for b in _RESIDENT
+                                  if b is not self and not b._pinned),
+                                 key=lambda b: b._last_used)
+                if not victims:
+                    break
+                v = victims[0]
+                try:
+                    _RESIDENT.remove(v)
+                except ValueError:
+                    pass
+                try:
+                    v._stop()   # frees its RAM
+                except Exception:
+                    pass
+
+    def _forget_resident(self) -> None:
+        with _RESIDENT_LOCK:
+            try:
+                _RESIDENT.remove(self)
+            except ValueError:
+                pass
 
     @property
     def is_cpu(self) -> bool:
@@ -53,6 +93,7 @@ class CpuChatBackend(ModelBackend):
 
     def _ensure(self) -> bool:
         if self._proc is not None and self._proc.poll() is None:
+            self._last_used = time.monotonic()
             return True
         env = dict(os.environ)
         env["CUDA_VISIBLE_DEVICES"] = ""   # the whole point: zero VRAM
@@ -73,6 +114,8 @@ class CpuChatBackend(ModelBackend):
         if (ready or "").strip() != "READY":
             self._stop()
             return False
+        self._last_used = time.monotonic()
+        self._register_resident()
         return True
 
     def _stop(self) -> None:
@@ -95,6 +138,7 @@ class CpuChatBackend(ModelBackend):
 
     def _request(self, req: dict) -> dict:
         with self._lock:
+            self._last_used = time.monotonic()
             if not self._ensure():
                 return {"error": "cpu worker unavailable"}
             try:
@@ -138,3 +182,4 @@ class CpuChatBackend(ModelBackend):
     async def unload(self) -> None:
         import asyncio
         await asyncio.to_thread(self._stop)
+        self._forget_resident()

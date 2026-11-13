@@ -1,0 +1,99 @@
+"""Actually SYNTAX-check the code Gremlin writes in a CHAT answer.
+
+The battle loop and the self-edit review gate run diagnostics on code; a plain
+chat answer did not -- so a script Gremlin handed you came straight from memory,
+unchecked (Mickey 2026-11-13: "did it even look over the bash script to make
+sure nothing's wrong"). This closes that gap: every fenced code block with a
+known language is parsed with the real tool -- bash -n, python compile,
+node --check -- and any syntax error is reported so the answer path can fix it
+or flag it. Deterministic, never executes the code (parse-only), never raises.
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import tempfile
+
+_FENCE = re.compile(r"```([A-Za-z0-9_+.-]*)[ \t]*\n(.*?)```", re.DOTALL)
+
+
+def _first_err(out: str) -> str:
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if line:
+            return line[:200]
+    return (out or "")[:200]
+
+
+def _bash(code: str) -> str:
+    # bash -n: parse only, never run. Reads the script from stdin.
+    try:
+        p = subprocess.run(["bash", "-n"], input=code, text=True,
+                           capture_output=True, timeout=8)
+        return "" if p.returncode == 0 else _first_err(p.stderr or p.stdout)
+    except Exception:
+        return ""   # tool missing/errored -> fail-open, don't flag
+
+
+def _python(code: str) -> str:
+    try:
+        compile(code, "<chat>", "exec")
+        return ""
+    except SyntaxError as e:
+        return f"line {e.lineno}: {e.msg}"
+    except Exception:
+        return ""
+
+
+def _node(code: str) -> str:
+    # node --check needs a file; write a throwaway, parse-only.
+    path = None
+    try:
+        fd, path = tempfile.mkstemp(suffix=".js")
+        with os.fdopen(fd, "w") as f:
+            f.write(code)
+        p = subprocess.run(["node", "--check", path], text=True,
+                           capture_output=True, timeout=8)
+        return "" if p.returncode == 0 else _first_err(p.stderr or p.stdout)
+    except Exception:
+        return ""
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
+_LANGS = {
+    "bash": _bash, "sh": _bash, "shell": _bash, "zsh": _bash,
+    "python": _python, "py": _python, "python3": _python,
+    "js": _node, "javascript": _node, "node": _node,
+}
+
+
+def check_code_blocks(text: str) -> list:
+    """Syntax errors in the answer's fenced code blocks (empty when clean).
+    Only checks blocks tagged with a known language -- an untagged block may be
+    console output, not code."""
+    out = []
+    for m in _FENCE.finditer(text or ""):
+        lang = (m.group(1) or "").lower().strip()
+        code = m.group(2)
+        fn = _LANGS.get(lang)
+        if not fn or not code.strip():
+            continue
+        err = fn(code)
+        if err:
+            kind = {"_bash": "shell", "_python": "python", "_node": "JavaScript"}.get(
+                fn.__name__, lang)
+            out.append(f"the {kind} script above has a syntax error ({err})")
+    return out
+
+
+def caveat(issues: list) -> str:
+    if not issues:
+        return ""
+    return ("\n\n(Code check: " + "; ".join(issues[:3])
+            + " -- don't run it as-is, it won't parse.)")

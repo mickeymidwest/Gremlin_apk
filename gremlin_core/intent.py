@@ -324,10 +324,21 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
         # default -- CPU prompt-eval of the classify prompt is slow; this is an
         # A/B knob. A CPU failure falls back to the GPU model for that call.
         _cname = model_name
-        if (os.environ.get("GREMLIN_CLASSIFY_ON_CPU") == "1"
-                and getattr(router, "registry", None) is not None
-                and router.registry.get("qwen3.5-4b-cpu") is not None):
-            _cname = "qwen3.5-4b-cpu"
+        # Hive classifier: run intent on the pinned tiny CPU model (zero VRAM,
+        # keeps the GPU free for the answer). Default ON; GREMLIN_CLASSIFY_ON_CPU=0
+        # disables. Prefers the 1.5B, then the 4B; GPU fallback below on any CPU
+        # failure. IMMUTABLE hive rail -- this routing is unchanged by override.
+        if os.environ.get("GREMLIN_CLASSIFY_ON_CPU", "1") != "0":
+            def _reg_has(_nm):
+                try:
+                    return (getattr(router, "registry", None) is not None
+                            and router.registry.get(_nm) is not None)
+                except Exception:
+                    return False
+            for _cand in ("qwen2.5-1.5b-cpu", "qwen3.5-4b-cpu"):
+                if _reg_has(_cand):
+                    _cname = _cand
+                    break
         result = await router.route(_cname, _cprompt, grammar=_cgrammar)
         if (not getattr(result, "ok", True)) and _cname != model_name:
             result = await router.route(model_name, _cprompt, grammar=_cgrammar)

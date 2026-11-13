@@ -662,6 +662,7 @@ def create_app(
         # Cumulative usage for the WHOLE conversation, not just this turn --
         # "like Claude Code" means a running total, not a per-message stat.
         result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+        _spawn_watchdog(message, result.get("answer", ""))
         return jsonify(result)
 
     async def _summarize(_prompt: str) -> str:
@@ -680,6 +681,41 @@ def create_app(
                     conversation_history.compact(ck, _summarize), loop)
         except Exception:
             pass
+
+    _wd_busy = {"on": False}
+
+    def _log_watchdog(_msg, _ans, concerns):
+        try:
+            import json as _json, time as _time, os as _os
+            _d = _os.path.join(str(project_root), ".gremlin")
+            _os.makedirs(_d, exist_ok=True)
+            with open(_os.path.join(_d, "watchdog.jsonl"), "a") as _f:
+                _f.write(_json.dumps({"ts": _time.time(), "msg": str(_msg)[:300],
+                                      "concerns": concerns}) + "\n")
+        except Exception:
+            pass
+
+    def _spawn_watchdog(_msg, _ans):
+        # IMMUTABLE hive honesty rail: the watchdog reviews EVERY answer in the
+        # background on the CPU (never blocking the reply) and logs concerns.
+        # Stays on even in override/private -- honesty, not a content gate.
+        # Single-flight + skip trivial answers so it can't pile up.
+        if _wd_busy["on"] or len((_ans or "").strip()) < 40:
+            return
+        import threading as _th
+        def _run():
+            _wd_busy["on"] = True
+            try:
+                from .magic import hive as _hive
+                _h = _hive.build_hive(registry, loop=loop)
+                _c = _h.watchdog_review(_msg, _ans)
+                if _c:
+                    _log_watchdog(_msg, _ans, _c)
+            except Exception:
+                pass
+            finally:
+                _wd_busy["on"] = False
+        _th.Thread(target=_run, daemon=True).start()
 
     def _chat_reply(answer: str, action: str = "chat", ok: bool = True,
                     receipt: Optional[dict] = None) -> dict:
@@ -941,6 +977,7 @@ def create_app(
                                     completion_tokens=turn_usage.get("completion_tokens", 0))
                             _maybe_compact(conv_key)
                             final["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                            _spawn_watchdog(message, final.get("answer", ""))
                         try:
                             bridge.put_nowait((kind, payload))
                         except _queue.Full:

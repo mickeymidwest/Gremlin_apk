@@ -1,4 +1,7 @@
-"""Opt-in classify-on-CPU: routes to the CPU model only when the flag is set."""
+"""Hive classifier routing: intent classification runs on the pinned 1.5B CPU
+model by default (zero VRAM, GPU stays free), prefers 1.5B over the 4B, falls
+back to the GPU on a CPU failure or when no CPU model is present, and
+GREMLIN_CLASSIFY_ON_CPU=0 opts back onto the GPU."""
 import asyncio
 
 import gremlin_core.intent as I
@@ -10,56 +13,67 @@ class _Res:
 
 
 class _Reg:
-    def __init__(self, has_cpu=True):
-        self._has = has_cpu
+    def __init__(self, cpu_models=("qwen2.5-1.5b-cpu", "qwen3.5-4b-cpu")):
+        self._cpu = set(cpu_models)
 
     def get(self, n):
-        if n == "qwen3.5-4b-cpu":
-            return object() if self._has else None
-        return object()
+        if n.endswith("-cpu"):
+            return object() if n in self._cpu else None
+        return object()          # a GPU model is always present
 
 
 class _Router:
-    def __init__(self, has_cpu=True, cpu_fails=False):
-        self.registry = _Reg(has_cpu)
+    def __init__(self, cpu_models=("qwen2.5-1.5b-cpu", "qwen3.5-4b-cpu"), fails=()):
+        self.registry = _Reg(cpu_models)
         self.routed = []
-        self._cpu_fails = cpu_fails
+        self._fails = set(fails)
 
     async def route(self, name, prompt, **kw):
         self.routed.append(name)
-        ok = not (self._cpu_fails and name == "qwen3.5-4b-cpu")
-        return _Res('{"action": "service_restart", "args": {}, "confidence": 0.9}', ok=ok)
+        return _Res('{"action": "service_restart", "args": {}, "confidence": 0.9}',
+                    ok=(name not in self._fails))
 
 
-def _run(router, monkeypatch, flag):
+def _run(router, monkeypatch, *, env="__unset__"):
     monkeypatch.setattr(I, "fast_path", lambda t: None)   # force the model path
-    if flag:
-        monkeypatch.setenv("GREMLIN_CLASSIFY_ON_CPU", "1")
-    else:
+    if env == "__unset__":
         monkeypatch.delenv("GREMLIN_CLASSIFY_ON_CPU", raising=False)
+    else:
+        monkeypatch.setenv("GREMLIN_CLASSIFY_ON_CPU", env)
     return asyncio.run(I.classify(router, "gremlin", "restart the jellyfin service", 0.5))
 
 
-def test_routes_to_cpu_when_flag_set(monkeypatch):
-    r = _Router(has_cpu=True)
-    _run(r, monkeypatch, flag=True)
-    assert "qwen3.5-4b-cpu" in r.routed
+def test_defaults_to_pinned_1_5b(monkeypatch):
+    r = _Router()
+    _run(r, monkeypatch)                    # no env -> default ON
+    assert r.routed and r.routed[0] == "qwen2.5-1.5b-cpu"
 
 
-def test_stays_on_gpu_by_default(monkeypatch):
-    r = _Router(has_cpu=True)
-    _run(r, monkeypatch, flag=False)
+def test_prefers_1_5b_over_4b(monkeypatch):
+    r = _Router()
+    _run(r, monkeypatch, env="1")
+    assert "qwen2.5-1.5b-cpu" in r.routed and "qwen3.5-4b-cpu" not in r.routed
+
+
+def test_uses_4b_when_no_1_5b(monkeypatch):
+    r = _Router(cpu_models=("qwen3.5-4b-cpu",))
+    _run(r, monkeypatch)
+    assert r.routed[0] == "qwen3.5-4b-cpu"
+
+
+def test_env_0_stays_on_gpu(monkeypatch):
+    r = _Router()
+    _run(r, monkeypatch, env="0")
     assert r.routed == ["gremlin"]
 
 
 def test_falls_back_to_gpu_when_cpu_fails(monkeypatch):
-    r = _Router(has_cpu=True, cpu_fails=True)
-    _run(r, monkeypatch, flag=True)
-    # tried CPU, it failed, then fell back to the GPU model
-    assert r.routed == ["qwen3.5-4b-cpu", "gremlin"]
+    r = _Router(fails=("qwen2.5-1.5b-cpu",))
+    _run(r, monkeypatch)
+    assert r.routed == ["qwen2.5-1.5b-cpu", "gremlin"]
 
 
 def test_no_cpu_model_stays_on_gpu(monkeypatch):
-    r = _Router(has_cpu=False)
-    _run(r, monkeypatch, flag=True)
+    r = _Router(cpu_models=())
+    _run(r, monkeypatch)
     assert r.routed == ["gremlin"]

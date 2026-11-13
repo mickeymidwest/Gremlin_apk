@@ -533,6 +533,15 @@ async def answer_stream(primary, message: str, root: str,
                     yield "delta", _hc
             except Exception:
                 pass
+        try:
+            from . import code_check as _cc
+            _ci = _cc.check_code_blocks(text)
+        except Exception:
+            _ci = []
+        if _ci:
+            _cn = _cc.caveat(_ci)
+            text += _cn
+            yield "delta", _cn
         if looked:
             note = look.footer(looked)
             text += note
@@ -659,6 +668,30 @@ async def answer(primary, message: str, root: str,
                 text += _ah.caveat(_hh)
         except Exception:
             pass
+    # Code check: SYNTAX-check any script/code Gremlin wrote (bash -n, python
+    # compile, node --check) and, if it won't parse, regenerate once with the
+    # error fed back -- don't hand over a broken script (the battle loop checks
+    # code; a chat answer didn't until now).
+    try:
+        from . import code_check as _cc
+        _ci = _cc.check_code_blocks(text)
+    except Exception:
+        _ci = []
+    if _ci:
+        _cprompt = (prompt + "\n\n[A syntax check of the code you wrote found: "
+                    + "; ".join(_ci) + ". Rewrite the answer with the code FIXED so "
+                    "it parses cleanly; keep everything else.]")
+        try:
+            _r3 = await _gen(primary, _cprompt, hist)
+            _t3 = (_r3.text or "").strip() if getattr(_r3, "ok", True) else ""
+            _still = _cc.check_code_blocks(_t3) if _t3 else _ci
+            if _t3 and len(_still) < len(_ci):
+                text = _t3 + (_cc.caveat(_still) if _still else "")
+            else:
+                text = text + _cc.caveat(_ci)
+        except Exception:
+            text = text + _cc.caveat(_ci)
+
     if web_sources and text:
         _figs = autoresearch.unverified_figures(text, web_ev)
         if _figs:

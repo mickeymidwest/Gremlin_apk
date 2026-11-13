@@ -21,6 +21,7 @@ from pathlib import Path
 
 # `path/like/this.ext` or `dir/file` in backticks, or bare with a slash +
 # extension. Deliberately narrow: needs a slash and (ext or a second slash).
+_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _PATH_RE = re.compile(
     r"`([A-Za-z0-9_.\-]+/[A-Za-z0-9_./\-]+?)`"
     r"|(?<![\w/.:])([A-Za-z0-9_\-]+(?:/[A-Za-z0-9_.\-]+){1,}\.[A-Za-z0-9]{1,5})(?![\w/])"
@@ -203,7 +204,7 @@ _SKIP_EXACT = {"and/or", "n/a", "a/b", "km/h", "w/e", "i/o"}
 
 
 def _looks_repo_relative(p: str) -> bool:
-    return not (p.lower() in _SKIP_EXACT or p.startswith(_SKIP_PREFIX)
+    return not (p.lower() in _SKIP_EXACT or p.lower().startswith(_SKIP_PREFIX)
                or "*" in p or " " in p or p.count("/") > 8)
 
 
@@ -214,6 +215,7 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
     ctx = context or ""
     out: list[str] = []
     seen: set[str] = set()
+    scan = _FENCE_RE.sub(" ", text)  # code blocks are examples, not repo claims
 
     def _exists(rel: str) -> bool:
         try:
@@ -221,7 +223,7 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
         except (OSError, ValueError):
             return False
 
-    for m in _PATH_RE.finditer(text):
+    for m in _PATH_RE.finditer(scan):
         p = (m.group(1) or m.group(2) or "").strip()
         if not p or p in seen or not _looks_repo_relative(p):
             continue
@@ -229,7 +231,7 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
         if not _exists(p) and p not in ctx:
             out.append(f"refers to `{p}`, which is not in this project")
 
-    for m in _CITE_RE.finditer(text):
+    for m in _CITE_RE.finditer(scan):
         p, ln = m.group(1), int(m.group(2))
         if not _looks_repo_relative(p):
             continue
@@ -241,7 +243,7 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
         except OSError:
             pass
 
-    for m in _CMD_RE.finditer(text):
+    for m in _CMD_RE.finditer(scan):
         s = m.group(1)
         if s in seen or not _looks_repo_relative(s):
             continue

@@ -472,6 +472,19 @@ async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500, query: 
     return ""
 
 
+def _tech_followup(message: str, history: str = "") -> bool:
+    """A CLI/tooling how-to whose current message dropped the tool name while a
+    recent turn named one -- e.g. 'tell me how to write it' right after an ssh /
+    bash question. Fires the same doc lookup, carrying the prior topic, so a
+    follow-up isn't answered from stale memory."""
+    if not history or not _TECH_ASK.search(message or ""):
+        return False
+    if _SELF_LOCAL.search(message or ""):
+        return False
+    users = [l[len("User:"):] for l in history.splitlines() if l.startswith("User:")]
+    return bool(_CLI_TOOL.search(" ".join(users[-3:])))
+
+
 async def gather(message: str, *, limit: int = 3, history: str = ""):
     """If `message` warrants it, run a live web search and return
     (sources, evidence_text); otherwise (None, ""). Never raises --
@@ -483,7 +496,7 @@ async def gather(message: str, *, limit: int = 3, history: str = ""):
     Two-step tool chain: search, then (when the snippets won't carry the
     answer) read the top result's page -- so a schedule / box-office / score
     question gets answered instead of giving up at the snippets."""
-    if not should_search(message):
+    if not should_search(message) and not _tech_followup(message, history):
         return None, ""
     cq = contextual_query(message, history)
     try:
