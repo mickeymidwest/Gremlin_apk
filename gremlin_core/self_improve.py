@@ -444,7 +444,8 @@ async def run_self_edit(
 
             fixer = model_names[0]
             outcome = await review_mod.review_and_revise(
-                router, patch, goal, reviewer_a=reviewer_a, reviewer_b=reviewer_b, fixer=fixer
+                router, patch, goal, reviewer_a=reviewer_a, reviewer_b=reviewer_b, fixer=fixer,
+                root=root, run_tests=run_tests,
             )
             review_history = [
                 {"reviewer": r.reviewer, "approved": r.approved, "feedback": r.feedback}

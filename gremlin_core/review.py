@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .router import Router
+from . import pregate
 
 REVIEW_SYSTEM_PROMPT = (
     "You are reviewing a proposed unified diff patch to an AI orchestrator's "
@@ -58,6 +59,7 @@ class ReviewOutcome:
     rounds_used: int
     history: list[ReviewRound] = field(default_factory=list)
     reason: Optional[str] = None
+    advisory: Optional[ReviewRound] = None
 
 
 def _parse_verdict(text: str) -> Optional[dict]:
@@ -174,6 +176,10 @@ async def review_and_revise(
     reviewer_a: str,
     reviewer_b: str,
     fixer: str,
+    root: Optional[str] = None,
+    use_pregate: bool = True,
+    run_tests: bool = True,
+    gemini_advisory: bool = True,
     max_rounds: int = 4,
     review_system: str = REVIEW_SYSTEM_PROMPT,
     revise_system: str = REVISE_SYSTEM_PROMPT,
@@ -195,6 +201,23 @@ async def review_and_revise(
     current_patch = patch
 
     for round_num in range(1, max_rounds + 1):
+        # Deterministic pre-gate (strict mode): the patch must apply,
+        # compile, keep the FULL test suite green, and weaken no safety
+        # rail BEFORE any LLM reviewer judges it. A failure is an automatic
+        # rejection carrying the real error, fed to the fixer -- the 14B
+        # reviewers never see a patch that isn't already provably green.
+        # Skipped when no repo root is given (e.g. build_project's
+        # whole-file bootstrap review).
+        if root and use_pregate:
+            ok_pre, pre_fails = await asyncio.to_thread(
+                pregate.run_pregate_sync, current_patch, root, run_tests=run_tests)
+            if not ok_pre:
+                fb = ("Automatic pre-gate rejection -- fix these before review:\n- "
+                      + "\n- ".join(pre_fails))
+                history.append(ReviewRound(reviewer="pre-gate", approved=False, feedback=fb))
+                current_patch = await _revise(router, fixer, current_patch, goal, fb, revise_system)
+                await _unload_if_local(router, fixer)
+                continue
         review_a = await _review_once(router, reviewer_a, current_patch, goal, review_system)
         history.append(review_a)
         await _unload_if_local(router, reviewer_a)
@@ -211,7 +234,27 @@ async def review_and_revise(
             await _unload_if_local(router, fixer)
             continue
 
-        return ReviewOutcome(approved=True, patch=current_patch, rounds_used=round_num, history=history)
+        # Both local reviewers approved a pre-gate-green patch -> trusted
+        # merge gate. Advisory double-check: if Gemini is reachable and was
+        # not already a reviewer, run it ONCE and record it, but never block
+        # on it (Mickey: "gemini double check when its back up"). Gemini
+        # being down is noted, not counted as a rejection.
+        advisory = None
+        if gemini_advisory and "gemini" not in (reviewer_a, reviewer_b):
+            try:
+                g = await _review_once(router, "gemini", current_patch, goal, review_system)
+                await _unload_if_local(router, "gemini")
+                if g.feedback.startswith("reviewer unreachable"):
+                    history.append(ReviewRound(reviewer="gemini (advisory)", approved=True,
+                                               feedback="unavailable -- advisory skipped"))
+                else:
+                    advisory = g
+                    history.append(ReviewRound(reviewer="gemini (advisory)",
+                                               approved=g.approved, feedback=g.feedback))
+            except Exception:
+                pass
+        return ReviewOutcome(approved=True, patch=current_patch, rounds_used=round_num,
+                             history=history, advisory=advisory)
 
     return ReviewOutcome(
         approved=False,
