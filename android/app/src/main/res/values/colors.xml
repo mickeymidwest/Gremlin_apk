@@ -16,4 +16,15 @@
     <color name="gremlin_online">#6DE3A0</color>
     <color name="gremlin_busy">#FFD27D</color>
     <color name="gremlin_offline">#FF9D9D</color>
+    <!-- Private mode: a warm, sensual dark palette (distinct from the mint UI) -->
+    <color name="pv_bg">#080B16</color>
+    <color name="pv_bg2">#0C1430</color>
+    <color name="pv_surface">#121C38</color>
+    <color name="pv_surface_hi">#1B284C</color>
+    <color name="pv_accent">#5B8CFF</color>
+    <color name="pv_accent2">#3FC6FF</color>
+    <color name="pv_text">#E9F0FF</color>
+    <color name="pv_text_dim">#93A6D0</color>
+    <color name="pv_bubble_user">#1C2E5E</color>
+    <color name="pv_line">#263863</color>
 </resources>

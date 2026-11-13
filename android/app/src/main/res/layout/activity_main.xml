@@ -5,8 +5,8 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:fitsSystemWindows="true"
-    android:paddingLeft="12dp"
-    android:paddingRight="12dp">
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp">
 
     <!-- The frame height animates; the WebView keeps its size and scales,
          because hologram.html draws at a fixed size and would crop. -->

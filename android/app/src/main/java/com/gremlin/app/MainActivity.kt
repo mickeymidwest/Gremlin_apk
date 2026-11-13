@@ -154,6 +154,7 @@ class MainActivity : AppCompatActivity() {
         hologramView = findViewById(R.id.hologram_view)
         hologramView.setBackgroundColor(Color.TRANSPARENT)
         hologramView.settings.javaScriptEnabled = true
+        hologramView.settings.mediaPlaybackRequiresUserGesture = false
         hologramView.addJavascriptInterface(JsBridge(), "Android")
         hologramView.loadUrl("file:///android_asset/hologram.html")
 

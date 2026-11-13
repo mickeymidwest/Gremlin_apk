@@ -82,7 +82,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     private fun draw(turn: Turn): TextView {
         val bubble = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, if (turn.kind == Kind.SYSTEM) 12f else 15f)
-            setLineSpacing(dp(2).toFloat(), 1f)
+            setLineSpacing(dp(3).toFloat(), 1.12f)
             setTextIsSelectable(true)
             text = styled(turn.text)
         }
@@ -95,14 +95,14 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
                 params.marginStart = dp(48)
                 bubble.setBackgroundResource(R.drawable.bg_bubble_user)
                 bubble.setTextColor(color(R.color.gremlin_text_primary))
-                bubble.setPadding(dp(14), dp(9), dp(14), dp(9))
+                bubble.setPadding(dp(16), dp(11), dp(16), dp(11))
             }
             Kind.GREMLIN -> {
                 params.gravity = Gravity.START
                 params.marginEnd = dp(24)
                 bubble.setBackgroundResource(R.drawable.bg_bubble_bot)
                 bubble.setTextColor(color(R.color.gremlin_text_primary))
-                bubble.setPadding(dp(14), dp(9), dp(14), dp(9))
+                bubble.setPadding(dp(16), dp(11), dp(16), dp(11))
             }
             Kind.SYSTEM -> {
                 params.gravity = Gravity.CENTER_HORIZONTAL
@@ -111,6 +111,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
             }
         }
         list.addView(bubble, params)
+        bubble.alpha = 0f
+        bubble.translationY = dp(14).toFloat()
+        bubble.animate().alpha(1f).translationY(0f).setDuration(220).start()
         if (turn.kind == Kind.GREMLIN && turn.text.isNotEmpty()) addFooter(turn)
         return bubble
     }

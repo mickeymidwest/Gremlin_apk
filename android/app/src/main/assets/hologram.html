@@ -5,614 +5,77 @@
 <style>
   html, body {
     margin: 0; padding: 0; overflow: hidden;
-    background: transparent;
-    width: 100%; height: 100%;
-    -webkit-user-select: none; user-select: none;
-    display: flex; flex-direction: column;
-  }
-  #stage {
-    flex: 1;
-    width: 100%;
+    background: transparent; width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
+    -webkit-user-select: none; user-select: none;
     perspective: 700px;
-    cursor: grab;
-    touch-action: none;
   }
-  #stage.dragging { cursor: grabbing; }
-  #prism {
-    position: relative;
-    width: 180px; height: 180px;
-    transform-style: preserve-3d;
-  }
-  .face {
-    position: absolute; inset: 0;
-    transform-style: preserve-3d;
-    backface-visibility: hidden;
-  }
-  .face canvas {
-    display: block;
-    filter: drop-shadow(0 0 12px rgba(150, 255, 90, 0.55));
-  }
-  .face-label {
-    position: absolute; left: 0; right: 0; bottom: 2px;
-    text-align: center;
-    font: 9px/1.2 monospace;
-    letter-spacing: 0.02em;
-    color: rgba(180, 255, 220, 0.65);
-    text-shadow: 0 0 6px rgba(120, 255, 200, 0.5);
-    pointer-events: none;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  #below-zone {
-    height: 22px;
-    width: 100%;
+  #grem {
+    max-height: 100%; max-width: 100%; object-fit: contain;
     cursor: pointer;
+    filter: drop-shadow(0 0 14px rgba(90, 255, 140, 0.35));
+    transition: transform .25s ease, filter .25s ease;
+    transform-style: preserve-3d;
   }
-  #scanlines {
-    position: fixed; inset: 0; pointer-events: none;
-    background: repeating-linear-gradient(
-      to bottom,
-      rgba(150, 255, 90, 0.05) 0px,
-      rgba(150, 255, 90, 0.05) 1px,
-      transparent 1px,
-      transparent 3px
-    );
-    mix-blend-mode: screen;
-    animation: scan-drift 6s linear infinite;
+  #grem.talking {
+    filter: drop-shadow(0 0 24px rgba(120, 255, 170, 0.85));
+    transform: scale(1.03);
   }
-  @keyframes scan-drift {
-    from { background-position-y: 0; }
-    to   { background-position-y: 100px; }
+  /* celebratory jump + spin when Gremlin finishes thinking */
+  #grem.spin {
+    animation: jumpspin .8s cubic-bezier(.34, 1.56, .5, 1) 1;
+  }
+  @keyframes jumpspin {
+    0%   { transform: translateY(0)     rotateY(0)      scale(1); }
+    30%  { transform: translateY(-26px) rotateY(170deg) scale(1.06); filter: drop-shadow(0 0 26px rgba(130,255,180,0.9)); }
+    60%  { transform: translateY(-26px) rotateY(360deg) scale(1.06); filter: drop-shadow(0 0 26px rgba(130,255,180,0.9)); }
+    100% { transform: translateY(0)     rotateY(360deg) scale(1); }
   }
   #quit-btn {
     position: fixed; top: 4px; right: 6px;
     width: 16px; height: 16px;
     color: rgba(150, 255, 230, 0.5);
-    font: 12px monospace;
-    text-align: center; line-height: 16px;
-    cursor: pointer;
-    z-index: 10;
+    font: 12px monospace; text-align: center; line-height: 16px;
+    cursor: pointer; z-index: 10;
   }
   #quit-btn:hover { color: rgba(255, 255, 255, 0.9); }
 </style>
 </head>
 <body>
-  <div id="quit-btn" title="Quit">×</div>
-  <div id="stage" class="pywebview-drag-region">
-    <div id="prism">
-      <div class="face" data-slot="0"><canvas width="180" height="180"></canvas><div class="face-label"></div></div>
-      <div class="face" data-slot="1"><canvas width="180" height="180"></canvas><div class="face-label"></div></div>
-      <div class="face" data-slot="2"><canvas width="180" height="180"></canvas><div class="face-label"></div></div>
-      <div class="face" data-slot="3"><canvas width="180" height="180"></canvas><div class="face-label"></div></div>
-    </div>
-  </div>
-  <div id="below-zone" title="Gremlin's own settings"></div>
-  <div id="scanlines"></div>
-
+  <div id="quit-btn" title="Quit">&times;</div>
+  <video id="grem" autoplay loop muted playsinline>
+    <source src="gremlin.mp4" type="video/mp4">
+  </video>
 <script>
-// Four faces of a turntable "prism" -- not a literal cube (no top/bottom,
-// just 4 vertical panels 90 degrees apart) -- each one the SAME
-// procedurally-drawn face as before (drawFace, unchanged), tagged with a
-// small label so the 4 local consult models are distinguishable as you
-// spin it. The prism itself (as a whole) is Gremlin's own hologram --
-// tapping any face edits that slot's model; tapping below it (not part
-// of the head at all) edits Gremlin's own primary settings.
-// Single-Gremlin mode: Gremlin is the one model now (no consult council),
-// so the turntable is just Gremlin facing forward -- no other faces, no
-// auto-spin, tapping the head opens Gremlin's own settings.
-const SINGLE = true;
+  var grem = document.getElementById('grem');
+  var wasTalking = false;
 
-const FACES = Array.from(document.querySelectorAll('.face')).map((el, i) => ({
-  el,
-  canvas: el.querySelector('canvas'),
-  label: el.querySelector('.face-label'),
-  angle: i * 90,          // fixed geometry, faces 90deg apart
-  modelName: null,        // filled in once /status loads
-}));
-if (SINGLE) {
-  FACES.slice(1).forEach(f => { f.el.style.display = 'none'; });
-  FACES[0].label.textContent = 'Gremlin';
-}
-FACES.forEach(f => {
-  f.ctx = f.canvas.getContext('2d');
-  f.el.style.transform = `rotateY(${f.angle}deg) translateZ(90px)`;
-});
-
-const stage = document.getElementById('stage');
-const prism = document.getElementById('prism');
-const belowZone = document.getElementById('below-zone');
-
-// IS_FRAMED: true when this page is loaded inside desktop's main.html
-// (the hologram sits in an iframe there, with the chat panel below it,
-// so window.pywebview.api isn't necessarily injected into this
-// sub-frame -- postMessage to the parent, which IS the top-level
-// document, instead). Never true on Android, which always loads this
-// file directly -- window.Android calls there are completely
-// unaffected by any of this. Declared early since both the
-// talking-animation and click-routing code below depend on it.
-const IS_FRAMED = window.parent !== window;
-
-// Whether Gremlin is actively generating an answer right now -- drives
-// the animated-mouth branch in drawFace() below. Android pushes this
-// directly via evaluateJavascript (see MainActivity.sendMessage());
-// desktop has no such direct channel (the terminal chat and this
-// window are separate processes), so it's polled from the shared
-// file-based signal instead -- see pollTalking() further down.
-let TALKING = false;
-function setTalking(v) { TALKING = !!v; }
-
-// Original stylized face: NOT any specific copyrighted character's
-// likeness (not the Warner Bros. Gremlins designs, not the film
-// version of anything else) -- generic mischievous-creature/folklore
-// traits drawn procedurally, same approach as the rest of this design.
-//
-// Redesigned 2026-09-20: mickey sent a stock creature illustration and
-// asked for that same vibe (mottled scaly skin, ragged bat ears, fur
-// ruff at the jaw, fanged grin, a little slime-drip grime), kept as
-// our own procedural draw rather than tracing that image, so it stays
-// a design of its own and not a copy of anyone else's.
-// SKIN_BLOTCHES/EAR_NOTCHES below are fixed (not re-randomized per
-// frame) -- a canvas redrawing 60x/sec with fresh random noise each
-// frame reads as flickering static, not texture.
-const SKIN_BLOTCHES = [
-  [-22, -30, 9], [18, -22, 7], [-8, -4, 10], [24, 6, 8],
-  [-28, 18, 7], [6, 28, 9], [-4, -46, 6], [30, -42, 5],
-];
-const EAR_NOTCHES = [0.22, 0.52, 0.74]; // fraction along the outer ear edge
-
-function drawFace(ctx, W, H, t) {
-  ctx.clearRect(0, 0, W, H);
-
-  const cx = W / 2, cy = H / 2 + 6;
-  const bob = Math.sin(t / 900) * 3;
-  const flicker = 0.75 + Math.sin(t / 130) * 0.06 + Math.sin(t / 47) * 0.03;
-
-  ctx.save();
-  ctx.translate(0, bob);
-  ctx.globalAlpha = Math.max(0.4, Math.min(1, flicker));
-  ctx.strokeStyle = 'rgba(150, 255, 90, 0.9)';
-  ctx.fillStyle = 'rgba(90, 210, 50, 0.10)';
-  ctx.lineWidth = 1.4;
-
-  // fur ruff -- a ring of small cream-green tufts around the lower
-  // jaw/neck, behind everything else, the way a mane frames a face
-  {
-    const savedAlpha = ctx.globalAlpha;
-    ctx.globalAlpha *= 0.5;
-    ctx.fillStyle = 'rgba(200, 255, 210, 0.4)';
-    for (let a = -70; a <= 70; a += 12) {
-      const rad = a * Math.PI / 180;
-      const baseX = cx + Math.sin(rad) * 46, baseY = cy + 40 + Math.cos(rad) * 22;
-      const tipX = cx + Math.sin(rad) * 64, tipY = cy + 46 + Math.cos(rad) * 32;
-      ctx.beginPath();
-      ctx.moveTo(baseX - 3, baseY);
-      ctx.lineTo(tipX, tipY);
-      ctx.lineTo(baseX + 3, baseY);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.globalAlpha = savedAlpha;
-  }
-
-  // pointed, ragged bat-ish ears -- drawn behind the head so the head
-  // outline overlaps their base and only the tips read clearly. Bigger
-  // than before, with a couple of torn-edge notches for a weathered look.
-  [-1, 1].forEach(side => {
-    ctx.beginPath();
-    const baseX = cx + side * 40, baseY = cy - 14;
-    const tipX = cx + side * 88, tipY = cy - 58;
-    ctx.moveTo(baseX, baseY + 22);
-    EAR_NOTCHES.forEach(f => {
-      const nx = baseX + (tipX - baseX) * f + side * 6;
-      const ny = baseY + (tipY - baseY) * f;
-      ctx.lineTo(nx, ny + 4);
-      ctx.lineTo(nx + side * 3, ny - 3);
-    });
-    ctx.quadraticCurveTo(cx + side * 58, baseY - 14, tipX, tipY);
-    ctx.quadraticCurveTo(cx + side * 52, baseY + 8, baseX, baseY - 16);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    // inner-ear detail line
-    ctx.beginPath();
-    ctx.moveTo(baseX + side * 4, baseY - 2);
-    ctx.quadraticCurveTo(cx + side * 56, baseY - 18, tipX - side * 6, tipY + 12);
-    const savedAlpha = ctx.globalAlpha;
-    ctx.globalAlpha *= 0.35;
-    ctx.stroke();
-    ctx.globalAlpha = savedAlpha;
-  });
-
-  // head outline -- narrower, more angular than a plain oval: sharper
-  // through the jaw and chin rather than uniformly round
-  ctx.beginPath();
-  ctx.moveTo(cx, cy - 66);
-  ctx.bezierCurveTo(cx + 50, cy - 64, cx + 52, cy + 10, cx + 34, cy + 42);
-  ctx.quadraticCurveTo(cx + 14, cy + 70, cx, cy + 76);
-  ctx.quadraticCurveTo(cx - 14, cy + 70, cx - 34, cy + 42);
-  ctx.bezierCurveTo(cx - 52, cy + 10, cx - 50, cy - 64, cx, cy - 66);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  // mottled/scaly skin texture -- clipped to the head silhouette so
-  // the blotches never spill past the outline
-  ctx.save();
-  ctx.clip();
-  const savedBlotchAlpha = ctx.globalAlpha;
-  ctx.globalAlpha *= 0.22;
-  ctx.fillStyle = 'rgba(40, 140, 30, 0.8)';
-  SKIN_BLOTCHES.forEach(([bx, by, r]) => {
-    ctx.beginPath();
-    ctx.ellipse(cx + bx, cy + by, r, r * 0.7, 0.4, 0, Math.PI * 2);
-    ctx.fill();
-  });
-  ctx.globalAlpha = savedBlotchAlpha;
-  ctx.restore();
-
-  // wireframe mesh across the head (horizontal + curved verticals) --
-  // the "hologram" read, kept over the new skin texture
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    const yOff = i * 18;
-    ctx.moveTo(cx - 48, cy + yOff);
-    ctx.quadraticCurveTo(cx, cy + yOff + 6, cx + 48, cy + yOff);
-    const savedAlpha = ctx.globalAlpha;
-    ctx.globalAlpha *= 0.35;
-    ctx.stroke();
-    ctx.globalAlpha = savedAlpha;
-  }
-  for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    const xOff = i * 15;
-    ctx.moveTo(cx + xOff, cy - 62);
-    ctx.quadraticCurveTo(cx + xOff * 1.3, cy, cx + xOff, cy + 68);
-    const savedAlpha = ctx.globalAlpha;
-    ctx.globalAlpha *= 0.3;
-    ctx.stroke();
-    ctx.globalAlpha = savedAlpha;
-  }
-
-  // angled, mischievous brows -- a touch sharper/lower for a meaner look
-  [-1, 1].forEach(side => {
-    ctx.beginPath();
-    ctx.moveTo(cx + side * 7, cy - 20);
-    ctx.lineTo(cx + side * 30, cy - 30 - side * 2);
-    const savedAlpha = ctx.globalAlpha;
-    ctx.globalAlpha *= 0.7;
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-    ctx.lineWidth = 1.4;
-    ctx.globalAlpha = savedAlpha;
-  });
-
-  // narrower, more menacing glowing eyes (was a big round luminous
-  // shape -- slit them down for a meaner look, keep the hologram glow)
-  const eyeY = cy - 8;
-  const blink = (Math.sin(t / 2100) > 0.985) ? 0.15 : 1;
-  [-1, 1].forEach(side => {
-    ctx.save();
-    ctx.translate(cx + side * 20, eyeY);
-    ctx.rotate(side * -0.18);
-    ctx.scale(1, blink);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 10, 8, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(210, 255, 160, 0.9)';
-    ctx.shadowColor = 'rgba(160, 255, 90, 0.9)';
-    ctx.shadowBlur = 10;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(0, 0, 3.5, 5, 0, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(15, 45, 10, 0.9)';
-    ctx.shadowBlur = 0;
-    ctx.fill();
-    ctx.restore();
-  });
-
-  // mouth: while TALKING (see setTalking() below), an animated
-  // open/close flap -- otherwise a wide, fanged grin. Fangs are bigger
-  // than before, closer to the reference's toothy look.
-  if (TALKING) {
-    const openAmt = 0.3 + Math.abs(Math.sin(t / 65)) * 0.7; // fast flap, 0.3..1
-    ctx.beginPath();
-    ctx.ellipse(cx, cy + 40, 13, 4 + openAmt * 11, 0, 0, Math.PI * 2);
-    ctx.globalAlpha = Math.max(0.4, Math.min(1, flicker));
-    ctx.fillStyle = 'rgba(20, 55, 15, 0.85)';
-    ctx.fill();
-    ctx.stroke();
-    if (openAmt > 0.55) {
-      [-1, 1].forEach(side => {
-        ctx.beginPath();
-        const toothX = cx + side * 8;
-        ctx.moveTo(toothX - 3, cy + 33);
-        ctx.lineTo(toothX, cy + 41);
-        ctx.lineTo(toothX + 3, cy + 33);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(230, 255, 220, 0.75)';
-        ctx.fill();
-      });
-    }
-  } else {
-    ctx.beginPath();
-    ctx.moveTo(cx - 22, cy + 34);
-    ctx.quadraticCurveTo(cx, cy + 48, cx + 22, cy + 32);
-    ctx.globalAlpha = 0.6;
-    ctx.stroke();
-    ctx.globalAlpha = Math.max(0.4, Math.min(1, flicker));
-    [-1, 1].forEach(side => {
-      ctx.beginPath();
-      const toothX = cx + side * 10;
-      ctx.moveTo(toothX - 4, cy + 36);
-      ctx.lineTo(toothX, cy + 47);
-      ctx.lineTo(toothX + 4, cy + 36);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(230, 255, 220, 0.8)';
-      ctx.fill();
-    });
-  }
-
-  // slime/data-drip accents -- a couple of thin streaks trailing from
-  // the jaw and an ear tip, pulsing slowly, in the same glow color as
-  // the rest of the hologram so it reads as "digital grime," not gore
-  {
-    const savedAlpha = ctx.globalAlpha;
-    const dripPulse = 0.25 + Math.abs(Math.sin(t / 1800)) * 0.35;
-    ctx.globalAlpha = savedAlpha * dripPulse;
-    ctx.strokeStyle = 'rgba(150, 255, 120, 0.8)';
-    ctx.lineWidth = 1.2;
-    const drips = [
-      [cx - 14, cy + 44, 10 + Math.sin(t / 700) * 3],
-      [cx + 30, cy + 6, 8 + Math.sin(t / 650 + 1) * 3],
-      [cx + 78, cy - 50, 7 + Math.sin(t / 800 + 2) * 2],
-    ];
-    drips.forEach(([dx, dy, len]) => {
-      ctx.beginPath();
-      ctx.moveTo(dx, dy);
-      ctx.lineTo(dx, dy + len);
-      ctx.stroke();
-    });
-    ctx.globalAlpha = savedAlpha;
-  }
-
-  ctx.restore();
-}
-
-let start = null;
-function tick(ts) {
-  if (start === null) start = ts;
-  const t = ts - start;
-  // Each face offset slightly in phase so all 4 aren't blinking/bobbing
-  // in perfect lockstep -- cheap way to make the whole thing feel less
-  // like 4 copies of one animation.
-  FACES.forEach((f, i) => drawFace(f.ctx, 180, 180, t + i * 401));
-  requestAnimationFrame(tick);
-}
-requestAnimationFrame(tick);
-
-// ---- rotation: drag-to-spin (any direction around the vertical axis),
-// with momentum on release that decays into a snap to the nearest
-// face-forward angle, and idle auto-rotation that resumes after a
-// few seconds of no interaction. Replaces the old passive wobble.
-let rotY = 0;
-let dragging = false, moved = false;
-let lastX = 0, lastY = 0, lastT = 0, velocity = 0;
-let startX = 0, startY = 0;
-let settleFrame = null, idleFrame = null, idleTimeout = null;
-
-function applyTransform(extraTiltDeg) {
-  prism.style.transform = `rotateX(${extraTiltDeg}deg) rotateY(${rotY}deg)`;
-}
-applyTransform(4);
-
-function stopSettle() {
-  if (settleFrame) { cancelAnimationFrame(settleFrame); settleFrame = null; }
-}
-function stopIdle() {
-  if (idleFrame) { cancelAnimationFrame(idleFrame); idleFrame = null; }
-  if (idleTimeout) { clearTimeout(idleTimeout); idleTimeout = null; }
-}
-function scheduleIdle() {
-  if (SINGLE) return;   // one face -> nothing to spin to
-  stopIdle();
-  idleTimeout = setTimeout(() => {
-    function spin() {
-      rotY += 0.15;
-      applyTransform(4);
-      idleFrame = requestAnimationFrame(spin);
-    }
-    idleFrame = requestAnimationFrame(spin);
-  }, 4000);
-}
-
-function momentumThenSnap() {
-  let v = velocity;
-  function step() {
-    if (Math.abs(v) > 0.4) {
-      rotY += v;
-      v *= 0.93;
-      applyTransform(4);
-      settleFrame = requestAnimationFrame(step);
+  // MainActivity calls this: true while answering, false when done.
+  function setTalking(on) {
+    if (on) {
+      grem.classList.add('talking');
+      wasTalking = true;
     } else {
-      const target = Math.round(rotY / 90) * 90;
-      const from = rotY;
-      const dist = target - from;
-      const dur = 260;
-      const t0 = performance.now();
-      function ease(tt) {
-        rotY = from + dist * (1 - Math.pow(1 - tt, 3));
-        applyTransform(4);
-        if (tt < 1) {
-          settleFrame = requestAnimationFrame(() => ease(Math.min(1, (performance.now() - t0) / dur)));
-        } else {
-          rotY = target;
-          applyTransform(4);
-          scheduleIdle();
-        }
-      }
-      ease(0);
+      grem.classList.remove('talking');
+      if (wasTalking) { doSpin(); wasTalking = false; }
     }
   }
-  settleFrame = requestAnimationFrame(step);
-}
-
-stage.addEventListener('pointerdown', (e) => {
-  dragging = true; moved = false;
-  startX = lastX = e.clientX; startY = e.clientY; lastT = performance.now();
-  velocity = 0;
-  stage.classList.add('dragging');
-  stage.setPointerCapture(e.pointerId);
-  stopSettle(); stopIdle();
-});
-
-stage.addEventListener('pointermove', (e) => {
-  if (!dragging) return;
-  const dx = e.clientX - lastX;
-  if (Math.abs(e.clientX - startX) > 4 || Math.abs(e.clientY - startY) > 4) moved = true;
-  const now = performance.now();
-  const dt = Math.max(1, now - lastT);
-  rotY += dx * 0.6;
-  velocity = (dx * 0.6) / (dt / 16.7); // deg per ~frame, roughly
-  applyTransform(4);
-  lastX = e.clientX; lastY = e.clientY; lastT = now;
-});
-
-stage.addEventListener('pointerup', (e) => {
-  if (!dragging) return;
-  dragging = false;
-  stage.classList.remove('dragging');
-  if (!moved) {
-    handleTap();
-    scheduleIdle();
-  } else {
-    momentumThenSnap();
+  function doSpin() {
+    grem.classList.remove('spin');
+    void grem.offsetWidth;        // reflow so the animation can restart
+    grem.classList.add('spin');
   }
-});
-stage.addEventListener('pointercancel', () => {
-  dragging = false;
-  stage.classList.remove('dragging');
-  scheduleIdle();
-});
-
-scheduleIdle();
-
-// ---- model data: which of the 4 faces is which consult model, fetched
-// once from /status (desktop: pywebview bridge already used by
-// settings.html; Android: a synchronous bridge method that returns
-// whatever the app last fetched, since addJavascriptInterface calls
-// can't return a Promise). Retried once in case the first call lands
-// before the host has any status cached yet.
-function fetchStatus() {
-  if (window.Android && window.Android.getStatusJson) {
-    try {
-      const raw = window.Android.getStatusJson();
-      return Promise.resolve(raw ? JSON.parse(raw) : null);
-    } catch (e) {
-      return Promise.resolve(null);
-    }
-  } else if (window.pywebview) {
-    return window.pywebview.api.get_status();
-  }
-  return Promise.resolve(null);
-}
-
-function applyStatus(status) {
-  if (SINGLE) { FACES[0].label.textContent = 'Gremlin'; return; }
-  if (!status || !Array.isArray(status.consult_models) || status.consult_models.length === 0) return;
-  const byName = {};
-  (status.models || []).forEach(m => { byName[m.name] = m; });
-  status.consult_models.slice(0, 4).forEach((name, i) => {
-    FACES[i].modelName = name;
-    const info = byName[name];
-    FACES[i].label.textContent = (info && info.display_name) ? info.display_name.split(' ')[0] : name;
+  grem.addEventListener('animationend', function (e) {
+    if (e.animationName === 'jumpspin') grem.classList.remove('spin');
   });
-}
 
-function loadStatus(retry) {
-  fetchStatus().then(status => {
-    applyStatus(status);
-    if (retry && (!status || !status.consult_models || !status.consult_models.length)) {
-      setTimeout(() => loadStatus(false), 1500);
-    }
+  grem.addEventListener('click', function () {
+    try { if (window.Android && window.Android.openSettings) window.Android.openSettings(); } catch (e) {}
   });
-}
-loadStatus(true);
-if (window.pywebview) {
-  window.addEventListener('pywebviewready', () => loadStatus(true));
-}
-
-// ---- talking-mouth animation: Android sets TALKING directly (no
-// polling needed, see the comment by its declaration above). Desktop
-// standalone (not framed) polls the file-based signal itself. Desktop
-// framed inside main.html has no window.pywebview of its own (the API
-// is injected into the top-level document, not this sub-frame) -- the
-// parent polls instead and pushes the result in via postMessage, same
-// idea as Android's direct push, just relayed one level.
-function pollTalking() {
-  if (window.pywebview && window.pywebview.api && window.pywebview.api.is_talking) {
-    window.pywebview.api.is_talking().then(v => { TALKING = !!v; });
-  }
-}
-if (!IS_FRAMED) {
-  setInterval(pollTalking, 400);
-}
-window.addEventListener('message', (e) => {
-  if (e.data && e.data.type === 'setTalking') {
-    setTalking(e.data.value);
-  }
-});
-
-// ---- click routing
-function relayToParent(type, extra) {
-  window.parent.postMessage(Object.assign({ source: 'gremlin-hologram', type }, extra || {}), '*');
-}
-
-function openModel(name) {
-  if (!name) { openPrimary(); return; }
-  if (window.Android && window.Android.openModelSettings) {
-    window.Android.openModelSettings(name);
-  } else if (IS_FRAMED) {
-    relayToParent('openModelSettings', { name });
-  } else if (window.pywebview) {
-    window.pywebview.api.open_model_settings(name);
-  }
-}
-function openPrimary() {
-  if (window.Android && window.Android.openSettings) {
-    window.Android.openSettings();
-  } else if (IS_FRAMED) {
-    relayToParent('openSettings');
-  } else if (window.pywebview) {
-    window.pywebview.api.open_settings();
-  }
-}
-
-function handleTap() {
-  if (SINGLE) { openPrimary(); return; }   // the head is Gremlin -> Gremlin's settings
-  // Whichever face is currently closest to facing the viewer (rotY is
-  // always a multiple of 90 at rest) is the one being "picked."
-  const normalized = ((Math.round(rotY / 90) % 4) + 4) % 4;
-  const frontIndex = (4 - normalized) % 4; // faces[i] sits at angle i*90; facing viewer when i*90 + rotY == 0 (mod 360)
-  openModel(FACES[frontIndex].modelName);
-}
-
-belowZone.addEventListener('click', () => openPrimary());
-
-// The in-page quit control is a desktop convention (frameless window,
-// no OS chrome to close it with) -- doesn't apply on Android, where
-// back/home already does that job.
-if (window.Android) {
-  document.getElementById('quit-btn').style.display = 'none';
-}
-
-document.getElementById('quit-btn').addEventListener('click', () => {
-  if (window.Android && window.Android.quit) {
-    window.Android.quit();
-  } else if (IS_FRAMED) {
-    relayToParent('quit');
-  } else if (window.pywebview) {
-    window.pywebview.api.quit();
-  }
-});
+  document.getElementById('quit-btn').addEventListener('click', function () {
+    try { if (window.Android && window.Android.quit) window.Android.quit(); } catch (e) {}
+  });
+  if (grem.play) { grem.play().catch(function () {}); }
 </script>
 </body>
 </html>
