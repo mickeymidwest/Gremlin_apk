@@ -292,6 +292,21 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
 
     import asyncio
     tr, score, diff = await asyncio.get_event_loop().run_in_executor(None, _run)
+    # Per-battle reflection on the CPU helper (background): a lost /fix battle
+    # leaves a one-line lesson for next time, distilled on the 4B (CPU, zero
+    # VRAM) so it overlaps the reply/escalation instead of blocking. Daemon +
+    # best-effort -- a reflection failure never touches the fix result. This is
+    # the same pattern campaign._battle uses for the nightly loop, now on the
+    # live /fix path too (2026-11-13: push more background work onto the CPU).
+    if score.value < 0.999 and _plan_helper is not None:
+        try:
+            import threading as _th
+            from . import reflect as _reflect
+            _th.Thread(target=_reflect.lesson_on_loss,
+                       args=(_plan_helper, task, tr, root, (lambda *a: None)),
+                       daemon=True).start()
+        except Exception:
+            pass
     # Escalation: if the pilot didn't get it green, pull in the stronger 14B
     # coder on the GPU and try once more (a swap is affordable on the CLI).
     _escalated = False

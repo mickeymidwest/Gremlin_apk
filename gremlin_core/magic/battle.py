@@ -347,6 +347,13 @@ def _score_plan(plan: str, task: Task) -> int:
     return score
 
 
+# How long the two-head planner waits for the CPU helper's draft BEYOND the
+# GPU draft before dropping it. Small on purpose: a 4B CPU plan is ~50s on
+# this box, so the CPU draft is used only when it happens to be ready and
+# NEVER delays a battle (the law: CPU work can add, never delay).
+_CPU_PLAN_BUDGET = float(os.environ.get("GREMLIN_CPU_PLAN_BUDGET", "10"))
+
+
 def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2, helper=None) -> str:
     """Pre-battle planning pass (MAGIC.md section 8, #5 + #7): draws
     `samples` plan drafts and keeps the best by _score_plan (a pure
@@ -362,9 +369,12 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2, h
         ctx += "\n\nRelevant procedures from past runs:\n" + "\n".join(s.render() for s in matched)
     drafts: list = []
     if helper is not None:
-        # Two heads at once: the GPU model + the CPU helper, concurrently
-        # (no VRAM contention), so planning gets model diversity in
-        # max(gpu, cpu) time rather than serial.
+        # Two heads at once: the GPU model + the CPU helper, concurrently (no
+        # VRAM contention). HARDENED (2026-11-13): the GPU draft is the
+        # guaranteed FLOOR -- we always wait for it; the CPU draft only ever
+        # ADDS, so it gets a bounded wall-clock budget and is DROPPED if the
+        # slow 4B isn't done (a CPU plan here is ~50s; it must never delay the
+        # battle). Law: CPU work can add, never delay.
         import concurrent.futures as _cf
         def _one(m):
             try:
@@ -375,9 +385,22 @@ def _plan(task: Task, model: Model, skills: Sequence[Skill], samples: int = 2, h
                 raise
             except Exception:
                 return ""
-        with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
-            for _f in [_ex.submit(_one, model), _ex.submit(_one, helper)]:
-                drafts.append(_f.result())
+        _ex = _cf.ThreadPoolExecutor(max_workers=2)
+        try:
+            _gpu_f = _ex.submit(_one, model)
+            _cpu_f = _ex.submit(_one, helper)
+            drafts.append(_gpu_f.result())            # floor: always wait for GPU
+            try:
+                drafts.append(_cpu_f.result(timeout=_CPU_PLAN_BUDGET))
+            except _cf.TimeoutError:
+                pass                                   # slow CPU draft dropped
+            except QuotaExhausted:
+                raise
+            except Exception:
+                pass
+        finally:
+            # never block battle startup on a still-running CPU draft
+            _ex.shutdown(wait=False, cancel_futures=True)
     else:
         for _ in range(max(1, samples)):
             try:

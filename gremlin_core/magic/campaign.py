@@ -257,6 +257,21 @@ class Campaign:
         except Exception:
             pass
 
+        # Skill HARDENING: rewrite a weak card's CONTENT so the skills Magic
+        # already has grow BETTER, not just more -- on the reflect model (CPU
+        # helper), over the SAME in-memory list the audit just cleaned and
+        # write_skills persists below. Race-free (same spot as dedupe); it
+        # scans the whole shared library, not only this battle's cards.
+        # (Mickey 2026-11-13: 'the skills it has should grow better'.)
+        try:
+            from . import skill_refine as _skref
+            _lessons = reflect.load_lessons(str(self.store.root), task)
+            for _h in _skref.harden(self.reflect_model, skills, lessons=_lessons, max_n=1):
+                self.log(f"[harden] {_h}")
+                transitions = list(transitions) + [_h]
+        except Exception:
+            pass
+
         self.store.write_skills(skills)
         self.store.write_facts(facts)
         self.store.set_state(self.name, state)
