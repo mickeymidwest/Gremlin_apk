@@ -777,6 +777,20 @@ def create_app(
         # main.py's cmd_serve), and an unhandled TimeoutError here was
         # taking down messages that had nothing to do with any action at
         # all. Treat any failure here the same as "not an action."
+        # Path grounding: if the user asks to INSPECT an absolute/home
+        # path that doesn't exist, say so (with the nearest real match)
+        # instead of letting the classifier pivot to a different check and
+        # present it as the answer. (2026-11-13: "check /home/robofuse-stack"
+        # -> no such path; the real one is /home/mickey/robofuse-stack.)
+        # Gated to inspect-style requests, so a create/write/move is never
+        # blocked. Runs for BOTH /chat and /chat/stream (shared chokepoint).
+        try:
+            from .magic import path_grounding as _pg
+            _missing_paths = _pg.check_user_paths(message)
+            if _pg.should_short_circuit(message, _missing_paths):
+                return _chat_reply(_pg.honest_reply(_missing_paths), "path_check", ok=True)
+        except Exception:
+            pass
         from . import act_mode as _act_mode
         _act_on = _act_mode.is_on(str(project_root))
         try:
