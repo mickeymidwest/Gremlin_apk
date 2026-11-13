@@ -124,6 +124,66 @@ _DECLARATIVE_LOOKUP = re.compile(
     re.I,
 )
 
+# A named system/CLI tool whose exact flags and syntax matter -- these are
+# where the pilot's memory is least reliable, so a how-to about one is worth
+# looking up real docs for. Deliberately NOT bare 'bash'/'python' (generic
+# coding), only concrete tooling: package managers, git, containers, systemd,
+# networking, archiving, etc.
+_CLI_TOOL = re.compile(
+    r"\b(apt|apt-get|aptitude|pacman|yay|paru|pkg|dpkg|rpm|dnf|yum|zypper|apk|"
+    r"brew|pip|pipx|npm|pnpm|yarn|cargo|gem|composer|"
+    r"git|docker|docker-compose|podman|kubectl|helm|systemctl|systemd|journalctl|"
+    r"crontab|cron|ssh|scp|rsync|ssh-keygen|openssl|gpg|"
+    r"ufw|iptables|nftables|firewalld|nmcli|ifconfig|"
+    r"ffmpeg|imagemagick|tar|unzip|gzip|chmod|chown|mount|umount|lsblk|fdisk|"
+    r"cryptsetup|nmap|tcpdump|curl|wget|termux(?:-\w+)?)\b",
+    re.I,
+)
+
+# ...paired with a how-to / verify shape. Either half alone is too loose.
+_TECH_ASK = re.compile(
+    r"\bhow\s+(do|would|can|to|should)\b"
+    r"|\bwhat\s+(does|flag|option|arg|argument|command|would|should)\b"
+    r"|\bwhich\s+(flag|option|command|package)\b"
+    r"|\b(correct|right|proper|safe)\s+(way|flag|command|syntax|usage|option)\b"
+    r"|\bwriting\s+a\b|\bwrite\s+(a|me\s+a)\b|\bput\s+in\s+(the|my|a)\b"
+    r"|\bis\s+(it|this|that)\s+(correct|right|safe|ok|okay|valid)\b"
+    r"|\bwhat\s+would\s+i\s+put\b",
+    re.I,
+)
+
+
+def _tech_lookup(text: str) -> bool:
+    """A concrete CLI tool + a how-to/verify shape -> worth real docs, so
+    Magic double-checks flags/commands instead of trusting the pilot's memory
+    (2026-11-13: it claimed `apt upgrade -f` 'fixes broken deps before
+    upgrading', which -f on `upgrade` does not do)."""
+    return bool(_CLI_TOOL.search(text or "") and _TECH_ASK.search(text or ""))
+
+
+_FLAG_RE = re.compile(r"(?<!\w)(--?[A-Za-z][A-Za-z0-9-]*)")
+
+
+def _tech_query(message: str) -> str:
+    """A focused query for a CLI/tooling how-to: the tools named, the word
+    right after each (its subcommand) and any flags -- dropping the sentence
+    filler ('what would i put', 'a command called upgrr') so the snippets
+    come back as real docs instead of matching the chatter."""
+    text = message or ""
+    parts: list[str] = []
+    for m in _CLI_TOOL.finditer(text):
+        parts.append(m.group(0).lower())
+        tail = text[m.end():m.end() + 24]
+        wm = re.match(r"[^A-Za-z0-9]+([A-Za-z][A-Za-z0-9-]{1,})", tail)
+        if wm:
+            parts.append(wm.group(1).lower())
+    for m in _FLAG_RE.finditer(text):
+        parts.append(m.group(1))
+    seen = list(dict.fromkeys(p for p in parts if p))
+    if not seen:
+        return text.strip()
+    return " ".join(seen) + " command usage"
+
 _QWORDS = {
     "who", "whos", "what", "whats", "when", "where", "which", "whose", "why",
     "how", "hows", "is", "are", "was", "were", "does", "do", "did", "can",
@@ -201,14 +261,19 @@ def should_search(message: str) -> bool:
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
         return False
-    if _SELF_LOCAL.search(text) or _CREATIVE.search(text):
+    tech = _tech_lookup(text)
+    if _SELF_LOCAL.search(text) or (_CREATIVE.search(text) and not tech):
         # never web-search a question about this box / Gremlin himself, or a
-        # creative/writing ask (hard veto -- even with a factual phrase in it)
+        # creative/writing ask (hard veto -- even with a factual phrase in it).
+        # A CLI/tooling how-to ("a bash script for apt upgrade") is NOT creative
+        # writing, so a real tech-lookup overrides the "script for" veto.
         return False
     fl = bool(_FACTUAL_LOOKUP.search(text))
     decl = bool(_DECLARATIVE_LOOKUP.search(text))
     terse = _terse_lookup(text)
-    strong = fl or decl or terse  # an explicit lookup phrase/shape, anywhere
+    # tech = a named CLI tool + how-to/verify shape -> look up real docs so
+    # Magic double-checks flags/commands rather than trusting stale memory.
+    strong = fl or decl or terse or tech  # an explicit lookup phrase/shape, anywhere
     # A greeting or an opinion/personal check-in only vetoes when there is NO
     # real lookup in the message (the screenshot bug: "thought" blocked a
     # genuine "how many people liked X" question).
@@ -284,6 +349,11 @@ def search_query(message: str) -> str:
     concrete date when it uses a relative time word and doesn't already name
     a year -- so 'who plays tonight' becomes a dated, answerable query
     instead of a stale one the snippets can't satisfy."""
+    # A CLI/tooling how-to doesn't want the whole sentence as the query (it's
+    # full of filler); send a focused tool+subcommand+flags query so the
+    # snippets are real docs that actually double-check the command.
+    if _tech_lookup(message or ""):
+        return _tech_query(message)
     q = (message or "").strip()
     # only stamp TODAY's date onto present-tense relative queries; "yesterday"
     # / "tomorrow" would get a contradictory date, and a query already naming a
