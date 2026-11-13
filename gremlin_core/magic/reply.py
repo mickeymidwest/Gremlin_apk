@@ -517,6 +517,22 @@ async def answer_stream(primary, message: str, root: str,
                 _cav = autoresearch.figures_caveat(_figs)
                 text += _cav
                 yield "delta", _cav
+        # Action-honesty rail (chat path): nothing was executed on this
+        # pure-generation branch (no look, no loop, no web), so a claim of
+        # having run a command + output is fabricated. Flag it; do not touch
+        # the content. (2026-11-13 robofuse case: fake `docker ps` tagged
+        # "(Checked just now: docker ps)".) Skipped when `looked` is set --
+        # that branch fed the model REAL read-only evidence.
+        if not looked and not web_sources:
+            try:
+                from .. import action_honesty as _ah
+                _hh = _ah.claims_execution(text)
+                if _hh:
+                    _hc = _ah.caveat(_hh)
+                    text += _hc
+                    yield "delta", _hc
+            except Exception:
+                pass
         if looked:
             note = look.footer(looked)
             text += note
@@ -631,6 +647,18 @@ async def answer(primary, message: str, root: str,
         if bad:
             text = text + grounding.caveat(bad)
 
+    # Action-honesty rail (chat path): on this pure-generation branch
+    # nothing was executed (no look, no loop, no web), so a claim of having
+    # run a command + output is fabricated -- flag it. Skipped when `looked`
+    # is set (real read-only evidence was gathered). See 2026-11-13 robofuse.
+    if not looked and not web_sources and text:
+        try:
+            from .. import action_honesty as _ah
+            _hh = _ah.claims_execution(text)
+            if _hh:
+                text += _ah.caveat(_hh)
+        except Exception:
+            pass
     if web_sources and text:
         _figs = autoresearch.unverified_figures(text, web_ev)
         if _figs:
