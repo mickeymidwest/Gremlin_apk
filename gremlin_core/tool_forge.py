@@ -288,25 +288,23 @@ def run_forged_sync(name: str, args: dict, root: str, *, timeout: int = 30) -> d
     script = _dir(root) / f"{name}.py"
     if not script.exists():
         return {"ok": False, "answer": f"no forged tool named {name!r}"}
-    try:
-        r = subprocess.run(["python3", script.name], cwd=str(_dir(root)),
-                           input=json.dumps(args or {}), capture_output=True,
-                           text=True, timeout=timeout,
-                           env={**os.environ, "PATH": "/usr/bin:/bin"})
-    except subprocess.TimeoutExpired:
+    if not _valid_name(name):
+        return {"ok": False, "answer": "bad tool name"}
+    from . import bwrap_sandbox
+    rc, out, err = bwrap_sandbox.run_python_tool(
+        str(script), stdin_data=json.dumps(args or {}), timeout=timeout)
+    if rc == 124:
         return {"ok": False, "answer": f"forged tool {name} timed out (> {timeout}s)"}
-    except Exception as e:  # noqa
-        return {"ok": False, "answer": f"forged tool error: {type(e).__name__}: {e}"}
-    out = (r.stdout or "").strip()
+    out = (out or "").strip()
     try:
         parsed = json.loads(out.splitlines()[-1]) if out else {}
         if isinstance(parsed, dict):
-            parsed.setdefault("ok", r.returncode == 0)
+            parsed.setdefault("ok", rc == 0)
             return parsed
     except Exception:
         pass
-    return {"ok": r.returncode == 0 and bool(out),
-            "answer": out or (r.stderr or "").strip() or "(no output)"}
+    return {"ok": rc == 0 and bool(out),
+            "answer": out or (err or "").strip() or "(no output)"}
 
 
 async def run_forged(name: str, args: dict, root: str, *, timeout: int = 30) -> dict:
@@ -315,6 +313,9 @@ async def run_forged(name: str, args: dict, root: str, *, timeout: int = 30) -> 
     script = _dir(root) / f"{name}.py"
     if not script.exists():
         return {"ok": False, "answer": f"no forged tool named {name!r}"}
+    import asyncio as _asyncio
+    return await _asyncio.to_thread(run_forged_sync, name, args, root, timeout=timeout)
+    # (unreachable legacy path kept below for reference)
     try:
         from .sandbox import SecureExecutionSandbox
         sb = SecureExecutionSandbox(str(_dir(root)), timeout_seconds=timeout)
