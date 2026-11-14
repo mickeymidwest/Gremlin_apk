@@ -112,6 +112,28 @@ def _docker() -> str:
     return out
 
 
+def _versions() -> str:
+    """Installed versions of the common dev toolchains -- the kind of thing the
+    model otherwise just guesses. Missing tools are skipped silently."""
+    tools = [["python3", "--version"], ["pip", "--version"], ["node", "--version"],
+             ["npm", "--version"], ["rustc", "--version"], ["cargo", "--version"],
+             ["go", "version"], ["gcc", "--version"], ["clang", "--version"],
+             ["java", "-version"], ["git", "--version"], ["docker", "--version"]]
+    out = []
+    for argv in tools:
+        r = _cmd(argv, timeout=4) or ""
+        # _cmd returns "$ <cmd>\n<output>"; keep the real output line
+        parts = r.split("\n", 1)
+        ver = (parts[1].strip() if len(parts) > 1 else "")
+        low = ver.lower()
+        if (not ver or "no output" in low or "isn't installed" in low
+                or "couldn't" in low or "not found" in low or "timed out" in low
+                or low.startswith("(exit")):
+            continue
+        out.append(ver.splitlines()[0])
+    return "\n".join(out) if out else "(no common dev toolchains detected)"
+
+
 PROBES = [
     Probe("disk", re.compile(r"\b(?:disk|storage|drive|ssd|hdd|nvme|space)\b", re.I),
           lambda: _cmd(["df", "-h", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs",
@@ -141,6 +163,12 @@ PROBES = [
           lambda: _cmd(["uptime"]) + "\n\n" + _cmd(["ps", "-eo", "comm,%cpu,%mem", "--sort=-%cpu"],
                                                    label="ps -eo comm,%cpu,%mem --sort=-%cpu")),
     Probe("docker", re.compile(r"\b(?:docker|containers?|compose)\b", re.I), _docker),
+    Probe("versions", re.compile(
+        r"(?i)\b(?:python3?|pip|node|npm|rust|rustc|cargo|golang|gcc|g\+\+|clang|java|git|docker)\b"
+        r".{0,25}\b(?:version|installed)\b"
+        r"|\b(?:version|installed)\b.{0,25}"
+        r"\b(?:python3?|node|npm|rust|rustc|cargo|golang|gcc|clang|java|git|docker)\b"
+        r"|\btoolchains?\b"), _versions),
 ]
 
 MAX_PROBES = 3

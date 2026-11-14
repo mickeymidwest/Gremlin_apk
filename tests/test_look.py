@@ -134,3 +134,15 @@ def test_answer_stream_plain_chat_does_not_look(tmp_path, monkeypatch):
 
 def test_this_desktop_named_with_another_device_still_looks(root):
     assert look.wants("my phone is fine but is my desktop running hot right now?", root) == ["temps"]
+
+
+def test_toolchain_version_question_triggers_versions_probe():
+    from magic_core import look
+    assert "versions" in look.wants("what python version do I have")
+    assert "versions" in look.wants("what's my rust toolchain")
+
+
+def test_versions_probe_not_for_general_version_question():
+    from magic_core import look
+    # a non-toolchain "version" question must not pull the dev-versions probe
+    assert "versions" not in look.wants("what version of windows is best")
