@@ -289,6 +289,27 @@ _ACT_PREAMBLE = (
     "if the message is purely conversational.\n\n")
 
 
+# A how-to QUESTION is always ordinary chat, even when it contains action words
+# like "build / write a script / show me". The user wants the explanation or the
+# CODE TEXT in the reply -- not a project built, a command run, or a file read.
+# Deterministic on purpose: the weak CPU classifier kept reading the action word
+# and firing build_project / read_file (live bug 2026-11-14: "how would I write
+# a bash script...", "tell me how to build it", "show me the script").
+_QUESTION_HINT = re.compile(
+    r"(?i)\b("
+    r"how\s+(?:would|do|can|should|could|might)\s+i\b"
+    r"|how\s+to\b"
+    r"|how\s+would\s+(?:you|one)\b"
+    r"|(?:tell|teach|explain|walk)\s+me\s+(?:how|the\s+way|about|through)\b"
+    r"|show\s+me\s+(?:how|an?\s+example|the\s+(?:code|script|way|command|syntax|steps?))\b"
+    r"|what(?:'?s|\s+is|\s+are)\s+(?:the\s+)?(?:best\s+)?(?:way|steps?|approach|command|syntax)\b"
+    r"|give\s+me\s+(?:an?\s+)?(?:example|snippet)\b"
+    r"|can\s+you\s+(?:explain|show\s+me\s+how|tell\s+me\s+how|walk\s+me)\b"
+    r"|just\s+tell\s+me\b"
+    r")"
+)
+
+
 async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6,
                    act_mode: bool = False) -> Intent:
     """Decide what the user actually wants.
@@ -317,6 +338,11 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
         return _finalize(Intent(action=quick, args={}, confidence=1.0), text)
     if act_mode:
         min_confidence = min(min_confidence, 0.4)   # act mode: more willing to act
+
+    # A how-to QUESTION is chat, even in act mode and even when it carries an
+    # action word -- the user wants the explanation/code, not an action taken.
+    if _QUESTION_HINT.search(text):
+        return Intent(action="chat", confidence=1.0)
 
     # No action-suggestive word or path anywhere -> it's conversation.
     # Skip the classifier call (keeps the primary model out of the loop
