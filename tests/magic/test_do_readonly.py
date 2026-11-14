@@ -1,8 +1,8 @@
 """/do -- read-only live-data answers; toolhost readonly mode."""
 import asyncio
 
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_commands import FakeRegistry
 
 
@@ -46,7 +46,7 @@ def test_readonly_drops_edit_tools(tmp_path):
 def test_do_command_runs_readonly_battle(tmp_path, monkeypatch):
     # a scripted backend that "checks" then answers
     class R:
-        def __init__(s, t): s.text, s.error, s.model, s.ok = t, None, "gremlin", True
+        def __init__(s, t): s.text, s.error, s.model, s.ok = t, None, "magic", True
 
     class BE:
         calls = 0
@@ -57,7 +57,7 @@ def test_do_command_runs_readonly_battle(tmp_path, monkeypatch):
             return R("DONE\nDisk looks fine.")
 
     reg = FakeRegistry()
-    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("gremlin", "qwen2.5-7b") else None)
+    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("magic", "qwen2.5-7b") else None)
     cfg = tmp_path / "m.yaml"; cfg.write_text("models: []\npersona:\n  primary_model: qwen2.5-7b\n")
     ctx = CommandContext(registry=reg, project_root=str(tmp_path), config_path=str(cfg))
 
@@ -71,8 +71,8 @@ def test_do_battle_root_is_home_not_slash(tmp_path, monkeypatch):
     home -- never "/", which would let a prompt-injected /do dump
     arbitrary system files through the structured tools."""
     from pathlib import Path
-    import gremlin_core.magic.battle as battle_mod
-    from gremlin_core.magic.types import Transcript
+    import magic_core.magic.battle as battle_mod
+    from magic_core.magic.types import Transcript
 
     seen = {}
 
@@ -86,7 +86,7 @@ def test_do_battle_root_is_home_not_slash(tmp_path, monkeypatch):
 
     monkeypatch.setattr(battle_mod, "run_battle", fake_run_battle)
     reg = FakeRegistry()
-    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("gremlin", "qwen2.5-7b") else None)
+    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("magic", "qwen2.5-7b") else None)
     cfg = tmp_path / "m.yaml"; cfg.write_text("models: []\npersona:\n  primary_model: qwen2.5-7b\n")
     ctx = CommandContext(registry=reg, project_root=str(tmp_path), config_path=str(cfg))
 

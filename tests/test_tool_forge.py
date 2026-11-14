@@ -1,8 +1,8 @@
 """The Tool Forge: author -> validate -> sandbox-run -> register a new tool."""
 import asyncio
 
-from gremlin_core import tool_forge as TF
-from gremlin_core import tools as tools_mod
+from magic_core import tool_forge as TF
+from magic_core import tools as tools_mod
 
 GOOD = '''
 def run(args):

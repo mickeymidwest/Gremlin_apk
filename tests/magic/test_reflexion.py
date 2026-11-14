@@ -1,8 +1,8 @@
 """Reflexion: a lost battle leaves a one-line lesson, loaded next time
 for a similar task."""
-from gremlin_core.magic import reflexion
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task, Transcript, StepRecord
+from magic_core.magic import reflexion
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task, Transcript, StepRecord
 
 
 def _lost_transcript():

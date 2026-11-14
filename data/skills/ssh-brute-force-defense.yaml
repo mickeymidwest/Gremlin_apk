@@ -8,11 +8,11 @@ trigger_when: SSH exposure, failed logins, brute force, or hardening the desktop
   access
 trigger_matcher: \bsshd?\b|brute[- ]?force|failed login|password auth|port 22|remote login
 procedure:
-- run `gremlin guard` -- it reports failed SSH logins in the last 24h and whether sshd allows
+- run `magic guard` -- it reports failed SSH logins in the last 24h and whether sshd allows
   password/root login
 - if PasswordAuthentication isn't `no` or PermitRootLogin isn't `no`, propose setting them
   (keys only) in a sshd_config.d drop-in
-- confirm the firewall limits port 22 to the LAN + Tailscale (gremlin-firewall), not every
+- confirm the firewall limits port 22 to the LAN + Tailscale (magic-firewall), not every
   interface
 supersedes: null
 provenance:

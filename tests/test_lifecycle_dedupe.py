@@ -1,7 +1,7 @@
 """lifecycle.audit() prunes the skill library's own identical-purpose
 duplicates in the post-battle sweep (managed-flow dedupe)."""
-from gremlin_core.magic import lifecycle
-from gremlin_core.magic.types import Skill, SkillRecord
+from magic_core.magic import lifecycle
+from magic_core.magic.types import Skill, SkillRecord
 
 
 def _sk(id, name, purpose, trigger, status="active", wins=0, uses=0, created=0.0):

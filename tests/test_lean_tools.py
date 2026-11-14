@@ -1,5 +1,5 @@
 """Lean tool exposure: the classifier sees only message-relevant tools."""
-from gremlin_core.intent import (_relevant_tool_names, _build_classify_prompt,
+from magic_core.intent import (_relevant_tool_names, _build_classify_prompt,
                                  _classify_grammar)
 
 

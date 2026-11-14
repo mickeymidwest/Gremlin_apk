@@ -1,5 +1,5 @@
 """Read-only chat file tools: jailed, denylisted, capped, scrubbed."""
-from gremlin_core import fs_tools as FS
+from magic_core import fs_tools as FS
 
 
 def _mk(tmp_path):

@@ -1,7 +1,7 @@
 # Cloud merge -- combining two 7Bs (mickey's "make it a 14B" ask)
 
 Mickey wants the abliterated coder model
-(`bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF`) and Gremlin's
+(`bartowski/Qwen2.5-Coder-7B-Instruct-abliterated-GGUF`) and Magic's
 current primary (`Qwen2.5-Coder-7B-Instruct`, plain) merged into one
 bigger model, with the abliterated one leading.
 
@@ -10,7 +10,7 @@ bigger model, with the abliterated one leading.
 Merging needs both source models loaded in full precision (fp16/bf16)
 at the same time -- ~14GB each, ~28GB combined. The desktop has 7.5GB
 RAM. This is the exact same wall that hard-locked the box during the
-local 7B fine-tune attempt (see [[gremlin-cloud-finetune-plan]]) --
+local 7B fine-tune attempt (see [[magic-cloud-finetune-plan]]) --
 not caution, just what the box physically has.
 
 The good news: unlike the fine-tune, this step doesn't need a GPU at
@@ -50,15 +50,15 @@ worth trying instead.
 
 ```bash
 # 1. On a rented box:
-git clone https://github.com/mickeymidwest/Gremlin_apk.git ~/gremlin
-cd ~/gremlin
+git clone https://github.com/mickeymidwest/Gremlin_apk.git ~/magic
+cd ~/magic
 MERGE_METHOD=passthrough bash deploy/cloud-merge-14b.sh
 # or: MERGE_METHOD=ties bash deploy/cloud-merge-14b.sh
 
 # 2. Bring the ONE output file back (everything else in that folder
 #    is scratch -- the merged safetensors, in particular, is ~14-28GB
 #    and never needs to leave the cloud box):
-scp USER@CLOUD:~/gremlin/data/finetunes/<ts>/<ts>-Q4_K_M.gguf \
+scp USER@CLOUD:~/magic/data/finetunes/<ts>/<ts>-Q4_K_M.gguf \
     ~/Downloads/gremlin/models/
 ```
 
@@ -66,9 +66,9 @@ scp USER@CLOUD:~/gremlin/data/finetunes/<ts>/<ts>-Q4_K_M.gguf \
    `config/models.yaml` under `models:`, or via the desktop CLI):
 
 ```yaml
-  - name: gremlin-coder-merge
+  - name: magic-coder-merge
     type: local_gguf
-    display_name: "Gremlin Coder Merge (abliterated-led)"
+    display_name: "Magic Coder Merge (abliterated-led)"
     model_path: "/home/mickey/Downloads/gremlin/models/<ts>-Q4_K_M.gguf"
     n_ctx: 8192
     n_gpu_layers: -1
@@ -84,11 +84,11 @@ this box's biggest resident model, same as that one.
 
 4. **A/B it before trusting it, same discipline as the 3B fine-tune
    experiment** (that one A/B'd worse than the plain base and got
-   shelved -- see [[gremlin-cloud-finetune-plan]]):
+   shelved -- see [[magic-cloud-finetune-plan]]):
 
 ```bash
-/model switch gremlin-coder-merge
-# restart gremlin.service, ask it the same handful of things you'd
+/model switch magic-coder-merge
+# restart magic.service, ask it the same handful of things you'd
 # ask the primary, compare tone AND whether it's still actually
 # competent at code. If it's worse at coding to get "more
 # personality," that's not a win -- the personality can also just

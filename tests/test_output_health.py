@@ -3,7 +3,7 @@ merge (cfg A-C) mostly never stopped, the unmerged primary (D-E) always did."""
 import json
 from pathlib import Path
 
-from gremlin_core import output_health
+from magic_core import output_health
 
 ROOT = Path(__file__).parent.parent
 FIXTURE = ROOT / "tests" / "fixtures" / "model_output" / "llama31_ab_2026-11-06.jsonl"
@@ -61,7 +61,7 @@ def test_structured_output_is_not_flagged():
 
 
 def test_this_repos_source_is_not_flagged():
-    for name in ("gremlin_core/server.py", "main.py", "gremlin_core/magic/battle.py"):
+    for name in ("magic_core/server.py", "main.py", "magic_core/magic/battle.py"):
         source = (ROOT / name).read_text()
         for start in range(0, len(source), 8000):
             assert output_health.degeneration(source[start:start + 8000]) is None

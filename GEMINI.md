@@ -1,4 +1,4 @@
-<!-- gremlin-calibration:start -->
+<!-- magic-calibration:start -->
 @./CALIBRATION.md
 @./MAGIC.md
 
@@ -12,8 +12,8 @@ be direct and specific, and skip pleasantries.
 
 For a REVIEW REQUEST:
 1. Check it against MAGIC.md and CALIBRATION.md.
-2. BLOCK anything that goes against `.gremlin/decisions.md` (quote the entry). Also look for: cross-module breakage, harness/prompt logic errors, anything that runs a
+2. BLOCK anything that goes against `.magic/decisions.md` (quote the entry). Also look for: cross-module breakage, harness/prompt logic errors, anything that runs a
    heavy command outside `scripts/heavy.sh`, anything that deletes or overwrites files.
 3. List blocking issues as bullets (file:line + why), then non-blocking suggestions.
 4. End with exactly one line: `VERDICT: APPROVE` or `VERDICT: BLOCK — <short reason>`.
-<!-- gremlin-calibration:end -->
+<!-- magic-calibration:end -->

@@ -1,6 +1,6 @@
 """Campaign governor gate (Organoid #4): _await_headroom holds a battle while
 the box is low, and fail-safe proceeds so it never stalls forever."""
-import gremlin_core.magic.campaign as campaign
+import magic_core.magic.campaign as campaign
 
 
 class _Stub:

@@ -10,8 +10,8 @@ trigger_when: open/listening ports, a service exposed to the internet, or review
 trigger_matcher: listening|open port|exposed|0\.0\.0\.0|\bbind\b|attack surface|reachable|ss
   -tuln|nmap
 procedure:
-- run `gremlin guard` -- it lists every listening socket and flags the ones on every interface
-- 'for each public one, decide: bind it to localhost/Tailscale, or let the gremlin-firewall
+- run `magic guard` -- it lists every listening socket and flags the ones on every interface
+- 'for each public one, decide: bind it to localhost/Tailscale, or let the magic-firewall
   limit it to the LAN'
 - a public IPv6 means [::]-bound services may be internet-reachable -- check the firewall
   covers v6 too

@@ -8,12 +8,12 @@ and an honest answer for a bare "yes" with nothing pending, instead of
 letting it silently do nothing while sounding like it worked."""
 import time
 
-from gremlin_core.intent import PendingConfirmations, Intent, is_bare_affirmative
+from magic_core.intent import PendingConfirmations, Intent, is_bare_affirmative
 
 
 def test_ttl_is_generous_enough_for_a_real_human_decision():
     # the exact real-world gap that broke this live: 7m15s
-    from gremlin_core.intent import _PENDING_TTL_SECONDS
+    from magic_core.intent import _PENDING_TTL_SECONDS
     assert _PENDING_TTL_SECONDS >= 7 * 60 + 15
 
 

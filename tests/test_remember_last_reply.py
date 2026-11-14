@@ -1,10 +1,10 @@
 """"remember that" / "save that" with nothing restated -- keeps
-Gremlin's own last reply (typically a web_search answer) as a durable
+Magic's own last reply (typically a web_search answer) as a durable
 fact without mickey retyping it. Two pieces: notes.py's phrase
 detector (pure regex) and ConversationHistory.last_assistant (the
 lookup server.py resolves it against)."""
-from gremlin_core import notes
-from gremlin_core.history import ConversationHistory
+from magic_core import notes
+from magic_core.history import ConversationHistory
 
 
 def test_matches_bare_remember_save_keep_phrasings():

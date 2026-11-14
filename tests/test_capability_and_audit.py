@@ -2,13 +2,13 @@
 in actions.execute()."""
 import asyncio
 
-from gremlin_core import actions, mutation_log
-from gremlin_core.tools import REGISTRY
+from magic_core import actions, mutation_log
+from magic_core.tools import REGISTRY
 
 
 def test_every_tool_has_a_real_capability_tag():
     for tool in REGISTRY.all():
-        assert tool.capability in ("read_only", "mutates_gremlin", "mutates_external"), tool.name
+        assert tool.capability in ("read_only", "mutates_magic", "mutates_external"), tool.name
 
 
 def test_read_only_tools_are_tagged_read_only():
@@ -16,8 +16,8 @@ def test_read_only_tools_are_tagged_read_only():
         assert REGISTRY.get(name).capability == "read_only"
 
 
-def test_self_edit_is_mutates_gremlin_not_external():
-    assert REGISTRY.get("self_edit").capability == "mutates_gremlin"
+def test_self_edit_is_mutates_magic_not_external():
+    assert REGISTRY.get("self_edit").capability == "mutates_magic"
 
 
 def test_run_command_is_mutates_external():
@@ -28,7 +28,7 @@ def test_run_command_is_mutates_external():
 
 
 def test_actions_execute_logs_mutating_tools_generically(tmp_path, monkeypatch):
-    from gremlin_core.intent import Intent
+    from magic_core.intent import Intent
 
     async def _fake_handler(args, ctx):
         return {"answer": "did it", "action": "run_command", "ok": True}
@@ -47,7 +47,7 @@ def test_actions_execute_logs_mutating_tools_generically(tmp_path, monkeypatch):
 
 
 def test_actions_execute_never_double_logs_self_edit(tmp_path, monkeypatch):
-    from gremlin_core.intent import Intent
+    from magic_core.intent import Intent
 
     async def _fake_handler(args, ctx):
         # self_improve.py would have already appended its own detailed
@@ -67,7 +67,7 @@ def test_actions_execute_never_double_logs_self_edit(tmp_path, monkeypatch):
 
 
 def test_actions_execute_does_not_log_read_only_tools(tmp_path, monkeypatch):
-    from gremlin_core.intent import Intent
+    from magic_core.intent import Intent
 
     async def _fake_handler(args, ctx):
         return {"answer": "some results", "action": "web_search", "ok": True}

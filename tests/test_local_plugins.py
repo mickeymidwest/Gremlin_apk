@@ -2,7 +2,7 @@
 import asyncio as aio
 import threading
 
-from gremlin_core.server import create_app
+from magic_core.server import create_app
 
 
 class Reg:

@@ -2,7 +2,7 @@
 happens to contain the word 'approve' must not be counted as an approval."""
 import asyncio
 
-from gremlin_core import review
+from magic_core import review
 
 
 class _Res:

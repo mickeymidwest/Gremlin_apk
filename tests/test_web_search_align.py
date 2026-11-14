@@ -1,6 +1,6 @@
 """web_search must attach each snippet to its OWN result block -- a result
 with no snippet must not shift later snippets onto the wrong result."""
-from gremlin_core import web_search
+from magic_core import web_search
 
 
 _HTML = (

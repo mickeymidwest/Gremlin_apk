@@ -14,11 +14,11 @@ from pathlib import Path
 
 import pytest
 
-from gremlin_core.magic.campaign import Campaign
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.model import ModelReply
-from gremlin_core.magic.types import Task
-from gremlin_core.magic.verifier import PytestVerifier
+from magic_core.magic.campaign import Campaign
+from magic_core.magic.store import Store
+from magic_core.magic.model import ModelReply
+from magic_core.magic.types import Task
+from magic_core.magic.verifier import PytestVerifier
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mathkit"
 

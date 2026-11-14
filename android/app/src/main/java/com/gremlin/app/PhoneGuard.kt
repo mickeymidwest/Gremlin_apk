@@ -16,7 +16,7 @@ import org.json.JSONObject
 
 /**
  * Phone guard (S3): a read-only security snapshot of this phone, sent to
- * Gremlin on the desktop (POST /guard/phone), which compares it with the
+ * Magic on the desktop (POST /guard/phone), which compares it with the
  * last snapshot Mickey marked as normal.
  *
  * Works on stock Android with a locked bootloader: no root. Everything here

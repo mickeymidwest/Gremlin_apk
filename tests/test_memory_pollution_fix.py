@@ -1,6 +1,6 @@
 """Real bug found live 2026-09-15 reading mickey's actual
-gremlin_memory.txt: roughly a dozen entries were Gremlin's own past
-chat replies ("Whoa, sorry about that! I'm Gremlin, by the way.",
+magic_memory.txt: roughly a dozen entries were Magic's own past
+chat replies ("Whoa, sorry about that! I'm Magic, by the way.",
 "No worries, dude! I got it. So, what's up?", "So, what's on your
 mind?") saved as if they were durable facts -- because the old
 _BAD_AUTONOTE blocklist only caught a few specific chatty openers, and
@@ -18,13 +18,13 @@ parse_correction is separate (behavioral instructions correctly don't
 mention "user" but must still not be a question or chatty aside);
 remember_fact collapses embedded newlines so a fact can always be
 found and removed as one unit."""
-from gremlin_core.notes import parse_autonote, parse_correction, remember_fact
+from magic_core.notes import parse_autonote, parse_correction, remember_fact
 
 
 # -- the exact real garbage strings pulled from mickey's own memory file --
 
 _REAL_GARBAGE_THAT_SLIPPED_THROUGH = [
-    "Whoa, sorry about that! I'm Gremlin, by the way.",
+    "Whoa, sorry about that! I'm Magic, by the way.",
     "No worries, dude! I got it. So, what's up?",
     "So, what's on your mind?",
     "Not gonna happen, got it.",
@@ -64,13 +64,13 @@ def test_correction_does_not_require_mentioning_the_user():
 
 
 def test_correction_still_rejects_chatty_and_question_shapes():
-    assert parse_correction("Whoa, sorry about that! I'm Gremlin, by the way.") is None
+    assert parse_correction("Whoa, sorry about that! I'm Magic, by the way.") is None
     assert parse_correction("What do you want me to do differently?") is None
 
 
 def test_remember_fact_collapses_embedded_newlines(tmp_path, monkeypatch):
     memfile = tmp_path / "mem.txt"
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(memfile))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(memfile))
     multiline = "1. Products - Manjaro\n   https://manjaro.org/products/\n   Discover Manjaro."
     remember_fact(str(tmp_path), multiline)
     lines = [l for l in memfile.read_text().splitlines() if l.startswith("- [")]

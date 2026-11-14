@@ -8,12 +8,12 @@ LOG="data/zoid/validate-$(date +%Y%m%d-%H%M).log"
 mkdir -p data/zoid
 exec >>"$LOG" 2>&1
 echo "==================== $(date) validation start ===================="
-for u in gremlin.service gremlin-watchdog.timer gremlin-update.timer; do
+for u in magic.service magic-watchdog.timer magic-update.timer; do
   systemctl --user stop "$u" 2>/dev/null
 done
 pkill -9 -f "main.py serve" 2>/dev/null
 sleep 4
 venv/bin/python zoid_loop.py --minutes 55 --rounds 3
 echo "-- restoring service --"
-for u in gremlin-watchdog.timer gremlin.service; do systemctl --user start "$u" 2>/dev/null; done
+for u in magic-watchdog.timer magic.service; do systemctl --user start "$u" 2>/dev/null; done
 echo "==================== $(date) validation done ===================="

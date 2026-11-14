@@ -1,8 +1,0 @@
-[Unit]
-Description=Gremlin known-good checkpoint (tag the code if all tests pass)
-After=gremlin.service
-
-[Service]
-Type=oneshot
-Nice=15
-ExecStart=/home/mickey/Downloads/gremlin/deploy/recovery/checkpoint.sh

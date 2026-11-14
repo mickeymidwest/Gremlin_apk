@@ -5,8 +5,8 @@ body flush-left or already at method-body indent. `_splice` must normalise
 either shape to the stub's real indent level (2026-09-08 -- pre-indented
 bodies were being double-indented and every such attempt was wasted).
 """
-from gremlin_core.magic import method_builder as MB
-from gremlin_core.magic.method_builder import find_stubs, _splice, _reindent, Stub
+from magic_core.magic import method_builder as MB
+from magic_core.magic.method_builder import find_stubs, _splice, _reindent, Stub
 
 
 class _CapModel:
@@ -17,7 +17,7 @@ class _CapModel:
         self.reply, self.system = reply, None
 
     def complete(self, messages, system=None, max_tokens=4096, grammar=None):
-        from gremlin_core.magic.model import ModelReply
+        from magic_core.magic.model import ModelReply
         self.system = system
         return ModelReply(text=self.reply)
 

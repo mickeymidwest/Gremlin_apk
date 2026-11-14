@@ -1,6 +1,6 @@
 """Folding old tool outputs keeps the error CORE (pruning without losing
 signal) -- the anti-"drown in logs" law."""
-from gremlin_core.magic import battle
+from magic_core.magic import battle
 
 
 def test_result_gist_keeps_error_core_not_banner():
@@ -17,8 +17,8 @@ def test_result_gist_keeps_error_core_not_banner():
 
 
 def test_result_gist_plain_output_uses_first_line():
-    g = battle._result_gist("gremlin_core/server.py\ngremlin_core/reply.py\n")
-    assert g.startswith("gremlin_core/server.py")
+    g = battle._result_gist("magic_core/server.py\nmagic_core/reply.py\n")
+    assert g.startswith("magic_core/server.py")
 
 
 def test_condense_folds_middle_and_preserves_error_core():

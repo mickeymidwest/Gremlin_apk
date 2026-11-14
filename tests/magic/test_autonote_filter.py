@@ -6,7 +6,7 @@ wrong thing. This is the guard.)
 """
 import pytest
 
-from gremlin_core.notes import parse_autonote
+from magic_core.notes import parse_autonote
 
 
 @pytest.mark.parametrize("bad", [

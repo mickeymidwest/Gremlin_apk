@@ -1,13 +1,13 @@
 """S2 desktop guard: snapshot diff and standing findings, fake system."""
 import json
 
-from gremlin_core import guard
+from magic_core import guard
 
 BASE = {
     "listening": ["tcp 0.0.0.0:22", "tcp 127.0.0.1:631", "tcp 100.122.0.1:8765"],
     "ssh": {"passwordauthentication": "no"},
-    "firewall": {"gremlin-firewall": "inactive", "firewalld": "inactive", "nftables": "inactive", "ufw": "inactive", "iptables": "inactive"},
-    "units": ["sshd.service", "user gremlin.service"],
+    "firewall": {"magic-firewall": "inactive", "firewalld": "inactive", "nftables": "inactive", "ufw": "inactive", "iptables": "inactive"},
+    "units": ["sshd.service", "user magic.service"],
     "cron": [],
     "failed_ssh_24h": 0,
     "kernel": "6.18.55-1-MANJARO",

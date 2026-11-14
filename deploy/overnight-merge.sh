@@ -3,7 +3,7 @@
 # then convert+quantize to GGUF and bring the agent back online. Designed
 # to run solo (no cleanup/service competing for disk). Always restores the
 # service + timers at the end, success or fail, so the box is never left
-# with Gremlin offline.
+# with Magic offline.
 set -u
 cd /home/mickey/Downloads/gremlin
 REPO=/home/mickey/Downloads/gremlin
@@ -11,8 +11,8 @@ FT="$REPO/.finetune-venv/bin/python"
 MK="$REPO/.finetune-venv/bin/mergekit-yaml"
 BASE=$(echo /home/mickey/.cache/huggingface/hub/models--mlabonne--Meta-Llama-3.1-8B-Instruct-abliterated/snapshots/*/)
 ADD=/home/mickey/Downloads/merge_inputs/hermes-3-llama31-8b
-OUT=/home/mickey/Downloads/merge_out/gremlin-llama31-ties
-GGUF="$REPO/models/gremlin-llama31-ties.Q4_K_M.gguf"
+OUT=/home/mickey/Downloads/merge_out/magic-llama31-ties
+GGUF="$REPO/models/magic-llama31-ties.Q4_K_M.gguf"
 LOG=/home/mickey/Downloads/merge_out/overnight.log
 mkdir -p /home/mickey/Downloads/merge_out
 exec >>"$LOG" 2>&1
@@ -20,9 +20,9 @@ ts(){ echo "[$(date -Iseconds)] $*"; }
 
 restore_agent(){
   ts "restoring service + timers"
-  systemctl --user start gremlin.service gremlin-watchdog.timer \
-                         gremlin-update.timer gremlin-distill.timer \
-                         gremlin-zoid.timer 2>&1
+  systemctl --user start magic.service magic-watchdog.timer \
+                         magic-update.timer magic-distill.timer \
+                         magic-zoid.timer 2>&1
 }
 trap restore_agent EXIT   # agent comes back no matter how we exit
 

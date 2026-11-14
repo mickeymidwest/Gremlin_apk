@@ -2,7 +2,7 @@
 the auto-research gate (several introduced that night)."""
 import datetime
 
-from gremlin_core import autoresearch as a
+from magic_core import autoresearch as a
 
 
 def test_bug3_figure_check_uses_exact_values_not_substring():
@@ -20,7 +20,7 @@ def test_bug3_figure_check_uses_exact_values_not_substring():
 def test_bug6_the_box_office_and_generic_nouns_are_searchable():
     assert a.should_search("how much did the movie make at the box office today?") is True
     assert a.should_search("who invented the computer?") is True
-    assert a.should_search("how tall is magic johnson?") is True
+    assert a.should_search("how tall is michael jordan?") is True
 
 
 def test_bug7_creative_and_local_ops_do_not_search():
@@ -50,7 +50,7 @@ def test_bug14_sigfig_does_not_eat_following_word():
 
 
 def test_bug4_date_note_in_hist_not_in_grounding_ctx():
-    from gremlin_core.magic import reply
+    from magic_core.magic import reply
     _msg, hist, ctx = reply._build_prompt("hi there", ".", "", "")
     assert "Today's date is" not in ctx                         # kept out of grounding ctx
     assert any("Today's date is" in h.get("content", "") for h in hist)  # model still told

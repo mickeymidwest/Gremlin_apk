@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pre-push secret scan: abort the push if the commits being pushed look like
 # they carry a secret. A safety net UNDER the unattended zoid/update auto-push.
-# Override a genuine false positive:  GREMLIN_ALLOW_SECRETS=1 git push
+# Override a genuine false positive:  MAGIC_ALLOW_SECRETS=1 git push
 # Installed by deploy/install-hooks.sh; canonical copy in deploy/hooks/.
 set -u
 Z=0000000000000000000000000000000000000000
@@ -51,13 +51,13 @@ while read -r lref lsha rref rsha; do
 done
 
 if [ "$fail" -ne 0 ]; then
-  if [ "${GREMLIN_ALLOW_SECRETS:-}" = "1" ]; then
-    echo ">> GREMLIN_ALLOW_SECRETS=1 set -- allowing the push anyway." >&2
+  if [ "${MAGIC_ALLOW_SECRETS:-}" = "1" ]; then
+    echo ">> MAGIC_ALLOW_SECRETS=1 set -- allowing the push anyway." >&2
     exit 0
   fi
   echo "" >&2
   echo "Push aborted. Remove the secret (scrub history if it was committed)," >&2
-  echo "or re-run with GREMLIN_ALLOW_SECRETS=1 git push if it's a false positive." >&2
+  echo "or re-run with MAGIC_ALLOW_SECRETS=1 git push if it's a false positive." >&2
   exit 1
 fi
 exit 0

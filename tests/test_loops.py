@@ -1,9 +1,9 @@
-"""U5: the format loop (gremlin_core/magic/loops.py). Fake model calls."""
+"""U5: the format loop (magic_core/magic/loops.py). Fake model calls."""
 import json
 
 import pytest
 
-from gremlin_core.magic import loops
+from magic_core.magic import loops
 
 
 def fake(*replies):

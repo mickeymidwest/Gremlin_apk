@@ -2,8 +2,8 @@
 import asyncio
 import json
 
-from gremlin_core.magic import opportunities
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core.magic import opportunities
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_commands import FakeRegistry
 
 

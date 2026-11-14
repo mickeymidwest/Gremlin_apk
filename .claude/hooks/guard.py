@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Claude Code PreToolUse guard for Gremlin_apk.
+"""Claude Code PreToolUse guard for Magic_apk.
 
 Blocks (exit 2, reason goes back to Claude):
   1. Commands that delete files or discard work.
   2. Heavy build commands not wrapped in scripts/heavy.sh.
 
-Escape hatch (Mickey only): launch claude with GREMLIN_ALLOW_DESTRUCTIVE=1 exported.
+Escape hatch (Mickey only): launch claude with MAGIC_ALLOW_DESTRUCTIVE=1 exported.
 """
 import json
 import os
@@ -37,7 +37,7 @@ DEFAULT_HEAVY = (r"(\./gradlew|(^|[[:space:];&|])gradle[[:space:]]|(^|[[:space:]
 def heavy_regex(root):
     pat = DEFAULT_HEAVY
     try:
-        with open(os.path.join(root, ".gremlin", "daemon.env")) as f:
+        with open(os.path.join(root, ".magic", "daemon.env")) as f:
             for line in f:
                 m = re.match(r"\s*HEAVY_REGEX=(['\"]?)(.*)\1\s*$", line)
                 if m:
@@ -50,14 +50,14 @@ def heavy_regex(root):
 def banned_rules(root):
     rules = []
     try:
-        with open(os.path.join(root, ".gremlin", "banned.txt")) as f:
+        with open(os.path.join(root, ".magic", "banned.txt")) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
                 pat, _, why = line.partition("||")
                 try:
-                    rules.append((re.compile(pat.strip()), why.strip() or "banned in .gremlin/banned.txt"))
+                    rules.append((re.compile(pat.strip()), why.strip() or "banned in .magic/banned.txt"))
                 except re.error:
                     pass
     except OSError:
@@ -83,24 +83,24 @@ def main():
     for rx, why in banned_rules(root):
         if rx.search(cmd):
             block(
-                f"BLOCKED by Gremlin guard: banned method ({why}).\n"
+                f"BLOCKED by Magic guard: banned method ({why}).\n"
                 "This approach was abandoned because it crashed the machine. Per CALIBRATION.md §8, keep "
-                "iterating on the CURRENT method (tune its settings, check .gremlin/runs.md). "
+                "iterating on the CURRENT method (tune its settings, check .magic/runs.md). "
                 "Don't bring the banned method back in any form."
             )
 
-    if os.environ.get("GREMLIN_ALLOW_DESTRUCTIVE") != "1":
+    if os.environ.get("MAGIC_ALLOW_DESTRUCTIVE") != "1":
         for pat, name in DESTRUCTIVE:
             if re.search(pat, cmd):
                 block(
-                    f"BLOCKED by Gremlin guard: '{name}' can delete or discard work.\n"
-                    "Per CALIBRATION.md: move unwanted files to .gremlin/trash/ (mkdir -p .gremlin/trash && mv <file> .gremlin/trash/), "
+                    f"BLOCKED by Magic guard: '{name}' can delete or discard work.\n"
+                    "Per CALIBRATION.md: move unwanted files to .magic/trash/ (mkdir -p .magic/trash && mv <file> .magic/trash/), "
                     "or stop and ask Mickey. Do not try to work around this block."
                 )
 
     if heavy_regex(root).search(cmd) and "scripts/heavy.sh" not in cmd:
         block(
-            "BLOCKED by Gremlin guard: heavy command must run with the daemon paused.\n"
+            "BLOCKED by Magic guard: heavy command must run with the daemon paused.\n"
             f"Re-run it as:  scripts/heavy.sh {cmd.strip()}"
         )
     return 0

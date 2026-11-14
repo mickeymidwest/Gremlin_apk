@@ -21,7 +21,7 @@ import java.security.cert.CertificateFactory
 import java.security.spec.PKCS8EncodedKeySpec
 
 /**
- * Gremlin's own ADB identity (S4b), so the app can talk to this phone's
+ * Magic's own ADB identity (S4b), so the app can talk to this phone's
  * Wireless debugging the way `adb` does from a computer -- no Termux, no
  * desktop. Built on libadb-android (the library App Manager uses).
  *
@@ -57,7 +57,7 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
 
     override fun getPrivateKey(): PrivateKey = privateKey
     override fun getCertificate(): Certificate = certificate
-    override fun getDeviceName(): String = "Gremlin"
+    override fun getDeviceName(): String = "Magic"
 
     /** Runs one read-only shell command and returns its output. */
     fun shell(command: String): String {
@@ -83,7 +83,7 @@ class AdbManager private constructor(context: Context) : AbsAdbConnectionManager
 
         /** Self-signed certificate for the ADB identity, via BouncyCastle (libadb already ships it). */
         private fun selfSigned(publicKey: java.security.PublicKey, key: PrivateKey): Certificate {
-            val name = X500Name("CN=Gremlin")
+            val name = X500Name("CN=Magic")
             val notBefore = java.util.Date()
             val notAfter = java.util.Date(System.currentTimeMillis() + 10L * 365 * 24 * 3600 * 1000)
             val serial = BigInteger.valueOf(SecureRandom().nextInt().toLong() and 0x7fffffffL)

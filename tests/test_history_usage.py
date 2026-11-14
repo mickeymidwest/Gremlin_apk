@@ -3,7 +3,7 @@ token counter "like Claude". Real per-turn counts come from the
 backend's own response (LlamaCppBackend), persisted alongside each
 turn, summed across the FULL on-disk file (not just the capped
 in-memory render window) for a true conversation-wide total."""
-from gremlin_core.history import ConversationHistory
+from magic_core.history import ConversationHistory
 
 
 def test_usage_totals_zero_with_no_history(tmp_path):
@@ -52,7 +52,7 @@ def test_old_history_lines_without_token_fields_dont_crash(tmp_path):
     feature existed has no prompt_tokens/completion_tokens keys at all."""
     d = tmp_path / "data" / "conversations"
     d.mkdir(parents=True)
-    from gremlin_core.history import _key_id
+    from magic_core.history import _key_id
     (d / f"{_key_id('k')}.jsonl").write_text(
         '{"user": "old question", "assistant": "old answer", "at": 1.0}\n')
     ch = ConversationHistory(str(tmp_path))

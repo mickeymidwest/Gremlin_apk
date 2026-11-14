@@ -2,7 +2,7 @@
 render() keeps, instead of silently scrolling off the front."""
 import asyncio
 
-from gremlin_core import history as H
+from magic_core import history as H
 
 
 def _ch(tmp_path):
@@ -11,7 +11,7 @@ def _ch(tmp_path):
 
 def _fill(ch, key, n):
     for i in range(n):
-        ch.record(key, f"user message number {i}", f"gremlin reply number {i}")
+        ch.record(key, f"user message number {i}", f"magic reply number {i}")
 
 
 def test_compact_summarizes_older_turns(tmp_path):
@@ -19,7 +19,7 @@ def test_compact_summarizes_older_turns(tmp_path):
     _fill(ch, key, 30)
 
     async def summ(prompt):
-        return "The user and Gremlin discussed numbered messages."
+        return "The user and Magic discussed numbered messages."
     did = asyncio.run(ch.compact(key, summ, keep_recent=14, min_new=6))
     assert did is True
     summary, count = ch._load_summary(key)
@@ -88,7 +88,7 @@ def test_render_prepends_summary(tmp_path):
     asyncio.run(ch.compact(key, summ, keep_recent=14, min_new=6))
     rendered = ch.render(key)
     assert "EARLIER-GIST" in rendered
-    assert "gremlin reply number 29" in rendered    # recent turns still verbatim
+    assert "magic reply number 29" in rendered    # recent turns still verbatim
 
 
 def test_clear_removes_summary(tmp_path):

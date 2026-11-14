@@ -1,6 +1,6 @@
 """_git_begin -- real bug found live 2026-09-19: every battle workdir is
 a subdirectory of THIS project's own data/magic/work/, itself inside
-the real gremlin git repo. The old check ("rev-parse
+the real magic git repo. The old check ("rev-parse
 --is-inside-work-tree") is true for any subdirectory of an existing
 repo, including one it doesn't own -- so it always skipped `git init`
 and every per-edit autocommit (_git_snapshot) landed straight in the
@@ -12,7 +12,7 @@ coverage never caught this -- pytest's tmp_path isn't inside any git
 repo, so the bug's precondition never applied there)."""
 import subprocess
 
-from gremlin_core.magic.battle import _git, _git_begin, _git_snapshot
+from magic_core.magic.battle import _git, _git_begin, _git_snapshot
 
 
 def _init_outer_repo(root):

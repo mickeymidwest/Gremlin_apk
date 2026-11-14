@@ -1,7 +1,7 @@
 """Fuzzing crash memory: signature extraction + dedup/clustering + persistence."""
 from pathlib import Path
 
-from gremlin_core.magic import fuzz_state as FS
+from magic_core.magic import fuzz_state as FS
 
 _ASAN = """\
 ==12345==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x60200000

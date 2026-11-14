@@ -1,5 +1,5 @@
 """U7 long-context retrieval: chunking + relevance retrieval with fallback."""
-from gremlin_core import longctx as L
+from magic_core import longctx as L
 
 
 def test_chunk_splits_on_paragraphs_and_hard_splits_long():
@@ -35,8 +35,8 @@ def test_retrieve_falls_back_to_head_when_nothing_matches():
 
 
 def test_retrieve_uses_embed_bonus_when_enabled(monkeypatch):
-    from gremlin_core import embed as E
-    monkeypatch.setenv("GREMLIN_EMBED", "1")
+    from magic_core import embed as E
+    monkeypatch.setenv("MAGIC_EMBED", "1")
     # toy embedder: synonyms on one axis so a keyword-disjoint chunk still scores.
     # regex-free (split().count) to avoid escaping pitfalls.
     axes = [("jellyfin", "transcode", "media", "streaming"), ("disk", "storage", "space")]

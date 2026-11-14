@@ -3,11 +3,11 @@
 args, nothing after) or DONE. The grammar is rebuilt each step so it tracks
 phase-gating (edits unlock only after an explore).
 """
-from gremlin_core.backends import grammars as G
-from gremlin_core.magic.battle import run_battle, _parse_turn, _trim_to_first_action
-from gremlin_core.magic.model import ModelReply
-from gremlin_core.magic.toolhost import ShellToolHost
-from gremlin_core.magic.types import Task
+from magic_core.backends import grammars as G
+from magic_core.magic.battle import run_battle, _parse_turn, _trim_to_first_action
+from magic_core.magic.model import ModelReply
+from magic_core.magic.toolhost import ShellToolHost
+from magic_core.magic.types import Task
 
 
 # ---- builder ----------------------------------------------------------

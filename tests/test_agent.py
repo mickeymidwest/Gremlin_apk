@@ -1,5 +1,5 @@
 """R3 agent: plans read-only checks, gathers evidence, diagnoses. No GPU."""
-from gremlin_core import agent
+from magic_core import agent
 
 
 def fake_call(*replies):

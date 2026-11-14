@@ -23,7 +23,7 @@ import java.net.URL
  */
 class ModelSettingsActivity : AppCompatActivity() {
 
-    // Same allowlist as gremlin_core.model_scan.EDITABLE_FIELDS --
+    // Same allowlist as magic_core.model_scan.EDITABLE_FIELDS --
     // model_path is deliberately not editable here, swapping the actual
     // file stays a `models --hf` job on the desktop.
     private val editableFields = listOf("display_name", "chat_format", "n_gpu_layers", "n_ctx")
@@ -32,7 +32,7 @@ class ModelSettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_model_settings)
 
-        val prefs = getSharedPreferences("gremlin_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("magic_prefs", MODE_PRIVATE)
         val modelName = intent.getStringExtra("modelName") ?: ""
         val host = intent.getStringExtra("host") ?: ""
         val port = intent.getIntExtra("port", 0)

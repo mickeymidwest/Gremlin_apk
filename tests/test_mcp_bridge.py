@@ -4,8 +4,8 @@ import json
 import os
 import sys
 
-from gremlin_core import mcp_bridge
-from gremlin_core import tools as tools_mod
+from magic_core import mcp_bridge
+from magic_core import tools as tools_mod
 
 _SERVER = os.path.join(os.path.dirname(__file__), "mcp_echo_server.py")
 

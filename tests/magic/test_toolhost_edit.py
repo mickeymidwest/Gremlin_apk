@@ -1,5 +1,5 @@
 """edit_file: search/replace edits with a whitespace-flexible fallback."""
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
 
 
 def _th(tmp_path, body):

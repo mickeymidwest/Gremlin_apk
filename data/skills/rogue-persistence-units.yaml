@@ -9,10 +9,10 @@ trigger_when: persistence, a new/unknown service or scheduled job, autostart, or
   on the box'
 trigger_matcher: persistence|systemd unit|cron|crontab|timer|autostart|enabled service|startup|rc\.local
 procedure:
-- run `gremlin guard` -- it diffs enabled units and cron entries against the accepted baseline
+- run `magic guard` -- it diffs enabled units and cron entries against the accepted baseline
 - for any NEW unit/job, check you added it on purpose; read its ExecStart / command before
   trusting it
-- if it's unknown, disable it and investigate before `gremlin guard accept` re-baselines
+- if it's unknown, disable it and investigate before `magic guard accept` re-baselines
 supersedes: null
 provenance:
 - seed-security-S1

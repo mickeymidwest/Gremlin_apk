@@ -3,7 +3,7 @@ won't carry the answer (the 'gave up after one search' gap), while stable
 trivia with a good snippet stays snippet-only (no extra fetch)."""
 import asyncio
 
-from gremlin_core import autoresearch as a
+from magic_core import autoresearch as a
 
 
 def test_should_fetch_true_for_detail_and_current_questions():

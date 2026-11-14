@@ -6,8 +6,8 @@
         <shape android:shape="rectangle">
             <corners android:radius="14dp" />
             <gradient android:angle="0"
-                android:startColor="@color/gremlin_accent"
-                android:endColor="@color/gremlin_blue" />
+                android:startColor="@color/magic_accent"
+                android:endColor="@color/magic_blue" />
         </shape>
     </item>
 </ripple>

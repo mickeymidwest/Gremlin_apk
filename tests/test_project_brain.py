@@ -1,5 +1,5 @@
 """N4 Project Brain: per-project scoped memory, reusing memory_select."""
-from gremlin_core import project_brain as PB
+from magic_core import project_brain as PB
 
 
 def test_remember_and_recall_relevant(tmp_path):

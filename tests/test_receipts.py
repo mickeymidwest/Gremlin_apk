@@ -3,10 +3,10 @@ import asyncio
 
 import pytest
 
-from gremlin_core import receipt as R
-from gremlin_core import service_control
-from gremlin_core import tools as tools_mod
-from gremlin_core.sandbox import SandboxResult
+from magic_core import receipt as R
+from magic_core import service_control
+from magic_core import tools as tools_mod
+from magic_core.sandbox import SandboxResult
 
 DOCKER_UP = """CONTAINER ID   IMAGE                      COMMAND   CREATED       STATUS                    PORTS     NAMES
 3f2a1b9c8d7e   jellyfin/jellyfin:latest   "/jellyfin/jellyfin"   2 weeks ago   Up 4 seconds (health: starting)   8096/tcp   jellyfin
@@ -207,7 +207,7 @@ def test_approvers_dedupes_and_skips_rejections():
 def test_script_fix_no_longer_says_fixed(tmp_path, monkeypatch):
     target = tmp_path / "s.sh"
     target.write_text("echo hi\n")
-    from gremlin_core import script_edit
+    from magic_core import script_edit
 
     async def fake_propose(router, models, path, problem):
         return "echo hello\n"
@@ -231,7 +231,7 @@ def test_self_improve_records_checks(tmp_path):
     """Runs the real apply_patch on a tiny repo: a passing suite is
     'passed', an empty suite is 'none' (pytest exit 5), never 'passed'."""
     import subprocess
-    from gremlin_core import self_improve
+    from magic_core import self_improve
 
     def git(*a):
         subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
@@ -295,7 +295,7 @@ def test_check_many_reads_docker_ps(tmp_path, monkeypatch):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "models.yaml").write_text(
         "service_control:\n  docker:\n    - jellyfin\n    - bridge\n  systemd: []\n")
-    from gremlin_core import sandbox as sb
+    from magic_core import sandbox as sb
     seen = []
 
     async def fake_run(self, cmd, stdin_data=None):

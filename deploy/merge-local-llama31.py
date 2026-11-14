@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local TIES merge for Gremlin -- Llama-3.1-8B models only, memory-safe on
+Local TIES merge for Magic -- Llama-3.1-8B models only, memory-safe on
 an 8GB-RAM / 8GB-VRAM desktop.
 
 This REPLACES the broken 3-model blueprint that kept getting handed around
@@ -13,7 +13,7 @@ This REPLACES the broken 3-model blueprint that kept getting handed around
      tokenizer drift, not a different architecture. That merge can only
      fail or produce garbage. -> this tool refuses any non-Llama-3.1 input.
   2. GGUF INPUTS. mergekit merges HuggingFace *safetensors*, not GGUF.
-     You cannot point it at the .gguf files Gremlin runs. You need the
+     You cannot point it at the .gguf files Magic runs. You need the
      full-weight HF repos, merge those, THEN convert+quantize the result
      back to GGUF. -> `check` verifies safetensors are present; `gguf`
      does the conversion.
@@ -25,7 +25,7 @@ This REPLACES the broken 3-model blueprint that kept getting handed around
 Subcommands:
   check   validate the inputs are mergeable (safe, no heavy work -- RUN THIS FIRST)
   run     write the mergekit config and run the merge (heavy; needs swap up)
-  gguf    convert+quantize a merged HF model to a GGUF Gremlin can load
+  gguf    convert+quantize a merged HF model to a GGUF Magic can load
 
 Nothing here loads a model into VRAM. The merge is CPU + disk + RAM(+swap).
 See deploy/LOCAL-MERGE.md for the full runbook and the safe order of ops.
@@ -190,7 +190,7 @@ def cmd_check(args) -> int:
             print(f"  - {p}")
         return 1
     print("RESULT: GO. Inputs are a valid same-arch Llama-3.1 set.")
-    print("Next: bring swap up, stop gremlin.service + timers, then `run`. See LOCAL-MERGE.md.")
+    print("Next: bring swap up, stop magic.service + timers, then `run`. See LOCAL-MERGE.md.")
     return 0
 
 
@@ -284,7 +284,7 @@ def cmd_run(args) -> int:
 
 
 def cmd_gguf(args) -> int:
-    """Convert a merged HF model to GGUF and quantize it so Gremlin's
+    """Convert a merged HF model to GGUF and quantize it so Magic's
     llama.cpp backend can load it. Needs a llama.cpp checkout."""
     hf = Path(args.hf).expanduser()
     llama = Path(args.llama_cpp).expanduser()
@@ -304,8 +304,8 @@ def cmd_gguf(args) -> int:
         subprocess.run([quant, str(out_f16), str(out_q), args.quant], check=True)
         out_f16.unlink(missing_ok=True)  # the f16 is ~16GB scratch; drop it
     print(f"\n[gguf] done -> {out_q}")
-    print("Register it: `gremlin model` (download/switch) or add to config/models.yaml, "
-          "then `/model switch` and restart gremlin.service. Keep the old primary until you've A/B'd it.")
+    print("Register it: `magic model` (download/switch) or add to config/models.yaml, "
+          "then `/model switch` and restart magic.service. Keep the old primary until you've A/B'd it.")
     return 0
 
 
@@ -318,7 +318,7 @@ def main() -> int:
         sp.add_argument("--base", required=True, help="base HF model dir (the reference, e.g. llama-3.1-8b-abliterated)")
         sp.add_argument("--add", action="append", default=[], required=True,
                         help="an HF model dir to merge in (repeat for each; all must be Llama-3.1-8B)")
-        sp.add_argument("--out", default="./merge_out/gremlin-llama31-ties",
+        sp.add_argument("--out", default="./merge_out/magic-llama31-ties",
                         help="output dir (run) / drive to size-check (check)")
         sp.add_argument("--mergekit", default="./merge_env/bin/mergekit-yaml",
                         help="fallback path to mergekit-yaml if not on PATH")

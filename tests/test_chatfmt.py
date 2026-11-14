@@ -1,12 +1,12 @@
 """chatml-nothink: thinking off by prefill, " /think" opts back in."""
-from gremlin_core.backends import chatfmt
+from magic_core.backends import chatfmt
 
 
 def test_prefills_an_empty_think_block():
-    prompt, think = chatfmt.format_messages([{"role": "system", "content": "be Gremlin"},
+    prompt, think = chatfmt.format_messages([{"role": "system", "content": "be Magic"},
                                              {"role": "user", "content": "hi"}])
     assert not think
-    assert prompt == ("<|im_start|>system\nbe Gremlin<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n"
+    assert prompt == ("<|im_start|>system\nbe Magic<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n"
                       "<|im_start|>assistant\n<think>\n\n</think>\n\n")
 
 

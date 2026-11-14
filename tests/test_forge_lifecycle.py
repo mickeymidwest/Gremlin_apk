@@ -1,6 +1,6 @@
 """Forged-tool promotion / retirement -- earn-your-keep like skills."""
-from gremlin_core import tool_forge as TF
-from gremlin_core import forge_lifecycle as FL
+from magic_core import tool_forge as TF
+from magic_core import forge_lifecycle as FL
 
 CODE = 'def run(args):\n    return {"ok": True, "answer": "ok"}\n'
 
@@ -38,7 +38,7 @@ def test_losing_tool_is_retired(tmp_path):
 
 
 def test_retired_tool_is_not_loaded(tmp_path):
-    from gremlin_core import tools as tools_mod
+    from magic_core import tools as tools_mod
     _forge(tmp_path, "deadweight")
     for _ in range(FL.STALE_BATTLES):
         FL.record_usage(str(tmp_path), [], won=True, available_names=["deadweight"])

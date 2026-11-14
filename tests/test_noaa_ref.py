@@ -1,6 +1,6 @@
 """NOOA pass-by-reference: big tool outputs become a preview + ref handle,
 read on demand with read_ref -- so a weak model's context isn't flooded."""
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
 
 
 def _host(tmp_path):

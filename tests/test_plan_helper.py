@@ -1,7 +1,7 @@
 """Two-head planning: the GPU model + CPU helper both draft, best is kept."""
-from gremlin_core.magic.battle import _plan
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core.magic.battle import _plan
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 
 def test_helper_draft_is_considered_and_best_wins():

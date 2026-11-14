@@ -1,14 +1,14 @@
 """Preventive error ledger: record failures, consult before repeating."""
-from gremlin_core import error_ledger as EL
+from magic_core import error_ledger as EL
 
 
 def test_record_then_recall_matches_normalized_context(tmp_path):
     root = str(tmp_path)
     # a service restart that hit a permission wall
-    e = EL.record(root, "restart gremlin.service (pid 1234)", "bash: permission denied")
+    e = EL.record(root, "restart magic.service (pid 1234)", "bash: permission denied")
     assert e is not None and e["count"] == 1
     # the SAME step next week (different pid) collapses to one signature
-    hit = EL.recall(root, "restart gremlin.service (pid 9999)")
+    hit = EL.recall(root, "restart magic.service (pid 9999)")
     assert hit is not None and "permission" in hit["what"]
 
 

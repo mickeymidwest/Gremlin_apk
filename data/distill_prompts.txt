@@ -1,4 +1,4 @@
-# Prompts for `gremlin distill` -- each line is sent through
+# Prompts for `magic distill` -- each line is sent through
 # consult_and_learn with sampling forced on, so every one gets broadcast
 # to the full consult_models roster and the synthesized answer is logged
 # to data/learning_log.jsonl as fine-tuning material. Lines starting with

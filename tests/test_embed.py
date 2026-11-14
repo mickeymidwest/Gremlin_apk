@@ -8,9 +8,9 @@ import re
 
 import pytest
 
-from gremlin_core import embed as E
-from gremlin_core.magic import battle as B
-from gremlin_core.magic.types import Skill, Task
+from magic_core import embed as E
+from magic_core.magic import battle as B
+from magic_core.magic.types import Skill, Task
 
 
 def _toy_vec(text: str):
@@ -22,7 +22,7 @@ def _toy_vec(text: str):
 
 @pytest.fixture
 def embed_on(monkeypatch):
-    monkeypatch.setenv("GREMLIN_EMBED", "1")
+    monkeypatch.setenv("MAGIC_EMBED", "1")
     monkeypatch.setattr(E, "_raw_embed", _toy_vec)
     E._vec_cache.clear()
     yield
@@ -37,7 +37,7 @@ def test_cosine_basics():
 
 
 def test_disabled_by_default(monkeypatch):
-    monkeypatch.delenv("GREMLIN_EMBED", raising=False)
+    monkeypatch.delenv("MAGIC_EMBED", raising=False)
     assert E.enabled() is False
     assert E.similarity("queue thing", "deque thing") == 0.0
     assert E.bonus("queue", "queue") == 0

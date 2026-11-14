@@ -2,8 +2,8 @@
 # Put the desktop's btrfs snapshots in the GRUB boot menu (recovery item 3).
 # Run with sudo:  sudo /home/mickey/Downloads/gremlin/deploy/recovery/bootsnap.sh
 # grub-btrfsd needs inotify-tools; without it the service just exits, which
-# is why gremlin guard saw it "failed". This installs it, starts the
-# service, and regenerates the boot menu. Nothing about Gremlin changes.
+# is why magic guard saw it "failed". This installs it, starts the
+# service, and regenerates the boot menu. Nothing about Magic changes.
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "Run it with sudo."; exit 1; }
 

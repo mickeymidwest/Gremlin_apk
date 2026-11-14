@@ -5,7 +5,7 @@ import zipfile
 
 import pytest
 
-from gremlin_core import builds
+from magic_core import builds
 
 
 @pytest.fixture
@@ -26,13 +26,13 @@ def _make_build(downloads, name, files: dict):
 
 
 def test_single_file_build_lists_single_file_and_downloads_raw(downloads):
-    _make_build(downloads, "app_update", {"gremlin.apk": b"PK\x03\x04 fake apk bytes"})
+    _make_build(downloads, "app_update", {"magic.apk": b"PK\x03\x04 fake apk bytes"})
 
     listed = {b["name"]: b for b in builds.list_builds()}
-    assert listed["app_update"]["single_file"] == "gremlin.apk"
+    assert listed["app_update"]["single_file"] == "magic.apk"
 
     data, filename, mime = builds.read_single_file("app_update")
-    assert filename == "gremlin.apk"
+    assert filename == "magic.apk"
     assert mime == "application/vnd.android.package-archive"
     assert data == b"PK\x03\x04 fake apk bytes"
 

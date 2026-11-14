@@ -2,7 +2,7 @@
 a plain answer instead of running the heavier loop."""
 import asyncio
 
-from gremlin_core.magic import reply as reply_mod
+from magic_core.magic import reply as reply_mod
 
 
 def _call(**kw):
@@ -14,7 +14,7 @@ def _call(**kw):
 
 def test_low_box_skips_the_loop(monkeypatch):
     monkeypatch.setattr(reply_mod, "loops_enabled", lambda root: True)
-    import gremlin_core.resource as R
+    import magic_core.resource as R
     monkeypatch.setattr(R, "ok_for_heavy", lambda **k: (False, "low RAM"))
     # even though loops are enabled, a tight box returns None (-> plain answer)
     assert _call() is None

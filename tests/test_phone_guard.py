@@ -5,14 +5,14 @@ import json
 
 import pytest
 
-from gremlin_core import phone_guard as pg
+from magic_core import phone_guard as pg
 
 BASE = {
     "device": "Pixel 8", "android": "15", "sdk": 35, "security_patch": "2026-10-05",
     "screen_lock": True, "dev_options": False, "adb": False, "vpn_active": True,
     "accessibility": [], "device_admins": [], "notification_listeners": [],
     "packages": [
-        {"pkg": "com.gremlin.app", "label": "Gremlin", "installer": "com.google.android.packageinstaller",
+        {"pkg": "com.magic.app", "label": "Magic", "installer": "com.google.android.packageinstaller",
          "system": False, "perms": ["CAMERA", "SYSTEM_ALERT_WINDOW"]},
         {"pkg": "com.android.chrome", "label": "Chrome", "installer": "com.android.vending",
          "system": True, "perms": []},
@@ -87,8 +87,8 @@ def test_check_baseline_then_diff_then_accept(tmp_path):
 def test_guard_routes(tmp_path, monkeypatch):
     import asyncio as aio
     import threading
-    from gremlin_core import guard
-    from gremlin_core.server import create_app
+    from magic_core import guard
+    from magic_core.server import create_app
 
     class Reg:
         def names(self):

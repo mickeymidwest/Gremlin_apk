@@ -1,11 +1,11 @@
 """grounding.check / grounding.ground -- catching invented files, bad
 line cites, phantom commands, and unbacked back-references."""
-from gremlin_core.magic import grounding
+from magic_core.magic import grounding
 
 
 def _repo(tmp_path):
-    (tmp_path / "gremlin_core" / "magic").mkdir(parents=True)
-    (tmp_path / "gremlin_core" / "magic" / "reply.py").write_text("a\nb\nc\n")
+    (tmp_path / "magic_core" / "magic").mkdir(parents=True)
+    (tmp_path / "magic_core" / "magic" / "reply.py").write_text("a\nb\nc\n")
     (tmp_path / "deploy").mkdir()
     (tmp_path / "deploy" / "zoid-nightly.sh").write_text("#!/bin/sh\n")
     return tmp_path
@@ -13,26 +13,26 @@ def _repo(tmp_path):
 
 def test_clean_answer_no_findings(tmp_path):
     r = _repo(tmp_path)
-    txt = ("Look at `gremlin_core/magic/reply.py` and run "
+    txt = ("Look at `magic_core/magic/reply.py` and run "
            "`bash deploy/zoid-nightly.sh` -- that's the loop.")
     assert grounding.check(txt, r) == []
 
 
 def test_flags_nonexistent_file(tmp_path):
     r = _repo(tmp_path)
-    out = grounding.check("The fix is in `gremlin_core/magic/repair.py`.", r)
+    out = grounding.check("The fix is in `magic_core/magic/repair.py`.", r)
     assert out and "repair.py" in out[0]
 
 
 def test_flags_bad_line_cite(tmp_path):
     r = _repo(tmp_path)
-    out = grounding.check("See `gremlin_core/magic/reply.py:400` for the guard.", r)
+    out = grounding.check("See `magic_core/magic/reply.py:400` for the guard.", r)
     assert out and "only 3 lines" in out[0]
 
 
 def test_accepts_in_range_line_cite(tmp_path):
     r = _repo(tmp_path)
-    assert grounding.check("`gremlin_core/magic/reply.py:2` sets it.", r) == []
+    assert grounding.check("`magic_core/magic/reply.py:2` sets it.", r) == []
 
 
 def test_flags_phantom_command(tmp_path):
@@ -121,7 +121,7 @@ def test_flags_real_action_with_object(tmp_path):
 
 def test_ignores_self_description_running_on(tmp_path):
     """Real false positive found live 2026-09-20 (mickey: "it stoped and
-    hung mid reply"): Gremlin's real reply said "That's where I'm
+    hung mid reply"): Magic's real reply said "That's where I'm
     running, and I'll give you a straight answer" -- describing what it
     runs ON TOP OF (Magic), not claiming to be mid-action. The verb
     alone used to be enough to flag it; now it needs an object right

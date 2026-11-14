@@ -1,6 +1,6 @@
 """Approval mode: forged tools stage to _pending until approved."""
-from gremlin_core import tool_forge as TF
-from gremlin_core import tools as tools_mod
+from magic_core import tool_forge as TF
+from magic_core import tools as tools_mod
 
 CODE = 'def run(args):\n    return {"ok": True, "answer": "ok"}\n'
 

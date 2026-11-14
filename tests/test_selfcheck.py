@@ -1,7 +1,7 @@
 """R7 self-check: flags a part that regressed between the two newest runs."""
 import json
 
-from gremlin_core import selfcheck
+from magic_core import selfcheck
 
 
 def _write(d, *runs):

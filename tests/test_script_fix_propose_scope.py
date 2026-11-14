@@ -1,6 +1,6 @@
 """Sibling bug to the one fixed in test_self_edit_propose_scope.py, found
 during a 2026-09-20 audit pass (mickey: "double check yourself whatever
-we couldve messed of forgot or hullacted"): gremlin_core/script_edit.py's
+we couldve messed of forgot or hullacted"): magic_core/script_edit.py's
 propose_fix() has the exact same broadcast-to-every-model-then-merge
 shape as self_improve.propose_patch() -- pass it N model names and it
 does N local-GGUF VRAM-swap calls plus a separate merge call, the same
@@ -8,7 +8,7 @@ slowness that made self-edit effectively never complete before that fix.
 
 Two real call sites still built model_names as "every registered model"
 when this fix's earlier siblings (self-edit, build_project) had already
-moved to primary-only: main.py's `gremlin edit` CLI command (cmd_edit)
+moved to primary-only: main.py's `magic edit` CLI command (cmd_edit)
 and server.py's /admin/script-edit route. Both fixed the same way --
 primary model only, with the old "every non-persona model" behavior
 kept as a fallback for the case there's no configured primary.
@@ -20,7 +20,7 @@ fix, not independently exercised here."""
 import asyncio
 
 import main as main_mod
-from gremlin_core.process_lock import git_mutation_lock as real_lock
+from magic_core.process_lock import git_mutation_lock as real_lock
 
 
 def test_cmd_edit_proposes_with_only_the_primary_model(tmp_path, monkeypatch):

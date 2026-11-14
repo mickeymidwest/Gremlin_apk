@@ -1,7 +1,7 @@
 """Tech-lookup: a named CLI tool + a how-to/verify shape makes Magic web-check
 the real docs instead of trusting the pilot's memory (the 2026-11-13 `apt
 upgrade -f` miss). Generic coding and box questions stay offline."""
-from gremlin_core import autoresearch as ar
+from magic_core import autoresearch as ar
 
 
 def test_the_real_upgrr_case_now_searches():
@@ -35,7 +35,7 @@ def test_generic_coding_stays_offline():
 def test_box_questions_still_never_search():
     # self/local veto still wins over tech
     assert ar.should_search("what's running in my docker containers") is False
-    assert ar.should_search("restart my systemctl service gremlin") is False
+    assert ar.should_search("restart my systemctl service magic") is False
 
 
 def test_creative_writing_still_vetoed():

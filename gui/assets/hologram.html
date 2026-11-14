@@ -86,7 +86,7 @@
       <div class="face" data-slot="3"><canvas width="180" height="180"></canvas><div class="face-label"></div></div>
     </div>
   </div>
-  <div id="below-zone" title="Gremlin's own settings"></div>
+  <div id="below-zone" title="Magic's own settings"></div>
   <div id="scanlines"></div>
 
 <script>
@@ -94,9 +94,9 @@
 // just 4 vertical panels 90 degrees apart) -- each one the SAME
 // procedurally-drawn face as before (drawFace, unchanged), tagged with a
 // small label so the 4 local consult models are distinguishable as you
-// spin it. The prism itself (as a whole) is Gremlin's own hologram --
+// spin it. The prism itself (as a whole) is Magic's own hologram --
 // tapping any face edits that slot's model; tapping below it (not part
-// of the head at all) edits Gremlin's own primary settings.
+// of the head at all) edits Magic's own primary settings.
 const FACES = Array.from(document.querySelectorAll('.face')).map((el, i) => ({
   el,
   canvas: el.querySelector('canvas'),
@@ -123,7 +123,7 @@ const belowZone = document.getElementById('below-zone');
 // talking-animation and click-routing code below depend on it.
 const IS_FRAMED = window.parent !== window;
 
-// Whether Gremlin is actively generating an answer right now -- drives
+// Whether Magic is actively generating an answer right now -- drives
 // the animated-mouth branch in drawFace() below. Android pushes this
 // directly via evaluateJavascript (see MainActivity.sendMessage());
 // desktop has no such direct channel (the terminal chat and this
@@ -133,7 +133,7 @@ let TALKING = false;
 function setTalking(v) { TALKING = !!v; }
 
 // Original stylized face: NOT any specific copyrighted character's
-// likeness (not the Warner Bros. Gremlins designs, not the film
+// likeness (not the Warner Bros. Magics designs, not the film
 // version of anything else) -- generic mischievous-creature/folklore
 // traits (pointed ears, angular features, impish grin) drawn
 // procedurally, same approach as the rest of this design.
@@ -468,7 +468,7 @@ window.addEventListener('message', (e) => {
 
 // ---- click routing
 function relayToParent(type, extra) {
-  window.parent.postMessage(Object.assign({ source: 'gremlin-hologram', type }, extra || {}), '*');
+  window.parent.postMessage(Object.assign({ source: 'magic-hologram', type }, extra || {}), '*');
 }
 
 function openModel(name) {

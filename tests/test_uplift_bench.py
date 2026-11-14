@@ -112,7 +112,7 @@ def test_suite_hash_same_for_bare_and_harness_and_covers_heldout(q):
 
 
 def test_loops_solve_passthrough():
-    from gremlin_core.magic import loops
+    from magic_core.magic import loops
     seen = []
 
     def call(messages, max_tokens, temperature):

@@ -39,7 +39,7 @@ CLEAN = (
     "token = get_or_create_token(data_dir)\n"          # token = func() -> not a secret
     "password = input('enter password: ')\n"           # password = input() -> not a secret
     "tokenizer_name = 'Qwen/Qwen2.5-7B-Instruct'\n"     # 'token' prefix, not the keyword
-    "token_file = '/home/mickey/.gremlin/server_token'\n"  # a PATH, not the secret itself
+    "token_file = '/home/mickey/.magic/server_token'\n"  # a PATH, not the secret itself
     "URL = 'http://127.0.0.1:8765/status'\n"
     "def f():\n    return 1\n"
 )
@@ -62,4 +62,4 @@ def test_secret_is_blocked(secret):
 
 
 def test_override_allows_push():
-    assert _run_push(SECRETS[1], env_extra={"GREMLIN_ALLOW_SECRETS": "1"}) == 0
+    assert _run_push(SECRETS[1], env_extra={"MAGIC_ALLOW_SECRETS": "1"}) == 0

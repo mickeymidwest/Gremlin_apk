@@ -2,8 +2,8 @@
 missing model falls back, and nothing it does ever raises."""
 import time
 
-from gremlin_core.magic import hive as hv
-from gremlin_core.magic.model import ScriptedModel
+from magic_core.magic import hive as hv
+from magic_core.magic.model import ScriptedModel
 
 
 class _FakeRegistry:
@@ -16,13 +16,13 @@ class _FakeRegistry:
             return object()          # a truthy stand-in backend
         raise KeyError(name)
     def primary_model_name(self):
-        return "gremlin"
+        return "magic"
 
 
 class _SlowModel:
     def complete(self, messages, system=None, max_tokens=4096, grammar=None):
         time.sleep(3.0)
-        from gremlin_core.magic.model import ModelReply
+        from magic_core.magic.model import ModelReply
         return ModelReply(text="too late")
 
 

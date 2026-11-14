@@ -6,7 +6,7 @@
     "steps": [
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: java.lang.NullPointerException | selling_frees_the_plot_and_returns_money: java.lang.NullPointerException",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: java.lang.NullPointerException | selling_frees_the_plot_and_returns_money: java.lang.NullPointerException",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -20,7 +20,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: java.lang.NullPointerException | selling_frees_the_plot_and_returns_money: java.lang.NullPointerException",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: java.lang.NullPointerException | selling_frees_the_plot_and_returns_money: java.lang.NullPointerException",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -41,7 +41,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -55,7 +55,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -69,7 +69,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -83,7 +83,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -97,7 +97,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -111,7 +111,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -125,7 +125,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -160,7 +160,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -174,7 +174,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -188,7 +188,7 @@
       },
       {
         "kind": "note",
-        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: gremlin | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: gremlin | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    net_worth_counts_cash_plots_and_houses: kotlin.NotImplementedError: An operation is not implemented: magic | upgrading_raises_level_costs_money_and_caps_at_max: kotlin.NotImplementedError: An operation is not implemented: magic | selling_frees_the_plot_and_returns_money: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null

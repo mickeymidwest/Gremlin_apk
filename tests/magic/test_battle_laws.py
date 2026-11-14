@@ -1,9 +1,9 @@
 """The Laws of a Battle, guarded (MAGIC.md section 11). These prove the two
 laws that are easiest to let rot: deliver-only-when-green and self-correct
 feedback. Grammar + phase-gate + plan laws have their own tests."""
-from gremlin_core.magic.battle import run_battle
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core.magic.battle import run_battle
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 
 def test_law5_deliver_only_when_green_and_law4_feedback(tmp_path):

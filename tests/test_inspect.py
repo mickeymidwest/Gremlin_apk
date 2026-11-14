@@ -1,8 +1,8 @@
 """Inspect skill (REA-style, read-only): flagging logic + tool routing."""
 import asyncio
 
-from gremlin_core import inspect as I
-from gremlin_core import tools
+from magic_core import inspect as I
+from magic_core import tools
 
 
 def test_notable_strings_finds_url_ip_and_risky_calls():

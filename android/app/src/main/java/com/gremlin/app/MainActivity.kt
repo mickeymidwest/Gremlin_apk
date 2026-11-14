@@ -43,7 +43,7 @@ import java.net.URI
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: SharedPreferences
-    private lateinit var gremlinClient: GremlinClient
+    private lateinit var magicClient: MagicClient
     private lateinit var voiceOutput: VoiceOutput
 
     private lateinit var connectionLabel: TextView
@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val err = try {
                 contentResolver.openOutputStream(uri)?.use { out ->
-                    gremlinClient.downloadBuild(name, out)
+                    magicClient.downloadBuild(name, out)
                 } ?: "Couldn't open the file you picked"
             } catch (e: Exception) {
                 "Save failed: ${e.message}"
@@ -135,8 +135,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        prefs = getSharedPreferences("gremlin_prefs", MODE_PRIVATE)
-        gremlinClient = GremlinClient(prefs, applicationContext)
+        prefs = getSharedPreferences("magic_prefs", MODE_PRIVATE)
+        magicClient = MagicClient(prefs, applicationContext)
         voiceOutput = VoiceOutput(applicationContext, prefs)
 
         connectionLabel = findViewById(R.id.connection_label)
@@ -201,7 +201,7 @@ class MainActivity : AppCompatActivity() {
     private var slashPopup: ListPopupWindow? = null
 
     private fun setupSlashAutocomplete() {
-        Thread { commandHints = gremlinClient.commandList() }.start()
+        Thread { commandHints = magicClient.commandList() }.start()
         messageInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -237,7 +237,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    /** Reads a picked file/PDF/image into text and sends it to Gremlin
+    /** Reads a picked file/PDF/image into text and sends it to Magic
      * along with whatever's already typed in the message box, so
      * "explain question 3" + a worksheet PDF is one turn. */
     private fun handleAttachment(uri: android.net.Uri) {
@@ -270,7 +270,7 @@ class MainActivity : AppCompatActivity() {
                 return@Thread
             }
 
-            val result = gremlinClient.chat(Attachments.buildPrompt(question, extracted))
+            val result = magicClient.chat(Attachments.buildPrompt(question, extracted))
             runOnUiThread {
                 if (id != turnId) return@runOnUiThread
                 val sub = when (result.source) {
@@ -307,7 +307,7 @@ class MainActivity : AppCompatActivity() {
     private val statusPoll = object : Runnable {
         override fun run() {
             Thread {
-                val raw = gremlinClient.fetchStatusRaw()
+                val raw = magicClient.fetchStatusRaw()
                 runOnUiThread { showStatus(raw) }
             }.start()
             statusHandler.postDelayed(this, 15_000)
@@ -317,19 +317,19 @@ class MainActivity : AppCompatActivity() {
     private fun showStatus(raw: String?) {
         if (prefs.getString("host", null) == null) {
             updateConnectionLabel()
-            setDot(R.color.gremlin_offline)
+            setDot(R.color.magic_offline)
             return
         }
         val json = try { raw?.let { JSONObject(it) } } catch (e: Exception) { null }
         if (json == null) {
             connectionLabel.text = "Offline -- can't reach the desktop"
-            setDot(R.color.gremlin_offline)
+            setDot(R.color.magic_offline)
             return
         }
-        val model = json.optString("primary_model", "Gremlin")
+        val model = json.optString("primary_model", "Magic")
         val working = json.optBoolean("busy", false) || !json.optBoolean("model_loaded", true)
         connectionLabel.text = "Online  ·  $model" + if (working) "  ·  busy" else ""
-        setDot(if (working) R.color.gremlin_busy else R.color.gremlin_online)
+        setDot(if (working) R.color.magic_busy else R.color.magic_online)
     }
 
     private fun setDot(colorId: Int) {
@@ -350,13 +350,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun abandonTurn() {
         turnId++
-        Thread { gremlinClient.cancelStream() }.start()
+        Thread { magicClient.cancelStream() }.start()
         setBusy(false)
         thinkingStatus.visibility = View.GONE
         setHologramState("idle")
     }
 
-    /** The send button doubles as Stop while Gremlin is working. */
+    /** The send button doubles as Stop while Magic is working. */
     private fun setBusy(value: Boolean) {
         busy = value
         sendButton.setImageResource(if (value) R.drawable.ic_stop else R.drawable.ic_send)
@@ -367,8 +367,8 @@ class MainActivity : AppCompatActivity() {
         ThinkingKeepAliveService.stop(applicationContext)
         setHologramState("idle")
         Thread {
-            gremlinClient.cancelStream()
-            if (!prefs.getString("admin_token", null).isNullOrBlank()) gremlinClient.abortJobs()
+            magicClient.cancelStream()
+            if (!prefs.getString("admin_token", null).isNullOrBlank()) magicClient.abortJobs()
         }.start()
     }
 
@@ -417,11 +417,11 @@ class MainActivity : AppCompatActivity() {
             when (item.title) {
                 "Switch model" -> pickModel()
                 "Stop running jobs" -> Thread {
-                    val result = gremlinClient.abortJobs()
+                    val result = magicClient.abortJobs()
                     runOnUiThread { appendSystemTurn(result.message, !result.ok) }
                 }.start()
                 "Pair with QR code" -> startQrScan()
-                "Export chat" -> exportLauncher.launch("gremlin-chat-${System.currentTimeMillis()}.txt")
+                "Export chat" -> exportLauncher.launch("magic-chat-${System.currentTimeMillis()}.txt")
             }
             true
         }
@@ -441,17 +441,17 @@ class MainActivity : AppCompatActivity() {
         }
         val labels = names.map { if (it == current) "$it  (current)" else it }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Switch Gremlin's model")
+            .setTitle("Switch Magic's model")
             .setItems(labels) { _, which ->
                 val name = names[which]
                 if (name == current) return@setItems
                 AlertDialog.Builder(this)
                     .setTitle("Switch to $name?")
-                    .setMessage("This changes the model Gremlin runs on.")
+                    .setMessage("This changes the model Magic runs on.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Switch") { _, _ ->
                         Thread {
-                            val answer = gremlinClient.command("/model", "use $name", currentThread)
+                            val answer = magicClient.command("/model", "use $name", currentThread)
                             runOnUiThread { appendSystemTurn(answer, false) }
                         }.start()
                     }
@@ -523,7 +523,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Running token total for this whole conversation thread -- "like
      * Claude". The desktop computes it from the FULL on-disk transcript
-     * (gremlin_core/history.py), so it's a real cumulative count, not a
+     * (magic_core/history.py), so it's a real cumulative count, not a
      * per-message stat. Hidden entirely when there's nothing to show
      * (away-mode, an old server, a backend that doesn't report usage)
      * rather than showing a confusing "0 tokens". */
@@ -539,7 +539,7 @@ class MainActivity : AppCompatActivity() {
     private fun startQrScan() {
         IntentIntegrator(this)
             .setDesiredBarcodeFormats(listOf(IntentIntegrator.QR_CODE))
-            .setPrompt("Scan the pairing code shown by `gremlin serve`")
+            .setPrompt("Scan the pairing code shown by `magic serve`")
             .setBeepEnabled(false)
             .initiateScan()
     }
@@ -575,7 +575,7 @@ class MainActivity : AppCompatActivity() {
                 ?.getOrNull(1)
 
             if (uri.host == null || scannedToken == null) {
-                Toast.makeText(this, "That QR code doesn't look like a Gremlin pairing code", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "That QR code doesn't look like a Magic pairing code", Toast.LENGTH_LONG).show()
                 return
             }
 
@@ -613,7 +613,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun appendAssistantTurn(answer: String, subStatus: String?) {
-        chat.add(Turn(Kind.GREMLIN, answer, subStatus))
+        chat.add(Turn(Kind.MAGIC, answer, subStatus))
         saveHistory()
     }
 
@@ -629,18 +629,18 @@ class MainActivity : AppCompatActivity() {
 
         appendUserTurn(message)
         messageInput.setText("")
-        voiceOutput.stop() // a new message shouldn't have gremlin still talking over it
+        voiceOutput.stop() // a new message shouldn't have magic still talking over it
 
         // Pushed directly rather than polled -- unlike the desktop
         // window (a separate process from wherever chat actually
         // happens), this WebView lives in the same activity as the
         // chat call itself, so there's no need for the file-based
-        // signal gremlin_core.consult uses for the desktop case.
+        // signal magic_core.consult uses for the desktop case.
         setHologramState("thinking")
         thinkingStatus.text = getString(R.string.thinking)
         thinkingStatus.visibility = View.VISIBLE
         ThinkingKeepAliveService.start(applicationContext)
-        gremlinClient.prepareStream()
+        magicClient.prepareStream()
         val id = beginTurn()
 
         fun subStatusFor(source: String): String? = when (source) {
@@ -654,10 +654,10 @@ class MainActivity : AppCompatActivity() {
         // read off the desktop's HDD. Probe /status in parallel and, if
         // it's still warming, say so instead of leaving a bare spinner.
         Thread {
-            if (gremlinClient.desktopReadiness() == GremlinClient.DesktopReadiness.WARMING) {
+            if (magicClient.desktopReadiness() == MagicClient.DesktopReadiness.WARMING) {
                 runOnUiThread {
                     if (thinkingStatus.visibility == View.VISIBLE) {
-                        thinkingStatus.text = getString(R.string.waking_gremlin)
+                        thinkingStatus.text = getString(R.string.waking_magic)
                     }
                 }
             }
@@ -665,7 +665,7 @@ class MainActivity : AppCompatActivity() {
 
         Thread {
             val started = java.util.concurrent.atomic.AtomicBoolean(false)
-            gremlinClient.chatStream(
+            magicClient.chatStream(
                 message,
                 onDelta = { delta ->
                     runOnUiThread {
@@ -724,7 +724,7 @@ class MainActivity : AppCompatActivity() {
      * /root, /edit, /fix, /reboot, /snapshots, /rollback, /updatecheck)
      * is now just something you say -- "check for updates", "fix my
      * backup script", "reboot the desktop" -- and the desktop's intent
-     * router (gremlin_core/intent.py) works out what you meant, finds
+     * router (magic_core/intent.py) works out what you meant, finds
      * any file paths itself, and asks for a plain yes/no before anything
      * destructive. See that module for why conversation never pays a
      * latency cost for this.
@@ -753,7 +753,7 @@ class MainActivity : AppCompatActivity() {
                         false,
                     )
                 } else {
-                    runAdminSlash { gremlinClient.runClaude(problem) }
+                    runAdminSlash { magicClient.runClaude(problem) }
                 }
             }
 
@@ -771,7 +771,7 @@ class MainActivity : AppCompatActivity() {
                     thinkingStatus.visibility = View.VISIBLE
                     val id = beginTurn()
                     Thread {
-                        val (list, err) = gremlinClient.listBuilds()
+                        val (list, err) = magicClient.listBuilds()
                         runOnUiThread {
                             if (id != turnId) return@runOnUiThread
                             setBusy(false)
@@ -793,10 +793,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Kept in sync with gremlin_core/magic/commands.py's COMMANDS
+            // Kept in sync with magic_core/magic/commands.py's COMMANDS
             // dict by hand -- this whitelist is the ONLY thing deciding
             // whether a typed "/whatever" actually reaches the desktop
-            // (gremlinClient.command()) or falls into the "unknown
+            // (magicClient.command()) or falls into the "unknown
             // command" branch below and goes nowhere. /override shipped
             // on the desktop 2026-09-13 and sat invisible here for a
             // while because this list wasn't updated alongside it --
@@ -809,7 +809,7 @@ class MainActivity : AppCompatActivity() {
                 ThinkingKeepAliveService.start(applicationContext)
                 val id = beginTurn()
                 Thread {
-                    val answer = gremlinClient.command(cmd, args, currentThread)
+                    val answer = magicClient.command(cmd, args, currentThread)
                     runOnUiThread {
                         if (id != turnId) return@runOnUiThread
                         ThinkingKeepAliveService.stop(applicationContext)

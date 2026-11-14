@@ -3,7 +3,7 @@ even if a file block carries a traversal path."""
 import asyncio
 from pathlib import Path
 
-from gremlin_core import build_project
+from magic_core import build_project
 
 
 def test_write_new_files_confines_to_root(tmp_path):

@@ -1,9 +1,9 @@
-# Gremlin — core orchestrator
+# Magic — core orchestrator
 
-Gremlin runs your local GGUF model (Dolphin3.0-Llama3.2-3B) and any API
+Magic runs your local GGUF model (Dolphin3.0-Llama3.2-3B) and any API
 models side by side. Models can work solo, as a broadcast group, as a
 plan-then-build multi-agent team, and now: they can propose changes to
-Gremlin's own source code, which get validated and applied automatically.
+Magic's own source code, which get validated and applied automatically.
 
 ## Setup on Manjaro
 
@@ -17,7 +17,7 @@ setup below, then (each independently skippable) sets up BTRFS
 snapshots + `grub-btrfs` for remote rollback, disables KDE Plasma's
 sleep/lock-screen/login-screen so the machine never strands itself
 waiting for someone to physically sit down at it, caches a sudo
-password for running root commands remotely, installs `gremlin serve`
+password for running root commands remotely, installs `magic serve`
 as an auto-starting systemd service, and sets up a timer that
 auto-pulls new commits from GitHub and restarts the service to pick
 them up. See "Root commands and rolling back if something breaks",
@@ -35,7 +35,7 @@ above) that folder does the same thing without needing the URL.
 
 **If you're already inside a cloned/extracted copy**, skip straight to:
 ```bash
-cd gremlin
+cd magic
 ./setup.sh
 ```
 Creates the venv, installs dependencies, detects whether this specific
@@ -69,7 +69,7 @@ actually confirm.
 
 ```bash
 sudo pacman -S python python-pip base-devel cmake git
-cd gremlin
+cd magic
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
@@ -82,7 +82,7 @@ CMAKE_ARGS="-DGGML_CUDA=on" pip install --force-reinstall --no-cache-dir llama-c
 (AMD: `-DGGML_HIPBLAS=on` with ROCm. CPU-only: skip this.)
 
 Edit `config/models.yaml` and point `model_path` at your actual `.gguf` file
--- or skip that entirely and use `gremlin models` below to add them.
+-- or skip that entirely and use `magic models` below to add them.
 
 **API keys**: instead of `export`ing them every terminal session, copy
 `.env.example` to `.env` and fill in your real keys -- it's loaded
@@ -91,27 +91,27 @@ environment if not installed). `.env` is listed in `.gitignore`, which
 matters more than it might look: self-improve's very first run does a
 baseline `git init && git add -A` commit, and without that `.gitignore`
 entry a real `.env` with actual secrets would get captured permanently
-into git history the first time you ever run `gremlin improve` or
+into git history the first time you ever run `magic improve` or
 `auto-fix`. I caught this by testing the exact scenario (a real-looking
 `.env` present, then triggering that baseline commit) after adding the
 `.env` feature, not by assuming it was fine -- fixed before it shipped.
 
-## The `gremlin` command
+## The `magic` command
 
 ```bash
-chmod +x gremlin
-sudo ln -s "$(pwd)/gremlin" /usr/local/bin/gremlin
+chmod +x magic
+sudo ln -s "$(pwd)/magic" /usr/local/bin/magic
 ```
 
-After that, run everything as `gremlin <command>` from anywhere instead
+After that, run everything as `magic <command>` from anywhere instead
 of `python main.py <command>` from inside the project folder. It
-automatically uses this project's venv if one exists at `gremlin/venv`.
+automatically uses this project's venv if one exists at `magic/venv`.
 
 ## Adding local models by scanning a folder
 
 ```bash
-gremlin models                  # scans ~/Downloads by default
-gremlin models ~/models         # or point it at any folder
+magic models                  # scans ~/Downloads by default
+magic models ~/models         # or point it at any folder
 ```
 
 ```
@@ -129,21 +129,21 @@ each one from its filename, and writes new entries straight into
 `config/models.yaml` -- without touching or reformatting any of the
 existing entries or comments in that file. Double-check `chat_format`
 for whatever it adds (defaults to `chatml`; change it if a model uses a
-different template), and it's ready: `gremlin chat <name>`.
+different template), and it's ready: `magic chat <name>`.
 
 Every model added this way (or via Hugging Face below) is also
 automatically appended to `persona.consult_models` -- otherwise it
-would just sit registered and unused, since Gremlin only ever reaches
+would just sit registered and unused, since Magic only ever reaches
 for a model that's actually in his consult group. This applies whether
 you scan a folder or download from Hugging Face; either path wires the
 new model in the same way. Verified by actually building the registry
 afterward and confirming the new model shows up in
-`gremlin.consult_model_names`, not just by checking the raw YAML text.
+`magic.consult_model_names`, not just by checking the raw YAML text.
 
 ## Adding models directly from Hugging Face
 
 ```bash
-gremlin models --hf "dolphin llama 3b"
+magic models --hf "dolphin llama 3b"
 ```
 
 ```
@@ -176,7 +176,7 @@ parts in isolation) turned up a real, pre-existing break in
 `model_scan.py` -- `insert_entries`, the function that actually writes
 new model entries into `config/models.yaml`, had lost its own `def`
 line somewhere in an earlier edit, leaving its body as dead code
-nobody was calling. That meant the *original* local-folder `gremlin
+nobody was calling. That meant the *original* local-folder `magic
 models` scan (not just this new Hugging Face feature) had been quietly
 broken in every zip shipped since whatever edit caused it -- it would
 find files and let you pick them, then crash instead of actually
@@ -252,12 +252,12 @@ sits resident at 5.38GB, leaving only ~2.6GB free on an 8GB card.
 that remainder** -- this isn't a problem limited to the two oversized
 ones, it's true of all four consult models given the primary's own
 footprint. The fix (commit history below): `consult_and_learn`
-(`gremlin_core/consult.py`) now unloads the primary right before
+(`magic_core/consult.py`) now unloads the primary right before
 running any local consult model, and it reloads automatically the next
 time it's actually needed (the synthesis step right after, or the next
 message). Combined with the earlier fixes -- `Router.broadcast` no
 longer runs local models concurrently with each other, and
-`gremlin_core/eviction.py` unloads an idle non-primary local model
+`magic_core/eviction.py` unloads an idle non-primary local model
 after 90s -- consults on this card should now actually fit, at the
 cost of a real, felt latency hit: every consult now pays a primary
 reload (a few seconds, disk-speed dependent) it didn't pay before. Two
@@ -271,29 +271,29 @@ which is exactly why the smaller alternatives above exist.
 1. Run `install-all.sh` (or `bootstrap.sh` + the manual snapshot/KDE
    steps, if you'd rather do those separately) to get the base install,
    BTRFS snapshots, and headless KDE config all in one pass.
-2. Download the 5 models above via `gremlin models --hf "<exact repo
+2. Download the 5 models above via `magic models --hf "<exact repo
    name>"`, picking the quant noted for each.
-3. `gremlin set-sudo-password` and `gremlin list-snapshots` -- confirm
+3. `magic set-sudo-password` and `magic list-snapshots` -- confirm
    both work for real before ever relying on `/rollback` remotely (see
    "Root commands and rolling back" above -- neither has been tested
    against real `sudo`/`snapper` yet, only the clean-failure paths in a
    sandbox with neither available).
-4. Chat with Gremlin normally. Skills and memory build up as you use it.
+4. Chat with Magic normally. Skills and memory build up as you use it.
 
 ## Removing models
 
 ```bash
-gremlin remove
+magic remove
 ```
 
 ```
 Registered models:
 
-  1. dolphin-3b (local_gguf)  [used by gremlin: consult_models]
-  2. local-2 (local_gguf)  [used by gremlin: consult_models]
+  1. dolphin-3b (local_gguf)  [used by magic: consult_models]
+  2. local-2 (local_gguf)  [used by magic: consult_models]
   3. mistral-7b-instruct-v0-3-q4-k-m (local_gguf)
-  4. claude (anthropic)  [used by gremlin: primary_model]
-  5. gemini (gemini)  [used by gremlin: fallback_models, consult_models]
+  4. claude (anthropic)  [used by magic: primary_model]
+  5. gemini (gemini)  [used by magic: fallback_models, consult_models]
 
 Remove which one(s)? (comma-separated numbers, or blank to cancel): 3
 ```
@@ -302,21 +302,21 @@ Same text-surgery approach as adding: only the picked entry's block is
 touched, nothing else in the file is reformatted. Two safety behaviors
 worth knowing about:
 
-- If a model is still referenced by gremlin's `fallback_models` or
+- If a model is still referenced by magic's `fallback_models` or
   `consult_models`, you'll be warned before removing it -- confirm and
   it's removed **and** automatically scrubbed out of those lists too,
   so nothing dangles.
-- Removing gremlin's `primary_model` is refused outright, always --
-  there's no safe automatic substitute for "the model gremlin answers
+- Removing magic's `primary_model` is refused outright, always --
+  there's no safe automatic substitute for "the model magic answers
   with by default", so that has to be a deliberate edit to
   `config/models.yaml`, not something `remove` does for you.
 
-## Gremlin as the main interface
+## Magic as the main interface
 
-`gremlin chat gremlin` is meant to be the only command you
+`magic chat magic` is meant to be the only command you
 actually need day to day. Behind that one interface:
 
-1. Gremlin answers on its own (via `primary_model`) whenever it can --
+1. Magic answers on its own (via `primary_model`) whenever it can --
    in its own voice, since `system_prompt` (if you set one) applies here.
 2. If its own answer looks uncertain (heuristic check on phrases like
    "I don't know" / "I'm not sure" / an empty answer), it automatically
@@ -329,17 +329,17 @@ actually need day to day. Behind that one interface:
    (`gemini` by default) gets one dedicated final check -- not just
    another name in the same list, and not touched at all if a local
    model already had the answer.
-4. Whatever confident material was found gets handed back to **Gremlin
+4. Whatever confident material was found gets handed back to **Magic
    itself** to produce the actual reply. Other models only ever supply
    raw research during a consult -- they never speak to you directly.
-   The final answer is always generated by calling `gremlin` again,
-   which means it always carries Gremlin's own `system_prompt` if
+   The final answer is always generated by calling `magic` again,
+   which means it always carries Magic's own `system_prompt` if
    you've set one, same as a direct answer would.
 5. Whatever it learns from a consult gets written to
    `data/learning_log.jsonl`. The exact same question asked again is
    answered from that log with zero model calls -- it remembers.
 
-You'll see a short note under Gremlin's answer when this happens:
+You'll see a short note under Magic's answer when this happens:
 `(wasn't sure on its own -- consulted: dolphin-3b)`,
 `(wasn't sure on its own -- last-resort check: gemini)`, or
 `(answered from something learned earlier -- no model call needed)`.
@@ -350,44 +350,44 @@ side (consult other models, remember the result) is safe -- worst case
 you get a synthesized answer. Automating the *code-edit* side based on
 whatever a user happened to type is a different kind of risk: it would
 mean any message, including a malicious or just careless one, could
-cause Gremlin to rewrite its own source with no review. So a consult
+cause Magic to rewrite its own source with no review. So a consult
 never triggers `apply_patch` on its own. If something in
 `data/learning_log.jsonl` looks like it points at a real gap worth
 fixing in code, that's a call for you to make with the existing
 reviewed flow:
 
 ```bash
-python main.py improve dolphin-3b,claude,gemini "teach gremlin to handle X" --apply
+python main.py improve dolphin-3b,claude,gemini "teach magic to handle X" --apply
 ```
 
-## Gremlin is its own identity
+## Magic is its own identity
 
-`gremlin` is a persona layer, not just another entry in the model list.
-Talking to it (`python main.py chat gremlin`) always gets the same name,
+`magic` is a persona layer, not just another entry in the model list.
+Talking to it (`python main.py chat magic`) always gets the same name,
 personality, and system prompt back -- regardless of which backend
 model actually generates the reply.
 
 ```yaml
 persona:
-  name: gremlin
+  name: magic
   primary_model: dolphin-3b        # <-- swap this any time, no other change needed
   fallback_models: [claude, gemini]
   system_prompt: |
-    You are Gremlin, a personal AI running locally on the user's own machine...
+    You are Magic, a personal AI running locally on the user's own machine...
 ```
 
-- Change `primary_model` and every future conversation with "gremlin" is
+- Change `primary_model` and every future conversation with "magic" is
   instantly backed by a different engine.
 - If the primary errors out (local model crashed, API down, rate
   limited), it automatically fails over to each fallback in order --
-  Gremlin staying available doesn't depend on any single backend
+  Magic staying available doesn't depend on any single backend
   staying up.
 - `dolphin-3b`, `claude`, and `gemini` are still directly addressable by
   name for `broadcast`/`plan`/`improve` when you want to reach a
-  specific model rather than "whoever's currently answering as Gremlin."
+  specific model rather than "whoever's currently answering as Magic."
 
 ```bash
-python main.py chat gremlin
+python main.py chat magic
 ```
 
 ## Adding Claude and Gemini
@@ -415,7 +415,7 @@ python main.py plan dolphin-3b,claude,gemini "build a script that does X"
 python main.py improve dolphin-3b,claude,gemini "add a retry with backoff"
 ```
 
-All three now work identically everywhere in Gremlin -- broadcast, plan,
+All three now work identically everywhere in Magic -- broadcast, plan,
 and self-improve all treat local and API models the same way.
 
 ## Using it
@@ -476,7 +476,7 @@ instead of a confusing traceback, and the patch is reverted rather than
 left half-applied.
 
 How it stays safe:
-- Every model sees Gremlin's actual current source and proposes a real
+- Every model sees Magic's actual current source and proposes a real
   unified diff, not vague suggestions.
 - If more than one model proposes, each works independently and a
   designated model merges them into one final diff -- the "multiple
@@ -513,19 +513,19 @@ How it stays safe:
   to rely on. Fixed at the root: fenced JSON is tried first now, and
   only falls back to the greedy match as a last resort.
 - If `--test` is used, pytest runs through `SecureExecutionSandbox`
-  (`gremlin_core/sandbox.py`) rather than a raw unconfined subprocess
+  (`magic_core/sandbox.py`) rather than a raw unconfined subprocess
   call -- confined to the project's own directory, a minimal PATH, and
   a hard timeout that kills a hung test run instead of letting it hang
   the whole command indefinitely.
 - Every successful change is logged to `data/mutation_log.jsonl`
-  (`gremlin_core/mutation_log.py`) -- what changed, why, when -- in
+  (`magic_core/mutation_log.py`) -- what changed, why, when -- in
   addition to the git commit itself, so there's a queryable history
-  beyond scanning commit messages one at a time. `gremlin edit`'s
+  beyond scanning commit messages one at a time. `magic edit`'s
   successful fixes go in the same log.
-- A file-based lock (`gremlin_core/process_lock.py`) stops two separate
-  gremlin processes from mutating files at the same time -- e.g. the
+- A file-based lock (`magic_core/process_lock.py`) stops two separate
+  magic processes from mutating files at the same time -- e.g. the
   desktop GUI's Auto-fix button spawns its own terminal process, and
-  nothing stops you from also running `gremlin improve` yourself in a
+  nothing stops you from also running `magic improve` yourself in a
   different terminal simultaneously. This needed an actual file lock,
   not an in-process `asyncio.Lock` (which only serializes concurrent
   coroutines inside one process, not two separate OS processes) --
@@ -533,9 +533,9 @@ How it stays safe:
   watching the second one correctly get blocked immediately rather than
   racing or hanging.
 - Every successful change is a discrete git commit, so `git log` shows
-  the whole history of how Gremlin has modified itself, and any change
+  the whole history of how Magic has modified itself, and any change
   is one `git revert <hash>` away from undone.
-- This only ever touches files inside `gremlin_core/` -- there's no path
+- This only ever touches files inside `magic_core/` -- there's no path
   here that lets a model reach outside the project directory.
 
 The `--apply` flag is still separate from the dry run on purpose: you
@@ -546,7 +546,7 @@ the process. Both matter for different reasons.
 ## Auto-fix: a friendlier front door to self-improvement
 
 ```bash
-gremlin auto-fix
+magic auto-fix
 ```
 
 Asks what you want added or fixed, then runs the exact same pipeline as
@@ -559,8 +559,8 @@ review-free path hiding behind this; it's the same gate every time.
 ## Editing any script on this machine
 
 ```bash
-gremlin edit ~/scripts/backup.sh
-gremlin edit ~/projects/tool.py "it crashes when the input file is empty"
+magic edit ~/scripts/backup.sh
+magic edit ~/projects/tool.py "it crashes when the input file is empty"
 ```
 
 This is a different, wider-reach feature from self-improvement, and
@@ -570,7 +570,7 @@ it's treated with different caution to match:
 - Refuses outright to touch anything under a system directory (`/etc`,
   `/usr`, `/bin`, `/boot`, etc.) -- "a script on my computer" means
   your own stuff.
-- Always backs up the original file (`name.gremlin-backup-<timestamp>`)
+- Always backs up the original file (`name.magic-backup-<timestamp>`)
   before writing anything.
 - For `.py` files, runs a compile check and automatically reverts if
   the fix doesn't even parse.
@@ -585,11 +585,11 @@ it's treated with different caution to match:
 
 ## The execution sandbox
 
-`gremlin_core/sandbox.py` is a small, dependency-free way to run a
+`magic_core/sandbox.py` is a small, dependency-free way to run a
 command confined to a specific directory with a minimal `PATH` and a
 hard timeout that kills a hung process rather than letting it hang
 forever. Two places use it: the `--test` pytest step in self-improve,
-and the optional verify command in `gremlin edit`.
+and the optional verify command in `magic edit`.
 
 Worth being precise about what it actually guarantees, since the name
 "sandbox" can imply more than this delivers: it's a **process-level**
@@ -612,14 +612,14 @@ sandbox to protect. If that ever changes -- if the phone app grows any
 feature that executes code or edits files -- this is the pattern to
 extend to it, not something to force in now for the sake of symmetry.
 
-## Giving Gremlin a personality
+## Giving Magic a personality
 
 `persona.system_prompt` in `config/models.yaml` ships empty by
-default: Gremlin answers as itself, no scripted character voice layered
+default: Magic answers as itself, no scripted character voice layered
 on top. Set it to any multi-line text (`system_prompt: |` followed by
 indented lines) if you want one -- it's just text, and it applies in
-exactly two places (see "Gremlin as the main interface" below):
-Gremlin's own direct answers, and the final answer after a consult. It
+exactly two places (see "Magic as the main interface" below):
+Magic's own direct answers, and the final answer after a consult. It
 never affects `claude`, `gemini`, or any local model addressed directly
 by name.
 
@@ -640,12 +640,12 @@ built differently, not just bolted onto the existing endpoints.
 
 **A separate admin token, never shown in the pairing QR.** Your regular
 phone-pairing token is fine to have float around as a QR code -- worst
-case with that alone is someone chats with your Gremlin. The admin
+case with that alone is someone chats with your Magic. The admin
 token additionally gates running shell commands and rebooting the
 machine, so it's never embedded in the QR flow at all:
 
 ```bash
-gremlin admin-token
+magic admin-token
 ```
 
 Run that once, copy the token into the app's Settings → Admin section
@@ -653,7 +653,7 @@ manually. Pairing your phone for chat never grants this by itself.
 
 **What it can do, from Settings → Admin:**
 - Run any command on the desktop (`docker compose restart jellyfin`,
-  `docker logs jellyfin`, editing a compose file via `gremlin edit`,
+  `docker logs jellyfin`, editing a compose file via `magic edit`,
   anything) -- runs through the same `SecureExecutionSandbox` used
   elsewhere in this project (confined working directory, minimal PATH,
   hard timeout), and every command is logged to
@@ -686,7 +686,7 @@ over the network -- the phone only ever sends "run this as root",
 authorized by the same admin token as everything else above:
 
 ```bash
-gremlin set-sudo-password      # gremlin clear-sudo-password to remove it
+magic set-sudo-password      # magic clear-sudo-password to remove it
 ```
 
 Then, from the chat input -- desktop and phone both understand:
@@ -714,11 +714,11 @@ chat box -- no need to open Settings first:
 (Not added to the desktop's own chat panel -- `/desktop`/`/reboot` are
 specifically for controlling the desktop *from the phone*; redundant
 when you're already sitting at the machine.) All of these need the
-admin token entered in the phone app's Settings first -- tap "Gremlin
+admin token entered in the phone app's Settings first -- tap "Magic
 commands" there for a quick in-app reference of this same list.
 
-Equivalent CLI commands (same thing, run locally): `gremlin
-list-snapshots`, `gremlin rollback-to <number>`.
+Equivalent CLI commands (same thing, run locally): `magic
+list-snapshots`, `magic rollback-to <number>`.
 
 ## Auto-start on boot (no monitor needed)
 
@@ -726,13 +726,13 @@ list-snapshots`, `gremlin rollback-to <number>`.
 `systemd --user` service. To do it by hand instead:
 
 ```bash
-sudo cp deploy/gremlin.service /etc/systemd/system/gremlin.service
-sudo nano /etc/systemd/system/gremlin.service   # fill in your actual username and path
+sudo cp deploy/magic.service /etc/systemd/system/magic.service
+sudo nano /etc/systemd/system/magic.service   # fill in your actual username and path
 sudo systemctl daemon-reload
-sudo systemctl enable --now gremlin
+sudo systemctl enable --now magic
 ```
 
-If Gremlin needs to manage Docker containers (Jellyfin, etc.), add
+If Magic needs to manage Docker containers (Jellyfin, etc.), add
 your user to the `docker` group rather than running this service as
 root:
 ```bash
@@ -740,21 +740,21 @@ sudo usermod -aG docker $USER
 ```
 (log out and back in once for that to take effect)
 
-Check it's running: `systemctl status gremlin`. Logs:
-`journalctl -u gremlin -f`.
+Check it's running: `systemctl status magic`. Logs:
+`journalctl -u magic -f`.
 
 One hardware caveat I can't verify for your specific machine: most
 modern boards boot fine with no monitor attached, but a few older ones
 refuse to POST without a display detected. If yours does that, a cheap
-HDMI dummy plug fixes it -- not a Gremlin issue, that's motherboard
+HDMI dummy plug fixes it -- not a Magic issue, that's motherboard
 firmware behavior from before any of this software runs.
 
 ## Auto-updating from GitHub
 
 `install-all.sh` also offers to set this up: a `systemd --user` timer
-(`deploy/gremlin-update.timer` + `.service`) checks `origin/main` every
+(`deploy/magic-update.timer` + `.service`) checks `origin/main` every
 15 minutes, and if there's anything new, pulls it and restarts
-`gremlin.service` so the update actually takes effect -- no need to SSH
+`magic.service` so the update actually takes effect -- no need to SSH
 in and pull by hand every time a change gets pushed. Pulling from a
 public GitHub repo needs no token/authentication at all, so this keeps
 working indefinitely; it has nothing to do with how long any particular
@@ -767,33 +767,33 @@ anything on its own.
 
 To set it up by hand instead of via `install-all.sh`:
 ```bash
-chmod +x deploy/gremlin-update.sh
+chmod +x deploy/magic-update.sh
 sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$(pwd)|" \
-    -e "s|^ExecStart=.*|ExecStart=$(pwd)/deploy/gremlin-update.sh|" \
-    deploy/gremlin-update.service > ~/.config/systemd/user/gremlin-update.service
-cp deploy/gremlin-update.timer ~/.config/systemd/user/gremlin-update.timer
+    -e "s|^ExecStart=.*|ExecStart=$(pwd)/deploy/magic-update.sh|" \
+    deploy/magic-update.service > ~/.config/systemd/user/magic-update.service
+cp deploy/magic-update.timer ~/.config/systemd/user/magic-update.timer
 systemctl --user daemon-reload
-systemctl --user enable --now gremlin-update.timer
+systemctl --user enable --now magic-update.timer
 ```
-Check it: `systemctl --user status gremlin-update.timer`, logs via
-`journalctl --user -u gremlin-update -f`.
+Check it: `systemctl --user status magic-update.timer`, logs via
+`journalctl --user -u magic-update -f`.
 
 ### Backups (roadmap #74)
 
-Weekly tar of `data/skills`, `gremlin_memory.txt`, `data/magic`, and
+Weekly tar of `data/skills`, `magic_memory.txt`, `data/magic`, and
 `config/` to `~/Downloads/gremlin-backups/` (keeps the newest 12) --
-the only things Gremlin has that aren't reproducible from git or a
+the only things Magic has that aren't reproducible from git or a
 re-downloadable model file.
 ```bash
 chmod +x deploy/backup.sh
 sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$(pwd)|" \
     -e "s|^ExecStart=.*|ExecStart=$(pwd)/deploy/backup.sh|" \
-    deploy/gremlin-backup.service > ~/.config/systemd/user/gremlin-backup.service
-cp deploy/gremlin-backup.timer ~/.config/systemd/user/gremlin-backup.timer
+    deploy/magic-backup.service > ~/.config/systemd/user/magic-backup.service
+cp deploy/magic-backup.timer ~/.config/systemd/user/magic-backup.timer
 systemctl --user daemon-reload
-systemctl --user enable --now gremlin-backup.timer
+systemctl --user enable --now magic-backup.timer
 ```
-Check it: `systemctl --user status gremlin-backup.timer`, or run
+Check it: `systemctl --user status magic-backup.timer`, or run
 `deploy/backup.sh` directly for an on-demand backup.
 
 ### Defense report (roadmap #96)
@@ -803,14 +803,14 @@ Daily attack-surface/updates/sshd/secrets check, written to
 the latest one plus a `flagged` boolean, for an app badge or just
 checking from your phone.
 ```bash
-cp deploy/gremlin-defense.service ~/.config/systemd/user/gremlin-defense.service
+cp deploy/magic-defense.service ~/.config/systemd/user/magic-defense.service
 sed -i "s|/home/YOUR_USERNAME/Downloads/gremlin|$(pwd)|g" \
-    ~/.config/systemd/user/gremlin-defense.service
-cp deploy/gremlin-defense.timer ~/.config/systemd/user/gremlin-defense.timer
+    ~/.config/systemd/user/magic-defense.service
+cp deploy/magic-defense.timer ~/.config/systemd/user/magic-defense.timer
 systemctl --user daemon-reload
-systemctl --user enable --now gremlin-defense.timer
+systemctl --user enable --now magic-defense.timer
 ```
-Check it: `systemctl --user status gremlin-defense.timer`, or `/defense
+Check it: `systemctl --user status magic-defense.timer`, or `/defense
 report` in chat for an on-demand check.
 
 ## Desktop hologram widget
@@ -826,10 +826,10 @@ stylized design (not the film character's likeness, just a pale,
 large-eyed wireframe head with an idle bob and a holographic scanline
 flicker), not a full 3D engine, but genuinely animated rather than a
 static image. Click it to open a settings panel showing every
-registered model and Gremlin's current persona wiring (primary,
+registered model and Magic's current persona wiring (primary,
 fallback, consult group, last resort), with buttons that open a
-terminal running `gremlin chat gremlin`, `gremlin models`,
-`gremlin remove`, or `gremlin auto-fix` -- the GUI is a status view and
+terminal running `magic chat magic`, `magic models`,
+`magic remove`, or `magic auto-fix` -- the GUI is a status view and
 launcher for the existing CLI, not a reimplementation of it.
 
 **I couldn't visually test this myself** -- this sandbox has no
@@ -841,7 +841,7 @@ actual on-screen appearance and window behavior needs your eyes on
 your actual desktop. If the hologram looks off or a button doesn't
 behave right, that's the part to tell me about.
 
-## Talking to Gremlin from your phone
+## Talking to Magic from your phone
 
 Two parts: a server that runs on the desktop, and an Android app that
 talks to it. Same-Wi-Fi/LAN only for now -- reaching it from outside
@@ -850,7 +850,7 @@ which is a distinct, bigger feature than what's here.
 
 ### Away-mode conversations sync back automatically
 
-If you chat with Gremlin while away from home (standalone mode, direct
+If you chat with Magic while away from home (standalone mode, direct
 Claude/Gemini calls), the desktop has no idea that happened -- until
 now. The phone queues up every away-mode exchange locally
 (`pending_sync.jsonl` in the app's own storage), and the moment it
@@ -873,8 +873,8 @@ away-mode exchanges landed exactly two entries in the log with the
 right prompts/answers/sources attached, and a normal chat message with
 nothing queued left no log file at all.
 
-**It's not just logged anymore -- Gremlin actually considers it.** The
-last 5 synced away-session exchanges get handed to Gremlin as
+**It's not just logged anymore -- Magic actually considers it.** The
+last 5 synced away-session exchanges get handed to Magic as
 background context on every message from here on, not just recorded
 and forgotten. Ask "what did I ask about while I was out" once you're
 home and it can actually answer, rather than that history sitting
@@ -889,7 +889,7 @@ actually reached the model as background for that second message.
 ### Desktop side
 
 ```bash
-gremlin serve
+magic serve
 ```
 
 Starts an HTTP server, generates (and persists) a pairing token, and
@@ -897,7 +897,7 @@ prints a pairing URL plus a scannable QR code in the terminal
 (`pip install qrcode` for the QR art; works without it too, you'd just
 type the URL in manually). Leave this running while you use the app.
 
-This was the trickiest part to get right: Gremlin's backends hold
+This was the trickiest part to get right: Magic's backends hold
 `asyncio.Lock` objects created once and reused across every request.
 The naive approach -- a fresh `asyncio.run()` per incoming request --
 would mean multiple threads each spinning up their own event loop while
@@ -921,7 +921,7 @@ desktop is anywhere nearby.
 
 - **At home** (paired, desktop reachable): every message goes to the
   desktop's `/chat` endpoint and gets the full orchestrator -- all your
-  local models, consult, everything, exactly as `gremlin chat gremlin`
+  local models, consult, everything, exactly as `magic chat magic`
   gives you.
 - **Away from home** (or never paired at all): the app calls Claude or
   Gemini directly from your phone, using API keys you enter in Settings
@@ -932,7 +932,7 @@ desktop is anywhere nearby.
 
 Deliberately **not** implemented as a second copy of the router/persona/
 consult logic in Kotlin -- that stays in exactly one place
-(`gremlin_core`), and the phone either borrows it over the network or
+(`magic_core`), and the phone either borrows it over the network or
 falls back to a much simpler direct call. Every message tries the
 desktop first with a short connect timeout (fast on the home LAN,
 fails quick everywhere else) before falling back, so there's no
@@ -964,7 +964,7 @@ preference toggle.
 
 **Dark theme:** the app is always dark, not just following system
 DayNight -- a white light-mode screen around the dark hologram widget
-would look broken rather than themed, so `Theme.Gremlin` forces the
+would look broken rather than themed, so `Theme.Magic` forces the
 always-dark Material Components variant with a palette matching the
 hologram's cyan aesthetic (`colors.xml`).
 
@@ -995,7 +995,7 @@ invalid XML and would have broken the build), cross-checked every
 the layouts (a very common source of Android build failures when they
 drift), and checked all three Kotlin files are at least structurally
 sound (balanced braces/parens). The Claude and Gemini API request
-formats in `GremlinClient.kt` match the same shapes already tested on
+formats in `MagicClient.kt` match the same shapes already tested on
 the desktop side (`anthropic_backend.py`, `gemini_backend.py`). But
 actual compilation, and whatever Android Studio's dependency resolution
 turns up, is genuinely unverified. If it doesn't build cleanly on the
@@ -1019,7 +1019,7 @@ an API model. No code changes needed.
   kept separate from the router so a model never touches your system
   directly, only through an explicit, audited tool call.
 - **Harness/plugin mode**: wrapping this orchestrator as an MCP server
-  so tools like Claude Code can route through Gremlin.
+  so tools like Claude Code can route through Magic.
 
 ## Putting this on GitHub (and connecting it to Claude Code / Termux)
 
@@ -1082,7 +1082,7 @@ Then, inside that Ubuntu shell (a genuine Linux environment from here on):
 apt update && apt install -y nodejs npm git
 npm install -g @anthropic-ai/claude-code
 git clone <your-repo-url>
-cd gremlin
+cd magic
 claude --resume 7959bf23-a3e3-4ac3-9bd9-951d61ce4902
 ```
 

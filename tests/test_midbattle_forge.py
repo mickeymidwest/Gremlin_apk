@@ -1,10 +1,10 @@
 """Mid-battle forge: a building battle creates a tool and uses it."""
 import json
 
-from gremlin_core import tool_forge as TF
-from gremlin_core.magic.battle import run_battle
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core import tool_forge as TF
+from magic_core.magic.battle import run_battle
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 _CODE = ('def run(args):\n'
          '    return {"ok": True, "answer": "forged says: " + str(args.get("m", ""))}\n')

@@ -7,8 +7,8 @@ all, and a failed rollback must never trigger the reboot (that would
 leave the box rebooting into nothing staged, or worse, mid-rollback)."""
 import asyncio
 
-from gremlin_core.sandbox import SandboxResult
-import gremlin_core.snapshots as snapshots
+from magic_core.sandbox import SandboxResult
+import magic_core.snapshots as snapshots
 
 
 def _ok(stdout=""):

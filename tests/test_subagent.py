@@ -1,6 +1,6 @@
 """Subagent delegation: a bounded read-only sub-task returns just its answer."""
-from gremlin_core.magic import subagent
-from gremlin_core.magic.model import ScriptedModel
+from magic_core.magic import subagent
+from magic_core.magic.model import ScriptedModel
 
 
 def test_delegate_returns_the_answer(tmp_path):

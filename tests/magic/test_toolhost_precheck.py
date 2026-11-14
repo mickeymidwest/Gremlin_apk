@@ -1,5 +1,5 @@
 """Iteration: parse-before-apply on write_file (MAGIC.md section 8, #1)."""
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
 
 
 def test_broken_python_is_rejected_not_written(tmp_path):

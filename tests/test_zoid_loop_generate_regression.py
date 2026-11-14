@@ -22,20 +22,20 @@ Android build test (no ~/android-build toolchain requirement).
 
 zoid_loop.ROOT is also monkeypatched to a tmp dir for every test --
 regression.py writes to <ROOT>/data/magic/regression/, and ROOT is a
-module-level constant (the real gremlin repo path), not a parameter,
+module-level constant (the real magic repo path), not a parameter,
 so without this every run of this test would leave real files behind
 in the actual repo."""
 import itertools
 from pathlib import Path
 
 import zoid_loop as Z
-from gremlin_core.magic import android_scaffold as _scaffold_mod
-from gremlin_core.magic import method_builder as _builder_mod
-from gremlin_core.magic import reckoning as _reckoning_mod
-from gremlin_core.magic import lifecycle as _lifecycle_mod
-from gremlin_core.magic import regression
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.types import Task, Score
+from magic_core.magic import android_scaffold as _scaffold_mod
+from magic_core.magic import method_builder as _builder_mod
+from magic_core.magic import reckoning as _reckoning_mod
+from magic_core.magic import lifecycle as _lifecycle_mod
+from magic_core.magic import regression
+from magic_core.magic.store import Store
+from magic_core.magic.types import Task, Score
 from tests.magic.test_campaign import DemoModel
 
 

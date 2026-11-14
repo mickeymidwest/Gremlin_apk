@@ -13,7 +13,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Gremlin"
+            android:text="Magic"
             android:textSize="20sp"
             android:textStyle="bold"
             android:layout_marginBottom="4dp" />
@@ -40,23 +40,23 @@
 
         <Button
             android:id="@+id/show_commands_button"
-            style="@style/Widget.Gremlin.Button.Row"
+            style="@style/Widget.Magic.Button.Row"
             android:layout_marginBottom="6dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Gremlin commands" />
+            android:text="Magic commands" />
 
         <Button
             android:id="@+id/show_memory_button"
-            style="@style/Widget.Gremlin.Button.Row"
+            style="@style/Widget.Magic.Button.Row"
             android:layout_marginBottom="6dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="What Gremlin remembers" />
+            android:text="What Magic remembers" />
 
         <Button
             android:id="@+id/open_profile_button"
-            style="@style/Widget.Gremlin.Button.Row"
+            style="@style/Widget.Magic.Button.Row"
             android:layout_marginBottom="6dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -64,7 +64,7 @@
 
         <Button
             android:id="@+id/open_security_button"
-            style="@style/Widget.Gremlin.Button.Row"
+            style="@style/Widget.Magic.Button.Row"
             android:layout_marginBottom="6dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -72,15 +72,15 @@
 
         <Button
             android:id="@+id/show_skills_button"
-            style="@style/Widget.Gremlin.Button.Row"
+            style="@style/Widget.Magic.Button.Row"
             android:layout_marginBottom="6dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Gremlin's skills" />
+            android:text="Magic's skills" />
 
         <Button
             android:id="@+id/open_builds_button"
-            style="@style/Widget.Gremlin.Button.Row"
+            style="@style/Widget.Magic.Button.Row"
             android:layout_marginBottom="6dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -106,7 +106,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="At home"
-            android:textColor="@color/gremlin_accent"
+            android:textColor="@color/magic_accent"
             android:textStyle="bold"
             android:textSize="16sp"
             android:layout_marginBottom="6dp" />
@@ -175,7 +175,7 @@
 
         <Button
             android:id="@+id/manual_pair_button"
-            style="@style/Widget.Gremlin.Button.Primary"
+            style="@style/Widget.Magic.Button.Primary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Test and save" />
@@ -206,7 +206,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Away from home"
-            android:textColor="@color/gremlin_accent"
+            android:textColor="@color/magic_accent"
             android:textStyle="bold"
             android:textSize="16sp"
             android:layout_marginBottom="4dp" />
@@ -307,7 +307,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Voice"
-            android:textColor="@color/gremlin_accent"
+            android:textColor="@color/magic_accent"
             android:textStyle="bold"
             android:textSize="16sp"
             android:layout_marginBottom="4dp" />
@@ -378,7 +378,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Admin"
-            android:textColor="@color/gremlin_accent"
+            android:textColor="@color/magic_accent"
             android:textStyle="bold"
             android:textSize="16sp"
             android:layout_marginBottom="4dp" />
@@ -386,7 +386,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Separate from the connection above on purpose -- this token isn't in the pairing QR code, so pairing for chat alone never grants this. Runs whatever you type on the desktop directly. Only enter this if you set it up yourself via `gremlin admin-token`. Tap the Save button up near the API keys to actually save it -- it's not saved just by typing it here."
+            android:text="Separate from the connection above on purpose -- this token isn't in the pairing QR code, so pairing for chat alone never grants this. Runs whatever you type on the desktop directly. Only enter this if you set it up yourself via `magic admin-token`. Tap the Save button up near the API keys to actually save it -- it's not saved just by typing it here."
             android:textSize="11sp"
             android:alpha="0.7"
             android:layout_marginBottom="10dp" />

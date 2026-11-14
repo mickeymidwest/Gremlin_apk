@@ -3,8 +3,8 @@
 for a battle (vram.is_active)."""
 import asyncio
 
-import gremlin_core.eviction as eviction
-from gremlin_core.magic import vram
+import magic_core.eviction as eviction
+from magic_core.magic import vram
 
 
 class FakeBackend:

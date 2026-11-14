@@ -8,7 +8,7 @@ trigger_when: a job could exhaust limited resources
 trigger_matcher: ram|vram|memory|disk|cpu|oom|budget|8gb
 procedure:
 - Estimate resource cost before starting a heavy job
-- On the 8GB box, stop competing model loads first (see gremlin heavy-job OOM)
+- On the 8GB box, stop competing model loads first (see magic heavy-job OOM)
 - Redirect temp to the big drive; raise swap for merges
 supersedes: null
 provenance:

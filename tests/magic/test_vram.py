@@ -1,7 +1,7 @@
 """Magic's VRAM grip: never two local models resident at once."""
 import asyncio
 
-from gremlin_core.magic import vram
+from magic_core.magic import vram
 
 
 class FakeLlama:
@@ -34,7 +34,7 @@ class Reg:
         self.chat = FakeBackend()
         self.coder = FakeBackend()
         self._m = {"qwen2.5-7b": self.chat, "qwen2.5-coder-7b": self.coder,
-                   "gremlin": PersonaLike(self.chat)}
+                   "magic": PersonaLike(self.chat)}
 
     def names(self):
         return list(self._m)

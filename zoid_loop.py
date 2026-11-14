@@ -1,13 +1,13 @@
-"""Zoid loop: keep Gremlin battling a rotation of targets so Magic's
+"""Zoid loop: keep Magic battling a rotation of targets so Magic's
 skill set grows -- fuzz (find bugs), pytest (fix bugs), gradle (build an
 APK). One battle per target per round; after each battle the full learn
 step runs (reflexion on a loss, reckon -> gate -> apply new skills,
 audit promotes candidates), and every round commits data/skills/.
 
 Service + its VRAM must be free -- run under deploy/zoid-nightly.sh, or:
-  systemctl --user stop gremlin
+  systemctl --user stop magic
   venv/bin/python zoid_loop.py --minutes 420
-  systemctl --user start gremlin
+  systemctl --user start magic
 
 Stops early if every target is solved, the minute budget runs out, or
 the file data/zoid_stop appears.
@@ -51,17 +51,17 @@ if _envf.is_file():
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from gremlin_core.registry import ModelRegistry
-from gremlin_core.magic.model import BackendModel
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.battle import run_battle
-from gremlin_core.magic.campaign import Campaign
-from gremlin_core.magic.method_builder import build_from_scaffold
-from gremlin_core.magic import lifecycle, reckoning, reflexion, regression
-from gremlin_core.magic.verifier import PytestVerifier
-from gremlin_core.magic.fuzz_verifier import FuzzVerifier
-from gremlin_core.magic.gradle_verifier import GradleVerifier
-from gremlin_core.magic.types import Task, BattleResult, Transcript, StepRecord
+from magic_core.registry import ModelRegistry
+from magic_core.magic.model import BackendModel
+from magic_core.magic.store import Store
+from magic_core.magic.battle import run_battle
+from magic_core.magic.campaign import Campaign
+from magic_core.magic.method_builder import build_from_scaffold
+from magic_core.magic import lifecycle, reckoning, reflexion, regression
+from magic_core.magic.verifier import PytestVerifier
+from magic_core.magic.fuzz_verifier import FuzzVerifier
+from magic_core.magic.gradle_verifier import GradleVerifier
+from magic_core.magic.types import Task, BattleResult, Transcript, StepRecord
 
 ROOT = Path(__file__).parent
 CONFIG = str(ROOT / "config" / "models.yaml")
@@ -86,7 +86,7 @@ def _readme_goal(repo: Path, fallback: str) -> str:
 def _mem_available_mb() -> int:
     """MemAvailable in MB, via the unified resource governor. 99999 if it
     can't be read -- a missing reading must never stall the loop."""
-    from gremlin_core import resource
+    from magic_core import resource
     gb = resource.ram_available_gb()
     return int(gb * 1024) if gb is not None else 99999
 
@@ -107,7 +107,7 @@ _DISK_FLOOR_GB = 3.0
 
 def _disk_free_gb(path: str = "/") -> float:
     """Free GB via the unified resource governor; huge number if unreadable."""
-    from gremlin_core import resource
+    from magic_core import resource
     v = resource.disk_free_gb(path)
     return v if v is not None else 999.0
 
@@ -288,7 +288,7 @@ def one_battle(store: Store, model, tgt: dict, best: dict, log) -> float:
             return s.value >= 0.999, (s.failure_signal or s.detail or "not passing")[:1500]
 
         # live trace into the log so a long battle is visibly alive
-        import gremlin_core.magic.battle as _b
+        import magic_core.magic.battle as _b
         turn = [0]
         _oc = model.complete
         def _traced(msgs, system=None, max_tokens=4096, grammar=None):
@@ -402,7 +402,7 @@ def one_campaign_battle(campaign: Campaign, model, best: dict, log) -> float:
     journalctl live), but the skill lifecycle / reckoning / regression
     check / state persistence are now Campaign's own job (see
     Campaign._battle_and_bookkeep), not duplicated here."""
-    import gremlin_core.magic.battle as _b
+    import magic_core.magic.battle as _b
     turn = [0]
     _oc = model.complete
 
@@ -452,7 +452,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         def _blog(m):
             lines.append(str(m)); log(f"     {m}")
         if tgt.get("builder") == "*":          # multi-file: harness discovers the files
-            from gremlin_core.magic.method_builder import build_project
+            from magic_core.magic.method_builder import build_project
             r = build_project(str(work), task.verify_cmd, model,
                               best_of=3, repair_rounds=3, project_passes=4,
                               compile_cmd=tgt.get("compile_cmd"), log=_blog)
@@ -465,7 +465,7 @@ def one_scaffold_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         steps = [StepRecord(kind="note", content=ln) for ln in lines[-60:]]
         steps.append(StepRecord(kind="note",
             content=f"method_builder filled {r.methods_done}; final {r.passed}p/{r.failed}f"))
-        from gremlin_core.magic.battle import _skill_score
+        from magic_core.magic.battle import _skill_score
         loadable = lifecycle.loadable(skills)
         tr = Transcript(task_id=task.id, steps=steps,
                         final_message=f"{r.passed}/{r.passed + r.failed} tests pass",
@@ -531,9 +531,9 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
     list (tipcalc/salestax/streak) that itertools.cycle just repeats
     -- `sname` IS a stable identity across rounds, one just needed to
     use it as the regression key instead of tgt["name"]."""
-    from gremlin_core.magic import android_scaffold
-    from gremlin_core.magic.method_builder import build_project
-    from gremlin_core.magic.battle import _skill_score
+    from magic_core.magic import android_scaffold
+    from magic_core.magic.method_builder import build_project
+    from magic_core.magic.battle import _skill_score
 
     sname = next(tgt["specs"])
     pinned = android_scaffold.SPECS[sname]
@@ -563,7 +563,7 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         apk_note = ""
         if score.value >= 0.999:
             try:
-                from gremlin_core.magic import android_build
+                from magic_core.magic import android_build
                 b = android_build.build_apk(repo, f"scaffold_{sname}")
                 apk_note = b.get("answer", "")
                 log(f"     [apk] {apk_note}")
@@ -681,7 +681,7 @@ def main() -> None:
     except Exception:
         log("lesson model: none (gemini not configured)")
     store = Store(str(ROOT))
-    from gremlin_core.magic import seed_skills
+    from magic_core.magic import seed_skills
     newly = seed_skills.seed(str(ROOT))
     if newly:
         log(f"seeded {len(newly)} new skill cards: {newly}")

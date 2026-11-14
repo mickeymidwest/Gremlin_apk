@@ -1,0 +1,8 @@
+[Unit]
+Description=Weekly Magic skills/memory/config backup
+
+[Service]
+Type=oneshot
+# Filled in by hand, same two lines as magic.service/magic-update.service.
+WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/deploy/backup.sh

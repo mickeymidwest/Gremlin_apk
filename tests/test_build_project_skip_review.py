@@ -1,12 +1,12 @@
 """skip_review -- mickey (2026-09-13) decided build_project's two-
 reviewer gate isn't worth the friction (it only ever writes to a
 throwaway, revertible ~/Downloads/ git repo), unlike self_improve.
-run_self_edit rewriting Gremlin's own live source, which keeps it.
+run_self_edit rewriting Magic's own live source, which keeps it.
 When skip_review=True, review_mod.review_and_revise must never be
 called at all."""
 import asyncio
 
-import gremlin_core.build_project as build_project
+import magic_core.build_project as build_project
 
 
 def test_skip_review_never_calls_the_review_gate(tmp_path, monkeypatch):
@@ -23,7 +23,7 @@ def test_skip_review_never_calls_the_review_gate(tmp_path, monkeypatch):
 
     target = str(tmp_path / "proj")
     result = asyncio.run(build_project.run_build(
-        router=None, gremlin_root=str(tmp_path), target_root=target,
+        router=None, magic_root=str(tmp_path), target_root=target,
         goal="a thing", model_names=["m"], patch="FILE: main.py\nprint(1)",
         skip_review=True,
     ))
@@ -34,7 +34,7 @@ def test_skip_review_never_calls_the_review_gate(tmp_path, monkeypatch):
 
 
 def test_review_still_runs_when_not_skipped(tmp_path, monkeypatch):
-    from gremlin_core.review import ReviewOutcome
+    from magic_core.review import ReviewOutcome
 
     called = []
 
@@ -54,7 +54,7 @@ def test_review_still_runs_when_not_skipped(tmp_path, monkeypatch):
 
     target = str(tmp_path / "proj2")
     result = asyncio.run(build_project.run_build(
-        router=None, gremlin_root=str(tmp_path), target_root=target,
+        router=None, magic_root=str(tmp_path), target_root=target,
         goal="a thing", model_names=["m"], patch="FILE: main.py\nprint(1)",
         skip_review=False,
     ))

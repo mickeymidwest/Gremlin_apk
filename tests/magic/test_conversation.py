@@ -1,8 +1,8 @@
 """Persistent conversation memory: recalled every turn until cleared."""
 import asyncio
 
-from gremlin_core.magic.conversation import Conversation, wants_clear
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core.magic.conversation import Conversation, wants_clear
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_commands import FakeRegistry
 
 
@@ -18,7 +18,7 @@ class EchoBackend:
 
 class EchoRegistry(FakeRegistry):
     def get(self, name):
-        return EchoBackend() if name in ("gremlin", "qwen3-8b") else None
+        return EchoBackend() if name in ("magic", "qwen3-8b") else None
 
 
 def test_conversation_persists_and_clears(tmp_path):

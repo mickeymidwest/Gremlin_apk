@@ -1,0 +1,8 @@
+[Unit]
+Description=Magic known-good checkpoint (tag the code if all tests pass)
+After=magic.service
+
+[Service]
+Type=oneshot
+Nice=15
+ExecStart=/home/mickey/Downloads/gremlin/deploy/recovery/checkpoint.sh

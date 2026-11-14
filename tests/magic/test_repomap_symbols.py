@@ -1,5 +1,5 @@
 """HARNESS-SURVEY #11: symbol-level repo_map for non-Python source."""
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
 
 
 def _syms(text, suffix):
@@ -8,7 +8,7 @@ def _syms(text, suffix):
 
 def test_kotlin_classes_and_funs():
     kt = (
-        "package com.gremlin\n\n"
+        "package com.magic\n\n"
         "class SecurityActivity : AppCompatActivity() {\n"
         "    override fun onCreate(savedInstanceState: Bundle?) {}\n"
         "    private fun checkPhone() {}\n"

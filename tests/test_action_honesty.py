@@ -1,5 +1,5 @@
 """Action-honesty rail: flag a fabricated 'I ran it' without flagging roleplay."""
-from gremlin_core import action_honesty as AH
+from magic_core import action_honesty as AH
 
 
 def test_flags_the_fabricated_nmap_scan():

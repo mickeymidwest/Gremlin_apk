@@ -1,7 +1,7 @@
 """regression.py: persists a target's best-ever win across zoid_loop.py
 runs (that loop's own `best` dict is fresh every process start, so
 nothing previously caught a target that used to win and stopped)."""
-from gremlin_core.magic import regression
+from magic_core.magic import regression
 
 
 def test_load_best_is_none_when_nothing_ever_won(tmp_path):

@@ -2,7 +2,7 @@
 suite never recursively invokes pytest inside the pre-gate worktree."""
 import subprocess
 
-from gremlin_core import pregate
+from magic_core import pregate
 
 
 def test_safety_regression_net_removal():

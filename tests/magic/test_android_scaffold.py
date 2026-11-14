@@ -5,18 +5,18 @@ import re
 
 import pytest
 
-from gremlin_core.magic import android_scaffold as A
-from gremlin_core.magic.android_scaffold import KotlinClass
-from gremlin_core.magic.model import ScriptedModel
+from magic_core.magic import android_scaffold as A
+from magic_core.magic.android_scaffold import KotlinClass
+from magic_core.magic.model import ScriptedModel
 
 
 # ---- identifier helpers ------------------------------------------
 
 def test_sanitize_package():
-    assert A._sanitize_package("com.gremlin.tipcalc") == "com.gremlin.tipcalc"
-    assert A._sanitize_package("Tip Calc") == "com.gremlin.tipcalc"
-    assert A._sanitize_package("", fallback="Tip Calc") == "com.gremlin.tipcalc"
-    assert A._sanitize_package("") == "com.gremlin.app"
+    assert A._sanitize_package("com.magic.tipcalc") == "com.magic.tipcalc"
+    assert A._sanitize_package("Tip Calc") == "com.magic.tipcalc"
+    assert A._sanitize_package("", fallback="Tip Calc") == "com.magic.tipcalc"
+    assert A._sanitize_package("") == "com.magic.app"
     assert A._sanitize_package("1foo.bar") == "x1foo.bar"
 
 
@@ -29,7 +29,7 @@ def test_theme_and_pascal():
 
 def test_render_produces_buildable_tree(tmp_path):
     repo = A.render(tmp_path / "app", app_name="Tip Calculator",
-                    package="com.gremlin.tipcalc")
+                    package="com.magic.tipcalc")
     # gradle plumbing present, wrapper executable
     for rel in ("settings.gradle.kts", "build.gradle.kts", "app/build.gradle.kts",
                 "gradlew", "gradle/wrapper/gradle-wrapper.jar",
@@ -44,11 +44,11 @@ def test_render_produces_buildable_tree(tmp_path):
             assert "__" not in p.read_text(), p
 
     # package dir was renamed from __PKG_PATH__
-    main = repo / "app/src/main/java/com/gremlin/tipcalc/MainActivity.kt"
+    main = repo / "app/src/main/java/com/magic/tipcalc/MainActivity.kt"
     assert main.exists()
-    assert main.read_text().startswith("package com.gremlin.tipcalc")
+    assert main.read_text().startswith("package com.magic.tipcalc")
     assert 'rootProject.name = "Tip Calculator"' in (repo / "settings.gradle.kts").read_text()
-    assert 'namespace = "com.gremlin.tipcalc"' in (repo / "app/build.gradle.kts").read_text()
+    assert 'namespace = "com.magic.tipcalc"' in (repo / "app/build.gradle.kts").read_text()
     assert "Theme.TipCalculator" in (repo / "app/src/main/AndroidManifest.xml").read_text()
     assert "Theme.TipCalculator" in (repo / "app/src/main/res/values/themes.xml").read_text()
     assert "README.md" not in [p.name for p in repo.rglob("*")]
@@ -58,48 +58,48 @@ def test_render_overwrites_existing(tmp_path):
     d = tmp_path / "app"
     d.mkdir()
     (d / "stale.txt").write_text("old")
-    A.render(d, app_name="X", package="com.gremlin.x")
+    A.render(d, app_name="X", package="com.magic.x")
     assert not (d / "stale.txt").exists()
 
 
 # ---- stub + test writing --------------------------------------
 
 def test_add_kotlin_stub_shape(tmp_path):
-    repo = A.render(tmp_path / "a", app_name="Tip", package="com.gremlin.tip")
+    repo = A.render(tmp_path / "a", app_name="Tip", package="com.magic.tip")
     cls = KotlinClass("TipCalc", ["fun tip(billCents: Int, percent: Int): Int",
                                   "fun perPerson(c: Int, p: Int, n: Int): Int"])
-    out = A.add_kotlin_stub(repo, "com.gremlin.tip", cls)
+    out = A.add_kotlin_stub(repo, "com.magic.tip", cls)
     src = out.read_text()
     assert out.name == "TipCalc.kt"
-    assert src.startswith("package com.gremlin.tip\n")
+    assert src.startswith("package com.magic.tip\n")
     assert src.count("TODO(") == 2
     assert "fun tip(billCents: Int, percent: Int): Int {" in src
     # method_builder must see these as stubs
-    from gremlin_core.magic.method_builder import find_stubs
+    from magic_core.magic.method_builder import find_stubs
     names = [s.name for s in find_stubs(src, "TipCalc.kt")]
     assert names == ["tip", "perPerson"]
 
 
 def test_write_test_adds_package_when_missing(tmp_path):
-    repo = A.render(tmp_path / "a", app_name="Tip", package="com.gremlin.tip")
+    repo = A.render(tmp_path / "a", app_name="Tip", package="com.magic.tip")
     body = ("import org.junit.Test\n\nclass TipCalcTest {\n"
             "    @Test fun t() { TipCalc() }\n}\n")
-    out = A.write_test(repo, "com.gremlin.tip", "TipCalc", body)
+    out = A.write_test(repo, "com.magic.tip", "TipCalc", body)
     txt = out.read_text()
-    assert txt.startswith("package com.gremlin.tip\n")
-    assert "src/test/java/com/gremlin/tip/TipCalcTest.kt" in out.as_posix()
+    assert txt.startswith("package com.magic.tip\n")
+    assert "src/test/java/com/magic/tip/TipCalcTest.kt" in out.as_posix()
 
 
 def test_write_test_falls_back_on_junk(tmp_path):
-    repo = A.render(tmp_path / "a", app_name="Tip", package="com.gremlin.tip")
-    out = A.write_test(repo, "com.gremlin.tip", "TipCalc", "not a test")
+    repo = A.render(tmp_path / "a", app_name="Tip", package="com.magic.tip")
+    out = A.write_test(repo, "com.magic.tip", "TipCalc", "not a test")
     assert "@Test" in out.read_text()
 
 
 def test_build_form_ui_shape():
     plan = A.SPECS["salestax"]
     src = A.build_form_ui(plan.package, plan.classes)
-    assert src.startswith("package com.gremlin.salestax\n")
+    assert src.startswith("package com.magic.salestax\n")
     # one input per param, a Run button + result per method
     assert 'field("priceCents: Int", true)' in src
     assert 'field("rateBp: Int", true)' in src
@@ -118,7 +118,7 @@ def test_build_form_ui_intarray_param():
 
 
 def test_build_form_ui_none_when_no_renderable_method():
-    from gremlin_core.magic.android_scaffold import KotlinClass
+    from magic_core.magic.android_scaffold import KotlinClass
     cls = KotlinClass("Weird", ["fun go(cb: (Int) -> Unit): Unit"])
     assert A.build_form_ui("com.x.y", [cls]) is None
 
@@ -128,15 +128,15 @@ def test_scaffold_from_spec_writes_form_ui(tmp_path):
     repo_str, _ = A.scaffold_from_spec(plan.app_name, tmp_path / "s",
                                        ScriptedModel([""]), pinned=plan)
     from pathlib import Path
-    main = (Path(repo_str) / "app/src/main/java/com/gremlin/salestax/MainActivity.kt").read_text()
+    main = (Path(repo_str) / "app/src/main/java/com/magic/salestax/MainActivity.kt").read_text()
     assert 'button("Run taxCents")' in main
     assert "TextView(this)" in main and "getString(R.string.app_name)" not in main
 
 
 def test_wire_primary_view(tmp_path):
-    repo = A.render(tmp_path / "a", app_name="Tip", package="com.gremlin.tip")
-    A.wire_primary_view(repo, "com.gremlin.tip", "TipView")
-    main = (repo / "app/src/main/java/com/gremlin/tip/MainActivity.kt").read_text()
+    repo = A.render(tmp_path / "a", app_name="Tip", package="com.magic.tip")
+    A.wire_primary_view(repo, "com.magic.tip", "TipView")
+    main = (repo / "app/src/main/java/com/magic/tip/MainActivity.kt").read_text()
     assert "setContentView(TipView(this))" in main
 
 
@@ -145,21 +145,21 @@ def test_wire_primary_view(tmp_path):
 _GOOD_PLAN = '''Sure!
 {
   "app_name": "Tip Calculator",
-  "package": "com.gremlin.tipcalc",
+  "package": "com.magic.tipcalc",
   "classes": [
     {"name": "TipCalc", "methods": [
       "fun tip(billCents: Int, percent: Int): Int",
       "fun total(billCents: Int, percent: Int): Int"
     ]}
   ],
-  "tests": "package com.gremlin.tipcalc\\n\\nimport org.junit.Test\\n\\nclass TipCalcTest {\\n  @Test fun t() { TipCalc() }\\n}"
+  "tests": "package com.magic.tipcalc\\n\\nimport org.junit.Test\\n\\nclass TipCalcTest {\\n  @Test fun t() { TipCalc() }\\n}"
 }'''
 
 
 def test_plan_app_parses_fenced_json():
     plan = A.plan_app("a tip calculator", ScriptedModel([_GOOD_PLAN]))
     assert plan.app_name == "Tip Calculator"
-    assert plan.package == "com.gremlin.tipcalc"
+    assert plan.package == "com.magic.tipcalc"
     assert [c.name for c in plan.classes] == ["TipCalc"]
     assert len(plan.classes[0].methods) == 2
     assert "@Test" in plan.tests
@@ -174,7 +174,7 @@ def test_plan_app_sanitizes_bad_package():
     plan = A.plan_app("x", ScriptedModel([
         '{"app_name": "My App", "classes": [{"name": "core", '
         '"methods": ["fun go(): Int"]}]}']))
-    assert plan.package == "com.gremlin.myapp"
+    assert plan.package == "com.magic.myapp"
     assert plan.classes[0].name == "Core"
 
 
@@ -184,11 +184,11 @@ def test_scaffold_from_spec_end_to_end(tmp_path):
     from pathlib import Path
     repo = Path(repo_str)
     assert "testDebugUnitTest" in verify
-    assert (repo / "app/src/main/java/com/gremlin/tipcalc/TipCalc.kt").exists()
-    assert (repo / "app/src/test/java/com/gremlin/tipcalc/TipCalcTest.kt").exists()
+    assert (repo / "app/src/main/java/com/magic/tipcalc/TipCalc.kt").exists()
+    assert (repo / "app/src/test/java/com/magic/tipcalc/TipCalcTest.kt").exists()
     # build_project can discover the stub file
-    from gremlin_core.magic.method_builder import discover_stub_files
-    assert "app/src/main/java/com/gremlin/tipcalc/TipCalc.kt" in discover_stub_files(repo_str)
+    from magic_core.magic.method_builder import discover_stub_files
+    assert "app/src/main/java/com/magic/tipcalc/TipCalc.kt" in discover_stub_files(repo_str)
 
 
 def test_scaffold_from_spec_pinned_skips_model(tmp_path):
@@ -202,9 +202,9 @@ def test_scaffold_from_spec_pinned_skips_model(tmp_path):
     repo_str, _ = A.scaffold_from_spec("whatever", tmp_path / "t", Boom(), pinned=plan)
     from pathlib import Path
     repo = Path(repo_str)
-    tk = (repo / "app/src/main/java/com/gremlin/tipcalc/Tip.kt").read_text()
+    tk = (repo / "app/src/main/java/com/magic/tipcalc/Tip.kt").read_text()
     assert tk.count("TODO(") == 4
-    test = (repo / "app/src/test/java/com/gremlin/tipcalc/TipTest.kt").read_text()
+    test = (repo / "app/src/test/java/com/magic/tipcalc/TipTest.kt").read_text()
     assert "assertEquals(334, t.firstShareCents(1000, 3))" in test
 
 
@@ -225,7 +225,7 @@ def test_pinned_specs_are_coherent(name, tmp_path):
     # renders + stubs discoverable
     repo_str, _ = A.scaffold_from_spec(plan.app_name, tmp_path / name,
                                        ScriptedModel([""]), pinned=plan)
-    from gremlin_core.magic.method_builder import find_stubs
+    from magic_core.magic.method_builder import find_stubs
     kt = (tmp_path / name / "app/src/main/java"
           / plan.package.replace(".", "/") / f"{cls.name}.kt").read_text()
     got = [s.name for s in find_stubs(kt, f"{cls.name}.kt")]

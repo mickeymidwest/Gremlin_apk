@@ -1,8 +1,8 @@
 """Infrastructure defense (spec §7): read-only checks on mickey's own box."""
 import asyncio
 
-from gremlin_core.magic import defense
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core.magic import defense
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_commands import FakeRegistry
 
 

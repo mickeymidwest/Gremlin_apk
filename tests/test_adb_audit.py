@@ -1,5 +1,5 @@
 """S7 ADB audit: app-ops parsing and findings, no phone needed."""
-from gremlin_core import adb_audit as aa
+from magic_core import adb_audit as aa
 
 NEW_FORMAT = """Uid mode: COARSE_LOCATION: foreground
 CAMERA: allow
@@ -95,7 +95,7 @@ def test_audit_collected_skips_bad_names():
 def test_appops_route(tmp_path):
     import asyncio as aio
     import threading
-    from gremlin_core.server import create_app
+    from magic_core.server import create_app
 
     class Reg:
         def names(self):

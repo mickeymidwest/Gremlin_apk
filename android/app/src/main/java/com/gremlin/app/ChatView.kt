@@ -55,7 +55,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
 
     fun beginStream() {
         streamText = StringBuilder()
-        streamBubble = draw(Turn(Kind.GREMLIN, ""))
+        streamBubble = draw(Turn(Kind.MAGIC, ""))
     }
 
     fun appendStream(delta: String) {
@@ -69,7 +69,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     fun finishStream(answer: String, note: String?) {
         val bubble = streamBubble ?: return
         val text = answer.ifEmpty { streamText.toString() }
-        val turn = Turn(Kind.GREMLIN, text, note)
+        val turn = Turn(Kind.MAGIC, text, note)
         turns.add(turn)
         bubble.text = styled(text)
         addFooter(turn)
@@ -94,27 +94,27 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
                 params.gravity = Gravity.END
                 params.marginStart = dp(48)
                 bubble.setBackgroundResource(R.drawable.bg_bubble_user)
-                bubble.setTextColor(color(R.color.gremlin_text_primary))
+                bubble.setTextColor(color(R.color.magic_text_primary))
                 bubble.setPadding(dp(16), dp(11), dp(16), dp(11))
             }
-            Kind.GREMLIN -> {
+            Kind.MAGIC -> {
                 params.gravity = Gravity.START
                 params.marginEnd = dp(24)
                 bubble.setBackgroundResource(R.drawable.bg_bubble_bot)
-                bubble.setTextColor(color(R.color.gremlin_text_primary))
+                bubble.setTextColor(color(R.color.magic_text_primary))
                 bubble.setPadding(dp(16), dp(11), dp(16), dp(11))
             }
             Kind.SYSTEM -> {
                 params.gravity = Gravity.CENTER_HORIZONTAL
                 bubble.gravity = Gravity.CENTER
-                bubble.setTextColor(color(R.color.gremlin_system))
+                bubble.setTextColor(color(R.color.magic_system))
             }
         }
         list.addView(bubble, params)
         bubble.alpha = 0f
         bubble.translationY = dp(14).toFloat()
         bubble.animate().alpha(1f).translationY(0f).setDuration(220).start()
-        if (turn.kind == Kind.GREMLIN && turn.text.isNotEmpty()) addFooter(turn)
+        if (turn.kind == Kind.MAGIC && turn.text.isNotEmpty()) addFooter(turn)
         return bubble
     }
 
@@ -122,7 +122,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         val footer = TextView(context).apply {
             text = listOfNotNull(turn.note, "Copy").joinToString("   ")
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
-            setTextColor(color(R.color.gremlin_text_secondary))
+            setTextColor(color(R.color.magic_text_secondary))
             setPadding(dp(6), dp(3), dp(6), dp(2))
             setOnClickListener { copy(turn.text) }
         }
@@ -131,7 +131,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
 
     private fun copy(text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Gremlin", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText("Magic", text))
         Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
     }
 
@@ -149,7 +149,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
                 val end = out.length
                 out.setSpan(TypefaceSpan("monospace"), codeStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 out.setSpan(RelativeSizeSpan(0.88f), codeStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                out.setSpan(BackgroundColorSpan(color(R.color.gremlin_code_bg)), codeStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                out.setSpan(BackgroundColorSpan(color(R.color.magic_code_bg)), codeStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else {
                 appendInline(out, part.text)
             }
@@ -167,7 +167,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
             if (token.startsWith("`")) {
                 out.append(token.substring(1, token.length - 1))
                 out.setSpan(TypefaceSpan("monospace"), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                out.setSpan(ForegroundColorSpan(color(R.color.gremlin_accent)), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                out.setSpan(ForegroundColorSpan(color(R.color.magic_accent)), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             } else {
                 out.append(token.substring(2, token.length - 2))
                 out.setSpan(StyleSpan(Typeface.BOLD), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

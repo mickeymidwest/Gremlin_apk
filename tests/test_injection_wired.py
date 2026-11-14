@@ -1,6 +1,6 @@
 """Untrusted content framing carries an injection warning when warranted."""
-from gremlin_core import look
-from gremlin_core import autoresearch
+from magic_core import look
+from magic_core import autoresearch
 
 
 def test_context_block_warns_on_injected_command_output():

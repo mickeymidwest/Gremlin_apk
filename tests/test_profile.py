@@ -1,14 +1,14 @@
-"""gremlin_core/profile.py -- How Mickey Likes Things."""
+"""magic_core/profile.py -- How Mickey Likes Things."""
 import asyncio
 
 import pytest
 
-from gremlin_core import profile
+from magic_core import profile
 
 
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
-    monkeypatch.setenv("GREMLIN_PROFILE_FILE", str(tmp_path / "gremlin_profile.md"))
+    monkeypatch.setenv("MAGIC_PROFILE_FILE", str(tmp_path / "magic_profile.md"))
     return tmp_path
 
 
@@ -162,14 +162,14 @@ def test_maybe_learn_never_raises(tmp_path):
 
 
 def test_last_assistant_reply():
-    h = ("Earlier:\nUser: hi\nGremlin: first\n\nUser: tell a joke\n"
-         "Gremlin: swap is a junk drawer\n\nwith a second paragraph")
+    h = ("Earlier:\nUser: hi\nMagic: first\n\nUser: tell a joke\n"
+         "Magic: swap is a junk drawer\n\nwith a second paragraph")
     assert profile.last_assistant_reply(h) == "swap is a junk drawer\n\nwith a second paragraph"
     assert profile.last_assistant_reply("") == ""
 
 
 def test_profile_command(tmp_path):
-    from gremlin_core.magic import commands
+    from magic_core.magic import commands
 
     class Ctx:
         project_root = str(tmp_path / "repo")
@@ -190,7 +190,7 @@ def test_profile_command(tmp_path):
 
 
 def test_reply_prompt_includes_profile(tmp_path, monkeypatch):
-    from gremlin_core.magic import reply
+    from magic_core.magic import reply
     root = str(tmp_path / "repo")
     profile.add(root, "talking", "Room to explain and have fun")
     _, hist, _ = reply._build_prompt("hey", root, "")
@@ -200,8 +200,8 @@ def test_reply_prompt_includes_profile(tmp_path, monkeypatch):
 
 
 def test_bookkeeping_skips_fact_extractors_when_profile_learned(tmp_path, monkeypatch):
-    from gremlin_core.magic import reply
-    from gremlin_core import notes
+    from magic_core.magic import reply
+    from magic_core import notes
     called = []
 
     async def fake_note(*a, **k):
@@ -215,10 +215,10 @@ def test_bookkeeping_skips_fact_extractors_when_profile_learned(tmp_path, monkey
     root = str(tmp_path / "repo")
     b = _Backend("solving: Mickey wants the fix done before the explanation")
     _run(reply._post_answer_bookkeeping(b, "i like it when you just fix it", root,
-                                        "ok", False, "gremlin", history=""))
+                                        "ok", False, "magic", history=""))
     assert called == []
     _run(reply._post_answer_bookkeeping(b, "check the disk", root,
-                                        "ok", False, "gremlin", history=""))
+                                        "ok", False, "magic", history=""))
     assert called == ["note", "corr"]
 
 
@@ -236,7 +236,7 @@ def test_keep_does_not_duplicate_a_confirmed_line(tmp_path):
 def test_profile_route_get_put_and_conflict(tmp_path):
     import asyncio as aio
     import threading
-    from gremlin_core.server import create_app
+    from magic_core.server import create_app
 
     class Reg:
         def names(self):

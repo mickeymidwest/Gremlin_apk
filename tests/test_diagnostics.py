@@ -1,5 +1,5 @@
 """Deterministic diagnostics (LSP-lite): catch broken code without the LLM."""
-from gremlin_core import diagnostics as D
+from magic_core import diagnostics as D
 
 
 def test_python_syntax_error_caught_with_line():

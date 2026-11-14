@@ -6,8 +6,8 @@
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-ENV_FILE="$ROOT/.gremlin/daemon.env"
-LOCK="$ROOT/.gremlin/heavy.lock"
+ENV_FILE="$ROOT/.magic/daemon.env"
+LOCK="$ROOT/.magic/heavy.lock"
 
 [ $# -gt 0 ] || { echo "usage: scripts/heavy.sh <command> [args...]" >&2; exit 64; }
 [ -f "$ENV_FILE" ] || { echo "heavy.sh: missing $ENV_FILE" >&2; exit 78; }
@@ -93,7 +93,7 @@ elif [ -n "${DAEMON_PATTERN:-}" ]; then
     PIDS="$(daemon_pids)"; [ -n "$PIDS" ] && kill -KILL $PIDS 2>/dev/null || true
   fi
 elif [ "${DAEMON_NONE:-0}" != "1" ]; then
-  echo "heavy.sh: daemon not configured — edit .gremlin/daemon.env (or set DAEMON_NONE=1)." >&2
+  echo "heavy.sh: daemon not configured — edit .magic/daemon.env (or set DAEMON_NONE=1)." >&2
   exit 78
 fi
 

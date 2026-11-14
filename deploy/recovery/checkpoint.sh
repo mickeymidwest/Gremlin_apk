@@ -1,17 +1,17 @@
 #!/bin/bash
 # Known-good checkpoint (recovery item 1). Runs the test suite; if it
 # passes on a clean main, tag the commit known-good-<date>. Pure git, no
-# AI. Runs nightly (gremlin-checkpoint.timer) or by hand: gremlin checkpoint
+# AI. Runs nightly (magic-checkpoint.timer) or by hand: magic checkpoint
 set -euo pipefail
-REPO="${GREMLIN_REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
+REPO="${MAGIC_REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
 cd "$REPO"
 PY="$REPO/venv/bin/python"
-LOG="$REPO/.gremlin/checkpoint.log"
-mkdir -p "$REPO/.gremlin"
+LOG="$REPO/.magic/checkpoint.log"
+mkdir -p "$REPO/.magic"
 ts() { date "+%Y-%m-%d %H:%M:%S"; }
 
 # don't run the whole suite while a heavy job (build/bench) holds the card/RAM
-exec 9>"$REPO/.gremlin/heavy.lock" || true
+exec 9>"$REPO/.magic/heavy.lock" || true
 if ! flock -n 9; then echo "$(ts) heavy job running; skipping" >>"$LOG"; exit 0; fi
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
@@ -21,7 +21,7 @@ fi
 # Only the CODE paths matter for a known-good tag -- restore.sh restores
 # exactly these. The nightly zoid loop churns tracked runtime data
 # (data/magic/campaign_*.json); that must NOT block a code checkpoint.
-CODE="gremlin_core main.py bench scripts tests android MAGIC.md CALIBRATION.md"
+CODE="magic_core main.py bench scripts tests android MAGIC.md CALIBRATION.md"
 if [ -n "$(git status --porcelain --untracked-files=no -- $CODE)" ]; then
   echo "$(ts) uncommitted CODE changes on main; skipping" >>"$LOG"; exit 0
 fi

@@ -1,5 +1,5 @@
 """Live-path self-correction: diagnose + enrich failed actions."""
-from gremlin_core import self_correct as SC
+from magic_core import self_correct as SC
 
 
 def test_diagnose_common_failures():
@@ -8,7 +8,7 @@ def test_diagnose_common_failures():
         "bash: permission denied": "permission was denied",
         "ls: cannot access '/x': No such file or directory": "doesn't exist",
         "zsh: command not found: foo": "isn't installed",
-        "Failed to stop gremlin-x.timer: Unit gremlin-x.timer not found": "unit name isn't right",
+        "Failed to stop magic-x.timer: Unit magic-x.timer not found": "unit name isn't right",
         "Error: No such container: sonar": "container name isn't right",
         "fork: Cannot allocate memory": "ran out of memory",
         "write error: No space left on device": "disk is full",

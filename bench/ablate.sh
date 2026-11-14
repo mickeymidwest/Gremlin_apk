@@ -3,7 +3,7 @@
 # the "+loops" gain to individual loops instead of only the all-on delta.
 #
 # HEAVY work: each config loads a full local GGUF (n_gpu_layers=-1), and only
-# ONE model fits on this 8GB card, so the live Gremlin server must be stopped
+# ONE model fits on this 8GB card, so the live Magic server must be stopped
 # for the duration. This script re-execs the whole matrix once under
 # scripts/heavy.sh, which stops the daemon + timers, runs, then restarts them
 # -- never run bench/quality.py directly alongside the live server.
@@ -32,8 +32,8 @@ export BENCH_PARTS="${BENCH_PARTS:-quality,heldout}"
 
 # baseline (no loops), each loop alone, then the full stack
 for cfg in "" code math vote format all; do
-  echo "=== ablation: GREMLIN_LOOP_SET=[${cfg:-none}]  parts=$BENCH_PARTS ==="
-  GREMLIN_LOOP_SET="$cfg" "$PY" bench/quality.py "$MODEL" --harness \
+  echo "=== ablation: MAGIC_LOOP_SET=[${cfg:-none}]  parts=$BENCH_PARTS ==="
+  MAGIC_LOOP_SET="$cfg" "$PY" bench/quality.py "$MODEL" --harness \
     || echo "(config [${cfg:-none}] failed -- continuing with the rest)"
 done
 echo "done. Compare the '$MODEL +loops[...]' rows in the newest bench/quality-*.jsonl:"

@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from gremlin_core.server import create_app
+from magic_core.server import create_app
 
 
 class FakeBackend:
@@ -30,20 +30,20 @@ class FakeRegistry:
     raw_config = {"persona": {"primary_model": "qwen2.5-7b"}}
 
     def get(self, name):
-        return FakeBackend() if name in ("gremlin", "qwen2.5-7b") else None
+        return FakeBackend() if name in ("magic", "qwen2.5-7b") else None
 
     def primary_model_name(self):
         return "qwen2.5-7b"
 
     def names(self):
-        return ["gremlin", "qwen2.5-7b"]
+        return ["magic", "qwen2.5-7b"]
 
 
 @pytest.fixture
 def client(tmp_path):
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "models.yaml").write_text(
-        "models: []\npersona:\n  name: gremlin\n  primary_model: qwen2.5-7b\n")
+        "models: []\npersona:\n  name: magic\n  primary_model: qwen2.5-7b\n")
 
     loop = asyncio.new_event_loop()
     t = threading.Thread(target=loop.run_forever, daemon=True)

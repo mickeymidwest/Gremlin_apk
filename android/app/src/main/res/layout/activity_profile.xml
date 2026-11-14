@@ -41,7 +41,7 @@
 
         <Button
             android:id="@+id/profile_save_button"
-            style="@style/Widget.Gremlin.Button.Primary"
+            style="@style/Widget.Magic.Button.Primary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"

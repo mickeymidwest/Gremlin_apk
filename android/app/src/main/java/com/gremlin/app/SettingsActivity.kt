@@ -42,7 +42,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        val prefs = getSharedPreferences("gremlin_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("magic_prefs", MODE_PRIVATE)
         val host = intent.getStringExtra("host") ?: ""
         val port = intent.getIntExtra("port", 0)
         val token = intent.getStringExtra("token") ?: ""
@@ -57,7 +57,7 @@ class SettingsActivity : AppCompatActivity() {
         setUpManualPairing(prefs, host, port, token)
 
         findViewById<Button>(R.id.show_commands_button).setOnClickListener { showCommandsReference() }
-        findViewById<Button>(R.id.show_memory_button).setOnClickListener { showDesktopInfo("What Gremlin remembers", "/memory", "list") }
+        findViewById<Button>(R.id.show_memory_button).setOnClickListener { showDesktopInfo("What Magic remembers", "/memory", "list") }
         findViewById<Button>(R.id.open_profile_button).setOnClickListener {
             startActivity(android.content.Intent(this, ProfileActivity::class.java))
         }
@@ -71,7 +71,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.open_security_button).setOnClickListener {
             startActivity(android.content.Intent(this, SecurityActivity::class.java))
         }
-        findViewById<Button>(R.id.show_skills_button).setOnClickListener { showDesktopInfo("Gremlin's skills", "/skill", "list") }
+        findViewById<Button>(R.id.show_skills_button).setOnClickListener { showDesktopInfo("Magic's skills", "/skill", "list") }
         findViewById<Button>(R.id.open_builds_button).setOnClickListener {
             startActivity(android.content.Intent(this, BuildsActivity::class.java))
         }
@@ -171,12 +171,12 @@ class SettingsActivity : AppCompatActivity() {
                 .show()
         }
 
-        // Override (sudo) toggle + Gremlin's can-do list (added programmatically)
+        // Override (sudo) toggle + Magic's can-do list (added programmatically)
         val root = findViewById<LinearLayout>(R.id.settings_root)
         val overrideBtn = Button(this).apply { text = "Override (sudo)" }
         root.addView(overrideBtn)
         overrideBtn.setOnClickListener { toggleOverride(prefs, overrideBtn) }
-        val canDoBtn = Button(this).apply { text = "Gremlin's can-do list" }
+        val canDoBtn = Button(this).apply { text = "Magic's can-do list" }
         root.addView(canDoBtn)
         canDoBtn.setOnClickListener { showCanDo(prefs) }
         refreshOverrideLabel(prefs, overrideBtn)
@@ -238,9 +238,9 @@ class SettingsActivity : AppCompatActivity() {
         val text = TextView(this)
         val pad = (16 * resources.displayMetrics.density).toInt()
         text.setPadding(pad, pad, pad, pad); text.setTextIsSelectable(true); text.text = "Loading…"
-        val input = EditText(this).apply { hint = "add a service (e.g. gremlin-zoid.timer)" }
+        val input = EditText(this).apply { hint = "add a service (e.g. magic-zoid.timer)" }
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(text); addView(input) }
-        AlertDialog.Builder(this).setTitle("Gremlin's can-do list").setView(box)
+        AlertDialog.Builder(this).setTitle("Magic's can-do list").setView(box)
             .setPositiveButton("Add") { _, _ ->
                 val name = input.text.toString().trim()
                 if (name.isNotEmpty()) Thread {
@@ -257,7 +257,7 @@ class SettingsActivity : AppCompatActivity() {
             val list = if (arr != null && arr.length() > 0)
                 (0 until arr.length()).joinToString("\n") { "• " + arr.getString(it) }
             else "(nothing yet)"
-            runOnUiThread { text.text = "Gremlin can control:\n$list" }
+            runOnUiThread { text.text = "Magic can control:\n$list" }
         }.start()
     }
 
@@ -273,16 +273,16 @@ class SettingsActivity : AppCompatActivity() {
               Run a command on the desktop (sandboxed: confined directory, timeout, no root).
               e.g. /desktop ls -la
                    /desktop find /home -iname "*keyword*"
-              This also works for gremlin's own CLI (checkpoint-eval, distill,
+              This also works for magic's own CLI (checkpoint-eval, distill,
               finetune, bench, specialists, build, and anything else listed
               below) -- none of those have their own slash command, so run
-              them as e.g. /desktop gremlin checkpoint-eval
-              For the full, current list with usage: /desktop gremlin
+              them as e.g. /desktop magic checkpoint-eval
+              For the full, current list with usage: /desktop magic
               (no arguments -- prints everything straight from the source)
 
             /root <command>
               Same, but with sudo. Needs a sudo password cached first --
-              run `gremlin set-sudo-password` on the desktop itself, once.
+              run `magic set-sudo-password` on the desktop itself, once.
               e.g. /root pacman -S --noconfirm neovim
                    /root pacman -Syu --noconfirm
 
@@ -303,7 +303,7 @@ class SettingsActivity : AppCompatActivity() {
 
             /fix <path> <what's wrong>
               Shows a warning, then /fix <path> <what's wrong> confirm asks
-              Gremlin's own registered models (not the separate claude CLI)
+              Magic's own registered models (not the separate claude CLI)
               to fix a specific file anywhere on the desktop -- your own
               scripts/configs, not system files. Backs up the file first,
               reverts automatically if the fix fails to compile.
@@ -330,7 +330,7 @@ class SettingsActivity : AppCompatActivity() {
         """.trimIndent()
 
         AlertDialog.Builder(this)
-            .setTitle("Gremlin commands")
+            .setTitle("Magic commands")
             .setMessage(text)
             .setPositiveButton("Close", null)
             .show()
@@ -534,8 +534,8 @@ class SettingsActivity : AppCompatActivity() {
         val scroll = android.widget.ScrollView(this)
         scroll.addView(text)
         AlertDialog.Builder(this).setTitle(title).setView(scroll).setPositiveButton("Close", null).show()
-        val prefs = getSharedPreferences("gremlin_prefs", MODE_PRIVATE)
-        val client = GremlinClient(prefs, applicationContext)
+        val prefs = getSharedPreferences("magic_prefs", MODE_PRIVATE)
+        val client = MagicClient(prefs, applicationContext)
         Thread {
             val answer = client.command(command, args)
             runOnUiThread { text.text = answer }
@@ -558,7 +558,7 @@ class SettingsActivity : AppCompatActivity() {
                 runOnUiThread { renderStatus(json) }
             } catch (e: Exception) {
                 runOnUiThread {
-                    findViewById<TextView>(R.id.settings_persona_info).text = "Couldn't reach gremlin: ${e.message}"
+                    findViewById<TextView>(R.id.settings_persona_info).text = "Couldn't reach magic: ${e.message}"
                 }
             }
         }.start()

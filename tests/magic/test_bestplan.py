@@ -1,7 +1,7 @@
 """HARNESS-SURVEY #10: best-of-2 plan selection by a pure structural score."""
-from gremlin_core.magic import battle as B
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core.magic import battle as B
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 
 _TASK = Task(id="t", prompt="fix the retry() bug in net/client.py so it backs off")

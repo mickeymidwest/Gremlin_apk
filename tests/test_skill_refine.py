@@ -1,8 +1,8 @@
 """Skill hardening: pick weak cards by record and rewrite them, validated so a
 weak model can't replace a good card with junk, and no infinite refine loop."""
-from gremlin_core.magic import skill_refine as sr
-from gremlin_core.magic.types import Skill, SkillRecord
-from gremlin_core.magic.model import ScriptedModel
+from magic_core.magic import skill_refine as sr
+from magic_core.magic.types import Skill, SkillRecord
+from magic_core.magic.model import ScriptedModel
 
 
 def _skill(name, uses=0, wins=0, losses=0, deltas=None, status="active"):

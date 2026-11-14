@@ -1,5 +1,5 @@
 """best_coder_model: pick the strongest local coder for self-authoring."""
-from gremlin_core import tool_forge as TF
+from magic_core import tool_forge as TF
 
 
 class _Reg:

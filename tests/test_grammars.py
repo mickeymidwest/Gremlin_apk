@@ -2,7 +2,7 @@
 
 A grammar forces the sampler to emit only structurally valid output, so a
 weak 7-8B local model can't truncate JSON or wander into prose. Capability
-lives in gremlin_core.backends.grammars; it's threaded through the llama.cpp
+lives in magic_core.backends.grammars; it's threaded through the llama.cpp
 backend and the Magic model layer, and accepted-but-ignored by remote
 backends (GBNF is local-only).
 """
@@ -11,9 +11,9 @@ import inspect
 
 import pytest
 
-import gremlin_core.backends.llamacpp_backend as backend_mod
-from gremlin_core.backends import grammars
-from gremlin_core.backends.base import ModelInfo
+import magic_core.backends.llamacpp_backend as backend_mod
+from magic_core.backends import grammars
+from magic_core.backends.base import ModelInfo
 
 grammars_unavailable = grammars.LlamaGrammar is None
 
@@ -118,7 +118,7 @@ def test_stream_with_grammar_passes_compiled_grammar(monkeypatch):
 # ---- interface uniformity --------------------------------------------
 
 def test_all_backends_accept_a_grammar_kwarg():
-    from gremlin_core.backends import (anthropic_backend, gemini_backend,
+    from magic_core.backends import (anthropic_backend, gemini_backend,
                                         openai_backend, base)
     for mod, cls in [(base, "ModelBackend"),
                      (anthropic_backend, "AnthropicBackend"),
@@ -132,8 +132,8 @@ def test_all_backends_accept_a_grammar_kwarg():
 
 
 def test_backendmodel_threads_grammar_to_backend():
-    from gremlin_core.magic.model import BackendModel
-    from gremlin_core.backends.base import GenerationResult
+    from magic_core.magic.model import BackendModel
+    from magic_core.backends.base import GenerationResult
 
     class _Rec:
         info = ModelInfo(name="rec", kind="local_gguf")

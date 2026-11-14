@@ -12,13 +12,13 @@ import androidx.appcompat.app.AppCompatActivity
 
 /**
  * Settings -> Phone & desktop safety (S2/S3). "Check phone" sends this
- * phone's security snapshot to Gremlin; "Check desktop" runs the desktop
+ * phone's security snapshot to Magic; "Check desktop" runs the desktop
  * guard. Each answers with what changed since the state Mickey marked as
  * normal. Read-only: nothing here changes a setting.
  */
 class SecurityActivity : AppCompatActivity() {
 
-    private lateinit var client: GremlinClient
+    private lateinit var client: MagicClient
     private lateinit var status: TextView
     private lateinit var report: TextView
     private lateinit var buttons: List<Button>
@@ -28,7 +28,7 @@ class SecurityActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_security)
         title = "Phone & desktop safety"
-        client = GremlinClient(getSharedPreferences("gremlin_prefs", MODE_PRIVATE), applicationContext)
+        client = MagicClient(getSharedPreferences("magic_prefs", MODE_PRIVATE), applicationContext)
         status = findViewById(R.id.security_status)
         report = findViewById(R.id.security_report)
         val phone = findViewById<Button>(R.id.security_check_phone)
@@ -66,7 +66,7 @@ class SecurityActivity : AppCompatActivity() {
             addView(port); addView(code)
         }
         AlertDialog.Builder(this)
-            .setTitle("Pair Gremlin with this phone")
+            .setTitle("Pair Magic with this phone")
             .setMessage("Settings > Developer options > Wireless debugging > Pair device with pairing code. " +
                         "Use split screen so the popup stays open.")
             .setView(box)
@@ -135,7 +135,7 @@ class SecurityActivity : AppCompatActivity() {
         Thread {
             val r = if (which == "phone") {
                 val snap = try { PhoneGuard.snapshot(applicationContext) } catch (e: Exception) { null }
-                if (snap == null) GremlinClient.GuardResult(error = "Couldn't read this phone's settings.")
+                if (snap == null) MagicClient.GuardResult(error = "Couldn't read this phone's settings.")
                 else client.postPhoneGuard(snap)
             } else client.getDesktopGuard()
             runOnUiThread {

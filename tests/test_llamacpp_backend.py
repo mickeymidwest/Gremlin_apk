@@ -12,8 +12,8 @@ import time
 
 import pytest
 
-import gremlin_core.backends.llamacpp_backend as backend_mod
-from gremlin_core.backends.base import ModelInfo
+import magic_core.backends.llamacpp_backend as backend_mod
+from magic_core.backends.base import ModelInfo
 
 
 class _FakeLlm:

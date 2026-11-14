@@ -1,5 +1,5 @@
 """Override session: activate, dead-man idle expiry, touch, status."""
-import gremlin_core.override_session as O
+import magic_core.override_session as O
 
 
 def _reset():

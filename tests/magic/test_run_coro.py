@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from gremlin_core.server import run_coro, start_background_loop
+from magic_core.server import run_coro, start_background_loop
 
 
 @pytest.fixture

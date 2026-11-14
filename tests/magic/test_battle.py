@@ -1,7 +1,7 @@
 """Iteration 2: the battle loop -- ReAct text protocol, real toolhost."""
-from gremlin_core.magic.battle import run_battle, _parse_turn
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task, Skill, Fact
+from magic_core.magic.battle import run_battle, _parse_turn
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task, Skill, Fact
 
 
 def test_parse_turn_action_and_done():
@@ -90,7 +90,7 @@ def test_run_battle_step_budget_gives_up(tmp_path):
 
 
 def test_run_battle_returns_transcript_on_model_error(tmp_path):
-    from gremlin_core.magic.model import QuotaExhausted
+    from magic_core.magic.model import QuotaExhausted
 
     class Boom:
         name = "boom"
@@ -143,7 +143,7 @@ def test_skill_marked_invoked_when_named(tmp_path):
 def test_on_done_can_reject_a_premature_done(tmp_path):
     """A small model that says DONE without doing the work gets pushed
     back until on_done() actually passes."""
-    from gremlin_core.magic.model import ScriptedModel
+    from magic_core.magic.model import ScriptedModel
     calls = {"n": 0}
 
     def on_done():
@@ -164,7 +164,7 @@ def test_on_done_can_reject_a_premature_done(tmp_path):
 
 def test_autocommit_snapshots_each_edit_and_undo_reverts(tmp_path):
     (tmp_path / "x.txt").write_text("one\n")
-    from gremlin_core.magic.model import ScriptedModel
+    from magic_core.magic.model import ScriptedModel
     m = ScriptedModel([
         'ACTION: read_file\n```json\n{"path": "x.txt"}\n```',
         'ACTION: write_file\n```json\n{"path": "x.txt", "text": "two\\n"}\n```',

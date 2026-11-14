@@ -1,6 +1,6 @@
-# Gremlin (Android)
+# Magic (Android)
 
-Talks to a Gremlin desktop instance over your home Wi-Fi when it's
+Talks to a Magic desktop instance over your home Wi-Fi when it's
 reachable, and falls back to Claude or Gemini (using your own API keys,
 entered in Settings) when it's not. Same hologram widget as the
 desktop version.
@@ -20,7 +20,7 @@ screen once, OCRs it on-device (ML Kit, bundled model, no network), and
 answers about what's actually on the page. There's also an "Attach"
 button in the main screen for files, PDFs, and images.
 
-**This folder is part of the combined `gremlin` repo, not its own
+**This folder is part of the combined `magic` repo, not its own
 separate repo** -- see the root `README.md`'s "Putting this on GitHub"
 section for the actual push instructions. The short version: one
 `git init` / `git push` at the repo root pushes both this and the
@@ -38,10 +38,10 @@ Two ways to build locally:
 
 - **Android Studio:** open this `android/` folder (not the repo root), sync,
   Build APK.
-- **Headless / from Gremlin:** the desktop has a no-sudo toolchain under
+- **Headless / from Magic:** the desktop has a no-sudo toolchain under
   `~/android-build/` (JDK 17, Gradle) + `~/Android/Sdk/` (SDK 35). Source
-  `~/android-build/env.sh`, then `./gradlew assembleDebug`. Or let Gremlin do
-  it: `gremlin magic build android android as gremlin-apk` -- it builds the
+  `~/android-build/env.sh`, then `./gradlew assembleDebug`. Or let Magic do
+  it: `magic magic build android android as magic-apk` -- it builds the
   APK and drops it in `~/Downloads/gremlin-apk/` where the phone's
   Settings -> Builds can download it. No GitHub round-trip.
 

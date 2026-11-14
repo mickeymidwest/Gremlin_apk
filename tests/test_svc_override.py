@@ -1,14 +1,14 @@
 """override-aware resolve_unit (the last-mile service control)."""
-from gremlin_core import service_control as sc
+from magic_core import service_control as sc
 
 
 def test_allow_any_resolves_user_units(tmp_path):
     root = str(tmp_path)
     # off the allow-list: refused normally...
-    assert sc.resolve_unit(root, "gremlin-zoid.timer") is None
+    assert sc.resolve_unit(root, "magic-zoid.timer") is None
     # ...but allowed when override (allow_any) is on
-    assert sc.resolve_unit(root, "gremlin-zoid.timer", allow_any=True) == ("systemd", "gremlin-zoid.timer")
-    assert sc.resolve_unit(root, "gremlin-update", allow_any=True) == ("systemd", "gremlin-update.service")
+    assert sc.resolve_unit(root, "magic-zoid.timer", allow_any=True) == ("systemd", "magic-zoid.timer")
+    assert sc.resolve_unit(root, "magic-update", allow_any=True) == ("systemd", "magic-update.service")
     assert sc.resolve_unit(root, "sonarr", allow_any=True) == ("docker", "sonarr")
 
 

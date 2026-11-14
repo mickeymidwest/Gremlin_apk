@@ -22,16 +22,16 @@ class ConversationsActivity : AppCompatActivity() {
         const val EXTRA_TITLE = "title"
     }
 
-    private lateinit var client: GremlinClient
+    private lateinit var client: MagicClient
     private lateinit var list: ListView
     private lateinit var status: TextView
-    private var items: List<GremlinClient.ConversationInfo> = emptyList()
+    private var items: List<MagicClient.ConversationInfo> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_conversations)
         title = "Conversations"
-        client = GremlinClient(getSharedPreferences("gremlin_prefs", MODE_PRIVATE), applicationContext)
+        client = MagicClient(getSharedPreferences("magic_prefs", MODE_PRIVATE), applicationContext)
         status = findViewById(R.id.conv_status)
         list = findViewById(R.id.conv_list)
 
@@ -64,7 +64,7 @@ class ConversationsActivity : AppCompatActivity() {
             runOnUiThread {
                 items = convos
                 status.text = if (convos.isEmpty()) "No conversations yet — start one." else ""
-                list.adapter = object : ArrayAdapter<GremlinClient.ConversationInfo>(
+                list.adapter = object : ArrayAdapter<MagicClient.ConversationInfo>(
                     this, android.R.layout.simple_list_item_1, android.R.id.text1, convos
                 ) {
                     override fun getView(p: Int, cv: View?, parent: ViewGroup): View {

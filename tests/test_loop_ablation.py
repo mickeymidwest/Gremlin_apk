@@ -1,9 +1,9 @@
-"""P8 loop ablation: GREMLIN_LOOP_SET gates which loops are active. A disabled
+"""P8 loop ablation: MAGIC_LOOP_SET gates which loops are active. A disabled
 loop's task falls back to PLAIN, so a run with one loop off measures exactly
 that loop's contribution. Default (unset) keeps every loop on."""
 import pytest
 
-from gremlin_core.magic import loops
+from magic_core.magic import loops
 
 CODE_P = "Write a Python function that reverses a string. Only the code."
 JSON_P = "Respond with ONLY a JSON object, no prose, with keys a and b."
@@ -17,19 +17,19 @@ ALL = [(CODE_P, loops.CODE), (JSON_P, loops.JSON_ONLY), (TABLE_P, loops.TABLE),
 
 
 def test_default_unset_all_on(monkeypatch):
-    monkeypatch.delenv("GREMLIN_LOOP_SET", raising=False)
+    monkeypatch.delenv("MAGIC_LOOP_SET", raising=False)
     for prompt, kind in ALL:
         assert loops.route(prompt) == kind, prompt
 
 
 def test_empty_disables_every_loop(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "")
     for prompt, _kind in ALL:
         assert loops.route(prompt) == loops.PLAIN, prompt
 
 
 def test_single_loop_only_it_fires(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "code")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "code")
     assert loops.route(CODE_P) == loops.CODE
     assert loops.route(JSON_P) == loops.PLAIN
     assert loops.route(MATH_P) == loops.PLAIN
@@ -37,7 +37,7 @@ def test_single_loop_only_it_fires(monkeypatch):
 
 
 def test_format_alias_is_the_structured_trio(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "format")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "format")
     assert loops.route(JSON_P) == loops.JSON_ONLY
     assert loops.route(TABLE_P) == loops.TABLE
     assert loops.route(ONELINE_P) == loops.ONE_LINE
@@ -46,7 +46,7 @@ def test_format_alias_is_the_structured_trio(monkeypatch):
 
 
 def test_subset(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "code,vote")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "code,vote")
     assert loops.route(CODE_P) == loops.CODE
     assert loops.route(VOTE_P) == loops.VOTE
     assert loops.route(MATH_P) == loops.PLAIN
@@ -54,20 +54,20 @@ def test_subset(monkeypatch):
 
 
 def test_parsing_is_case_and_space_insensitive(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "  Code , Format ")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "  Code , Format ")
     en = loops._enabled_loops()
     assert {loops.CODE, loops.JSON_ONLY, loops.TABLE, loops.ONE_LINE} <= en
     assert loops.MATH not in en and loops.VOTE not in en
 
 
 def test_unknown_tokens_ignored(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "code,bogus,,math")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "code,bogus,,math")
     en = loops._enabled_loops()
     assert en == frozenset({loops.CODE, loops.MATH})
 
 
 def test_all_token_is_every_loop(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "all")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "all")
     for prompt, kind in ALL:
         assert loops.route(prompt) == kind, prompt
     assert loops._enabled_loops() == loops._ALL_LOOPS
@@ -75,7 +75,7 @@ def test_all_token_is_every_loop(monkeypatch):
 
 def test_plain_task_unaffected(monkeypatch):
     # a task with no matching loop is PLAIN regardless of the toggle
-    monkeypatch.setenv("GREMLIN_LOOP_SET", "")
+    monkeypatch.setenv("MAGIC_LOOP_SET", "")
     assert loops.route("Tell me about your day.") == loops.PLAIN
-    monkeypatch.delenv("GREMLIN_LOOP_SET", raising=False)
+    monkeypatch.delenv("MAGIC_LOOP_SET", raising=False)
     assert loops.route("Tell me about your day.") == loops.PLAIN

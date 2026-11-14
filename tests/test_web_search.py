@@ -1,6 +1,6 @@
 """web_search.py -- DuckDuckGo HTML search + page-text fetch, no API
 key. Mocks requests entirely; never touches the real network."""
-import gremlin_core.web_search as ws
+import magic_core.web_search as ws
 
 
 class _FakeResp:

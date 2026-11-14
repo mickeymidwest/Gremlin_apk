@@ -1,6 +1,6 @@
 """Tests for unified, signal-weighted skill retrieval (Magic 2.5)."""
-from gremlin_core.magic import skill_retrieval as sr
-from gremlin_core.magic.types import Skill, SkillRecord
+from magic_core.magic import skill_retrieval as sr
+from magic_core.magic.types import Skill, SkillRecord
 
 
 def _mk(sid, name, trigger_when, *, purpose="help", status="candidate", wins=0, losses=0, matcher=None):

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Overnight uplift benchmarks (U1/U9), 2026-11-07. Each run goes through
-# heavy.sh, which pauses gremlin.service and restarts it after.
+# heavy.sh, which pauses magic.service and restarts it after.
 cd ~/Downloads/gremlin
 target=$(date -d "tomorrow 00:30" +%s)
 now=$(date +%s); [ -z "$UPLIFT_NOW" ] && [ $now -lt $target ] && sleep $((target - now))

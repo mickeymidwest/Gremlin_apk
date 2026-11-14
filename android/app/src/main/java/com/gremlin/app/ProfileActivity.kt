@@ -10,12 +10,12 @@ import androidx.appcompat.app.AppCompatActivity
 /**
  * Settings -> How Mickey likes things: edits ~/Downloads/gremlin_profile.md
  * on the desktop through GET/PUT /profile. Saving sends back the version it
- * loaded; if Gremlin noticed something new in the meantime the desktop
+ * loaded; if Magic noticed something new in the meantime the desktop
  * refuses, and this offers to reload instead of overwriting the guess.
  */
 class ProfileActivity : AppCompatActivity() {
 
-    private lateinit var client: GremlinClient
+    private lateinit var client: MagicClient
     private lateinit var editor: EditText
     private lateinit var status: TextView
     private lateinit var save: Button
@@ -27,7 +27,7 @@ class ProfileActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_profile)
         title = "How Mickey likes things"
-        client = GremlinClient(getSharedPreferences("gremlin_prefs", MODE_PRIVATE), applicationContext)
+        client = MagicClient(getSharedPreferences("magic_prefs", MODE_PRIVATE), applicationContext)
         editor = findViewById(R.id.profile_editor)
         status = findViewById(R.id.profile_status)
         save = findViewById(R.id.profile_save_button)
@@ -52,7 +52,7 @@ class ProfileActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (r.text != null) {
                     showText(r.text, r.version)
-                    status.text = "Gremlin reads this before every chat. Lines under Noticed are its guesses."
+                    status.text = "Magic reads this before every chat. Lines under Noticed are its guesses."
                 } else {
                     status.text = r.error ?: "Couldn't load the profile."
                 }
@@ -90,10 +90,10 @@ class ProfileActivity : AppCompatActivity() {
                     r.ok -> {
                         loadedText = text
                         version = r.version
-                        status.text = "Saved. Gremlin uses it from the next message."
+                        status.text = "Saved. Magic uses it from the next message."
                     }
                     r.conflictText != null -> {
-                        status.text = "Gremlin added something while you were editing."
+                        status.text = "Magic added something while you were editing."
                         AlertDialog.Builder(this)
                             .setMessage("The profile changed on the desktop since you opened it. " +
                                 "Reload to see the new version? Your edits here will be lost, " +

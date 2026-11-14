@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from gremlin_core.magic.store import Store
+from magic_core.magic.store import Store
 
 REPO = Path(__file__).resolve().parents[1]
 S1 = [

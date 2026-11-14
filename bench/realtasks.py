@@ -1,4 +1,4 @@
-"""Real-task benchmark (R1): the kind of work Mickey actually asks Gremlin
+"""Real-task benchmark (R1): the kind of work Mickey actually asks Magic
 for -- fixing Python, parsing command output, and producing the exact
 shell/Docker/systemd/cron/rsync command. All graded mechanically (exec the
 code and assert, or match the command shape), never by an LLM judge.
@@ -47,7 +47,7 @@ def _grader(fn, why):
 
 def _journalctl(line, low):
     return bool("journalctl" in low and "--user" in low
-                and re.search(r"(?:-u|--unit|--user-unit)[=\s]+gremlin(?:\.service)?\b", low)
+                and re.search(r"(?:-u|--unit|--user-unit)[=\s]+magic(?:\.service)?\b", low)
                 and re.search(r"(?:-n\s*50|--lines[=\s]+50)\b", low))
 
 
@@ -108,9 +108,9 @@ def build(q):
          "Give the single shell command to restart the Docker container named jellyfin. Only the command.",
          _cmd(r"^docker\s+(?:container\s+)?restart\s+jellyfin\s*$")),
         ("rt_journalctl",
-         "Give the command to show the last 50 log lines of the systemd USER service gremlin.service using "
+         "Give the command to show the last 50 log lines of the systemd USER service magic.service using "
          "journalctl. Only the command.",
-         _grader(_journalctl, "needs journalctl --user with -u/--user-unit gremlin.service and -n 50 (any form)")),
+         _grader(_journalctl, "needs journalctl --user with -u/--user-unit magic.service and -n 50 (any form)")),
         ("rt_cron_230",
          "Write the crontab line that runs /home/mickey/backup.sh every day at 2:30 AM. Only the line.",
          _cmd(r"^30\s+0?2\s+\*\s+\*\s+\*\s+/home/mickey/backup\.sh\s*$")),

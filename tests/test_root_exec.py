@@ -9,8 +9,8 @@ actually restrictive."""
 import asyncio
 import stat
 
-from gremlin_core.sandbox import SandboxResult
-import gremlin_core.root_exec as root_exec
+from magic_core.sandbox import SandboxResult
+import magic_core.root_exec as root_exec
 
 
 def _ok_result(stdout=""):

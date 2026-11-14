@@ -7,25 +7,25 @@
 #
 # Gemini runs through the Antigravity CLI (agy). AGY_READONLY below is what makes it
 # read-only: agy ignores .gemini/settings.json and its --mode plan can still write files.
-# It can read the whole repo but can't edit files or run commands. Every exchange is saved in .gremlin/talk/ so
+# It can read the whole repo but can't edit files or run commands. Every exchange is saved in .magic/talk/ so
 # Mickey can read what the two of them said.
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
-TALK=".gremlin/talk"; mkdir -p "$TALK"
+TALK=".magic/talk"; mkdir -p "$TALK"
 TS="$(date +%Y%m%d-%H%M%S)"
 LOG="$TALK/$TS-$$.md"
 TIMEOUT="${GEMINI_TIMEOUT:-300}"
-BASE="${GREMLIN_BASE:-main}"
+BASE="${MAGIC_BASE:-main}"
 
 export PATH="$HOME/.local/bin:$PATH"
 command -v agy >/dev/null || { echo "ask-gemini: agy (Antigravity CLI) not found on PATH" >&2; exit 127; }
 AGY_READONLY='{"permissions":{"deny":["write_file(/)","command(*)","mcp(*)"]}}'
 
 # Don't add Gemini's RAM on top of a running heavy build — wait for it (max 15 min).
-if [ -e .gremlin/heavy.lock ]; then
-  exec 8>.gremlin/heavy.lock
+if [ -e .magic/heavy.lock ]; then
+  exec 8>.magic/heavy.lock
   flock -n 8 || { echo "ask-gemini: heavy build running, waiting for it to finish..." >&2; flock -w 900 8 || { echo "ask-gemini: gave up waiting" >&2; exit 75; }; }
   exec 8>&-
 fi

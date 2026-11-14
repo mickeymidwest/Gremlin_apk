@@ -101,9 +101,9 @@
   </div>
   <div id="chat-panel">
     <div id="turns"></div>
-    <div id="thinking">&#9679; gremlin is thinking&hellip;</div>
+    <div id="thinking">&#9679; magic is thinking&hellip;</div>
     <div id="input-row">
-      <textarea id="message-input" rows="1" placeholder="Ask Gremlin..."></textarea>
+      <textarea id="message-input" rows="1" placeholder="Ask Magic..."></textarea>
       <button id="send-btn">Send</button>
     </div>
   </div>
@@ -170,14 +170,14 @@ async function sendMessage() {
     const result = await window.pywebview.api.chat(message);
     addTurn('assistant', result.answer || '[empty response]', subtextFor(result), !!result.error);
   } catch (e) {
-    addTurn('assistant', "Couldn't reach Gremlin: " + e, null, true);
+    addTurn('assistant', "Couldn't reach Magic: " + e, null, true);
   } finally {
     thinkingEl.style.display = 'none';
   }
 }
 
 // Slash commands are intercepted before the normal chat/consult path --
-// /snapshots and /root talk straight to gremlin_core via Api (no HTTP,
+// /snapshots and /root talk straight to magic_core via Api (no HTTP,
 // this already is the desktop), rendered as a visually distinct
 // "system" turn rather than a normal assistant reply.
 async function handleSlashCommand(message) {
@@ -198,7 +198,7 @@ async function handleSlashCommand(message) {
         addTurn('system', lines);
       }
     } catch (e) {
-      addTurn('system', "Couldn't reach Gremlin: " + e, null, true);
+      addTurn('system', "Couldn't reach Magic: " + e, null, true);
     } finally {
       thinkingEl.style.display = 'none';
     }
@@ -221,7 +221,7 @@ async function handleSlashCommand(message) {
       const r = await window.pywebview.api.rollback_to(number);
       addTurn('system', r.message, null, !r.ok);
     } catch (e) {
-      addTurn('system', "Couldn't reach Gremlin: " + e, null, true);
+      addTurn('system', "Couldn't reach Magic: " + e, null, true);
     } finally {
       thinkingEl.style.display = 'none';
     }
@@ -240,7 +240,7 @@ async function handleSlashCommand(message) {
       const body = `exit ${r.exit_code}${r.timed_out ? ' (timed out)' : ''}\n${r.stdout}${r.stderr ? '\n' + r.stderr : ''}`.trim();
       addTurn('system', body, null, !r.ok);
     } catch (e) {
-      addTurn('system', "Couldn't reach Gremlin: " + e, null, true);
+      addTurn('system', "Couldn't reach Magic: " + e, null, true);
     } finally {
       thinkingEl.style.display = 'none';
     }
@@ -256,7 +256,7 @@ async function handleSlashCommand(message) {
       return;
     }
     if (!confirmed) {
-      addTurn('system', `This asks Gremlin to propose a code change for itself, reviewed by claude+gemini, and commits it to git if both approve. Type "/edit ${goal} confirm" to proceed.`);
+      addTurn('system', `This asks Magic to propose a code change for itself, reviewed by claude+gemini, and commits it to git if both approve. Type "/edit ${goal} confirm" to proceed.`);
       return;
     }
     thinkingEl.style.display = 'block';
@@ -267,7 +267,7 @@ async function handleSlashCommand(message) {
         : `NOT applied -- ${r.reason}`;
       addTurn('system', body, null, !r.applied);
     } catch (e) {
-      addTurn('system', "Couldn't reach Gremlin: " + e, null, true);
+      addTurn('system', "Couldn't reach Magic: " + e, null, true);
     } finally {
       thinkingEl.style.display = 'none';
     }
@@ -290,7 +290,7 @@ inputEl.addEventListener('keydown', (e) => {
 // the other end of this.
 window.addEventListener('message', (e) => {
   const data = e.data;
-  if (!data || data.source !== 'gremlin-hologram' || !window.pywebview) return;
+  if (!data || data.source !== 'magic-hologram' || !window.pywebview) return;
   if (data.type === 'openSettings') {
     window.pywebview.api.open_settings();
   } else if (data.type === 'openModelSettings') {

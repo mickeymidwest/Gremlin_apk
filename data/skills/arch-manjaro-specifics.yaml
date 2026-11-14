@@ -16,7 +16,7 @@ procedure:
 - 'known-vulnerable installed packages: `arch-audit` lists CVEs for what''s installed; `pacman
   -Qu` shows what an upgrade would change'
 - config lives in /etc as plain files + systemd units; `journalctl -xe`, `systemctl --user`
-  for user services like gremlin
+  for user services like magic
 supersedes: null
 provenance:
 - seed

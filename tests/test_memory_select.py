@@ -1,5 +1,5 @@
 """R4 memory retrieval: relevant facts surface, newest always kept, budget held."""
-from gremlin_core import memory_select as ms
+from magic_core import memory_select as ms
 
 FACTS = [
     "Mickey's desktop is a Dell G5 with an RTX 2070 Super",          # 0 oldest
@@ -41,7 +41,7 @@ def test_budget_drops_oldest_first():
 
 def test_block_formats():
     b = ms.block(FACTS, "jellyfin docker", recent=1, matched=2)
-    assert b.startswith("Things you (Gremlin) know") and "- " in b
+    assert b.startswith("Things you (Magic) know") and "- " in b
     assert ms.block([], "x") == ""
 
 
@@ -76,8 +76,8 @@ import re as _re
 
 import pytest as _pytest
 
-from gremlin_core import embed as _E
-from gremlin_core import memory_select as _M
+from magic_core import embed as _E
+from magic_core import memory_select as _M
 
 # Synonym AXES: words on the same axis are semantically related but are
 # DIFFERENT words, so a query and a fact can match on an axis with ZERO token
@@ -96,7 +96,7 @@ def _toy(text):
 
 @_pytest.fixture
 def _embed_on(monkeypatch):
-    monkeypatch.setenv("GREMLIN_EMBED", "1")
+    monkeypatch.setenv("MAGIC_EMBED", "1")
     monkeypatch.setattr(_E, "_raw_embed", _toy)
     _E._vec_cache.clear()
     yield
@@ -120,7 +120,7 @@ def test_fact_retrieval_semantic_only_match(_embed_on):
 
 
 def test_fact_retrieval_disabled_finds_nothing(monkeypatch):
-    monkeypatch.delenv("GREMLIN_EMBED", raising=False)
+    monkeypatch.delenv("MAGIC_EMBED", raising=False)
     # with embeddings OFF and zero keyword overlap, nothing matches -> empty
     picked = _M.select(_FACTS, _MSG, recent=0, matched=2, max_chars=500)
     assert picked == []

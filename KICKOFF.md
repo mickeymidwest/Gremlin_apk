@@ -3,8 +3,8 @@
 Start Claude Code inside the repo, then paste this:
 
 ---
-Fresh start on Gremlin_apk. Read CALIBRATION.md, MAGIC.md, .gremlin/decisions.md, .gremlin/runs.md and
-.gremlin/proposals.md before anything else. Old instructions are archived in .gremlin/archive/:
+Fresh start on Magic_apk. Read CALIBRATION.md, MAGIC.md, .magic/decisions.md, .magic/runs.md and
+.magic/proposals.md before anything else. Old instructions are archived in .magic/archive/:
 they're history, not rules. Don't follow them.
 
 You have main control of the code, and Gemini is your partner. Test the line now:

@@ -4,7 +4,7 @@ set -u
 cd /home/mickey/Downloads/gremlin
 export BENCH_N_CTX=8192
 
-systemctl --user stop gremlin.service gremlin-watchdog.timer
+systemctl --user stop magic.service magic-watchdog.timer
 sleep 3
 echo "VRAM free: $(nvidia-smi --query-gpu=memory.free --format=csv,noheader)"
 
@@ -14,10 +14,10 @@ run() {  # name  path  [extra env]
     | grep -E "PASS|FAIL|/1[0-9]|tok/s|core|abort" | tail -25
 }
 
-run "Qwen2.5-7B (Gremlin)"    "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"          ""
+run "Qwen2.5-7B (Magic)"    "models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"          ""
 run "Qwen2.5-Coder-7B"        "models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"    ""
-run "granite-3.1-8b"          "../gremlin-unused-models/granite-3.1-8b-instruct-Q4_K_M.gguf"  ""
+run "granite-3.1-8b"          "../magic-unused-models/granite-3.1-8b-instruct-Q4_K_M.gguf"  ""
 run "Qwen2.5-14B IQ3_XS"      "models/Qwen2.5-14B-Instruct-IQ3_XS.gguf"         "BENCH_KV=q4_0"
 
-systemctl --user start gremlin-watchdog.timer gremlin.service
+systemctl --user start magic-watchdog.timer magic.service
 echo; echo "=== full results: bench/quality-$(date +%Y-%m-%d).jsonl ==="

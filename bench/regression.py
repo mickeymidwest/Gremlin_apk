@@ -2,7 +2,7 @@
 model against its best PRIOR run with the same suite hash, and flag any part
 whose score dropped by >= min_drop. No model calls -- it only reads the
 bench/quality-*.jsonl files quality.py already writes, so it's cheap and can
-run right after the nightly bench (or be surfaced by `gremlin self-audit`).
+run right after the nightly bench (or be surfaced by `magic self-audit`).
 
 Writes data/bench-regression.txt when something regressed (removes it when
 clean), so other tools can surface it without importing this.

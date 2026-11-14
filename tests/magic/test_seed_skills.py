@@ -1,9 +1,9 @@
 """Starter skill cards."""
 import asyncio
 
-from gremlin_core.magic import seed_skills
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core.magic import seed_skills
+from magic_core.magic.store import Store
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_commands import FakeRegistry
 
 

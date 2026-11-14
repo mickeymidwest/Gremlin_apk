@@ -27,8 +27,8 @@
 #
 # Usage, on a rented box (RunPod/Vast -- see deploy/CLOUD-FINETUNE.md
 # for account setup, same accounts work here):
-#   git clone https://github.com/mickeymidwest/Gremlin_apk.git ~/gremlin
-#   cd ~/gremlin
+#   git clone https://github.com/mickeymidwest/Gremlin_apk.git ~/magic
+#   cd ~/magic
 #   MERGE_METHOD=passthrough bash deploy/cloud-merge-14b.sh
 set -euo pipefail
 
@@ -43,7 +43,7 @@ set -euo pipefail
 MODEL_A="${MODEL_A:-huihui-ai/Qwen2.5-Coder-7B-Instruct-abliterated}"
 MODEL_B="${MODEL_B:-Qwen/Qwen2.5-Coder-7B-Instruct}"
 MERGE_METHOD="${MERGE_METHOD:-passthrough}"
-OUT_NAME="gremlin-coder-merge-$(date +%Y%m%d-%H%M%S)"
+OUT_NAME="magic-coder-merge-$(date +%Y%m%d-%H%M%S)"
 OUT_DIR="data/finetunes/${OUT_NAME}"
 
 echo "MODEL_A (leading): $MODEL_A"
@@ -118,5 +118,5 @@ echo "Done. Bring this ONE file back to the desktop (the rest is scratch):"
 echo "  $OUT_DIR/${OUT_NAME}-Q4_K_M.gguf"
 echo
 echo "From the desktop:"
-echo "  scp USER@CLOUD:~/gremlin/$OUT_DIR/${OUT_NAME}-Q4_K_M.gguf ~/Downloads/gremlin/models/"
+echo "  scp USER@CLOUD:~/magic/$OUT_DIR/${OUT_NAME}-Q4_K_M.gguf ~/Downloads/gremlin/models/"
 echo "See deploy/CLOUD-MERGE.md for registering + A/B'ing it against the plain 7B."

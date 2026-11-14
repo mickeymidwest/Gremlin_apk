@@ -1,8 +1,8 @@
 """Self-building: the model writes a tool, the forge validates + persists it."""
 import asyncio
 
-from gremlin_core import tool_forge as TF
-from gremlin_core.magic.model import ScriptedModel
+from magic_core import tool_forge as TF
+from magic_core.magic.model import ScriptedModel
 
 
 def test_author_writes_and_forges_a_tool(tmp_path):

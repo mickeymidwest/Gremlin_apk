@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Lets you run `magic <command>` instead of `python main.py <command>`.
+#
+# One-time setup:
+#   chmod +x magic
+#   sudo ln -s "$(pwd)/magic" /usr/local/bin/magic
+# (or add this project directory to your PATH some other way)
+#
+# After that: `magic models`, `magic chat magic`, etc. work from
+# anywhere, and always run against this project's venv + config.
+
+# readlink -f resolves the symlink to its real target FIRST -- without
+# this, running the script via the /usr/local/bin symlink (exactly what
+# the setup above creates) makes BASH_SOURCE point at the symlink's own
+# location, not the real project directory, and main.py isn't there.
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Recovery runs in pure bash + git, BEFORE loading any Python, so it still
+# works when a bad edit broke the app itself.
+case "${1:-}" in
+    restore)    exec "$SCRIPT_DIR/deploy/recovery/restore.sh" "${@:2}" ;;
+    checkpoint) exec "$SCRIPT_DIR/deploy/recovery/checkpoint.sh" "${@:2}" ;;
+esac
+
+if [ -f "$SCRIPT_DIR/venv/bin/python" ]; then
+    PYTHON="$SCRIPT_DIR/venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
+cd "$SCRIPT_DIR" && exec "$PYTHON" main.py "$@"

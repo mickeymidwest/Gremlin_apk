@@ -1,5 +1,5 @@
 """find_files (the Glob surface): name matching, jailed, secrets skipped."""
-from gremlin_core import fs_tools as FS
+from magic_core import fs_tools as FS
 
 
 def test_find_by_substring(tmp_path):

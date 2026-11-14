@@ -2,7 +2,7 @@
 import os
 import sys
 
-from gremlin_core.mcp_client import MCPClient
+from magic_core.mcp_client import MCPClient
 
 _SERVER = os.path.join(os.path.dirname(__file__), "mcp_echo_server.py")
 

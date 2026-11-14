@@ -1,5 +1,5 @@
 """N15: mutation_log scrubs secrets before writing."""
-from gremlin_core import mutation_log as M
+from magic_core import mutation_log as M
 
 
 def test_scrub_redacts_known_secret_shapes():

@@ -1,17 +1,17 @@
 """R4 step 2: dated facts parsed from the store + stale flagging in the block."""
 import time
 
-from gremlin_core import memory_select as M
-from gremlin_core.magic.store import Store
+from magic_core import memory_select as M
+from magic_core.magic.store import Store
 
 
 def test_read_facts_parses_timestamp(tmp_path, monkeypatch):
-    mem = tmp_path / "gremlin_memory.txt"
+    mem = tmp_path / "magic_memory.txt"
     mem.write_text(
         "# memory\n"
         "- [2024-03-01 09:30] the desktop had a GTX 1660 back then\n"
         "- a hand-added fact with no timestamp\n")
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(mem))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(mem))
     facts = Store(str(tmp_path)).read_facts()
     byid = {f.text: f for f in facts}
     dated = byid["the desktop had a GTX 1660 back then"]

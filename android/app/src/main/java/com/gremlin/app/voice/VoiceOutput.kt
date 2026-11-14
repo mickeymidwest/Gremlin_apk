@@ -7,7 +7,7 @@ import java.util.Locale
 
 /**
  * Thin wrapper around Android's built-in TextToSpeech -- speaks
- * Gremlin's replies aloud when enabled in Settings. No custom voice
+ * Magic's replies aloud when enabled in Settings. No custom voice
  * model or accent: stock Android TTS has no way to pick a regional
  * accent or a character voice, only whatever system voices are
  * installed plus pitch/rate tuning. Pitch and rate default to a
@@ -41,7 +41,7 @@ class VoiceOutput(context: Context, private val prefs: SharedPreferences) {
         val engine = tts ?: return
         engine.setPitch(prefs.getFloat("voice_pitch", DEFAULT_PITCH))
         engine.setSpeechRate(prefs.getFloat("voice_rate", DEFAULT_RATE))
-        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "gremlin-reply")
+        engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "magic-reply")
     }
 
     fun stop() {

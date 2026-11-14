@@ -1,4 +1,4 @@
-# Gremlin + Magic — 100 updates
+# Magic + Magic — 100 updates
 
 A working backlog. Each item is concrete enough to pick up. Rough priority
 tags: **[P1]** clear win / low risk, **[P2]** worth doing, **[P3]** nice to
@@ -6,7 +6,7 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 
 ---
 
-## A. Gremlin — the model & how it answers  (1–14)
+## A. Magic — the model & how it answers  (1–14)
 
 1. **[P1]** Stream `/command` responses too (SSE), not just `/chat` — same
    bridge, so `/skill`, `/do`, `/defense` type out live.
@@ -26,7 +26,7 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 12. **[P2]** "Model warmth" chip in the app header — green warm / amber loading
     / grey down, read from `/status model_loaded`.
 13. **[P2]** First-message-after-restart: the app already shows "waking
-    Gremlin"; also show a rough progress bar from the preflight log.
+    Magic"; also show a rough progress bar from the preflight log.
 14. **[P3]** Away-mode: cache the last N turns of each thread, not just the
     persona prompt, so Claude/Gemini answers keep context.
 
@@ -69,7 +69,7 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 ## C. Magic — battles & verification  (31–48)
 
 31. **[P1]** Wire `GradleVerifier` into `/build android` and a new
-    `/build android --iterate` so Gremlin fixes its own build errors.
+    `/build android --iterate` so Magic fixes its own build errors.
 32. **[P1]** `on_done` (verify-before-DONE) — now in `run_battle`; wire it into
     `campaign.py` and `/fix` too, not just the one-off script.
 33. **[P2]** `NpmVerifier` (`npm test` / `npm run build`) and a generic
@@ -108,7 +108,7 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 
 ## D. Magic — memory  (49–58)
 
-49. **[P2]** Section headers in `gremlin_memory.txt` (`## Hardware`,
+49. **[P2]** Section headers in `magic_memory.txt` (`## Hardware`,
     `## Preferences`, `## Projects`, `## People`) — write into the right one,
     read the relevant section for a given message.
 50. **[P2]** Embedding search over the memory file — recall the 5 most
@@ -119,7 +119,7 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
     "replace, keep both, or ignore?".
 53. **[P2]** `/memory pin <n>` — protect a fact from any auto-cleanup / decay.
 54. **[P3]** Cold storage — facts untouched for 90 days move to
-    `gremlin_memory.archive.txt`, still greppable, out of the prompt.
+    `magic_memory.archive.txt`, still greppable, out of the prompt.
 55. **[P2]** Tag each fact with its source on write (`[user]` / `[auto]` /
     `[battle b123]`) — already partly done, make it consistent + shown in
     `/memory list`.
@@ -133,7 +133,7 @@ have / needs hardware or a lot of work. Grouped by area, numbered 1–100.
 ## E. Magic — campaigns & self-improvement  (59–68)
 
 **Found during the 2026-09-19 harness audit: `Campaign`
-(`gremlin_core/magic/campaign.py` — train/holdout split, trial curve,
+(`magic_core/magic/campaign.py` — train/holdout split, trial curve,
 convergence detection) has zero real callers anywhere in the repo.**
 What actually runs nightly is `zoid_loop.py`'s `one_battle`/
 `one_scaffold_battle`/`one_generate_battle` against the fixed target
@@ -157,7 +157,7 @@ instead of waiting on that decision — see its note below.
     keep only if it moved the score.
 64. **[done]** ~~Regression suite~~ — adapted to the real system: zoid_loop.py's
     fixed targets already re-run every night by construction, so the gap was
-    memory, not re-running. `gremlin_core/magic/regression.py` persists each
+    memory, not re-running. `magic_core/magic/regression.py` persists each
     target's best-ever win to `data/magic/regression/<name>.json` (git-
     committed nightly alongside skills) and `one_campaign_battle`/
     `one_scaffold_battle`/`one_generate_battle` all check + log loudly BEFORE
@@ -188,23 +188,23 @@ instead of waiting on that decision — see its note below.
     `models.yaml` and pushes the new system prompt into the live persona,
     no restart. Deliberately doesn't cover `primary_model`/`model_path` --
     use `/model switch` for those.
-71. **[P2]** `/admin/logs?n=100` — tail `journalctl --user -u gremlin` through
+71. **[P2]** `/admin/logs?n=100` — tail `journalctl --user -u magic` through
     the app, so mickey doesn't need SSH to see why it broke.
 72. **[P2]** Request queue with priority — a chat message shouldn't wait behind
     a `/build android`.
 73. **[P2]** "Degraded" banner — if the primary is down and only gemini is
     answering, the app says so instead of silently switching voice.
-74. **[done]** ~~`deploy/backup.sh`~~ — tars `data/skills`, `gremlin_memory.txt`,
+74. **[done]** ~~`deploy/backup.sh`~~ — tars `data/skills`, `magic_memory.txt`,
     `data/magic`, `config/` to `~/Downloads/gremlin-backups/` (keeps newest
-    12); `gremlin-backup.timer` runs it Sunday 03:00, installed and enabled.
+    12); `magic-backup.timer` runs it Sunday 03:00, installed and enabled.
 75. **[P2]** Health metrics endpoint (`/metrics`, Prometheus text) — tok/s,
     VRAM, queue depth, consec failures.
 76. **[P2]** Warm-keep — if the model's been idle >8 min and RAM is fine, run a
     1-token generation to keep it in page cache (fights the HDD cold start).
-77. **[P3]** Dry-run server mode (`GREMLIN_FAKE_MODEL=1`) — canned responses,
+77. **[P3]** Dry-run server mode (`MAGIC_FAKE_MODEL=1`) — canned responses,
     for testing the APK and routes without loading a model.
 78. **[P2]** Rotate `data/learning_log.jsonl` at N MB; keep the last 3.
-79. **[P2]** `gremlin-update.sh` should `git stash` local changes before pull,
+79. **[P2]** `magic-update.sh` should `git stash` local changes before pull,
     not just pull — a dirty tree currently blocks the auto-update silently.
 80. **[P2]** The update timer should skip the restart if `agent_state != idle`
     (don't restart mid-answer) — retry on the next tick.
@@ -237,14 +237,14 @@ instead of waiting on that decision — see its note below.
 91. **[P2]** Offline outbox — messages typed while disconnected queue and send
     on reconnect (the pending-sync mechanism, generalized to normal chat).
 92. **[P2]** Dark / light toggle (currently follows one theme).
-93. **[P3]** Home-screen widget — one-tap "ask Gremlin".
-94. **[P3]** Share-to-Gremlin — share text/an image from another app into a new
+93. **[P3]** Home-screen widget — one-tap "ask Magic".
+94. **[P3]** Share-to-Magic — share text/an image from another app into a new
     message (OCR the image with the ML Kit that's already bundled).
 95. **[P2]** Biometric lock on app open (admin token access especially).
 
 ## I. Defense — own-box security  (96–100)
 
-96. **[done]** ~~`/defense report` on a schedule~~ — `gremlin-defense.timer`
+96. **[done]** ~~`/defense report` on a schedule~~ — `magic-defense.timer`
     (04:00 daily) writes `data/defense/<date>.md` via `defense.write_report()`.
     `GET /admin/defense` serves the latest + a `flagged` bool for an app
     badge — badge UI itself not built (that's an Android app change, not
@@ -268,7 +268,7 @@ instead of waiting on that decision — see its note below.
 Prompted by a much bigger "100-step enterprise harness" proposal mickey got
 from another AI (permission engine, secrets vault, event bus, world model,
 digital twin, missions) — scaled down to what a one-GPU personal box run by
-one person actually needs. Skip anything that duplicates a mechanism Gremlin
+one person actually needs. Skip anything that duplicates a mechanism Magic
 already has (the review gate, `mutation_log.py`, `data/zoid_stop`,
 `agent_state`) — extend those instead of building parallel systems.
 
@@ -282,7 +282,7 @@ already has (the review gate, `mutation_log.py`, `data/zoid_stop`,
      chain); the actual gap was chat improvising when routing missed. 101/
      102/the classifier-wording fix below are the real backstop.
 104. **[done]** ~~Capability list per tool~~ — `Tool.capability` (`read_only`
-     / `mutates_gremlin` / `mutates_external`), all 13 tools tagged.
+     / `mutates_magic` / `mutates_external`), all 13 tools tagged.
 105. **[done]** ~~Audit trail~~ — `actions.execute()` logs any non-read_only
      tool call to `mutation_log.jsonl` generically; `GET /admin/log?n=`.
 106. **[done]** ~~Emergency stop~~ — `POST /admin/stop` wraps `data/zoid_stop`
@@ -307,7 +307,7 @@ already has (the review gate, `mutation_log.py`, `data/zoid_stop`,
 
 - **#81** SSD — unblocks everything perf-related
 - **#31 + #32** GradleVerifier into `/build android` + verify-before-DONE
-  everywhere — makes "Gremlin builds an app" actually work
+  everywhere — makes "Magic builds an app" actually work
 - **#64** regression suite — every win becomes a permanent test; the loop
   stops silently regressing
 - **#74** backup timer — skills + memory + episodes are irreplaceable and

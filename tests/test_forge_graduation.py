@@ -1,7 +1,7 @@
 """Graduation: a promoted forged tool becomes a first-class (bare-name) tool."""
-from gremlin_core import tool_forge as TF
-from gremlin_core import forge_lifecycle as FL
-from gremlin_core import tools as tools_mod
+from magic_core import tool_forge as TF
+from magic_core import forge_lifecycle as FL
+from magic_core import tools as tools_mod
 
 CODE = 'def run(args):\n    return {"ok": True, "answer": "ok"}\n'
 

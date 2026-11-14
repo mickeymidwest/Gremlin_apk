@@ -12,7 +12,7 @@ import os
 import psutil
 import pytest
 
-from gremlin_core.sandbox import SecureExecutionSandbox
+from magic_core.sandbox import SecureExecutionSandbox
 
 
 def test_runs_a_real_command_and_captures_stdout(tmp_path):
@@ -83,9 +83,9 @@ def test_path_env_is_restricted_to_usr_bin_and_bin(tmp_path):
 
 
 def test_other_env_vars_still_pass_through(tmp_path, monkeypatch):
-    monkeypatch.setenv("GREMLIN_TEST_SANDBOX_PASSTHROUGH", "still-here")
+    monkeypatch.setenv("MAGIC_TEST_SANDBOX_PASSTHROUGH", "still-here")
     sandbox = SecureExecutionSandbox(str(tmp_path))
-    result = asyncio.run(sandbox.run_safe_command("printenv GREMLIN_TEST_SANDBOX_PASSTHROUGH"))
+    result = asyncio.run(sandbox.run_safe_command("printenv MAGIC_TEST_SANDBOX_PASSTHROUGH"))
     assert result.stdout == "still-here"
 
 

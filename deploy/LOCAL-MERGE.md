@@ -1,6 +1,6 @@
 # Local TIES merge — the correct, memory-safe way
 
-A "hybrid" Gremlin = several **same-architecture** models blended into one
+A "hybrid" Magic = several **same-architecture** models blended into one
 set of weights with TIES (trim + elect-sign + merge). This is the fixed
 version of the 3-model blueprint that kept getting passed around.
 
@@ -58,8 +58,8 @@ bash deploy/setup-merge-swap.sh up 32
 
 # 2. free the box: drop the service AND the timers (what zoid-nightly does)
 touch data/zoid_stop        # keeps tonight's nightly from colliding
-systemctl --user stop gremlin.service gremlin-watchdog.timer \
-                      gremlin-update.timer gremlin-distill.timer
+systemctl --user stop magic.service magic-watchdog.timer \
+                      magic-update.timer magic-distill.timer
 
 # 3. VALIDATE FIRST (safe, no heavy work) — paths are the HF snapshot dirs
 BASE=~/.cache/huggingface/hub/models--mlabonne--Meta-Llama-3.1-8B-Instruct-abliterated/snapshots/*
@@ -70,18 +70,18 @@ venv/bin/python deploy/merge-local-llama31.py check --base $BASE --add $ADD
 # 4. merge (CPU + disk + swap; ~15-40 min on this box)
 venv/bin/python deploy/merge-local-llama31.py run \
     --base $BASE --add $ADD \
-    --out ~/Downloads/merge_out/gremlin-llama31-ties \
+    --out ~/Downloads/merge_out/magic-llama31-ties \
     --scratch ~/Downloads/merge_scratch
 
-# 5. convert + quantize the merged HF model to a GGUF Gremlin can load
+# 5. convert + quantize the merged HF model to a GGUF Magic can load
 venv/bin/python deploy/merge-local-llama31.py gguf \
-    --hf ~/Downloads/merge_out/gremlin-llama31-ties \
-    --out models/gremlin-llama31-ties.Q4_K_M.gguf \
+    --hf ~/Downloads/merge_out/magic-llama31-ties \
+    --out models/magic-llama31-ties.Q4_K_M.gguf \
     --quant Q4_K_M --llama-cpp ~/llama.cpp
 
 # 6. put everything back
-systemctl --user start gremlin.service gremlin-watchdog.timer \
-                       gremlin-update.timer gremlin-distill.timer
+systemctl --user start magic.service magic-watchdog.timer \
+                       magic-update.timer magic-distill.timer
 bash deploy/setup-merge-swap.sh down
 ```
 
@@ -91,8 +91,8 @@ Register the new GGUF and A/B it before committing to it as primary — keep
 `meta-llama-3.1-8b-instruct-abliterated.Q4_K_M.gguf` as the fallback:
 
 ```
-gremlin model switch gremlin-llama31-ties     # config-only; needs a restart
-systemctl --user restart gremlin.service
+magic model switch magic-llama31-ties     # config-only; needs a restart
+systemctl --user restart magic.service
 # bench it against the current primary (bench/quality.py) before trusting it
 ```
 

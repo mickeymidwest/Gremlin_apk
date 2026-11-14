@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from gremlin_core import tools, web_search
+from magic_core import tools, web_search
 
 
 class _Res:

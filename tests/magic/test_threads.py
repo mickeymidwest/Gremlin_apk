@@ -1,8 +1,8 @@
 """Multi-thread conversations (the phone's recent-conversations list)."""
 import asyncio
 
-from gremlin_core.magic.conversation import Threads
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core.magic.conversation import Threads
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_conversation import EchoRegistry
 
 

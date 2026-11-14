@@ -1,8 +1,8 @@
 """Battles can call forged tools (ACTION: forged_<name>), sandboxed + readonly-aware."""
-from gremlin_core import tool_forge as TF
-from gremlin_core.magic.battle import run_battle
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core import tool_forge as TF
+from magic_core.magic.battle import run_battle
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 ECHOER = 'def run(args):\n    return {"ok": True, "answer": "echoed: " + str(args.get("msg", ""))}\n'
 WRITER = 'def run(args):\n    return {"ok": True, "answer": "wrote it"}\n'

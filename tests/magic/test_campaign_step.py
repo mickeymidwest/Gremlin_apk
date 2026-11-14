@@ -9,9 +9,9 @@ import json
 import shutil
 from pathlib import Path
 
-from gremlin_core.magic.campaign import Campaign
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.types import Task
+from magic_core.magic.campaign import Campaign
+from magic_core.magic.store import Store
+from magic_core.magic.types import Task
 
 from .test_campaign import DemoModel, FIXTURE
 
@@ -127,7 +127,7 @@ def test_two_targets_sharing_one_store_never_clobber_each_others_state(tmp_path)
 
 
 def test_step_stops_and_returns_false_on_quota_exhausted(tmp_path, monkeypatch):
-    from gremlin_core.magic.model import QuotaExhausted
+    from magic_core.magic.model import QuotaExhausted
 
     target = _target(tmp_path)
     store = Store(tmp_path / "store")

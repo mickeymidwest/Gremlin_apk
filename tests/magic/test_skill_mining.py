@@ -1,6 +1,6 @@
 """Skill-mining: recurring technical chat topics that lack a card."""
-from gremlin_core.magic import skill_mining as SM
-from gremlin_core.magic.types import Skill
+from magic_core.magic import skill_mining as SM
+from magic_core.magic.types import Skill
 
 
 def _skill(name, trig, matcher=None):

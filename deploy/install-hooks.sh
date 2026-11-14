@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Gremlin's git hooks (the pre-push secret scan). Idempotent -- safe to
+# Install Magic's git hooks (the pre-push secret scan). Idempotent -- safe to
 # re-run after a fresh clone. Canonical hook lives in deploy/hooks/.
 set -e
 cd "$(dirname "$0")/.."

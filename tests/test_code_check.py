@@ -1,5 +1,5 @@
-"""Gremlin should actually syntax-check scripts it writes in chat."""
-from gremlin_core.magic import code_check as cc
+"""Magic should actually syntax-check scripts it writes in chat."""
+from magic_core.magic import code_check as cc
 
 
 def test_clean_bash_passes():

@@ -1,11 +1,11 @@
-"""_review_models -- mickey caught Gremlin claiming "two other models
+"""_review_models -- mickey caught Magic claiming "two other models
 review it" when the code actually passed the SAME model as both
 reviewer_a and reviewer_b (three call sites: self_edit, build_project,
 and /admin/self-edit). This makes that claim actually true: two
 genuinely different models when available, degrading honestly to one
 counted twice only when nothing else distinct exists. No GPT --
 mickey doesn't want a running API cost for this."""
-from gremlin_core.tools import _review_models, ExecContext
+from magic_core.tools import _review_models, ExecContext
 
 
 class _FakeRegistry:
@@ -76,7 +76,7 @@ def test_local_only_falls_back_to_primary_when_only_one_14b():
 
 
 def test_local_review_flag_skips_gemini_even_when_present(monkeypatch):
-    monkeypatch.setenv("GREMLIN_LOCAL_REVIEW", "1")
+    monkeypatch.setenv("MAGIC_LOCAL_REVIEW", "1")
     ctx = _ctx({"gemini", "qwen2.5-coder-14b", "qwen2.5-14b", "qwen3.5-9b"}, primary="qwen3.5-9b")
     a, b = _review_models(ctx)
     assert {a, b} == {"qwen2.5-coder-14b", "qwen2.5-14b"}  # gemini skipped on purpose

@@ -6,8 +6,8 @@ these tests -- get_status/restart are monkeypatched at the module
 boundary, resolve_unit is pure config parsing."""
 import asyncio
 
-import gremlin_core.service_control as service_control
-from gremlin_core import tools as tools_mod
+import magic_core.service_control as service_control
+from magic_core import tools as tools_mod
 
 
 def _project_root_with(tmp_path, yaml_text):
@@ -22,7 +22,7 @@ service_control:
     - jellyfin
     - jellyseerr
   systemd:
-    - gremlin.service
+    - magic.service
 """
 
 
@@ -33,8 +33,8 @@ def test_allow_listed_docker_name_resolves(tmp_path):
 
 def test_allow_listed_systemd_name_resolves_with_or_without_suffix(tmp_path):
     root = _project_root_with(tmp_path, _YAML)
-    assert service_control.resolve_unit(root, "gremlin.service") == ("systemd", "gremlin.service")
-    assert service_control.resolve_unit(root, "gremlin") == ("systemd", "gremlin.service")
+    assert service_control.resolve_unit(root, "magic.service") == ("systemd", "magic.service")
+    assert service_control.resolve_unit(root, "magic") == ("systemd", "magic.service")
 
 
 def test_name_not_on_list_refuses(tmp_path):
@@ -65,7 +65,7 @@ def test_service_restart_tool_refuses_a_name_not_on_the_list(tmp_path, monkeypat
 
 
 def test_service_restart_tool_calls_through_for_an_allowed_name(tmp_path, monkeypatch):
-    from gremlin_core.sandbox import SandboxResult
+    from magic_core.sandbox import SandboxResult
 
     root = _project_root_with(tmp_path, _YAML)
     calls = []

@@ -4,7 +4,7 @@ is consulted, so a 14B never gets to rubber-stamp a patch that isn't green."""
 import asyncio
 import subprocess
 
-from gremlin_core import review
+from magic_core import review
 
 
 class _Res:

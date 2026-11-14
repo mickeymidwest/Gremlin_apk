@@ -1,5 +1,5 @@
 """Smart context bundling: Python import graph + dependents."""
-from gremlin_core.magic import context_bundle as CB
+from magic_core.magic import context_bundle as CB
 
 
 def _repo(tmp_path):

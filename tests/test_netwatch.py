@@ -1,5 +1,5 @@
 """S6 network watch: LAN-neighbour / Tailscale-node parsing + diff findings."""
-from gremlin_core import guard
+from magic_core import guard
 
 
 def test_lan_neighbors_parses_stable_entries(monkeypatch):

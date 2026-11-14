@@ -1,8 +1,8 @@
 """check_file reachable end-to-end + the pre-filter lets it through."""
 import asyncio
 
-from gremlin_core import actions
-from gremlin_core.intent import Intent, _ACTION_HINT
+from magic_core import actions
+from magic_core.intent import Intent, _ACTION_HINT
 
 
 def _run(intent, root):

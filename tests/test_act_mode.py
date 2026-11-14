@@ -1,8 +1,8 @@
 """Act mode: a 'check/run X' request routes to an action instead of plain chat."""
 import asyncio
 
-import gremlin_core.intent as I
-from gremlin_core import act_mode
+import magic_core.intent as I
+from magic_core import act_mode
 
 
 class _Res:
@@ -27,8 +27,8 @@ class _Router:
 
 
 def _classify(router, msg, act):
-    import gremlin_core.intent as _I
-    return asyncio.run(_I.classify(router, "gremlin", msg, act_mode=act))
+    import magic_core.intent as _I
+    return asyncio.run(_I.classify(router, "magic", msg, act_mode=act))
 
 
 def test_toggle_state(tmp_path):

@@ -5,9 +5,9 @@ import json
 
 import pytest
 
-from gremlin_core.backends.base import ModelBackend, ModelInfo, GenerationResult
-from gremlin_core.persona import PersonaBackend
-from gremlin_core.magic import reply as reply_mod
+from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+from magic_core.persona import PersonaBackend
+from magic_core.magic import reply as reply_mod
 
 
 class FakeBackend(ModelBackend):
@@ -55,7 +55,7 @@ def test_default_generate_stream_raises_on_error():
 # -- persona failover -------------------------------------------------
 
 def test_persona_streams_primary():
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"),
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"),
                        primary=StreamingBackend("p", "one two three"),
                        fallbacks=[FakeBackend("fb", text="NOPE")])
     assert "".join(_collect(p.generate_stream("hi"))) == "one two three"
@@ -70,7 +70,7 @@ def test_persona_falls_back_when_primary_errors_before_output():
             raise RuntimeError("down")
             yield  # pragma: no cover
 
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"),
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"),
                        primary=Boom(), fallbacks=[FakeBackend("fb", text="fallback saved it")])
     assert "".join(_collect(p.generate_stream("hi"))) == "fallback saved it"
 
@@ -78,7 +78,7 @@ def test_persona_falls_back_when_primary_errors_before_output():
 # -- reply.answer_stream --------------------------------------------
 
 def test_answer_stream_deltas_then_done(tmp_path):
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"),
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"),
                        primary=StreamingBackend("p", "the quick brown fox"))
     events = _collect(reply_mod.answer_stream(p, "hi", str(tmp_path)))
     kinds = [k for k, _ in events]
@@ -98,7 +98,7 @@ def test_answer_stream_remember_shortcuts_without_model(tmp_path):
 
     events = _collect(reply_mod.answer_stream(NeverCalled(), "remember that I use Manjaro", str(tmp_path)))
     assert events[-1][0] == "done" and events[-1][1]["action"] == "remember"
-    from gremlin_core.magic.store import Store
+    from magic_core.magic.store import Store
     assert any("Manjaro" in f.text for f in Store(str(tmp_path)).read_facts())
 
 
@@ -124,11 +124,11 @@ def test_answer_stream_keeps_the_partial_on_mid_stream_error_no_splice(tmp_path)
     ans = events[-1][1]["answer"]
     assert ans == "here is most of a real answer"      # partial kept verbatim
     assert "a different answer" not in ans             # fallback NOT spliced on
-    assert events[-1][1]["source"] == "gremlin" and events[-1][1]["action_ok"] is False
+    assert events[-1][1]["source"] == "magic" and events[-1][1]["action_ok"] is False
 
 
 def test_answer_stream_falls_back_on_empty_primary(tmp_path):
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"),
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"),
                        primary=FakeBackend("p", text=""))   # yields nothing
     fb = FakeBackend("gemini", text="fallback answer")
     events = _collect(reply_mod.answer_stream(p, "hard q", str(tmp_path), fallback=fb))

@@ -1,7 +1,7 @@
 """Local APK build wiring (no GitHub round-trip)."""
 from pathlib import Path
 
-from gremlin_core.magic import android_build
+from magic_core.magic import android_build
 
 
 def test_find_gradle_project(tmp_path):

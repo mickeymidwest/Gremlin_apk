@@ -3,8 +3,8 @@ GPU draft is the guaranteed floor; a CPU draft that misses its budget is
 dropped."""
 import time
 
-from gremlin_core.magic import battle
-from gremlin_core.magic.model import ModelReply
+from magic_core.magic import battle
+from magic_core.magic.model import ModelReply
 
 
 class _FastGPU:

@@ -1,9 +1,9 @@
 import json
 
-from gremlin_core.magic import lifecycle
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.reckoning import reckon, gate, apply_proposals
-from gremlin_core.magic.types import (
+from magic_core.magic import lifecycle
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.reckoning import reckon, gate, apply_proposals
+from magic_core.magic.types import (
     BattleResult, Fact, Score, Skill, Transcript,
 )
 
@@ -36,7 +36,7 @@ def test_no_promotion_without_invocation():
 
 
 def test_stale_candidate_is_retired():
-    from gremlin_core.magic.lifecycle import STALE_CANDIDATE_BATTLES
+    from magic_core.magic.lifecycle import STALE_CANDIDATE_BATTLES
     s = _mk_skill(status="candidate")
     # shown to the model every battle, never named by it
     for i in range(STALE_CANDIDATE_BATTLES):
@@ -116,7 +116,7 @@ def test_gate_filters():
 
 def test_apply_dedupes():
     skills, facts = [], []
-    from gremlin_core.magic.types import Proposal
+    from magic_core.magic.types import Proposal
     p = Proposal(kind="new_fact", payload={"text": "dupe"}, rationale="")
     assert apply_proposals([p, p], "b1", skills, facts) == 1
     assert len(facts) == 1
@@ -143,7 +143,7 @@ def test_reckon_drops_revise_for_unknown_target():
 
 
 def test_apply_revise_deprecates_and_supersedes():
-    from gremlin_core.magic.types import Proposal
+    from magic_core.magic.types import Proposal
     old = _mk_skill(name="flush-final-run", status="active", id="skill_old",
                     procedure=["old step"], provenance=["b0"])
     skills = [old]

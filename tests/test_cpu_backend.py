@@ -1,8 +1,8 @@
 """CPU chat backend: fails safe when the worker can't start (never raises)."""
 import asyncio
 
-from gremlin_core.backends.cpu_backend import CpuChatBackend, _readline
-from gremlin_core.backends.base import ModelInfo
+from magic_core.backends.cpu_backend import CpuChatBackend, _readline
+from magic_core.backends.base import ModelInfo
 
 
 def test_bad_model_returns_error_not_exception():

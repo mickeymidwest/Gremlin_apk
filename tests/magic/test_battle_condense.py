@@ -1,5 +1,5 @@
 """HARNESS-SURVEY #7: battle-transcript condensation (deterministic fold)."""
-from gremlin_core.magic import battle as B
+from magic_core.magic import battle as B
 
 
 def _big(role, content):

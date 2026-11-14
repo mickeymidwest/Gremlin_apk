@@ -2,8 +2,8 @@
 abliterated (no content gate) but keeps the non-content rails."""
 import asyncio
 
-from gremlin_core.backends.base import ModelBackend, ModelInfo, GenerationResult
-from gremlin_core.magic import reply as reply_mod
+from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+from magic_core.magic import reply as reply_mod
 
 
 class _Be(ModelBackend):

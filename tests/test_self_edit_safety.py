@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from gremlin_core import self_improve
+from magic_core import self_improve
 
 
 def git(root, *args):

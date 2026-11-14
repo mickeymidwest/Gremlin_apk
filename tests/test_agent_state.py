@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from gremlin_core.agent_state import AgentState, AgentStateMachine
+from magic_core.agent_state import AgentState, AgentStateMachine
 
 
 def test_starts_idle_with_one_history_entry():

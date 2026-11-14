@@ -1,5 +1,5 @@
 """Error distillation (a harness law): trim a failure to its core message."""
-from gremlin_core import error_distill as ED
+from magic_core import error_distill as ED
 
 
 PYTEST_DUMP = """\

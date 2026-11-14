@@ -2,7 +2,7 @@
 caught before the classifier can pivot to a different check."""
 import os
 
-from gremlin_core.magic import path_grounding as pg
+from magic_core.magic import path_grounding as pg
 
 
 def test_candidates_extracts_abs_paths_only():

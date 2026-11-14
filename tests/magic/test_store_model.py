@@ -1,11 +1,11 @@
 """Iteration 1: the Magic skeleton -- store round-trips, model adapters."""
 import yaml
 
-from gremlin_core.magic.store import Store, slug
-from gremlin_core.magic.types import (
+from magic_core.magic.store import Store, slug
+from magic_core.magic.types import (
     Skill, SkillRecord, Fact, BattleResult, Transcript, Score, CampaignState,
 )
-from gremlin_core.magic.model import ScriptedModel, BackendModel, ModelReply, QuotaExhausted
+from magic_core.magic.model import ScriptedModel, BackendModel, ModelReply, QuotaExhausted
 
 
 # -- store ---------------------------------------------------------------
@@ -59,7 +59,7 @@ def test_read_skills_skips_broken_cards(tmp_path):
 
 
 def test_facts_episodes_campaign_roundtrip(tmp_path):
-    st = Store(tmp_path)   # conftest isolates gremlin_memory.txt per test
+    st = Store(tmp_path)   # conftest isolates magic_memory.txt per test
     st.write_facts([Fact(id="fact_1", text="pytest.ini is load-bearing", provenance=["b1"])])
     assert [f.text for f in st.read_facts()] == ["pytest.ini is load-bearing"]
 

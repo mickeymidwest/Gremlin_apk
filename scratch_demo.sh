@@ -7,17 +7,17 @@ cd "$(dirname "$0")"
 source ~/android-build/env.sh 2>/dev/null || true
 
 echo "============================================================"
-echo " GREMLIN + MAGIC  --  demo walkthrough"
+echo " MAGIC + MAGIC  --  demo walkthrough"
 echo "============================================================"
 echo
 echo ">> stopping the chat service + overnight loop so the GPU is free"
-systemctl --user stop gremlin.service gremlin-watchdog.timer gremlin-zoid 2>/dev/null
+systemctl --user stop magic.service magic-watchdog.timer magic-zoid 2>/dev/null
 pkill -9 -f "main.py serve" 2>/dev/null
 pkill -9 -f "zoid_loop.py" 2>/dev/null; sleep 3
 
 echo
 echo "------------------------------------------------------------"
-echo " 1/3  FINDING A BUG  --  Gremlin writes a fuzzer for a C parser"
+echo " 1/3  FINDING A BUG  --  Magic writes a fuzzer for a C parser"
 echo "------------------------------------------------------------"
 venv/bin/python scratch_fuzz_battle.py ~/Downloads/fuzz-practice-3 2>&1 \
   | grep -E "^\[battle|^\[verify|FOUND A CRASH|score=" | tail -20
@@ -29,9 +29,9 @@ echo "------------------------------------------------------------"
 venv/bin/python - <<'PY' 2>&1 | grep -E "method_builder|FINAL"
 import shutil, tempfile
 from pathlib import Path
-from gremlin_core.registry import ModelRegistry
-from gremlin_core.magic.model import BackendModel
-from gremlin_core.magic.method_builder import build_from_scaffold
+from magic_core.registry import ModelRegistry
+from magic_core.magic.model import BackendModel
+from magic_core.magic.method_builder import build_from_scaffold
 m = BackendModel(ModelRegistry.from_yaml("config/models.yaml").get("qwen2.5-coder-7b"), temperature=0.2)
 w = Path(tempfile.mkdtemp()); shutil.rmtree(w)
 shutil.copytree(Path.home()/"Downloads/buildalot-work", w, ignore=shutil.ignore_patterns(".git"))
@@ -53,5 +53,5 @@ tail -n 25 "$(ls -t data/zoid/run-*.log 2>/dev/null | head -1)" 2>/dev/null | gr
 
 echo
 echo ">> restarting the chat service"
-systemctl --user start gremlin-watchdog.timer gremlin.service 2>/dev/null
+systemctl --user start magic-watchdog.timer magic.service 2>/dev/null
 echo "done -- give it ~90s to warm the model, then chat on the phone"

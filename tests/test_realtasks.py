@@ -34,7 +34,7 @@ GOOD = {
                       "        if len(parts) >= 4:\n            tail = parts[3].rsplit(':', 1)[-1]\n"
                       "            if tail.isdigit():\n                out.add(int(tail))\n    return sorted(out)\n```",
     "rt_docker_restart": "`docker container restart jellyfin`",                         # container + backticks
-    "rt_journalctl": "`journalctl --user -u gremlin.service -n50`",                      # inline backticks + -n50
+    "rt_journalctl": "`journalctl --user -u magic.service -n50`",                      # inline backticks + -n50
     "rt_cron_230": "30 02 * * * /home/mickey/backup.sh",                                 # 02 for the hour
     "rt_rsync_mirror": "rsync --archive --delete ~/Downloads/ mickey@desktop:/backup",   # --archive form
     "rt_find_suid": "find /usr -perm -u+s -type f",                                      # symbolic SUID
@@ -48,7 +48,7 @@ BAD = {
     "rt_fix_retry": "```python\ndef retry(fn, tries):\n    for i in range(tries):\n        return fn()\n```",
     "rt_parse_ports": "```python\ndef listening_ports(s):\n    return []\n```",
     "rt_docker_restart": "docker stop jellyfin",
-    "rt_journalctl": "journalctl --user gremlin -n 50",                                  # missing -u (invalid cmd)
+    "rt_journalctl": "journalctl --user magic -n 50",                                  # missing -u (invalid cmd)
     "rt_cron_230": "0 2 * * * /home/mickey/backup.sh",
     "rt_rsync_mirror": "rsync -a --delete mickey@desktop:/backup ~/Downloads",           # REVERSED: wipes local
     "rt_find_suid": "find /usr -perm 4000 -type f",                                      # exact mode, not SUID-set
@@ -69,8 +69,8 @@ def test_good_passes_bad_fails(tasks, task):
 
 
 @pytest.mark.parametrize("reply", [
-    "journalctl --user --user-unit gremlin.service --lines=50",
-    "journalctl --user -u gremlin.service --lines 50",
+    "journalctl --user --user-unit magic.service --lines=50",
+    "journalctl --user -u magic.service --lines 50",
 ])
 def test_journalctl_accepts_valid_forms(tasks, reply):
     assert tasks["rt_journalctl"][1](reply)[0]

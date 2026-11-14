@@ -5,9 +5,9 @@ it's parsed for (`accept`) and silently drop a good skill.
 The grammar is a no-op on scripted/remote models; here we assert the gate
 hands the schema to the model, and that a well-formed verdict is honored.
 """
-from gremlin_core.magic.model import ModelReply
-from gremlin_core.magic.reckoning import gate, _GATE_SCHEMA
-from gremlin_core.magic.types import Fact, Proposal, Skill
+from magic_core.magic.model import ModelReply
+from magic_core.magic.reckoning import gate, _GATE_SCHEMA
+from magic_core.magic.types import Fact, Proposal, Skill
 
 
 class _RecordingModel:

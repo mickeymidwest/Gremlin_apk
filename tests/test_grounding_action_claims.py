@@ -1,5 +1,5 @@
 """Real bug (2026-09-15/19): mickey asked "did it really look at the
-libFuzzer?" after Gremlin claimed to have checked something in plain
+libFuzzer?" after Magic claimed to have checked something in plain
 chat -- chat has zero tool access, so that claim was fabricated by
 construction, not a lie about a specific fact. A second incident the
 same week: a confirmation's TTL expired, the "yes" silently fell
@@ -15,7 +15,7 @@ confirmed something gets flagged in the chat path, unconditionally --
 not gated on empty context like _BACKREF_RE, because chat's context
 (memory facts, skills, history) never contains real tool-executed
 evidence regardless of how much of it there is."""
-from gremlin_core.magic import grounding
+from magic_core.magic import grounding
 
 
 def test_catches_the_real_libfuzzer_incident_shape():

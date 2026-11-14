@@ -9,7 +9,7 @@ isn't practical here (non-deterministic, needs a loaded GGUF); this
 guards the actual fix -- that the clarifying guidance stays in the
 prompt every classifier call is built from -- so it can't silently get
 edited away."""
-from gremlin_core.intent import _CLASSIFY_PROMPT
+from magic_core.intent import _CLASSIFY_PROMPT
 
 
 def test_classify_prompt_distinguishes_code_in_reply_from_a_real_file_or_command():
@@ -20,9 +20,9 @@ def test_classify_prompt_distinguishes_code_in_reply_from_a_real_file_or_command
 def test_action_hint_fires_on_inspect_phrasings():
     """Regression: inspect/reverse-engineer requests must trip the _ACTION_HINT
     pre-filter so classify() runs and the read-only inspect tool is reachable.
-    Before this they fell straight through to plain chat (Gremlin role-played
+    Before this they fell straight through to plain chat (Magic role-played
     decompiling instead of running the tool)."""
-    from gremlin_core.intent import _ACTION_HINT as H
+    from magic_core.intent import _ACTION_HINT as H
     fire = [
         "inspect the apk at /home/mickey/Downloads/gremlin-streaming.apk",
         "is this apk asking for anything sketchy?",

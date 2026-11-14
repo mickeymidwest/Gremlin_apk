@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Keep a long job alive after your SSH/phone drops. mosh keeps your SHELL across
 # roaming; this keeps the JOB alive even if the client disconnects entirely.
-# Logs + pid under .gremlin/remote/.
-#   scripts/run-detached.sh start fixloop gremlin magic fix "tighten verifier"
+# Logs + pid under .magic/remote/.
+#   scripts/run-detached.sh start fixloop magic magic fix "tighten verifier"
 #   scripts/run-detached.sh status
 #   scripts/run-detached.sh logs fixloop
 #   scripts/run-detached.sh stop fixloop
 set -uo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-D="$ROOT/.gremlin/remote"; mkdir -p "$D"
+D="$ROOT/.magic/remote"; mkdir -p "$D"
 sub="${1:-}"; shift 2>/dev/null || true
 
 case "$sub" in

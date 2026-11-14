@@ -1,7 +1,7 @@
 """_last_review_feedback -- self_edit's failure message used to say
 THAT review failed but never WHY; the real reviewer feedback was
 sitting unused in result["review_history"] the whole time."""
-from gremlin_core.tools import _last_review_feedback
+from magic_core.tools import _last_review_feedback
 
 
 def test_surfaces_the_last_rejecting_rounds_feedback():

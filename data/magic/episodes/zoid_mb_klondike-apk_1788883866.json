@@ -6,7 +6,7 @@
     "steps": [
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: java.lang.AssertionError | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: java.lang.AssertionError | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -20,7 +20,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: java.lang.AssertionError | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: java.lang.AssertionError | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -34,7 +34,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: java.lang.AssertionError | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: java.lang.AssertionError | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -55,7 +55,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -69,7 +69,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -83,7 +83,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -97,7 +97,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -111,7 +111,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -125,7 +125,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -139,7 +139,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -160,7 +160,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -174,7 +174,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: java.lang.AssertionError | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: java.lang.AssertionError | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -188,7 +188,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -202,7 +202,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | won_when_all_foundations_full: java.lang.AssertionError | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | won_when_all_foundations_full: java.lang.AssertionError | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -216,7 +216,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null
@@ -230,7 +230,7 @@
       },
       {
         "kind": "note",
-        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: gremlin | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: gremlin | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
+        "content": "    tableau_builds_down_alternating_colour: kotlin.NotImplementedError: An operation is not implemented: magic | move_run_between_columns: kotlin.NotImplementedError: An operation is not implemented: magic | foundation_takes_ace_then_same_suit_ascending: java.lang.AssertionError",
         "tool_name": null,
         "tool_args": null,
         "tool_result": null

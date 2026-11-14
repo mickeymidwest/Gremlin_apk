@@ -1,5 +1,5 @@
 """Recipes: discover, validate, render parameterized workflows."""
-from gremlin_core import recipes
+from magic_core import recipes
 
 
 def _mk(tmp_path, name, body):

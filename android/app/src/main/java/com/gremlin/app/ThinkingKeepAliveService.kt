@@ -16,7 +16,7 @@ import androidx.core.content.ContextCompat
 
 /**
  * Keeps CPU and Wi-Fi awake via a foreground service + partial wake lock while
- * Gremlin is thinking or streaming a response, so the screen can turn off and
+ * Magic is thinking or streaming a response, so the screen can turn off and
  * lock without Android suspending the network socket.
  */
 class ThinkingKeepAliveService : Service() {
@@ -56,7 +56,7 @@ class ThinkingKeepAliveService : Service() {
     private fun acquireLocks() {
         if (wakeLock?.isHeld != true) {
             val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
-            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gremlin:ThinkingWakeLock")?.apply {
+            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "magic:ThinkingWakeLock")?.apply {
                 setReferenceCounted(false)
                 acquire(15 * 60 * 1000L) // 15-min safety cap
             }
@@ -69,7 +69,7 @@ class ThinkingKeepAliveService : Service() {
             } else {
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF
             }
-            wifiLock = wm?.createWifiLock(mode, "gremlin:ThinkingWifiLock")?.apply {
+            wifiLock = wm?.createWifiLock(mode, "magic:ThinkingWifiLock")?.apply {
                 setReferenceCounted(false)
                 acquire()
             }
@@ -93,10 +93,10 @@ class ThinkingKeepAliveService : Service() {
             if (nm.getNotificationChannel(CHANNEL_ID) == null) {
                 val ch = NotificationChannel(
                     CHANNEL_ID,
-                    "Gremlin background responses",
+                    "Magic background responses",
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
-                    description = "Keeps Gremlin connected while your screen is off."
+                    description = "Keeps Magic connected while your screen is off."
                     setShowBadge(false)
                 }
                 nm.createNotificationChannel(ch)
@@ -107,7 +107,7 @@ class ThinkingKeepAliveService : Service() {
     private fun buildNotification(): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Gremlin is working")
+            .setContentTitle("Magic is working")
             .setContentText("Receiving response in the background")
             .setOngoing(true)
             .setSilent(true)
@@ -115,7 +115,7 @@ class ThinkingKeepAliveService : Service() {
             .build()
 
     companion object {
-        private const val CHANNEL_ID = "gremlin_thinking"
+        private const val CHANNEL_ID = "magic_thinking"
         private const val NOTIF_ID = 4102
         private const val ACTION_STOP = "com.gremlin.app.ACTION_STOP_KEEPALIVE"
 

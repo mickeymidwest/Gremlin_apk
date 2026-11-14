@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly Magic known-good checkpoint
+
+[Timer]
+# after the nightly work settles, before the Sunday backup at 03:00
+OnCalendar=*-*-* 01:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

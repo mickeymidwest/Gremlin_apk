@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Roll Gremlin's CODE back to a known-good checkpoint. Pure bash + git, no
+# Roll Magic's CODE back to a known-good checkpoint. Pure bash + git, no
 # Python and no network, so it still works when a bad edit broke the app.
 #
 #   deploy/recovery/restore.sh --list          show checkpoints
@@ -7,19 +7,19 @@
 #   deploy/recovery/restore.sh <tag>            restore a specific one
 #   deploy/recovery/restore.sh --dry-run <tag>  say what it would do
 #
-# Only the code is restored (gremlin_core, main.py, bench, scripts, tests,
-# android, MAGIC.md). Your config/models.yaml, data/, .gremlin/ decisions,
+# Only the code is restored (magic_core, main.py, bench, scripts, tests,
+# android, MAGIC.md). Your config/models.yaml, data/, .magic/ decisions,
 # local_plugins/ and models are NOT touched, and HEAD stays on main (so the
 # nightly checkpoint keeps working). Uncommitted code changes are stashed
 # first so you can get them back with `git stash pop`.
 set -euo pipefail
 
-REPO="${GREMLIN_REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
+REPO="${MAGIC_REPO:-$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)}"
 cd "$REPO"
 
-# Deliberately excludes config/, data/, .gremlin/, local_plugins/, models/,
+# Deliberately excludes config/, data/, .magic/, local_plugins/, models/,
 # venv/ and deploy/recovery/ (so restore never rewrites itself mid-run).
-CODE=(gremlin_core main.py bench scripts tests android MAGIC.md CALIBRATION.md)
+CODE=(magic_core main.py bench scripts tests android MAGIC.md CALIBRATION.md)
 
 tags() { git tag -l 'known-good-*' | sort -r; }
 
@@ -30,7 +30,7 @@ cmd="${1:-}"
 if [ -z "$cmd" ] || [ "$cmd" = "--list" ]; then
     if [ -z "$(tags)" ]; then
         echo "No known-good checkpoints yet. One is made each night the tests pass,"
-        echo "or run: gremlin checkpoint"
+        echo "or run: magic checkpoint"
         exit 0
     fi
     echo "Known-good checkpoints (newest first):"
@@ -41,7 +41,7 @@ if [ -z "$cmd" ] || [ "$cmd" = "--list" ]; then
             "$(git tag -l --format='%(contents:subject)' "$t")"
     done < <(tags)
     echo
-    echo "Restore the newest with:  gremlin restore latest"
+    echo "Restore the newest with:  magic restore latest"
     exit 0
 fi
 
@@ -50,11 +50,11 @@ if [ "$cmd" = "--dry-run" ]; then dry=1; cmd="${2:-}"; fi
 [ "$cmd" = "latest" ] && cmd="$(tags | head -1)"
 
 if ! tags | grep -qx -- "$cmd"; then
-    echo "'$cmd' isn't a known-good checkpoint. Run: gremlin restore --list"
+    echo "'$cmd' isn't a known-good checkpoint. Run: magic restore --list"
     exit 1
 fi
 if [ ${#present[@]} -eq 0 ]; then
-    echo "No code paths found to restore (is this the Gremlin repo?)."
+    echo "No code paths found to restore (is this the Magic repo?)."
     exit 1
 fi
 
@@ -74,5 +74,5 @@ fi
 
 git checkout "$cmd" -- "${present[@]}"
 echo "Restored the code to $cmd. Your settings and data are unchanged."
-echo "Start it:         systemctl --user restart gremlin.service"
+echo "Start it:         systemctl --user restart magic.service"
 echo "Back to latest:   git -C $REPO checkout HEAD -- ${present[*]}"

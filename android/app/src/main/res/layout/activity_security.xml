@@ -36,7 +36,7 @@
 
         <Button
             android:id="@+id/security_check_phone"
-            style="@style/Widget.Gremlin.Button.Primary"
+            style="@style/Widget.Magic.Button.Primary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Check phone" />

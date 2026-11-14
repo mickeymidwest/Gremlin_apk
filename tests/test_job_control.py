@@ -6,8 +6,8 @@ import threading
 import psutil
 import pytest
 
-from gremlin_core import job_control
-from gremlin_core.server import create_app, run_coro
+from magic_core import job_control
+from magic_core.server import create_app, run_coro
 
 
 @pytest.fixture

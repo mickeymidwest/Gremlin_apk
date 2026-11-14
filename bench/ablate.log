@@ -1,10 +1,10 @@
-heavy.sh: pausing gremlin-watchdog.timer
-heavy.sh: pausing gremlin-update.timer
-heavy.sh: stopping gremlin.service
+heavy.sh: pausing magic-watchdog.timer
+heavy.sh: pausing magic-update.timer
+heavy.sh: stopping magic.service
                total        used        free      shared  buff/cache   available
 Mem:           7.5Gi       2.3Gi       848Mi        75Mi       5.0Gi       5.3Gi
 heavy.sh: running: env ABLATE_INNER=1 bash /home/mickey/Downloads/gremlin/bench/ablate.sh qwen3.5-9b
-=== ablation: GREMLIN_LOOP_SET=[none]  parts=quality,heldout ===
+=== ablation: MAGIC_LOOP_SET=[none]  parts=quality,heldout ===
   PASS  quality  code_palindrome                
   PASS  quality  code_merge_intervals           
   PASS  quality  format_json_only               
@@ -38,7 +38,7 @@ heavy.sh: running: env ABLATE_INNER=1 bash /home/mickey/Downloads/gremlin/bench/
   PASS  heldout  ho_needle                      
 
 qwen3.5-9b +loops[none]: quality 18/19  heldout 12/12  load 56.6s  54.7 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
-=== ablation: GREMLIN_LOOP_SET=[code]  parts=quality,heldout ===
+=== ablation: MAGIC_LOOP_SET=[code]  parts=quality,heldout ===
   PASS  quality  code_palindrome                
   PASS  quality  code_merge_intervals           
   PASS  quality  format_json_only               
@@ -72,7 +72,7 @@ qwen3.5-9b +loops[none]: quality 18/19  heldout 12/12  load 56.6s  54.7 tok/s  -
   PASS  heldout  ho_needle                      
 
 qwen3.5-9b +loops[code]: quality 19/19  heldout 12/12  load 29.4s  53.8 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
-=== ablation: GREMLIN_LOOP_SET=[math]  parts=quality,heldout ===
+=== ablation: MAGIC_LOOP_SET=[math]  parts=quality,heldout ===
   PASS  quality  code_palindrome                
   PASS  quality  code_merge_intervals           
   PASS  quality  format_json_only               
@@ -106,7 +106,7 @@ qwen3.5-9b +loops[code]: quality 19/19  heldout 12/12  load 29.4s  53.8 tok/s  -
   PASS  heldout  ho_needle                      
 
 qwen3.5-9b +loops[math]: quality 18/19  heldout 12/12  load 30.4s  56.4 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
-=== ablation: GREMLIN_LOOP_SET=[vote]  parts=quality,heldout ===
+=== ablation: MAGIC_LOOP_SET=[vote]  parts=quality,heldout ===
   PASS  quality  code_palindrome                
   PASS  quality  code_merge_intervals           
   PASS  quality  format_json_only               
@@ -140,7 +140,7 @@ qwen3.5-9b +loops[math]: quality 18/19  heldout 12/12  load 30.4s  56.4 tok/s  -
   PASS  heldout  ho_needle                      
 
 qwen3.5-9b +loops[vote]: quality 18/19  heldout 12/12  load 26.3s  55.6 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
-=== ablation: GREMLIN_LOOP_SET=[format]  parts=quality,heldout ===
+=== ablation: MAGIC_LOOP_SET=[format]  parts=quality,heldout ===
   PASS  quality  code_palindrome                
   PASS  quality  code_merge_intervals           
   PASS  quality  format_json_only               
@@ -174,7 +174,7 @@ qwen3.5-9b +loops[vote]: quality 18/19  heldout 12/12  load 26.3s  55.6 tok/s  -
   PASS  heldout  ho_needle                      
 
 qwen3.5-9b +loops[format]: quality 18/19  heldout 12/12  load 38.3s  53.1 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
-=== ablation: GREMLIN_LOOP_SET=[all]  parts=quality,heldout ===
+=== ablation: MAGIC_LOOP_SET=[all]  parts=quality,heldout ===
   PASS  quality  code_palindrome                
   PASS  quality  code_merge_intervals           
   PASS  quality  format_json_only               
@@ -211,6 +211,6 @@ qwen3.5-9b +loops[all]: quality 19/19  heldout 12/12  load 22.1s  51.3 tok/s  ->
 done. Compare the 'qwen3.5-9b +loops[...]' rows in the newest bench/quality-*.jsonl:
   venv/bin/python bench/quality.py --compare
 heavy.sh: command exited 0
-heavy.sh: restarting gremlin.service
+heavy.sh: restarting magic.service
 heavy.sh: waiting for daemon to answer before resuming timers
-heavy.sh: resuming gremlin-watchdog.timer gremlin-update.timer
+heavy.sh: resuming magic-watchdog.timer magic-update.timer

@@ -3,7 +3,7 @@ package com.gremlin.app
 /** The chat as data. Saved history stays plain text ("› " starts one of
  *  your messages), so chats saved by older versions still load. */
 object ChatTranscript {
-    enum class Kind { USER, GREMLIN, SYSTEM }
+    enum class Kind { USER, MAGIC, SYSTEM }
 
     data class Turn(val kind: Kind, val text: String, val note: String? = null)
 
@@ -13,7 +13,7 @@ object ChatTranscript {
     fun parse(saved: String): List<Turn> {
         val turns = mutableListOf<Turn>()
         val block = StringBuilder()
-        var kind = Kind.GREMLIN
+        var kind = Kind.MAGIC
 
         fun flush() {
             val text = block.toString().trim()
@@ -33,9 +33,9 @@ object ChatTranscript {
                     kind = Kind.SYSTEM
                     block.append(line.removePrefix(SYSTEM_MARK)).append('\n')
                 }
-                kind != Kind.GREMLIN && line.isBlank() -> {
+                kind != Kind.MAGIC && line.isBlank() -> {
                     flush()
-                    kind = Kind.GREMLIN
+                    kind = Kind.MAGIC
                 }
                 else -> block.append(line).append('\n')
             }
@@ -50,7 +50,7 @@ object ChatTranscript {
             // These end at a blank line, so they can't contain one.
             Kind.USER -> USER_MARK + withoutBlankLines(body)
             Kind.SYSTEM -> SYSTEM_MARK + withoutBlankLines(body)
-            Kind.GREMLIN -> body
+            Kind.MAGIC -> body
         }
     }
 

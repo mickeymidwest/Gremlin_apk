@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time zram setup for the Gremlin box. Needs root.
+# One-time zram setup for the Magic box. Needs root.
 #
 # Runs the whole privileged block in a single elevation:
 #   - pkexec (a GUI password dialog, if a desktop session is active), or
@@ -14,7 +14,7 @@ priv_block() {
   pacman -S --needed --noconfirm zram-generator
   echo "2/4  installing configs ..."
   install -Dm644 "$here/zram-generator.conf"  /etc/systemd/zram-generator.conf
-  install -Dm644 "$here/99-gremlin-zram.conf" /etc/sysctl.d/99-gremlin-zram.conf
+  install -Dm644 "$here/99-magic-zram.conf" /etc/sysctl.d/99-magic-zram.conf
   echo "3/4  applying sysctl + starting zram ..."
   sysctl --system >/dev/null
   systemctl daemon-reload

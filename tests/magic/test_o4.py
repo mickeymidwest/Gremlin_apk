@@ -1,7 +1,7 @@
 """O4 mid-battle checkpoint / resume (opt-in)."""
-from gremlin_core.magic import battle as B
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core.magic import battle as B
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 
 def test_checkpoint_roundtrip_and_clear(tmp_path):

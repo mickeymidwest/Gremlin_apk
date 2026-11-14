@@ -8,14 +8,14 @@
                 <shape android:shape="rectangle">
                     <corners android:radius="14dp" />
                     <gradient android:angle="0"
-                        android:startColor="@color/gremlin_accent"
-                        android:endColor="@color/gremlin_blue" />
+                        android:startColor="@color/magic_accent"
+                        android:endColor="@color/magic_blue" />
                 </shape>
             </item>
             <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
                 <shape android:shape="rectangle">
                     <corners android:radius="13dp" />
-                    <solid android:color="@color/gremlin_surface_hi" />
+                    <solid android:color="@color/magic_surface_hi" />
                 </shape>
             </item>
         </layer-list>

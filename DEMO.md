@@ -1,11 +1,11 @@
-# Gremlin + Magic — what it does, for a walkthrough
+# Magic + Magic — what it does, for a walkthrough
 
-**Gremlin** is a private AI agent running entirely on this desktop (no data
+**Magic** is a private AI agent running entirely on this desktop (no data
 leaves the box except code to a private GitHub). **Magic** is the harness
 around it — the tools, the skill library, and the loop that makes it get
 better at real work over time.
 
-The mental model: **Gremlin is the pilot, Magic is the machine it flies,
+The mental model: **Magic is the pilot, Magic is the machine it flies,
 the skills are the loadout.** A better pilot (a stronger model) drops
 into the same machine; a stronger machine (better skills/tools) helps any
 pilot.
@@ -13,19 +13,19 @@ pilot.
 ## The business case
 
 Authorized bug-bounty / security research on Android apps and on local
-businesses' systems. Gremlin does the repetitive craft — write the fuzz
+businesses' systems. Magic does the repetitive craft — write the fuzz
 harness, sweep the source for a vuln class, triage a crash, draft the
 report — so a human spends their time on the findings that pay.
 
 **Claude and ChatGPT are the senior reviewers.** They don't run the work
-— Gremlin does, locally, cheaply. They review Gremlin's *code and
+— Magic does, locally, cheaply. They review Magic's *code and
 approach* and hand back concrete fixes. In one working session that
-review loop roughly **tripled** Gremlin's success rate on real tasks.
+review loop roughly **tripled** Magic's success rate on real tasks.
 
 ## What works today
 
 ### 1. Finding bugs (fuzzing)
-Give Gremlin a C parser and "write a fuzzer for it." It reads the source,
+Give Magic a C parser and "write a fuzzer for it." It reads the source,
 writes a libFuzzer harness, builds it with AddressSanitizer, and the
 harness trips a real memory-corruption bug — a stack overflow, a heap
 overwrite — in seconds.
@@ -34,7 +34,7 @@ overwrite — in seconds.
 - Run: `venv/bin/python scratch_fuzz_battle.py ~/Downloads/fuzz-practice`
 
 ### 2. Building an app from a spec
-Give Gremlin a scaffolded Android app — the game-logic class stubbed out,
+Give Magic a scaffolded Android app — the game-logic class stubbed out,
 pinned by a JUnit test suite — and it fills in the implementation one
 method at a time, compiling and testing each against the spec until the
 suite is green.
@@ -54,7 +54,7 @@ suite is green.
   builds.
 
 ### 3. Getting better on its own
-`zoid_loop.py` runs Gremlin through a rotation of 11 practice targets
+`zoid_loop.py` runs Magic through a rotation of 11 practice targets
 (6 bug-fixes, 3 fuzzers, 2 Android builds), round after round. After
 every attempt it distils a lesson from a loss, proposes new skill cards,
 and promotes the ones that keep helping. The skill library grew from 30

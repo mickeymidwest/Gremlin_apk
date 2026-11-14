@@ -9,7 +9,7 @@ import org.json.JSONObject
  * apps used the mic, camera, location, texts, contacts, call log, clipboard
  * and files -- and whether they were in the background -- then let the
  * desktop turn that into a report (POST /guard/appops, same parser as
- * `gremlin adb-audit`).
+ * `magic adb-audit`).
  *
  * Read-only by construction: the only commands are the two below, and the
  * only thing ever put into one is a package name that `pm list packages`

@@ -1,6 +1,6 @@
 """N11 skill-collision detector."""
-from gremlin_core.magic import skill_collision as SC
-from gremlin_core.magic.types import Skill
+from magic_core.magic import skill_collision as SC
+from magic_core.magic.types import Skill
 
 
 def _s(id, name, purpose, trig, matcher=None):

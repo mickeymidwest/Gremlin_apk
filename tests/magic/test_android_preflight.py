@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from gremlin_core.magic import android_preflight as AP
+from magic_core.magic import android_preflight as AP
 
 
 def _mk_android(tmp_path, *, gradlew=True, exe=True, compile_sdk=35):

@@ -1,14 +1,14 @@
 """Auto web-research gate: proves it fires on real factual/current
 questions and stays silent (instant, offline) on chat, opinions,
-greetings, and anything about the local machine or Gremlin himself."""
+greetings, and anything about the local machine or Magic himself."""
 import asyncio
 
 import pytest
 
-from gremlin_core import autoresearch
+from magic_core import autoresearch
 
 
-# --- things Gremlin SHOULD look up on his own --------------------------------
+# --- things Magic SHOULD look up on his own --------------------------------
 SEARCH = [
     "how tall is mount fuji?",
     "who won the 2024 world series",
@@ -36,7 +36,7 @@ SEARCH = [
     "so i wonder how many ppl liked the new resident evil i thought it was awesome",
     "the movie was top notch do you know the official rating for it or how much it made on opening day?",
     "i loved it but who directed the new dune movie",
-    # a factual question addressed to Gremlin -- "you" must not veto it
+    # a factual question addressed to Magic -- "you" must not veto it
     "do you know who won the super bowl this year",
     "can you tell me the current price of gold",
 ]

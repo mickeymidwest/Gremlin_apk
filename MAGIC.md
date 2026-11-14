@@ -1,18 +1,18 @@
-# Magic — Gremlin's harness
+# Magic — Magic's harness
 
-**Gremlin** = the model (the pilot). **Magic** = the frame it runs in: memory,
+**Magic** = the model (the pilot). **Magic** = the frame it runs in: memory,
 tools, the skill system, the improvement loop. Think Zoid — Magic is the body and
-hardpoints, Gremlin is the pilot, skills/tools are the loadout.
+hardpoints, Magic is the pilot, skills/tools are the loadout.
 
-Status: **rebuild done** (2026-09-05→06). Gremlin runs on Magic — the old
+Status: **rebuild done** (2026-09-05→06). Magic runs on Magic — the old
 consult/council/specialists machinery is deleted, the service is live. This file
 is the spec; the sections below are the current state, not a plan.
 
 ### Build log
 
 **The harness — done, 98 tests green:**
-- **Skeleton** — `gremlin_core/magic/`: types, store (YAML skill cards under
-  `data/skills/`, JSON for the rest), model adapter over `gremlin_core.backends`,
+- **Skeleton** — `magic_core/magic/`: types, store (YAML skill cards under
+  `data/skills/`, JSON for the rest), model adapter over `magic_core.backends`,
   toolhost (shell + file, path jail).
 - **Battle → reckoning → gate → lifecycle** — ReAct text protocol; propose
   `new_skill` / `revise_skill` / `new_fact` → independent gate; candidate→active
@@ -23,11 +23,11 @@ is the spec; the sections below are the current state, not a plan.
 - **Harness patterns adopted** (Aider / SWE-agent / TaskWeaver): parse-before-edit,
   `edit_file` search/replace, phase-gated tools, repo map, pre-battle plan,
   post-red-test reflection nudge.
-- **/skill** — describe a skill or a fix, Gremlin drafts it (Gemini fallback),
+- **/skill** — describe a skill or a fix, Magic drafts it (Gemini fallback),
   the same gate vets it. **/skill suggest** clusters what mickey actually asks
   (conversations + learning log) and surfaces the recurring ones as skill
   candidates (`opportunities.py`, no model call for the clustering).
-- **Conversation memory** — `notes.py` (durable `gremlin_memory.txt` + talking
+- **Conversation memory** — `notes.py` (durable `magic_memory.txt` + talking
   marker) + `conversation.py` `Threads` (multi-thread, per-owner).
 
 **The model:**
@@ -43,13 +43,13 @@ is the spec; the sections below are the current state, not a plan.
 error, learning-log only when the fallback answered). `intent.py`/`actions.py` kept — the NL-action layer.
 
 **Commands:** `/chat /skill /build /fix /model /defense /do`, on desktop
-(`gremlin magic <cmd>`) and the app (`POST /command`, `/` autocomplete).
+(`magic magic <cmd>`) and the app (`POST /command`, `/` autocomplete).
 
 **Server:** warmup at boot (first chat ~2s not ~90s), canary watchdog (restarts
 on a wedged model context — `/status` `healthy` field), richer `/status`
 (model_loaded, vram, `busy`).
 
-**GPU/RAM grip** (mickey asked Magic to keep Gremlin from killing the GPU):
+**GPU/RAM grip** (mickey asked Magic to keep Magic from killing the GPU):
 - `magic/vram.py` — never two local GGUFs resident. `ensure_only(keep=)` unloads
   the rest before a CLI `/fix` loads the coder, and marks the kept model so the
   idle-eviction sweep can't unload it mid-battle.
@@ -63,7 +63,7 @@ on a wedged model context — `/status` `healthy` field), richer `/status`
 `/skill seed` (8 starter cards), `/skill suggest` (mine recurring asks into skill
 candidates).
 
-**APK:** commands + `/` autocomplete, single-Gremlin hologram, keyboard fix,
+**APK:** commands + `/` autocomplete, single-Magic hologram, keyboard fix,
 Settings → Builds (download desktop builds), Conversations screen. Built locally
 (no-sudo JDK 17 + SDK 35 + Gradle 9.4.1); `gradlew` committed, CI on `./gradlew`.
 `/build android <dir>` builds an APK locally and drops it where the phone can
@@ -79,7 +79,7 @@ redirects, `sed -i`, `find -delete`); `run_battle` always returns a transcript
 (a transient model error ends the battle, doesn't crash `/do` or a campaign);
 `store.read_skills()` skips a broken hand-edited card instead of failing whole;
 shared `_jsonx` for model-reply JSON (fences / trailing prose); a corrupt
-`gremlin_memory.txt` can't take down chat; eviction re-reads the primary each
+`magic_memory.txt` can't take down chat; eviction re-reads the primary each
 sweep; `/memory forget N` matches `/memory list`'s numbering; thread-index and
 store writes use unique temp files. ~130 tests.
 
@@ -92,7 +92,7 @@ the primary and falls through to a fallback only if it produced nothing.
 `reply.answer_stream()` shares context + fallback + bookkeeping with `answer()`.
 Server bridges the loop-side async gen to Flask's sync response through a bounded
 queue (a client that stops draining stops the generation). APK
-`GremlinClient.chatStream()` renders tokens live, auto-falls-back to the blocking
+`MagicClient.chatStream()` renders tokens live, auto-falls-back to the blocking
 path for an old server / no network / pending away-sync. 141 tests.
 
 **Vuln research (mickey does authorized bug bounty):** the craft lives as
@@ -106,13 +106,13 @@ crash still scores 1.0, reported in the signal). Recon is read-only shell
 via `/do` (`file`/`strings`/`nm`/`objdump`/`readelf` aren't write verbs).
 Toolchain: `deploy/setup-security-tools.sh` (clang, radare2, checksec,
 afl++; semgrep/lief/capstone pip'd into the venv). No separate command --
-Gremlin the pilot uses the skills, and wins/losses feed the learning loop
+Magic the pilot uses the skills, and wins/losses feed the learning loop
 (reflexion + skill promotion).
 Practice runs: `scratch_fuzz_battle.py [target-dir]` (gitignored, like the
 klondike one) drives a battle against a fuzzing-practice repo (planted
 bug + README task; win = a harness that builds and does real execs).
 Targets: `~/Downloads/fuzz-practice` (C netstring parser, stack overflow --
-Gremlin won 26 steps) and `~/Downloads/fuzz-practice-2` (binary TLV
+Magic won 26 steps) and `~/Downloads/fuzz-practice-2` (binary TLV
 parser, heap overflow past a header count -- won 10 steps after the
 edit_file/skill-card fixes). Needs `setup-security-tools.sh` (clang).
 
@@ -121,7 +121,7 @@ edit_file/skill-card fixes). Needs `setup-security-tools.sh` (clang).
   resident AND pytest/gradle running beside it; on this box (7.5GB RAM, HDD swap)
   that pushes RAM past ~5GB, the box swap-thrashes, the server stops answering
   `/status`, and the watchdog restarts it mid-run. Through the app they now return
-  "run `gremlin magic fix …` on the desktop". The battle loop itself is sound
+  "run `magic magic fix …` on the desktop". The battle loop itself is sound
   (offline tests + the campaign regression test prove it) — it's the hardware
   that can't host it alongside live chat. `/build android` (a gradle subprocess,
   no model) still runs under the server fine.
@@ -206,7 +206,7 @@ folded into plain chat (cap 3). Grouped:
   android-read-gradle-errors, android-minimal-deps-offline, android-agp9-kotlin,
   android-custom-view, android-targetsdk-edge-to-edge, android-debug-apk-install,
   android-no-work-on-main-thread
-- **This box** — manjaro-full-upgrade-only, vram-budget-8gb, gremlin-not-answering,
+- **This box** — manjaro-full-upgrade-only, vram-budget-8gb, magic-not-answering,
   hdd-cold-start-patience, service-status-then-logs
 - **Vuln research** — scope-first, fuzz-harness, static-vuln-sweep, binary-recon,
   apk-recon, crash-triage-exploitability, linux-memory-corruption, patch-diff-nday,
@@ -222,22 +222,22 @@ its own from battle transcripts.
 
 ## 4. Skills stay cards
 
-Proven skills stay skill cards, loaded on trigger. Weight fine-tuning is permanently out (see `.gremlin/decisions.md`), so the old Council vote is gone.
+Proven skills stay skill cards, loaded on trigger. Weight fine-tuning is permanently out (see `.magic/decisions.md`), so the old Council vote is gone.
 
-## 5. Where Gremlin runs — and what the app is for
+## 5. Where Magic runs — and what the app is for
 
-**Gremlin lives on the desktop.** It's an autonomous agent that acts *as mickey*
+**Magic lives on the desktop.** It's an autonomous agent that acts *as mickey*
 on his machine: runs commands, builds projects, edits and improves its own code.
 That is the whole point — the desktop is where the work happens.
 
 **The phone app is a control panel:**
-1. **Communicate** with desktop-Gremlin (chat).
-2. **Download** things Gremlin built on the desktop, to the phone.
-3. **Control and inspect** Gremlin: stop work, see status, switch models, view memory and skills.
+1. **Communicate** with desktop-Magic (chat).
+2. **Download** things Magic built on the desktop, to the phone.
+3. **Control and inspect** Magic: stop work, see status, switch models, view memory and skills.
 
 The app never runs a model, never builds anything, never runs the harness loop.
 A slash command typed in the app is just a structured *message* to
-desktop-Gremlin — the desktop does the work and sends back the result.
+desktop-Magic — the desktop does the work and sends back the result.
 
 ### Command surface
 
@@ -248,10 +248,10 @@ the list.
 | cmd | does |
 |---|---|
 | `/chat` | plain chat — folds in the memory file + recent away turns + this thread's history. The app's default. |
-| `/do` | answer a question that needs live data — Gremlin runs read-only shell (`df`, `ps`, `systemctl status`, `docker ps`) and shows the commands it ran |
-| `/memory` | what Gremlin remembers about you: `list` / `forget <n>` / `clear`. Same `~/Downloads/gremlin_memory.txt` you can edit by hand. |
+| `/do` | answer a question that needs live data — Magic runs read-only shell (`df`, `ps`, `systemctl status`, `docker ps`) and shows the commands it ran |
+| `/memory` | what Magic remembers about you: `list` / `forget <n>` / `clear`. Same `~/Downloads/gremlin_memory.txt` you can edit by hand. |
 | `/profile` | how Mickey likes things: `show` / `keep <n>` / `drop <n>` / `add <section> <text>`. Guesses from chat land under Noticed until he keeps them. `~/Downloads/gremlin_profile.md`, editable by hand, never pushed. |
-| `/skill` | `list` / `show <name>` / `new <desc>` / `improve <name> \| <fix>` / `seed` (8 starter cards) / `suggest` (recurring asks → skill candidates). Drafts with Gremlin → Gemini fallback → the same gate as the auto-reckoning. |
+| `/skill` | `list` / `show <name>` / `new <desc>` / `improve <name> \| <fix>` / `seed` (8 starter cards) / `suggest` (recurring asks → skill candidates). Drafts with Magic → Gemini fallback → the same gate as the auto-reckoning. |
 | `/defense` | check your own box: `surface` / `updates` / `ssh` / `secrets <path>` / `report`. Read-only, defensive. |
 | `/build` | `build android <dir> [as <name>]` builds an APK on the desktop → Settings → Builds. Freeform `/build <goal>` is desktop-CLI only (too heavy for the server). |
 | `/fix` | Magic battle-loop on the harness code. Desktop-CLI only on this box. |
@@ -261,12 +261,12 @@ the list.
 
 ## 6. APK
 
-Pure Kotlin, `com.gremlin.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
+Pure Kotlin, `com.magic.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
 (`.github/workflows/android-build.yml`) — no local Android toolchain. Push to
 `main` touching `android/**` → Actions builds debug APK → artifact (pull with
 `gh run download` once `gh` is authed).
 
-- **Settings → Builds:** a proper screen — list **everything Gremlin built on the
+- **Settings → Builds:** a proper screen — list **everything Magic built on the
   desktop** (Python scripts, whole projects, Android app source/project folders),
   tap any entry to download it to the phone as a zip. Backed by the existing
   `builds.py` / `/builds` endpoints; promotes it from a typed command to
@@ -274,9 +274,9 @@ Pure Kotlin, `com.gremlin.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
   - Scope: **desktop-built artifacts only.** APKs compiled by GitHub Actions are
     already reachable from the phone (GitHub app / Actions artifacts / `gh run
     download`) — not this screen's job. The gap this closes is the stuff that
-    only exists on the desktop: a script Gremlin just wrote, an app project
+    only exists on the desktop: a script Magic just wrote, an app project
     before it's pushed.
-  - `build_project` already drops a `.gremlin-build.json` marker that makes a
+  - `build_project` already drops a `.magic-build.json` marker that makes a
     `~/Downloads/<name>/` folder listable; confirm every build path (script,
     project, android) writes that marker.
 
@@ -287,7 +287,7 @@ safe. **Defensive only, mickey's own infrastructure only.** Magic may run these
 on its own loop.
 
 In scope:
-- **Watch:** ingest Suricata / Zeek / journald / service logs; Gremlin triages
+- **Watch:** ingest Suricata / Zeek / journald / service logs; Magic triages
   the alerts, flags anomalies, summarises "what changed / what's noisy".
 - **Scan (own hosts):** open ports, service versions vs known CVEs, TLS/cert
   state, weak or default configs, world-readable secrets, exposed admin panels.
@@ -320,13 +320,13 @@ Roadmap #104-106. Scaled-down version of the permission-engine idea from a
 much bigger proposed architecture — reuses what already existed instead of
 building a parallel system.
 
-- **Capability tags** (`gremlin_core/tools.py`, `Tool.capability`): every
-  registered tool is `read_only`, `mutates_gremlin` (touches Gremlin's own
+- **Capability tags** (`magic_core/tools.py`, `Tool.capability`): every
+  registered tool is `read_only`, `mutates_magic` (touches Magic's own
   repo — currently just `self_edit`, already gated by the two-reviewer
   approval and a real git commit), or `mutates_external` (touches anything
   else — the filesystem, the desktop OS, a running service: `run_command`,
   `script_fix`, `build_project`, `reboot`, `rollback`, `apply_updates`).
-- **Audit log** (`gremlin_core/mutation_log.py`, `data/mutation_log.jsonl`):
+- **Audit log** (`magic_core/mutation_log.py`, `data/mutation_log.jsonl`):
   `actions.execute()` is the one place every classified/confirmed action
   actually runs, so it logs any non-`read_only` tool call there generically
   (tool name, capability, args, ok) — `self_edit`/`script_fix` keep their
@@ -342,7 +342,7 @@ building a parallel system.
   are left alone, an in-progress generation runs to its end, and streaming
   chats aren't tracked.
 - **Named service control** (`service_status`/`service_restart`,
-  `gremlin_core/service_control.py`): roadmap #107. Separate from
+  `magic_core/service_control.py`): roadmap #107. Separate from
   `run_command` on purpose -- allow-list-based, not denylist-based:
   nothing is controllable until it's explicitly added to
   `config/models.yaml`'s `service_control:` block (currently `jellyfin`, `jellyseerr`,
@@ -395,7 +395,7 @@ isn't a thing; skills come from the loop and from here.
 10. **code-as-action** (smolagents CodeAgent) — agent writes Python instead of
     ACTION/JSON. A rethink of the protocol, not now — noted as a future option.
 11. **Grammar-constrained decoding** (GBNF / structured outputs) — DONE (capability).
-    `gremlin_core/backends/grammars.py` compiles a GBNF string or a JSON-schema
+    `magic_core/backends/grammars.py` compiles a GBNF string or a JSON-schema
     dict to a cached `LlamaGrammar`; `LlamaCppBackend.generate`/`generate_stream`
     take a `grammar=` kwarg and hand it to the sampler, so a weak local model is
     *mathematically* unable to emit malformed JSON or preamble before a tool call.
@@ -434,32 +434,32 @@ isn't a thing; skills come from the loop and from here.
 
 ## Harness loops and look-first (2026-11-07)
 
-- `gremlin_core/look.py` (U2): a question about this desktop's live state runs fixed read-only
+- `magic_core/look.py` (U2): a question about this desktop's live state runs fixed read-only
   probes (df, free, nvidia-smi, sensors, uname, BIOS info, uptime, checkupdates, ip, failed units,
   cron/timers, ps, docker ps) and the reply answers from that output, with a "(Checked just now: ...)"
   footer. Nothing from the message or the model becomes part of a command.
-- `gremlin_core/magic/loops.py` (U3-U5): format loop (JSON under a grammar, tables, one-line forms),
+- `magic_core/magic/loops.py` (U3-U5): format loop (JSON under a grammar, tables, one-line forms),
   code loop (run in a bubblewrap jail against the request's examples and smoke inputs, up to 3 tries,
   keeps the best), math loop (plain answer and program vote), yes/no vote. Model-agnostic: a `call`
   function in, a `Solved` out.
 - In chat (U6) behind `persona.loops_in_chat` (off until the uplift bench shows a gain) or
-  `GREMLIN_LOOPS=1`. Code that still fails gets one Gemini attempt, and the reply says so.
+  `MAGIC_LOOPS=1`. Code that still fails gets one Gemini attempt, and the reply says so.
 - Measure with `bench/quality.py --harness` (U1): same suite as the bare run, plus the held-out set
   in `bench/heldout.py` that loops are never tuned on.
 
 
 ## Keeping the phone and desktop safe (2026-11-07, defensive only)
 
-- `gremlin guard [--full|accept]` (S2): read-only desktop snapshot (listening ports, sshd settings,
+- `magic guard [--full|accept]` (S2): read-only desktop snapshot (listening ports, sshd settings,
   firewall, enabled units, cron, failed SSH logins, kernel, optional SUID scan) diffed against a baseline
   Mickey accepts. Also `GET /guard/desktop` from the app.
 - Phone guard (S3): the app's Settings -> Phone & desktop safety sends a no-root snapshot (apps, installer,
   permissions, accessibility services, device admins, notification listeners, patch level, screen lock,
   developer options, USB debugging) to `POST /guard/phone`; the reply is what changed since the baseline.
   `POST /guard/<phone|desktop>/accept` marks the current state as normal.
-- `gremlin adb-audit [hours]` (S7): which apps used the mic, camera, location, texts, contacts, call log,
+- `magic adb-audit [hours]` (S7): which apps used the mic, camera, location, texts, contacts, call log,
   clipboard or files, and whether in the background, from Android's app-ops records over adb. Read-only;
-  also runs on the phone from Termux (`~/gremlin-phone/audit.py`) against its own wireless debugging.
+  also runs on the phone from Termux (`~/magic-phone/audit.py`) against its own wireless debugging.
 - Deep scan in the app (S4b, 1.7): Settings -> Phone & desktop safety -> Pair ADB once with Wireless
   debugging's pairing code, then Deep scan collects `appops get` for each installed app through the app's
   own ADB client (libadb-android) and `POST /guard/appops` writes the report. Two fixed read-only commands;
@@ -471,16 +471,16 @@ The pilot is the LLM (intelligence, intent). The Zoid is this harness (frame,
 tools, armor). The **Organoid** is what turns a brittle script into a living
 system: persistent DNA, a regenerative engine, multi-mind fusion, and a
 resource governor. These four are CORE — every one has a "when something is
-wrong → the steps to get it right" loop, and together they keep Gremlin on
+wrong → the steps to get it right" loop, and together they keep Magic on
 track in every mode (normal, action, private).
 
 **1. Persistent state & DNA.** State survives the LLM's per-turn amnesia.
 - Organs: `notes.py` + `memory_select.py` (relevance + embeddings, dated/stale
   flagging), `history.py` (long-thread compaction into a running summary),
-  `project_brain.py` (per-project memory), MAGIC.md / `.gremlin/decisions.md`.
+  `project_brain.py` (per-project memory), MAGIC.md / `.magic/decisions.md`.
 - Recovery: a corrupt/unreadable memory file must never crash chat → read in a
   try/except and fall back to newest-first; a fact with no parseable date is
-  never treated as fresh; `gremlin restore` + known-good checkpoint tags are the
+  never treated as fresh; `magic restore` + known-good checkpoint tags are the
   DNA rollback when a change goes bad.
 
 **2. Regenerative engine (self-correction).** Catch a failure, diagnose it, heal
@@ -502,7 +502,7 @@ model's blind spot lands a change.
 - Organs: the two-reviewer self-edit gate (`review.py` + Gemini via
   `scripts/ask-gemini.sh`), `reckoning.py` (one model proposes, a second gates),
   the Gemini fallback in `magic/reply.py`.
-- Recovery: when Gemini is absent/quota-walled, degrade — `GREMLIN_LOCAL_REVIEW=1`
+- Recovery: when Gemini is absent/quota-walled, degrade — `MAGIC_LOCAL_REVIEW=1`
   swaps in two distinct LOCAL reviewers (qwen2.5-coder-14b + qwen2.5-14b, per R2)
   so the gate still holds; a `QuotaExhausted` is a hard wall that stops the run
   cleanly rather than retrying into it.
@@ -572,7 +572,7 @@ invent a tool, which is where a weak model otherwise drifts into garbage.
 
 ## 12. Magic is the only layer that talks to the model (2026-11-11)
 
-**Law.** The person never talks to the raw LLM. Talking to "Gremlin" *is*
+**Law.** The person never talks to the raw LLM. Talking to "Magic" *is*
 talking to Magic, always. Every path from a human message to the model goes
 through a Magic entrypoint, and the reply comes back through Magic:
 

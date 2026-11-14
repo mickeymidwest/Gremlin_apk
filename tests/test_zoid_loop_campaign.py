@@ -10,9 +10,9 @@ import shutil
 from pathlib import Path
 
 import zoid_loop as Z
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.types import Task
-from gremlin_core.magic.verifier import PytestVerifier
+from magic_core.magic.store import Store
+from magic_core.magic.types import Task
+from magic_core.magic.verifier import PytestVerifier
 from tests.magic.test_campaign import DemoModel, FIXTURE
 
 

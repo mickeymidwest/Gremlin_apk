@@ -5,7 +5,7 @@ import asyncio
 import datetime
 import re
 
-from gremlin_core import autoresearch
+from magic_core import autoresearch
 
 
 def test_today_str_and_note_have_the_real_date():

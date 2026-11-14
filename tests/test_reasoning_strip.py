@@ -1,5 +1,5 @@
 """split_reasoning: strip <think> blocks a reasoning model hands back."""
-from gremlin_core.backends.llamacpp_backend import split_reasoning
+from magic_core.backends.llamacpp_backend import split_reasoning
 
 
 def test_closed_think_block_removed():

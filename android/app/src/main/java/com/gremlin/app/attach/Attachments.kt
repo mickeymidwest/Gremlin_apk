@@ -11,7 +11,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Turns a file the user picked into text Gremlin can work with.
+ * Turns a file the user picked into text Magic can work with.
  *
  * Three kinds, all ending at the same place (plain text in the prompt):
  *  - text-ish files (.txt, .md, source, .csv, .json...) read directly
@@ -122,7 +122,7 @@ object Attachments {
         return try {
             // PdfRenderer needs a seekable file descriptor; a content://
             // stream isn't always one, so copy to cache first.
-            tempFile = File.createTempFile("gremlin-attach", ".pdf", context.cacheDir)
+            tempFile = File.createTempFile("magic-attach", ".pdf", context.cacheDir)
             context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(tempFile).use { output -> input.copyTo(output) }
             } ?: return "[Couldn't open that PDF.]"

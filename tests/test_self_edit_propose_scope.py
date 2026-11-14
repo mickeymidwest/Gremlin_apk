@@ -6,7 +6,7 @@ repeated up to 3 times before falling back to a teacher call. A real
 self-edit test with a small, well-specified goal was still running
 20+ minutes in before this fix, and grepping the actual git history
 found zero successful self-edits ever (no "self-improve (...)" commit,
-no gremlin@localhost committer, anywhere). build_project's own call
+no magic@localhost committer, anywhere). build_project's own call
 site already had the right fix ("Just the primary, not every
 registered model") -- it just never got ported to self_edit until now.
 
@@ -17,8 +17,8 @@ import asyncio
 
 import yaml
 
-from gremlin_core.registry import ModelRegistry
-from gremlin_core import tools as tools_mod
+from magic_core.registry import ModelRegistry
+from magic_core import tools as tools_mod
 
 
 def _registry(tmp_path):
@@ -32,7 +32,7 @@ def _registry(tmp_path):
             {"name": "gpt", "type": "openai_compatible", "model_id": "gpt-4o"},
         ],
         "persona": {
-            "name": "gremlin",
+            "name": "magic",
             "primary_model": "llama-3.1-8b-abliterated",
             "fallback_models": ["gemini"],
             "system_prompt": "test",

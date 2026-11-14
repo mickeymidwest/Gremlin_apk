@@ -8,8 +8,8 @@ import shutil
 
 import pytest
 
-from gremlin_core.magic.fuzz_verifier import FuzzVerifier
-from gremlin_core.magic.types import Task
+from magic_core.magic.fuzz_verifier import FuzzVerifier
+from magic_core.magic.types import Task
 
 _HAS_CLANG = bool(shutil.which("clang++") or shutil.which("clang"))
 _TASK = Task(id="fz", prompt="write a fuzzer")

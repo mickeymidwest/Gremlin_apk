@@ -1,8 +1,8 @@
-"""/memory -- list / forget / clear what Gremlin remembers."""
+"""/memory -- list / forget / clear what Magic remembers."""
 import asyncio
 
-from gremlin_core import notes
-from gremlin_core.magic.commands import CommandContext, dispatch
+from magic_core import notes
+from magic_core.magic.commands import CommandContext, dispatch
 from tests.magic.test_commands import FakeRegistry
 
 
@@ -41,7 +41,7 @@ def test_forget_index_matches_list_when_file_has_junk_lines(tmp_path):
     import os
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
-        f.write("# Gremlin's memory\n\n"
+        f.write("# Magic's memory\n\n"
                 "- [user] first real fact\n"
                 "- \n"                       # degenerate: dash, no content
                 "-   [auto]   <!--fact_x-->\n"  # tag+id, no content

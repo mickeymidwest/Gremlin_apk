@@ -1,7 +1,7 @@
 """Harness pattern #7: reflection nudge after a failed test run."""
-from gremlin_core.magic.battle import run_battle
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.types import Task
+from magic_core.magic.battle import run_battle
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.types import Task
 
 
 def test_failed_test_run_gets_a_diagnose_nudge(tmp_path):

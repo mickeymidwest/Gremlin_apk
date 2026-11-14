@@ -1,20 +1,20 @@
 """
-Gremlin -- core orchestrator CLI.
+Magic -- core orchestrator CLI.
 
-Usage (after `chmod +x gremlin` and putting it on your PATH):
-  gremlin list
-  gremlin models [directory]     (default: ~/Downloads)
-  gremlin models --hf "<search terms>"   -- search & download from Hugging Face
-  gremlin remove
-  gremlin model-edit <name> --field=<field> --value=<value>
+Usage (after `chmod +x magic` and putting it on your PATH):
+  magic list
+  magic models [directory]     (default: ~/Downloads)
+  magic models --hf "<search terms>"   -- search & download from Hugging Face
+  magic remove
+  magic model-edit <name> --field=<field> --value=<value>
     Non-interactive on purpose -- edits one field on one existing model entry
     in place (fields: display_name, chat_format, n_gpu_layers, n_ctx). This is
     what the hologram's head-slots trigger remotely via /admin/execute, so it
     never prompts. Swapping the actual model file stays a `models --hf` job.
-  gremlin chat <model_name>
-  gremlin broadcast <model1,model2,...> "<prompt>"
-  gremlin plan <model1,model2,...> "<task>"
-  gremlin improve <model1,model2,...> "<goal>" [--apply] [--test] [--reviewer-a=NAME] [--reviewer-b=NAME] [--allow-consult-override] [--teach-on-failure] [--teacher=NAME]
+  magic chat <model_name>
+  magic broadcast <model1,model2,...> "<prompt>"
+  magic plan <model1,model2,...> "<task>"
+  magic improve <model1,model2,...> "<goal>" [--apply] [--test] [--reviewer-a=NAME] [--reviewer-b=NAME] [--allow-consult-override] [--teach-on-failure] [--teacher=NAME]
     --allow-consult-override: if reviewer-a/reviewer-b (default gpt-oss-20b/deepseek-r1-distill-8b)
     don't both approve, fall back to checking whether all 4 local consult models
     (config/models.yaml persona.consult_models) unanimously approve instead. Off by default --
@@ -23,43 +23,43 @@ Usage (after `chmod +x gremlin` and putting it on your PATH):
     concrete failure -- not just "didn't apply cleanly"), --teacher (default gemini) explains
     the mistake and the correction is logged to data/learning_log.jsonl
     material. Never auto-applies the correction. Off by default.
-  gremlin auto-fix
-  gremlin edit <path> ["<problem description>"]
-  gremlin serve [port]           (default: 8765) -- lets the phone app connect
-  gremlin adb-audit [hours]       -- what apps on the paired phone did with the mic, camera,
+  magic auto-fix
+  magic edit <path> ["<problem description>"]
+  magic serve [port]           (default: 8765) -- lets the phone app connect
+  magic adb-audit [hours]       -- what apps on the paired phone did with the mic, camera,
                                    location, texts, contacts, clipboard (default 24h)
-  gremlin selfcheck [model]       -- compare the last two benchmark runs and flag a regression
-  gremlin checkpoint              -- if the tests pass, tag this code as a known-good point
-  gremlin restore [--list|<tag>]  -- roll the CODE back to a known-good point (keeps your
+  magic selfcheck [model]       -- compare the last two benchmark runs and flag a regression
+  magic checkpoint              -- if the tests pass, tag this code as a known-good point
+  magic restore [--list|<tag>]  -- roll the CODE back to a known-good point (keeps your
                                    data, models and settings; use --dry-run to preview)
-  gremlin safe-mode [port]        -- start Gremlin with local plugins and chat loops OFF
+  magic safe-mode [port]        -- start Magic with local plugins and chat loops OFF
                                    (a clean baseline to recover from a bad change)
-  gremlin guard [--full|accept]   -- desktop guard: what changed since the known-good
+  magic guard [--full|accept]   -- desktop guard: what changed since the known-good
                                    baseline (--full adds the slow SUID scan)
-  gremlin pair [port]             -- show the phone pairing URL + QR in this terminal
+  magic pair [port]             -- show the phone pairing URL + QR in this terminal
                                    (Tailscale address if this box has one, else LAN)
-  gremlin admin-token             -- reveal the separate admin token (system commands, reboot)
-  gremlin set-sudo-password       -- cache a sudo password locally so root commands can run
+  magic admin-token             -- reveal the separate admin token (system commands, reboot)
+  magic set-sudo-password       -- cache a sudo password locally so root commands can run
     remotely (phone or desktop chat) without a monitor. Verified against real sudo before
-    being cached; never sent over the network. (also: gremlin clear-sudo-password)
-  gremlin list-snapshots          -- list BTRFS snapshots (via snapper)
-  gremlin rollback-to <number>    -- roll back to a snapshot and reboot (requires sudo
+    being cached; never sent over the network. (also: magic clear-sudo-password)
+  magic list-snapshots          -- list BTRFS snapshots (via snapper)
+  magic rollback-to <number>    -- roll back to a snapshot and reboot (requires sudo
     password cached via set-sudo-password)
-  gremlin build <name> "<what to build>" [--apply] [--test] [--dir=<path>]
+  magic build <name> "<what to build>" [--apply] [--test] [--dir=<path>]
     [--reviewer-a=NAME] [--reviewer-b=NAME]
     Builds a NEW project from scratch (or extends an existing one) in ~/Downloads/<name>/
     (or --dir=<path> for somewhere else) -- same propose -> two-reviewer-approve -> commit
-    pipeline as `gremlin improve`, just retargeted at a brand new folder instead of Gremlin's
+    pipeline as `magic improve`, just retargeted at a brand new folder instead of Magic's
     own repo. That folder becomes its own git repo (auto-init'd), so every build is a
     discrete, revertible commit, same safety guarantee as a self-edit. Without --apply,
-    only previews the proposed diff. A successful build is also logged to Gremlin's own
+    only previews the proposed diff. A successful build is also logged to Magic's own
     data/learning_log.jsonl, so repeated use is meant to
     make it better at this over time. Reachable from regular chat too, e.g. "build me a
     bash script that backs up my Documents folder" -- same reviewer gate either way.
-  gremlin research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]
+  magic research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]
     Generate -> adversarial critique -> refine, until the score stops improving.
     Also: --queue (add to the background queue), --daemon (work it continuously), --status.
-  gremlin update-check             -- checks pending pacman updates (via checkupdates,
+  magic update-check             -- checks pending pacman updates (via checkupdates,
     never modifies anything) against Manjaro's own forum "Stable Update" thread for known
     issues affecting those specific packages. Advisory only -- never runs the actual
     update. Needs pacman-contrib installed (`sudo pacman -S pacman-contrib`).
@@ -73,24 +73,24 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from gremlin_core.registry import ModelRegistry
-from gremlin_core.router import Router
-from gremlin_core import actions
-from gremlin_core import intent
-from gremlin_core import history
-from gremlin_core import self_improve
-from gremlin_core.magic import reply as magic_reply
-from gremlin_core import model_scan
-from gremlin_core import script_edit
-from gremlin_core import server
-from gremlin_core import hf_hub
-from gremlin_core import root_exec
-from gremlin_core import snapshots as snapshots_mod
-from gremlin_core import update_check
-from gremlin_core import research
-from gremlin_core import build_project
-from gremlin_core.pressure import PressureLevel
-from gremlin_core.process_lock import git_mutation_lock, AlreadyRunning
+from magic_core.registry import ModelRegistry
+from magic_core.router import Router
+from magic_core import actions
+from magic_core import intent
+from magic_core import history
+from magic_core import self_improve
+from magic_core.magic import reply as magic_reply
+from magic_core import model_scan
+from magic_core import script_edit
+from magic_core import server
+from magic_core import hf_hub
+from magic_core import root_exec
+from magic_core import snapshots as snapshots_mod
+from magic_core import update_check
+from magic_core import research
+from magic_core import build_project
+from magic_core.pressure import PressureLevel
+from magic_core.process_lock import git_mutation_lock, AlreadyRunning
 
 try:
     from dotenv import load_dotenv
@@ -102,7 +102,7 @@ CONFIG_PATH = "config/models.yaml"
 PROJECT_ROOT = "."
 DEFAULT_SCAN_DIR = "~/Downloads"
 
-# `gremlin distill` self-restart tuning -- see distill.run_distillation's
+# `magic distill` self-restart tuning -- see distill.run_distillation's
 # docstring for why this exists (confirmed-by-testing memory degradation
 # after many sequential local-model loads in one process on this 8GB/
 # 7.5GB-RAM box). 5 real attempts/process is conservative headroom under
@@ -116,7 +116,7 @@ DISTILL_MAX_RESTARTS = 20
 def _throttle_background_work():
     """Lowest CPU (nice 19) and I/O (ionice idle class) scheduling priority
     for the calling process -- confirmed by real incident, not theory: a
-    `gremlin distill` run alone pushed load average past 11 on this
+    `magic distill` run alone pushed load average past 11 on this
     4-core box and visibly starved the Jellyfin server running alongside
     it. Called at the start of heavy batch commands so they still finish, just only using CPU/disk the desktop
     isn't otherwise asking for, instead of competing with it. Survives
@@ -192,7 +192,7 @@ def cmd_models(directory: str):
     for name in added_names:
         model_scan.add_to_flow_list(CONFIG_PATH, "consult_models", name)
     print(f"\nAdded to {CONFIG_PATH}: {', '.join(added_names)}")
-    print("Also added to gremlin's consult_models, so he'll actually reach for these when uncertain.")
+    print("Also added to magic's consult_models, so he'll actually reach for these when uncertain.")
     print("Run `python main.py list` to confirm, and adjust chat_format per model if needed.")
 
 
@@ -274,8 +274,8 @@ def cmd_models_hf(query: str):
     model_scan.add_to_flow_list(CONFIG_PATH, "consult_models", name)
 
     print(f"\nDownloaded and added as '{name}'.")
-    print("Also added to gremlin's consult_models, so he'll actually reach for this when uncertain.")
-    print("Run `gremlin list` to confirm, and check chat_format matches this model's template.")
+    print("Also added to magic's consult_models, so he'll actually reach for this when uncertain.")
+    print("Run `magic list` to confirm, and check chat_format matches this model's template.")
 
 
 def cmd_remove():
@@ -288,7 +288,7 @@ def cmd_remove():
     print("Registered models:\n")
     for i, e in enumerate(entries, start=1):
         refs = model_scan.persona_references(config_text, e["name"])
-        tag = f"  [used by gremlin: {', '.join(refs)}]" if refs else ""
+        tag = f"  [used by magic: {', '.join(refs)}]" if refs else ""
         print(f"  {i}. {e['name']} ({e['type']}){tag}")
 
     print()
@@ -312,7 +312,7 @@ def cmd_remove():
         refs = model_scan.persona_references(config_text, name)
         if refs:
             confirm = input(
-                f"'{name}' is used by gremlin's {', '.join(refs)} -- "
+                f"'{name}' is used by magic's {', '.join(refs)} -- "
                 f"removing it will also clean it out of those list(s). Remove anyway? (y/N): "
             ).strip().lower()
             if confirm != "y":
@@ -334,7 +334,7 @@ def cmd_model_edit(name: str, field: Optional[str], value: Optional[str]):
     /admin/execute endpoint (e.g. triggered from the Android app's
     hologram head-slots), which has no stdin channel to prompt through."""
     if not field or not value:
-        print('Usage: gremlin model-edit <name> --field=<field> --value=<value>')
+        print('Usage: magic model-edit <name> --field=<field> --value=<value>')
         print(f"  fields: {sorted(model_scan.EDITABLE_FIELDS)}")
         return
 
@@ -468,7 +468,7 @@ async def cmd_research_daemon(registry: ModelRegistry, router: Router):
 def cmd_research_status():
     entries = research.read_queue(PROJECT_ROOT)
     if not entries:
-        print("Queue is empty. Add something with: gremlin research --queue \"<goal>\"")
+        print("Queue is empty. Add something with: magic research --queue \"<goal>\"")
         return
     counts: dict[str, int] = {}
     for e in entries:
@@ -491,7 +491,7 @@ async def _handle_cli_action(
 
     Returns the text to print, or None to let the message be handled as
     ordinary conversation. Both call the same intent/actions modules, so
-    talking to Gremlin in the terminal and talking to it from the phone
+    talking to Magic in the terminal and talking to it from the phone
     behave identically -- that's the point."""
     pending = pending_confirmations.get(key)
     if pending is not None:
@@ -504,8 +504,8 @@ async def _handle_cli_action(
             return result["answer"]
         pending_confirmations.clear(key)
 
-    from gremlin_core import act_mode as _act_mode
-    detected = await intent.classify(router, "gremlin", message,
+    from magic_core import act_mode as _act_mode
+    detected = await intent.classify(router, "magic", message,
                                      act_mode=_act_mode.is_on(PROJECT_ROOT))
     if detected.is_chat:
         return None
@@ -544,7 +544,7 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
     is_persona = backend.info.kind == "persona"
     pending_confirmations = intent.PendingConfirmations()
     # n_ctx of the actual model this CLI session is talking to (not
-    # necessarily the persona's primary -- `gremlin chat <any model>`
+    # necessarily the persona's primary -- `magic chat <any model>`
     # works here), so the render budget matches whichever context
     # window this conversation is really going into. See history.py's
     # _render_budget().
@@ -569,7 +569,7 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
 
         # Same natural-language action routing the phone gets over
         # /chat -- "check for updates" or "fix my backup script" work
-        # here too, no slash commands (see gremlin_core/intent.py).
+        # here too, no slash commands (see magic_core/intent.py).
         if is_persona:
             handled = await _handle_cli_action(
                 registry, router, user_input, pending_confirmations, CONVERSATION_KEY,
@@ -586,7 +586,7 @@ async def cmd_chat(registry: ModelRegistry, router: Router, model_name: str):
             )
             conversation_history.record(CONVERSATION_KEY, user_input, result.get("answer", ""))
             print(f"{model_name}> {result['answer']}")
-            if result.get("source") and result["source"] not in ("gremlin", model_name):
+            if result.get("source") and result["source"] not in ("magic", model_name):
                 print(f"   (local model came up short -- answered via {result['source']})")
             print()
         else:
@@ -726,7 +726,7 @@ async def cmd_build(
 
 
 async def cmd_auto_fix(registry: ModelRegistry, router: Router):
-    goal = input("What should Gremlin add to its own code, or fix, or learn to do? ").strip()
+    goal = input("What should Magic add to its own code, or fix, or learn to do? ").strip()
     if not goal:
         print("Cancelled -- nothing to do.")
         return
@@ -740,7 +740,7 @@ async def cmd_auto_fix(registry: ModelRegistry, router: Router):
         n for n in registry.names() if registry.get(n).info.kind != "persona"
     ]
     print(f"Using: {', '.join(model_names)}")
-    from gremlin_core import tools as tools_mod
+    from magic_core import tools as tools_mod
     reviewer_a, reviewer_b = tools_mod._review_models(
         tools_mod.ExecContext(router=router, registry=registry, project_root=str(PROJECT_ROOT)))
     run_tests_input = input("Also run pytest before committing? (y/N): ").strip().lower()
@@ -837,7 +837,7 @@ async def main():
         if len(sys.argv) > 2 and sys.argv[2] == "--hf":
             query = sys.argv[3] if len(sys.argv) > 3 else ""
             if not query:
-                print('Usage: gremlin models --hf "search terms"')
+                print('Usage: magic models --hf "search terms"')
                 return
             cmd_models_hf(query)
             return
@@ -851,7 +851,7 @@ async def main():
 
     if cmd == "model-edit":
         if len(sys.argv) < 3:
-            print('Usage: gremlin model-edit <name> --field=<field> --value=<value>')
+            print('Usage: magic model-edit <name> --field=<field> --value=<value>')
             return
         model_name = sys.argv[2]
         field = value = None
@@ -877,7 +877,7 @@ async def main():
 
     if cmd == "rollback-to":
         if len(sys.argv) < 3:
-            print("Usage: gremlin rollback-to <number>")
+            print("Usage: magic rollback-to <number>")
             return
         await cmd_rollback_to(sys.argv[2])
         return
@@ -895,7 +895,7 @@ async def main():
         elif cmd == "magic":
             # The unified command surface (MAGIC.md section 5): the same
             # /chat /build /fix /model the phone app sends as messages.
-            from gremlin_core.magic.commands import dispatch, CommandContext, help_text
+            from magic_core.magic.commands import dispatch, CommandContext, help_text
             if len(sys.argv) < 3:
                 print(help_text()); return
             ctx = CommandContext(registry=registry, project_root=str(PROJECT_ROOT),
@@ -924,7 +924,7 @@ async def main():
             # as a default here would hard-error the whole command
             # unless a caller always remembers to override both with
             # --reviewer-a=/--reviewer-b=.
-            from gremlin_core import tools as tools_mod
+            from magic_core import tools as tools_mod
             reviewer_a, reviewer_b = tools_mod._review_models(
                 tools_mod.ExecContext(router=router, registry=registry, project_root=str(PROJECT_ROOT)))
             teacher_model = "gemini"
@@ -951,10 +951,10 @@ async def main():
                 positional = [a for a in extra if not a.startswith("--")]
                 goal = positional[0] if positional else ""
                 if not goal:
-                    print('Usage: gremlin research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]')
-                    print('       gremlin research --queue "<goal>"   -- add to the background queue')
-                    print('       gremlin research --daemon           -- work the queue continuously')
-                    print('       gremlin research --status           -- show the queue')
+                    print('Usage: magic research "<goal>" [--rounds=N] [--target=N] [--pressure=0-4] [--constraints="..."]')
+                    print('       magic research --queue "<goal>"   -- add to the background queue')
+                    print('       magic research --daemon           -- work the queue continuously')
+                    print('       magic research --status           -- show the queue')
                     return
                 max_rounds = research.DEFAULT_MAX_ROUNDS
                 target = research.DEFAULT_TARGET_SCORE
@@ -975,7 +975,7 @@ async def main():
                         max_rounds=max_rounds, target_score=target,
                         pressure=level, constraints=constraints,
                     )
-                    print(f"Queued. Run `gremlin research --daemon` to work through it.")
+                    print(f"Queued. Run `magic research --daemon` to work through it.")
                 else:
                     await cmd_research(registry, router, goal, max_rounds, target, level, constraints)
         elif cmd == "build":
@@ -1014,44 +1014,44 @@ async def main():
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
         elif cmd == "safe-mode":
-            # Start Gremlin with every extra off (local plugins, chat loops):
+            # Start Magic with every extra off (local plugins, chat loops):
             # a known-good baseline to answer and help you fix a bad change.
-            os.environ["GREMLIN_SAFE_MODE"] = "1"
-            os.environ["GREMLIN_LOOPS"] = "0"
-            print("Starting Gremlin in SAFE MODE: local plugins and chat loops are off.", flush=True)
+            os.environ["MAGIC_SAFE_MODE"] = "1"
+            os.environ["MAGIC_LOOPS"] = "0"
+            print("Starting Magic in SAFE MODE: local plugins and chat loops are off.", flush=True)
             _throttle_background_work()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
         elif cmd == "adb-audit":
-            from gremlin_core import adb_audit
+            from magic_core import adb_audit
             hours = float(sys.argv[2]) if len(sys.argv) > 2 else 24.0
             print(adb_audit.audit(hours)[0])
         elif cmd == "selfcheck":
-            from gremlin_core import selfcheck
+            from magic_core import selfcheck
             _reg, _msg = selfcheck.compare(os.path.join(PROJECT_ROOT, "bench"),
                                            sys.argv[2] if len(sys.argv) > 2 else None)
             print(_msg)
             sys.exit(1 if _reg else 0)
         elif cmd == "guard":
-            from gremlin_core import guard
+            from magic_core import guard
             if len(sys.argv) > 2 and sys.argv[2] == "accept":
                 print(guard.accept(PROJECT_ROOT))
             else:
                 text, _found = guard.run(PROJECT_ROOT, full="--full" in sys.argv[2:])
                 print(text)
         elif cmd == "contradictions":
-            from gremlin_core import contradiction
+            from magic_core import contradiction
             print(contradiction.report(contradiction.scan(PROJECT_ROOT)))
         elif cmd == "self-audit":
-            from gremlin_core import self_audit
+            from magic_core import self_audit
             print(self_audit.run(PROJECT_ROOT))
         elif cmd == "skill-collisions":
-            from gremlin_core.magic import skill_collision
-            from gremlin_core.magic.store import Store
+            from magic_core.magic import skill_collision
+            from magic_core.magic.store import Store
             print(skill_collision.report(
                 skill_collision.collisions(Store(PROJECT_ROOT).read_skills())))
         elif cmd == "skill-dedupe":
-            from gremlin_core.magic import skill_collision
+            from magic_core.magic import skill_collision
             apply = "--apply" in sys.argv[2:]
             r = skill_collision.dedupe(PROJECT_ROOT, apply=apply)
             for p in r["plan"]:
@@ -1059,19 +1059,19 @@ async def main():
             verb = "retired" if apply else "would retire (use --apply)"
             print(f"{r['merged']} duplicate card(s) {verb}; {r['groups']} group(s).")
         elif cmd == "mine-skills":
-            from gremlin_core.magic import skill_mining
-            from gremlin_core.magic.store import Store
+            from magic_core.magic import skill_mining
+            from magic_core.magic.store import Store
             print(skill_mining.report(
                 skill_mining.suggest(PROJECT_ROOT, Store(PROJECT_ROOT).read_skills())))
         elif cmd == "fuzz-crashes":
-            from gremlin_core.magic import fuzz_state
+            from magic_core.magic import fuzz_state
             tgt = sys.argv[2] if len(sys.argv) > 2 else ""
-            print(fuzz_state.summary(tgt) if tgt else "usage: gremlin fuzz-crashes <target>")
+            print(fuzz_state.summary(tgt) if tgt else "usage: magic fuzz-crashes <target>")
         elif cmd == "error-ledger":
-            from gremlin_core import error_ledger
+            from magic_core import error_ledger
             print(error_ledger.summary(PROJECT_ROOT))
         elif cmd == "mcp-tools":
-            from gremlin_core import mcp_bridge
+            from magic_core import mcp_bridge
             n = mcp_bridge.register_all(PROJECT_ROOT)
             reg = mcp_bridge.list_registered()
             if not reg:
@@ -1083,20 +1083,20 @@ async def main():
                 print(f"({n} MCP tool(s) registered)")
             mcp_bridge.shutdown()
         elif cmd == "forge-tools":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             rows = tool_forge.list_forged(PROJECT_ROOT)
             if not rows:
-                print("No forged tools. Create one: gremlin forge <name> <desc> <codefile.py>")
+                print("No forged tools. Create one: magic forge <name> <desc> <codefile.py>")
             for _t in rows:
                 print(f"forged_{_t['name']} [{_t['capability']}] -- {_t['description']}")
-            from gremlin_core import forge_lifecycle as _fl
+            from magic_core import forge_lifecycle as _fl
             _st = _fl.summary(PROJECT_ROOT)
             if rows and _st != "no forged tools":
                 print("-- lifecycle --"); print(_st)
         elif cmd == "forge":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             if len(sys.argv) < 5:
-                print("usage: gremlin forge <name> <description> <codefile.py> [--unsafe]")
+                print("usage: magic forge <name> <description> <codefile.py> [--unsafe]")
             else:
                 _name, _desc, _cf = sys.argv[2], sys.argv[3], sys.argv[4]
                 _unsafe = "--unsafe" in sys.argv[5:]
@@ -1109,47 +1109,47 @@ async def main():
                     print(f"forged {_name}" if _r["ok"] else f"refused: {_r['error']}")
         elif cmd == "forge-test":
             import json as _json
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             if len(sys.argv) < 3:
-                print("usage: gremlin forge-test <name> [json-args]")
+                print("usage: magic forge-test <name> [json-args]")
             else:
                 _a = _json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
                 _out = await tool_forge.run_forged(sys.argv[2], _a, PROJECT_ROOT)
                 print(_json.dumps(_out))
         elif cmd == "forge-rm":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             if len(sys.argv) < 3:
-                print("usage: gremlin forge-rm <name>")
+                print("usage: magic forge-rm <name>")
             else:
                 print("removed" if tool_forge.remove(sys.argv[2], PROJECT_ROOT) else "not found")
         elif cmd == "forge-pending":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             rows = tool_forge.list_pending(PROJECT_ROOT)
             if not rows:
                 print("Nothing pending approval.")
             for _t in rows:
                 print(f"{_t['name']} -- {_t['description']}")
         elif cmd == "forge-approve":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             if len(sys.argv) < 3:
-                print("usage: gremlin forge-approve <name>")
+                print("usage: magic forge-approve <name>")
             else:
                 print("approved" if tool_forge.approve(PROJECT_ROOT, sys.argv[2]) else "not found")
         elif cmd == "forge-reject":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             if len(sys.argv) < 3:
-                print("usage: gremlin forge-reject <name>")
+                print("usage: magic forge-reject <name>")
             else:
                 print("rejected" if tool_forge.reject(PROJECT_ROOT, sys.argv[2]) else "not found")
         elif cmd == "forge-approval":
-            from gremlin_core import tool_forge
+            from magic_core import tool_forge
             if len(sys.argv) > 2 and sys.argv[2] in ("on", "off"):
                 tool_forge.set_approval(PROJECT_ROOT, sys.argv[2] == "on")
                 print(f"forge approval {sys.argv[2]}")
             else:
                 print("approval ON" if tool_forge.approval_required(PROJECT_ROOT) else "approval OFF")
         elif cmd == "recipes":
-            from gremlin_core import recipes
+            from magic_core import recipes
             rows = recipes.list_recipes(PROJECT_ROOT)
             if not rows:
                 print("No recipes. Add data/recipes/<name>.yaml.")
@@ -1158,9 +1158,9 @@ async def main():
                 print(f"{_r['name']} [{_r['mode']}] " + "{" + ", ".join(_r["params"]) + "}"
                       + f" -- {_r['description']}{_flag}")
         elif cmd == "recipe":
-            from gremlin_core import recipes
+            from magic_core import recipes
             if len(sys.argv) < 3:
-                print("usage: gremlin recipe <name> key=val ...")
+                print("usage: magic recipe <name> key=val ...")
             else:
                 _rec = recipes.load_recipe(PROJECT_ROOT, sys.argv[2])
                 if not _rec:
@@ -1174,12 +1174,12 @@ async def main():
                     else:
                         print("invalid: " + "; ".join(_out["errors"]))
         elif cmd == "context":
-            from gremlin_core.magic import context_bundle
+            from magic_core.magic import context_bundle
             seeds = [a for a in sys.argv[2:] if not a.startswith("-")]
             print(context_bundle.report(PROJECT_ROOT, seeds) if seeds
-                  else "usage: gremlin context <file> [file...]")
+                  else "usage: magic context <file> [file...]")
         elif cmd == "android-check":
-            from gremlin_core.magic import android_preflight
+            from magic_core.magic import android_preflight
             adir = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else os.path.join(PROJECT_ROOT, "android")
             if "--fix" in sys.argv[2:]:
                 for d in android_preflight.fix(adir):
@@ -1190,7 +1190,7 @@ async def main():
             token = server.get_or_create_token(data_dir)
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             host, where = server.pairing_host()
-            print(f"Pairing over {where}. Scan this in the Gremlin app:\n")
+            print(f"Pairing over {where}. Scan this in the Magic app:\n")
             server.print_pairing_info(server.pairing_url(host, port, token))
             if where == "Tailscale":
                 print("\nThe phone needs Tailscale on to reach this address, at home or away.")

@@ -1,5 +1,5 @@
 """extract_json survives the shapes weak local models actually emit."""
-from gremlin_core.magic._jsonx import extract_json
+from magic_core.magic._jsonx import extract_json
 
 
 def test_plain_object():

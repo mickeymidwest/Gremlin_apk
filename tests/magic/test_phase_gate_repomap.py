@@ -1,8 +1,8 @@
 """Harness patterns #2 (phase-gated tools) + #3 (repo map)."""
-from gremlin_core.magic.battle import run_battle
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
-from gremlin_core.magic.types import Task
+from magic_core.magic.battle import run_battle
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.types import Task
 
 
 # -- repo_map ----------------------------------------------------------

@@ -3,8 +3,8 @@ import asyncio
 
 import pytest
 
-from gremlin_core import look
-from gremlin_core.magic import grounding, reply
+from magic_core import look
+from magic_core.magic import grounding, reply
 
 
 @pytest.fixture

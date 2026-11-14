@@ -3,7 +3,7 @@ import json
 import subprocess
 from types import SimpleNamespace
 
-from gremlin_core import builds, server
+from magic_core import builds, server
 
 
 def test_banner_never_contains_the_token():
@@ -12,7 +12,7 @@ def test_banner_never_contains_the_token():
                                  "/x/data/server_token.txt")
     assert token not in text and "token=" not in text
     assert "http://192.168.1.105:8765" in text and "http://100.122.58.85:8765" in text
-    assert "gremlin pair" in text
+    assert "magic pair" in text
 
 
 def test_banner_lan_only():
@@ -40,9 +40,9 @@ def test_tailscale_ip(monkeypatch):
 def test_pairing_host_prefers_override_then_tailscale_then_lan(monkeypatch):
     monkeypatch.setattr(server, "get_lan_ip", lambda: "192.168.1.105")
     monkeypatch.setattr(server, "get_tailscale_ip", lambda: "100.122.58.85")
-    monkeypatch.setenv("GREMLIN_PAIR_HOST", "gremlin.local")
-    assert server.pairing_host() == ("gremlin.local", "GREMLIN_PAIR_HOST")
-    monkeypatch.delenv("GREMLIN_PAIR_HOST")
+    monkeypatch.setenv("MAGIC_PAIR_HOST", "magic.local")
+    assert server.pairing_host() == ("magic.local", "MAGIC_PAIR_HOST")
+    monkeypatch.delenv("MAGIC_PAIR_HOST")
     assert server.pairing_host() == ("100.122.58.85", "Tailscale")
     monkeypatch.setattr(server, "get_tailscale_ip", lambda: None)
     assert server.pairing_host() == ("192.168.1.105", "LAN")
@@ -91,7 +91,7 @@ def test_old_markers_still_list(tmp_path, monkeypatch):
 
 
 def test_app_version_reads_gradle(tmp_path):
-    from gremlin_core.magic import android_build
+    from magic_core.magic import android_build
     (tmp_path / "app").mkdir()
     (tmp_path / "app" / "build.gradle.kts").write_text(
         'android {\n  defaultConfig {\n    versionCode = 5\n    versionName = "1.4"\n  }\n}\n')
@@ -113,7 +113,7 @@ def test_request_logs_redact_tokens():
 
 
 def test_threads_never_store_the_raw_token(tmp_path):
-    from gremlin_core.magic.conversation import Threads
+    from magic_core.magic.conversation import Threads
     raw = "Bearer sekrit-token-123"
     th = Threads(str(tmp_path), owner=raw)
     tid = th.create("hello there")
@@ -128,7 +128,7 @@ def test_threads_never_store_the_raw_token(tmp_path):
 
 def test_threads_migrate_an_old_raw_index_and_keep_history(tmp_path):
     import json
-    from gremlin_core.magic.conversation import Conversation, Threads
+    from magic_core.magic.conversation import Conversation, Threads
     raw = "Bearer old-token-456"
     Conversation(str(tmp_path)).remember("old question", "old answer", f"{raw}:abc")
     p = tmp_path / "data" / "conversations"
@@ -142,7 +142,7 @@ def test_threads_migrate_an_old_raw_index_and_keep_history(tmp_path):
 
 
 def test_app_version_single_quotes(tmp_path):
-    from gremlin_core.magic import android_build
+    from magic_core.magic import android_build
     (tmp_path / "app").mkdir()
     (tmp_path / "app" / "build.gradle").write_text("versionCode 3\nversionName '1.2'\n")
     assert android_build.app_version(tmp_path) == "1.2 (3)"

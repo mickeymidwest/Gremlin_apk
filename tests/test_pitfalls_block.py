@@ -1,7 +1,7 @@
 """The error ledger's recurring failures surface as a prompt 'known pitfalls'
 block (preventive -- the model sees them before generating)."""
-from gremlin_core import error_ledger as EL
-from gremlin_core.magic import reply as reply_mod
+from magic_core import error_ledger as EL
+from magic_core.magic import reply as reply_mod
 
 
 def test_empty_on_healthy_box(tmp_path):

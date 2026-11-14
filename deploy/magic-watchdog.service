@@ -1,0 +1,9 @@
+[Unit]
+Description=Health-check Magic and restart it if it's hung
+After=magic.service
+
+[Service]
+Type=oneshot
+# Filled in by hand, same two lines as magic.service/magic-update.service.
+WorkingDirectory=/home/YOUR_USERNAME/Downloads/gremlin
+ExecStart=/home/YOUR_USERNAME/Downloads/gremlin/deploy/magic-watchdog.sh

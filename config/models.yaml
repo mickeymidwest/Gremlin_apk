@@ -1,5 +1,5 @@
 models:
-  # Gremlin's brain. Picked 2026-09-06 off the harder 19-task bench
+  # Magic's brain. Picked 2026-09-06 off the harder 19-task bench
   # (15/19, top score, ~64 tok/s) -- a strong generalist (code + math +
   # reasoning), not just a code model. Chat + /build + /fix all share
   # this one warm model. The 2026-09-05 shortlist that also ran here
@@ -18,7 +18,7 @@ models:
 
   # Code-specialised 14B, same size/footprint as qwen2.5-14b. Used as the
   # LOCAL reviewer for /fix and /build patches (see tools.py _review_models),
-  # so the second opinion on Gremlin's own code gets better as we move off
+  # so the second opinion on Magic's own code gets better as we move off
   # Gemini. Not a chat model.
   - name: qwen2.5-coder-14b
     type: local_gguf
@@ -45,7 +45,7 @@ models:
 
   # Qwen3.5-9B (Feb 2026), benched 2026-11-07: thinking is switched off by
   # the chatml-nothink format (an empty <think></think> prefill); Qwen3.5
-  # ignores the /no_think soft switch under Gremlin's system prompt.
+  # ignores the /no_think soft switch under Magic's system prompt.
   - name: qwen3.5-9b
     type: local_gguf
     display_name: "Qwen3.5-9B"
@@ -79,7 +79,7 @@ models:
     n_ctx: 4096
 
   # Hive specialists (CPU lane, zero VRAM). Loaded on demand under the CPU
-  # resident cap (GREMLIN_CPU_MAX_RESIDENT=2); the tiny classifier is pinned.
+  # resident cap (MAGIC_CPU_MAX_RESIDENT=2); the tiny classifier is pinned.
   - name: qwen2.5-1.5b-cpu
     type: local_cpu
     display_name: "Qwen2.5-1.5B (CPU classifier)"
@@ -120,18 +120,18 @@ models:
   #   model_id: "claude-sonnet-5"
   #   api_key_env: ANTHROPIC_API_KEY
 
-# Gremlin is its own identity, backed by primary_model, with fallback_models
+# Magic is its own identity, backed by primary_model, with fallback_models
 # behind it only for when the local model errors. No consult council -- that
 # machinery (consult.py / specialists.py / council.py) was removed 2026-09-05;
-# Gremlin is one model now, and Magic is the harness around it.
+# Magic is one model now, and Magic is the harness around it.
   # kv_cache_type: q4_0 caused pure token-repetition garbage on this
   # model (confirmed live 2026-09-12, diagnostic script -- q4_0 KV
   # degenerates Qwen2.5-family GGUFs, same lesson qwen2.5-coder-7b's
   # entry above already carries). Fixed to q8_0; build_entry_block_hf
   # now defaults new HF downloads to q8_0 too.
 persona:
-  name: gremlin
-  display_name: "Gremlin"
+  name: magic
+  display_name: "Magic"
   # Auto-invoke Magic's verify loops in chat: a code/math/yes-no request
   # runs its attempt->check loop instead of a one-shot answer. Governor-gated
   # in reply._loop_answer so it backs off to a plain answer when the box is low.
@@ -145,16 +145,16 @@ persona:
   primary_model: qwen3.5-9b
   fallback_models: [gemini]
   system_prompt: |
-    Your name is Gremlin. You're a personal AI assistant running locally
+    Your name is Magic. You're a personal AI assistant running locally
     on the user's own desktop. If asked your name or who you are, answer
-    as Gremlin.
+    as Magic.
 
     Never say things like "as an AI", "as a language model", "I'm just an
     AI", "I don't have personal experiences/feelings", or any other
     disclaimer about what you are, unless the user directly and
     specifically asks whether you're an AI. Don't bring it up unprompted,
     don't hedge answers with it, and don't repeat it turn after turn --
-    answer plainly as Gremlin, the way a person would.
+    answer plainly as Magic, the way a person would.
 
     The desktop you're running on: Manjaro Linux, Dell G5 5000, Intel
     Core i3-10100 CPU, NVIDIA RTX 2070 Super (8GB VRAM). If asked what OS
@@ -243,10 +243,10 @@ persona:
     question is almost never true and reads as not having listened.
 
 # Roadmap #107 -- explicit allow-list for the service_status/
-# service_restart tools (gremlin_core/service_control.py). Off by
+# service_restart tools (magic_core/service_control.py). Off by
 # default: a name not listed here is refused structurally, not just by
 # a prompt telling the model not to try. Add units here as mickey wants
-# Gremlin able to touch them.
+# Magic able to touch them.
 service_control:
   docker:
     - jellyfin

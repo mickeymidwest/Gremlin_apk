@@ -2,8 +2,8 @@
 repeat-warning the second time the same step fails."""
 import asyncio
 
-import gremlin_core.actions as actions
-from gremlin_core import error_ledger as EL
+import magic_core.actions as actions
+from magic_core import error_ledger as EL
 
 
 class _Tool:
@@ -33,7 +33,7 @@ def _run(tool, intent, root):
 
 def test_failure_is_recorded_and_repeat_warns(tmp_path, monkeypatch):
     root = str(tmp_path)
-    intent = _Intent({"command": "systemctl restart gremlin.service"})
+    intent = _Intent({"command": "systemctl restart magic.service"})
     tool = _Tool(ok=False, answer="bash: permission denied")
     monkeypatch.setattr(actions.tools.REGISTRY, "get", lambda name: tool)
 
@@ -41,7 +41,7 @@ def test_failure_is_recorded_and_repeat_warns(tmp_path, monkeypatch):
     r1 = _run(tool, intent, root)
     assert "What went wrong:" in r1["answer"]
     assert "failed before" not in r1["answer"]
-    assert EL.recall(root, "run_command systemctl restart gremlin.service") is not None
+    assert EL.recall(root, "run_command systemctl restart magic.service") is not None
 
     # second failure of the SAME step: the ledger warns up front
     r2 = _run(tool, intent, root)

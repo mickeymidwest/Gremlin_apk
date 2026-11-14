@@ -30,11 +30,11 @@ import yaml
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from gremlin_core import consult, model_scan  # noqa: E402
-from gremlin_core import root_exec  # noqa: E402
-from gremlin_core import server as server_mod  # noqa: E402
-from gremlin_core import snapshots as snapshots_mod  # noqa: E402
-from gremlin_core.status import get_status_data  # noqa: E402
+from magic_core import consult, model_scan  # noqa: E402
+from magic_core import root_exec  # noqa: E402
+from magic_core import server as server_mod  # noqa: E402
+from magic_core import snapshots as snapshots_mod  # noqa: E402
+from magic_core.status import get_status_data  # noqa: E402
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 CONFIG_PATH = PROJECT_ROOT / "config" / "models.yaml"
@@ -52,7 +52,7 @@ def find_terminal() -> str | None:
 
 def build_launch_command(terminal: str, subcommand: str, project_root: Path = PROJECT_ROOT) -> list[str]:
     """Pure logic, no GUI/subprocess dependency -- returns the argv list
-    that would be used to open a terminal running the given gremlin
+    that would be used to open a terminal running the given magic
     subcommand. Split out from launch() so the exact command
     construction can be tested without actually spawning a process."""
     inner = f'cd "{project_root}" && python3 main.py {subcommand}; exec bash'
@@ -74,10 +74,10 @@ class Api:
 
     def is_talking(self) -> bool:
         """Polled by hologram.html (~every 400ms) to animate the mouth
-        while Gremlin is actually generating an answer -- see
-        gremlin_core.consult.is_talking for what sets/clears this. Works
+        while Magic is actually generating an answer -- see
+        magic_core.consult.is_talking for what sets/clears this. Works
         whether the answer came from this window's own "Chat with
-        Gremlin" terminal or from `gremlin serve` handling a request
+        Magic" terminal or from `magic serve` handling a request
         from the phone, since both funnel through the same
         consult_and_learn call."""
         return consult.is_talking(str(PROJECT_ROOT))
@@ -91,7 +91,7 @@ class Api:
         return {"name": name, "error": "not found"}
 
     def edit_model(self, name: str, field: str, value: str) -> dict:
-        """Shells out to `gremlin model-edit` (non-interactive by design,
+        """Shells out to `magic model-edit` (non-interactive by design,
         see main.py) rather than touching config/models.yaml directly
         here -- one code path for the field-editing logic and its
         validation/rollback, whether triggered from this desktop window
@@ -109,7 +109,7 @@ class Api:
 
         if self._settings_window is None or self._settings_window not in webview.windows:
             self._settings_window = webview.create_window(
-                "Gremlin Settings",
+                "Magic Settings",
                 str(ASSETS_DIR / "settings.html"),
                 width=420, height=480, resizable=True, js_api=self,
             )
@@ -122,7 +122,7 @@ class Api:
             return
 
         window = webview.create_window(
-            f"Gremlin -- {name}",
+            f"Magic -- {name}",
             str(ASSETS_DIR / "model-settings.html"),
             width=360, height=360, resizable=True, js_api=self,
         )
@@ -137,10 +137,10 @@ class Api:
         window.events.loaded += _init
 
     def _ensure_server(self) -> tuple[str, str]:
-        """Returns (base_url, token) for a `gremlin serve` instance on
+        """Returns (base_url, token) for a `magic serve` instance on
         this machine, starting one in the background if nothing is
         already answering on it. This is what lets main.html's chat
-        panel work without the user having to run `gremlin serve`
+        panel work without the user having to run `magic serve`
         themselves first -- the same server the Android app already
         talks to over LAN, just addressed over localhost here instead."""
         token = server_mod.get_or_create_token(DATA_DIR)
@@ -173,7 +173,7 @@ class Api:
 
     def chat(self, message: str) -> dict:
         """Backs main.html's conversation panel -- a thin HTTP client to
-        /chat on a local `gremlin serve` (auto-started via
+        /chat on a local `magic serve` (auto-started via
         _ensure_server if not already running), not a reimplementation
         of the answer-generation logic. Same JSON shape consult_and_learn
         returns (answer/consulted/from_memory/contributors/...), plus
@@ -182,7 +182,7 @@ class Api:
         base_url, token = self._ensure_server()
         if not self._wait_for_server(base_url, token):
             return {
-                "answer": "Couldn't start gremlin serve -- check the terminal gui/app.py "
+                "answer": "Couldn't start magic serve -- check the terminal gui/app.py "
                           "was launched from for errors.",
                 "error": True,
             }
@@ -198,7 +198,7 @@ class Api:
                 timeout=180,
             )
         except requests.RequestException as e:
-            return {"answer": f"Couldn't reach gremlin serve: {e}", "error": True}
+            return {"answer": f"Couldn't reach magic serve: {e}", "error": True}
 
         if r.status_code != 200:
             detail = (r.json().get("error") if r.headers.get("content-type", "").startswith("application/json") else None) or f"HTTP {r.status_code}"
@@ -208,7 +208,7 @@ class Api:
 
     def list_snapshots(self) -> dict:
         """Backs main.html's `/snapshots` slash command -- calls
-        gremlin_core.snapshots directly rather than over HTTP, since
+        magic_core.snapshots directly rather than over HTTP, since
         this desktop window already has direct access to the project."""
         ok, result = asyncio.run(snapshots_mod.list_snapshots(str(PROJECT_ROOT)))
         return {"ok": ok, "result": result}
@@ -221,10 +221,10 @@ class Api:
     def self_edit(self, goal: str, run_tests: bool = True) -> dict:
         """Backs main.html's `/edit <goal> confirm` slash command.
         Unlike list_snapshots/rollback_to/run_as_root above, this can't
-        just call gremlin_core directly in-process: self_improve.run_self_edit
+        just call magic_core directly in-process: self_improve.run_self_edit
         needs a real Router with the actual model backends loaded, and
         building a second one here would double-load whatever's already
-        resident in `gremlin serve`'s registry, fighting it for the same
+        resident in `magic serve`'s registry, fighting it for the same
         VRAM (see router.py's note on this exact problem). So this proxies
         to that already-running server's /admin/self-edit instead, same
         as chat() proxies to /chat -- one registry, one source of truth,
@@ -233,7 +233,7 @@ class Api:
         if not self._wait_for_server(base_url, token):
             return {
                 "applied": False,
-                "reason": "Couldn't start gremlin serve -- check the terminal gui/app.py was launched from for errors.",
+                "reason": "Couldn't start magic serve -- check the terminal gui/app.py was launched from for errors.",
             }
 
         admin_token = server_mod.get_or_create_admin_token(DATA_DIR)
@@ -245,7 +245,7 @@ class Api:
                 timeout=900,
             )
         except requests.RequestException as e:
-            return {"applied": False, "reason": f"Couldn't reach gremlin serve: {e}"}
+            return {"applied": False, "reason": f"Couldn't reach magic serve: {e}"}
 
         if r.status_code != 200:
             detail = (r.json().get("error") if r.headers.get("content-type", "").startswith("application/json") else None) or f"HTTP {r.status_code}"
@@ -255,7 +255,7 @@ class Api:
     def run_as_root(self, command: str) -> dict:
         """Backs main.html's `/root <command>` slash command -- runs via
         root_exec.run_as_root, which uses the sudo password cached by
-        `gremlin set-sudo-password` (never prompts here)."""
+        `magic set-sudo-password` (never prompts here)."""
         result = asyncio.run(root_exec.run_as_root(command, str(PROJECT_ROOT)))
         return {
             "ok": result.ok, "stdout": result.stdout, "stderr": result.stderr,
@@ -299,7 +299,7 @@ def main():
     # The hologram itself (in its iframe) still renders its own dark/
     # scanline look, so nothing changes visually up there.
     webview.create_window(
-        "Gremlin",
+        "Magic",
         str(ASSETS_DIR / "main.html"),
         width=width, height=height,
         frameless=True, easy_drag=True, on_top=True,

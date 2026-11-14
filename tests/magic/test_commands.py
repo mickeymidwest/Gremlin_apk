@@ -3,8 +3,8 @@ import asyncio
 
 import pytest
 
-from gremlin_core.magic import commands
-from gremlin_core.magic.commands import CommandContext, parse, help_text, dispatch
+from magic_core.magic import commands
+from magic_core.magic.commands import CommandContext, parse, help_text, dispatch
 
 
 class FakeResult:
@@ -18,7 +18,7 @@ class FakeResult:
 
 class FakeBackend:
     async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.6):
-        return FakeResult(text=f"gremlin says: {prompt}")
+        return FakeResult(text=f"magic says: {prompt}")
 
 
 class FakeRegistry:
@@ -27,12 +27,12 @@ class FakeRegistry:
         self._b = FakeBackend()
 
     def get(self, name):
-        return self._b if name in ("gremlin", "qwen3-8b") else None
+        return self._b if name in ("magic", "qwen3-8b") else None
 
 
 def _ctx(tmp_path):
     cfg = tmp_path / "models.yaml"
-    cfg.write_text("models: []\npersona:\n  name: gremlin\n  primary_model: qwen3-8b\n")
+    cfg.write_text("models: []\npersona:\n  name: magic\n  primary_model: qwen3-8b\n")
     return CommandContext(registry=FakeRegistry(), project_root=str(tmp_path),
                           config_path=str(cfg))
 
@@ -65,7 +65,7 @@ def test_chat_needs_an_argument(tmp_path):
 
 
 def test_model_list_marks_primary(tmp_path, monkeypatch):
-    import gremlin_core.model_scan as ms
+    import magic_core.model_scan as ms
     monkeypatch.setattr(ms, "list_all_entries",
                         lambda _txt: [{"name": "qwen3-8b"}, {"name": "old"}])
     r = asyncio.run(dispatch("/model list", _ctx(tmp_path)))
@@ -78,7 +78,7 @@ def test_model_bad_subcommand(tmp_path):
 
 
 def test_model_download_lists_files_with_vram_estimate(tmp_path, monkeypatch):
-    import gremlin_core.hf_hub as hf
+    import magic_core.hf_hub as hf
     monkeypatch.setattr(hf, "list_gguf_files", lambda repo: [
         {"filename": "tiny.Q4_K_M.gguf", "size": 2_000_000_000},
         {"filename": "huge.Q8_0.gguf", "size": 40_000_000_000},
@@ -90,7 +90,7 @@ def test_model_download_lists_files_with_vram_estimate(tmp_path, monkeypatch):
 
 
 def test_model_download_refuses_oversized_file(tmp_path, monkeypatch):
-    import gremlin_core.hf_hub as hf
+    import magic_core.hf_hub as hf
     monkeypatch.setattr(hf, "list_gguf_files", lambda repo: [
         {"filename": "huge.Q8_0.gguf", "size": 40_000_000_000},
     ])
@@ -103,7 +103,7 @@ def test_model_download_refuses_oversized_file(tmp_path, monkeypatch):
 
 
 def test_model_download_unknown_file(tmp_path, monkeypatch):
-    import gremlin_core.hf_hub as hf
+    import magic_core.hf_hub as hf
     monkeypatch.setattr(hf, "list_gguf_files", lambda repo: [
         {"filename": "real.gguf", "size": 1_000_000},
     ])
@@ -112,14 +112,14 @@ def test_model_download_unknown_file(tmp_path, monkeypatch):
 
 
 def test_model_switch_unknown_name(tmp_path, monkeypatch):
-    import gremlin_core.model_scan as ms
+    import magic_core.model_scan as ms
     monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [{"name": "qwen3-8b"}])
     r = asyncio.run(dispatch("/model switch nope", _ctx(tmp_path)))
     assert not r["ok"] and "no model named" in r["answer"]
 
 
 def test_model_switch_refuses_when_too_big_for_the_card(tmp_path, monkeypatch):
-    import gremlin_core.model_scan as ms
+    import magic_core.model_scan as ms
     monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [
         {"name": "monster-70b", "model_path": "monster-70b.gguf", "footprint_mb": 40000},
     ])
@@ -132,7 +132,7 @@ def test_model_switch_refuses_when_too_big_for_the_card(tmp_path, monkeypatch):
 
 
 def test_model_switch_succeeds_and_says_restart_is_needed(tmp_path, monkeypatch):
-    import gremlin_core.model_scan as ms
+    import magic_core.model_scan as ms
     monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [
         {"name": "qwen3-8b", "model_path": "qwen3-8b.gguf"},
     ])
@@ -144,7 +144,7 @@ def test_model_switch_succeeds_and_says_restart_is_needed(tmp_path, monkeypatch)
 
 
 def test_model_switch_reports_set_primary_model_failure(tmp_path, monkeypatch):
-    import gremlin_core.model_scan as ms
+    import magic_core.model_scan as ms
     monkeypatch.setattr(ms, "list_all_entries", lambda _txt: [
         {"name": "qwen3-8b", "model_path": "qwen3-8b.gguf"},
     ])
@@ -164,7 +164,7 @@ class _FakeOverrideBackend:
 
 
 class _OverrideRegistry:
-    def __init__(self, backend=None, system_prompt="You are Gremlin."):
+    def __init__(self, backend=None, system_prompt="You are Magic."):
         self._backend = backend
         self.raw_config = {"persona": {"primary_model": "qwen2.5-coder-7b",
                                        "system_prompt": system_prompt}}
@@ -196,7 +196,7 @@ def test_override_uses_the_no_gate_system_prompt_not_the_persona(tmp_path):
     assert sysp == commands._OVERRIDE_SYSTEM
     assert sysp != "talk like mickey"                 # not the gated persona
     low = sysp.lower()
-    assert "gremlin" in low                           # keeps identity
+    assert "magic" in low                           # keeps identity
     assert "no content filtering" in low or "no-filter" in low or "no refusals" in low
     assert "moraliz" in low                           # explicitly drops moralizing
 
@@ -229,8 +229,8 @@ def test_build_android_new_is_desktop_only(tmp_path):
 
 
 def test_do_learn_flag_parsed(tmp_path, monkeypatch):
-    import gremlin_core.magic.battle as battle_mod
-    from gremlin_core.magic.types import Transcript
+    import magic_core.magic.battle as battle_mod
+    from magic_core.magic.types import Transcript
     seen = {}
 
     class BE:
@@ -243,7 +243,7 @@ def test_do_learn_flag_parsed(tmp_path, monkeypatch):
 
     monkeypatch.setattr(battle_mod, "run_battle", fake_rb)
     reg = FakeRegistry()
-    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("gremlin", "qwen3-8b") else None)
+    monkeypatch.setattr(reg, "get", lambda n: BE() if n in ("magic", "qwen3-8b") else None)
     ctx = _ctx(tmp_path)
     ctx.registry = reg
     r = asyncio.run(dispatch("/do learn how does the apk store its keys", ctx))

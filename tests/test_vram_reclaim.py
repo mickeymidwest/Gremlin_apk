@@ -3,7 +3,7 @@ before returning, so a tight model swap (5.3G<->5.3G on an 8G card) does not
 race the reclaim and OOM."""
 import asyncio
 
-import gremlin_core.magic.vram as vram
+import magic_core.magic.vram as vram
 
 
 class _FakeBE:

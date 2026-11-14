@@ -1,12 +1,12 @@
 """Completion verdicts (MAGIC.md section 7): a verifier Score is classified
 into verified | partial | failed | inconclusive, and a 0.0 that means
 'the check never ran' must NOT be reported as a failure."""
-from gremlin_core.magic.types import Score, BattleResult, Transcript
-from gremlin_core.magic.verdict import (
+from magic_core.magic.types import Score, BattleResult, Transcript
+from magic_core.magic.verdict import (
     classify_outcome, CompletionVerdict,
     VERIFIED, PARTIAL, FAILED, INCONCLUSIVE,
 )
-from gremlin_core.magic import reckoning
+from magic_core.magic import reckoning
 
 
 def _v(value, signal="", detail=""):

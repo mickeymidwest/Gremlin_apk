@@ -16,16 +16,16 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
 
 /**
- * Settings -> Builds: everything Gremlin built on the desktop (scripts,
+ * Settings -> Builds: everything Magic built on the desktop (scripts,
  * projects, Android app source), listed here. Tap to pull it to the
  * phone. A build that's a single .apk downloads raw and goes straight
  * to the system installer -- no unzip. A single script downloads with
  * its real name. A multi-file project still comes down as a .zip.
- * Backed by the /builds endpoints + GremlinClient.
+ * Backed by the /builds endpoints + MagicClient.
  */
 class BuildsActivity : AppCompatActivity() {
 
-    private lateinit var client: GremlinClient
+    private lateinit var client: MagicClient
     private lateinit var status: TextView
     private lateinit var list: ListView
     private var builds: List<BuildInfo> = emptyList()
@@ -55,7 +55,7 @@ class BuildsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_builds)
         title = "Desktop Builds"
-        client = GremlinClient(getSharedPreferences("gremlin_prefs", MODE_PRIVATE), applicationContext)
+        client = MagicClient(getSharedPreferences("magic_prefs", MODE_PRIVATE), applicationContext)
         status = findViewById(R.id.builds_status)
         list = findViewById(R.id.builds_list)
         list.setOnItemClickListener { _, _, pos, _ ->
@@ -75,12 +75,12 @@ class BuildsActivity : AppCompatActivity() {
 
     private fun installApk(b: BuildInfo) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
-            status.text = "Allow \"Install unknown apps\" for Gremlin, then tap the build again."
+            status.text = "Allow \"Install unknown apps\" for Magic, then tap the build again."
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:$packageName")))
             } catch (e: Exception) {
-                Toast.makeText(this, "Enable it in Settings → Apps → Gremlin → Install unknown apps", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Enable it in Settings → Apps → Magic → Install unknown apps", Toast.LENGTH_LONG).show()
             }
             return
         }

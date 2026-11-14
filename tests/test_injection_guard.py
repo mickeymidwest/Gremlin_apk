@@ -1,5 +1,5 @@
 """Prompt-injection defense: detect hijack shapes, wrap untrusted content."""
-from gremlin_core import injection_guard as IG
+from magic_core import injection_guard as IG
 
 
 def test_detects_instruction_override():

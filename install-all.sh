@@ -5,10 +5,10 @@
 # to stay reachable headless after a reboot -- no monitor, keyboard, or
 # physical login required ever again:
 #   - BTRFS snapshots (snapper + grub-btrfs) for remote rollback
-#     (gremlin list-snapshots / rollback-to -- see README)
+#     (magic list-snapshots / rollback-to -- see README)
 #   - KDE Plasma: no sleep/suspend/hibernate, no lock screen, no login
 #     screen (SDDM auto-login straight to a desktop session)
-#   - `gremlin serve` installed as a systemd user service that starts
+#   - `magic serve` installed as a systemd user service that starts
 #     on login and restarts on crash
 #
 # Usage:
@@ -23,9 +23,9 @@
 set -e
 
 REPO_URL="${1:-}"
-TARGET_DIR="gremlin"
+TARGET_DIR="magic"
 
-echo "=== Gremlin all-in-one install ==="
+echo "=== Magic all-in-one install ==="
 echo
 
 # --- 1. Install git (and the couple of tools setup.sh needs) if missing ---
@@ -48,14 +48,14 @@ fi
 # --- 2. Clone the repo (or use the checkout we're already inside) ---
 if [ -f "setup.sh" ] && [ -f "main.py" ]; then
     TARGET_DIR="."
-    echo "[*] Already inside a Gremlin checkout, using it directly"
+    echo "[*] Already inside a Magic checkout, using it directly"
 elif [ -d "$TARGET_DIR" ] && [ -f "$TARGET_DIR/setup.sh" ]; then
     echo "[*] $TARGET_DIR/ already exists locally, using it directly"
 elif [ -n "$REPO_URL" ]; then
     echo "[*] Cloning $REPO_URL..."
     git clone "$REPO_URL" "$TARGET_DIR"
 else
-    read -rp "Repo URL to clone (e.g. https://github.com/you/gremlin.git): " REPO_URL
+    read -rp "Repo URL to clone (e.g. https://github.com/you/magic.git): " REPO_URL
     if [ -z "$REPO_URL" ]; then
         echo "No URL given -- nothing to clone. Re-run with a URL, or from inside an existing checkout."
         exit 1
@@ -64,9 +64,9 @@ else
 fi
 
 cd "$TARGET_DIR"
-GREMLIN_DIR="$(pwd)"
+MAGIC_DIR="$(pwd)"
 chmod +x setup.sh
-[ -f gremlin ] && chmod +x gremlin
+[ -f magic ] && chmod +x magic
 
 # --- 3. Base setup: venv, dependencies, API keys (asks only for what .env doesn't already have) ---
 echo
@@ -75,7 +75,7 @@ echo
 ./setup.sh
 
 # --- 4. BTRFS snapshots + grub-btrfs, for remote rollback without touching GRUB ---
-# (see gremlin_core/snapshots.py -- `snapper rollback` swaps the boot
+# (see magic_core/snapshots.py -- `snapper rollback` swaps the boot
 # subvolume for next boot, which is the closest real equivalent to
 # picking an older entry from the GRUB menu that's actually possible
 # to trigger remotely, since GRUB itself runs before any of this
@@ -84,7 +84,7 @@ echo
 ROOT_FSTYPE="$(findmnt -no FSTYPE / 2>/dev/null || true)"
 if [ "$ROOT_FSTYPE" != "btrfs" ]; then
     echo "[*] Root filesystem isn't BTRFS ($ROOT_FSTYPE) -- skipping snapshot setup."
-    echo "    (gremlin list-snapshots / rollback-to won't work on this machine.)"
+    echo "    (magic list-snapshots / rollback-to won't work on this machine.)"
 elif ! command -v pacman &> /dev/null; then
     echo "[!] Snapshot setup currently only automated for pacman (Arch/Manjaro) --"
     echo "    skipping. Install snapper + grub-btrfs + snap-pac manually if you want"
@@ -106,7 +106,7 @@ else
     sudo grub-mkconfig -o /boot/grub/grub.cfg
 
     echo "[+] Snapshot rollback ready. Once a sudo password is cached (step 6"
-    echo "    below), 'gremlin list-snapshots' / 'gremlin rollback-to <N>' will work."
+    echo "    below), 'magic list-snapshots' / 'magic rollback-to <N>' will work."
 fi
 
 # --- 5. KDE Plasma: never sleep, never lock, never wait at a login screen ---
@@ -162,7 +162,7 @@ else
             fi
         done
         sudo mkdir -p /etc/sddm.conf.d
-        sudo tee /etc/sddm.conf.d/gremlin-autologin.conf > /dev/null <<EOF
+        sudo tee /etc/sddm.conf.d/magic-autologin.conf > /dev/null <<EOF
 [Autologin]
 User=$USER
 Session=$SESSION_NAME
@@ -175,7 +175,7 @@ fi
 
 # --- 6. Cache a sudo password so root commands can run remotely later ---
 echo
-echo "[*] To run root-requiring commands remotely (no monitor needed), Gremlin"
+echo "[*] To run root-requiring commands remotely (no monitor needed), Magic"
 echo "    caches a verified sudo password locally (never sent over the network)."
 read -rp "Set that up now? (y/N): " SETUP_SUDO
 if [[ "$SETUP_SUDO" =~ ^[Yy]$ ]]; then
@@ -183,66 +183,66 @@ if [[ "$SETUP_SUDO" =~ ^[Yy]$ ]]; then
     python main.py set-sudo-password
 fi
 
-# --- 7. gremlin serve as a systemd --user service: starts on login, restarts on crash ---
+# --- 7. magic serve as a systemd --user service: starts on login, restarts on crash ---
 echo
-read -rp "Install 'gremlin serve' as an auto-starting systemd --user service? (Y/n): " SETUP_SERVICE
+read -rp "Install 'magic serve' as an auto-starting systemd --user service? (Y/n): " SETUP_SERVICE
 if [[ ! "$SETUP_SERVICE" =~ ^[Nn]$ ]]; then
     mkdir -p ~/.config/systemd/user
-    chmod +x deploy/gremlin-preflight.sh
+    chmod +x deploy/magic-preflight.sh
     # WantedBy=multi-user.target is for the SYSTEM manager -- a --user
     # unit needs default.target instead, or `enable` silently creates a
     # symlink nothing ever activates and it never actually autostarts.
     # ExecStart points at the preflight script (checks free VRAM, warns
     # if something else on the GPU has eaten the headroom the primary
     # model needs, then execs into the real `main.py serve`) rather than
-    # the bare python command directly -- see deploy/gremlin-preflight.sh.
+    # the bare python command directly -- see deploy/magic-preflight.sh.
     sed -e "s|^User=.*|User=$USER|" \
-        -e "s|^WorkingDirectory=.*|WorkingDirectory=$GREMLIN_DIR|" \
-        -e "s|^ExecStart=.*|ExecStart=$GREMLIN_DIR/deploy/gremlin-preflight.sh|" \
+        -e "s|^WorkingDirectory=.*|WorkingDirectory=$MAGIC_DIR|" \
+        -e "s|^ExecStart=.*|ExecStart=$MAGIC_DIR/deploy/magic-preflight.sh|" \
         -e "s|^WantedBy=multi-user.target|WantedBy=default.target|" \
-        deploy/gremlin.service > ~/.config/systemd/user/gremlin.service
+        deploy/magic.service > ~/.config/systemd/user/magic.service
     systemctl --user daemon-reload
-    systemctl --user enable --now gremlin.service
+    systemctl --user enable --now magic.service
     # Lingering keeps the --user service (and its timers) running even
     # if this user session ends without SDDM auto-login kicking in --
     # a second line of defense for "never needs a monitor again."
     sudo loginctl enable-linger "$USER" 2>/dev/null || true
-    echo "[+] gremlin.service enabled -- check status with: systemctl --user status gremlin"
+    echo "[+] magic.service enabled -- check status with: systemctl --user status magic"
 fi
 
 # --- 8. Auto-pull updates from GitHub -- picks up new commits without needing to SSH in ---
 echo
 read -rp "Auto-check GitHub for updates every 15 min and pull + restart when found? (Y/n): " SETUP_AUTOUPDATE
 if [[ ! "$SETUP_AUTOUPDATE" =~ ^[Nn]$ ]]; then
-    chmod +x deploy/gremlin-update.sh
+    chmod +x deploy/magic-update.sh
     mkdir -p ~/.config/systemd/user
-    sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$GREMLIN_DIR|" \
-        -e "s|^ExecStart=.*|ExecStart=$GREMLIN_DIR/deploy/gremlin-update.sh|" \
-        deploy/gremlin-update.service > ~/.config/systemd/user/gremlin-update.service
-    cp deploy/gremlin-update.timer ~/.config/systemd/user/gremlin-update.timer
+    sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$MAGIC_DIR|" \
+        -e "s|^ExecStart=.*|ExecStart=$MAGIC_DIR/deploy/magic-update.sh|" \
+        deploy/magic-update.service > ~/.config/systemd/user/magic-update.service
+    cp deploy/magic-update.timer ~/.config/systemd/user/magic-update.timer
     systemctl --user daemon-reload
-    systemctl --user enable --now gremlin-update.timer
-    echo "[+] gremlin-update.timer enabled -- check status with: systemctl --user status gremlin-update.timer"
+    systemctl --user enable --now magic-update.timer
+    echo "[+] magic-update.timer enabled -- check status with: systemctl --user status magic-update.timer"
     echo "    Pulls only fast-forward (git pull --ff-only) -- never overwrites local changes,"
     echo "    fails cleanly instead if the working tree has diverged."
 fi
 
-# --- 9. Watchdog: restarts gremlin.service if it stops answering HTTP ---
+# --- 9. Watchdog: restarts magic.service if it stops answering HTTP ---
 echo
 echo "[*] Restart=on-failure only fires if the process actually exits -- it won't"
 echo "    catch a hung-but-alive process (e.g. a CUDA error that corrupts the"
 echo "    model without killing it). This checks /status every 2 min instead."
-read -rp "Install the Gremlin watchdog timer? (Y/n): " SETUP_WATCHDOG
+read -rp "Install the Magic watchdog timer? (Y/n): " SETUP_WATCHDOG
 if [[ ! "$SETUP_WATCHDOG" =~ ^[Nn]$ ]]; then
-    chmod +x deploy/gremlin-watchdog.sh
+    chmod +x deploy/magic-watchdog.sh
     mkdir -p ~/.config/systemd/user
-    sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$GREMLIN_DIR|" \
-        -e "s|^ExecStart=.*|ExecStart=$GREMLIN_DIR/deploy/gremlin-watchdog.sh|" \
-        deploy/gremlin-watchdog.service > ~/.config/systemd/user/gremlin-watchdog.service
-    cp deploy/gremlin-watchdog.timer ~/.config/systemd/user/gremlin-watchdog.timer
+    sed -e "s|^WorkingDirectory=.*|WorkingDirectory=$MAGIC_DIR|" \
+        -e "s|^ExecStart=.*|ExecStart=$MAGIC_DIR/deploy/magic-watchdog.sh|" \
+        deploy/magic-watchdog.service > ~/.config/systemd/user/magic-watchdog.service
+    cp deploy/magic-watchdog.timer ~/.config/systemd/user/magic-watchdog.timer
     systemctl --user daemon-reload
-    systemctl --user enable --now gremlin-watchdog.timer
-    echo "[+] gremlin-watchdog.timer enabled -- check status with: systemctl --user status gremlin-watchdog.timer"
+    systemctl --user enable --now magic-watchdog.timer
+    echo "[+] magic-watchdog.timer enabled -- check status with: systemctl --user status magic-watchdog.timer"
 fi
 
 echo
@@ -251,5 +251,5 @@ echo
 echo "config/models.yaml currently expects 5 local models -- see README or"
 echo "bootstrap.sh's output for the exact 'python main.py models --hf ...' searches."
 echo
-echo "Remote admin/reboot token: gremlin admin-token"
-echo "Rollback if something breaks: gremlin list-snapshots / gremlin rollback-to <N>"
+echo "Remote admin/reboot token: magic admin-token"
+echo "Rollback if something breaks: magic list-snapshots / magic rollback-to <N>"

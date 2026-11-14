@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="gremlin_bg">#0D1512</color>
-    <color name="gremlin_surface">#132019</color>
-    <color name="gremlin_surface_hi">#1A2B23</color>
-    <!-- the borders fade from gremlin_accent (mint green) into this -->
-    <color name="gremlin_blue">#5AB8FF</color>
-    <color name="gremlin_accent">#7DFFCF</color>
-    <color name="gremlin_text_primary">#CFECE2</color>
-    <color name="gremlin_text_secondary">#9FD9C8</color>
-    <color name="gremlin_system">#FFD27D</color>
-    <color name="gremlin_error">#FF9D9D</color>
-    <color name="gremlin_bubble_user">#1F4A3C</color>
-    <color name="gremlin_code_bg">#0A100E</color>
-    <color name="gremlin_line">#24382F</color>
-    <color name="gremlin_online">#6DE3A0</color>
-    <color name="gremlin_busy">#FFD27D</color>
-    <color name="gremlin_offline">#FF9D9D</color>
+    <color name="magic_bg">#0D1512</color>
+    <color name="magic_surface">#132019</color>
+    <color name="magic_surface_hi">#1A2B23</color>
+    <!-- the borders fade from magic_accent (mint green) into this -->
+    <color name="magic_blue">#5AB8FF</color>
+    <color name="magic_accent">#7DFFCF</color>
+    <color name="magic_text_primary">#CFECE2</color>
+    <color name="magic_text_secondary">#9FD9C8</color>
+    <color name="magic_system">#FFD27D</color>
+    <color name="magic_error">#FF9D9D</color>
+    <color name="magic_bubble_user">#1F4A3C</color>
+    <color name="magic_code_bg">#0A100E</color>
+    <color name="magic_line">#24382F</color>
+    <color name="magic_online">#6DE3A0</color>
+    <color name="magic_busy">#FFD27D</color>
+    <color name="magic_offline">#FF9D9D</color>
     <!-- Private mode: a warm, sensual dark palette (distinct from the mint UI) -->
     <color name="pv_bg">#080B16</color>
     <color name="pv_bg2">#0C1430</color>

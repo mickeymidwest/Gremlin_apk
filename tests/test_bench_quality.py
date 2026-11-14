@@ -146,7 +146,7 @@ def test_conditionals_are_not_claims(q):
 def test_chat_part_runs_the_real_reply_path_without_touching_real_files(q, tmp_path, monkeypatch):
     real_mem = tmp_path / "real_memory.txt"
     real_mem.write_text("- [2026-11-07] Mickey's dog is Rex\n")
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(real_mem))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(real_mem))
     seen = []
 
     class FakeLlm:
@@ -167,7 +167,7 @@ def test_chat_part_runs_the_real_reply_path_without_touching_real_files(q, tmp_p
     assert any("Rex" in m["content"] for m in seen[0])  # real memory was read
     assert real_mem.read_text() == "- [2026-11-07] Mickey's dog is Rex\n"  # and not written
     import os
-    assert os.environ["GREMLIN_MEMORY_FILE"] == str(real_mem)  # env restored
+    assert os.environ["MAGIC_MEMORY_FILE"] == str(real_mem)  # env restored
 
 
 

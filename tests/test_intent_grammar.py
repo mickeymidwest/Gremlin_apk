@@ -2,8 +2,8 @@
 a JSON-schema grammar whose action is an enum of real tools."""
 import asyncio
 
-from gremlin_core import intent as I
-from gremlin_core.backends import grammars
+from magic_core import intent as I
+from magic_core.backends import grammars
 
 
 class _FakeResult:
@@ -23,7 +23,7 @@ class _CaptureRouter:
 
 
 def _classify(router, msg):
-    return asyncio.run(I.classify(router, "gremlin", msg, min_confidence=0.5))
+    return asyncio.run(I.classify(router, "magic", msg, min_confidence=0.5))
 
 
 def test_classify_passes_an_action_enum_grammar():
@@ -41,6 +41,6 @@ def test_classify_passes_an_action_enum_grammar():
 
 def test_enum_tracks_registered_tools():
     g = I._classify_grammar()
-    from gremlin_core import tools
+    from magic_core import tools
     for name in ("run_command", "search_files", "service_stop"):
         assert name in g["properties"]["action"]["enum"], name

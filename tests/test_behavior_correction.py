@@ -1,13 +1,13 @@
 """maybe_autosave_correction -- the other half of maybe_autosave_note:
 that function only ever captures facts about the USER (its own system
 prompt explicitly excludes "anything about you the assistant"), so a
-real-time correction about how Gremlin should behave/talk previously
+real-time correction about how Magic should behave/talk previously
 evaporated the instant the turn ended unless mickey said the magic
 word "remember". This makes an ordinary correction durable the same
 automatic way facts about mickey already were."""
 import asyncio
 
-from gremlin_core import notes
+from magic_core import notes
 
 
 class _FakeBackend:
@@ -39,7 +39,7 @@ def test_does_not_flag_ordinary_questions_or_facts_about_the_user():
 
 
 def test_autosave_correction_saves_the_extracted_instruction(tmp_path, monkeypatch):
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(tmp_path / "mem.txt"))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(tmp_path / "mem.txt"))
     backend = _FakeBackend("Don't start replies with 'Finally'")
     note = asyncio.run(notes.maybe_autosave_correction(
         backend, "stop saying finally so much", str(tmp_path)))
@@ -49,7 +49,7 @@ def test_autosave_correction_saves_the_extracted_instruction(tmp_path, monkeypat
 
 
 def test_autosave_correction_skips_non_correction_messages(tmp_path, monkeypatch):
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(tmp_path / "mem.txt"))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(tmp_path / "mem.txt"))
     backend = _FakeBackend("should never be called")
     note = asyncio.run(notes.maybe_autosave_correction(
         backend, "what time is it", str(tmp_path)))
@@ -58,7 +58,7 @@ def test_autosave_correction_skips_non_correction_messages(tmp_path, monkeypatch
 
 
 def test_autosave_correction_respects_none_verdict(tmp_path, monkeypatch):
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(tmp_path / "mem.txt"))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(tmp_path / "mem.txt"))
     backend = _FakeBackend("NONE")
     note = asyncio.run(notes.maybe_autosave_correction(
         backend, "stop doing that", str(tmp_path)))
@@ -66,7 +66,7 @@ def test_autosave_correction_respects_none_verdict(tmp_path, monkeypatch):
 
 
 def test_autosave_correction_never_raises_on_backend_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(tmp_path / "mem.txt"))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(tmp_path / "mem.txt"))
 
     class _Boom:
         async def generate(self, *a, **kw):
@@ -77,7 +77,7 @@ def test_autosave_correction_never_raises_on_backend_error(tmp_path, monkeypatch
 
 def test_wont_duplicate_an_already_saved_correction(tmp_path, monkeypatch):
     memfile = tmp_path / "mem.txt"
-    monkeypatch.setenv("GREMLIN_MEMORY_FILE", str(memfile))
+    monkeypatch.setenv("MAGIC_MEMORY_FILE", str(memfile))
     notes.remember_fact(str(tmp_path), "[behavior] Don't start replies with 'Finally'")
     backend = _FakeBackend("Don't start replies with 'Finally'")
     note = asyncio.run(notes.maybe_autosave_correction(

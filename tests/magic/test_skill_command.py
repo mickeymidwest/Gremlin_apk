@@ -2,23 +2,23 @@
 import asyncio
 import json
 
-from gremlin_core.magic import reckoning
-from gremlin_core.magic.commands import CommandContext, dispatch
-from gremlin_core.magic.model import ScriptedModel
-from gremlin_core.magic.store import Store
-from gremlin_core.magic.types import Skill
+from magic_core.magic import reckoning
+from magic_core.magic.commands import CommandContext, dispatch
+from magic_core.magic.model import ScriptedModel
+from magic_core.magic.store import Store
+from magic_core.magic.types import Skill
 
 
 class ModelReg:
     """registry stub whose .get returns a raw 'backend' that BackendModel
     wraps; here the backend just replays scripted JSON."""
     def __init__(self, replies):
-        self.raw_config = {"persona": {"primary_model": "gremlin"}}
+        self.raw_config = {"persona": {"primary_model": "magic"}}
         self._replies = list(replies)
         self._i = 0
 
     def get(self, name):
-        if name not in ("gremlin", "qwen2.5-7b"):
+        if name not in ("magic", "qwen2.5-7b"):
             return None
         reg = self
 
@@ -30,7 +30,7 @@ class ModelReg:
                 class R:
                     text = r
                     error = None
-                    model = "gremlin"
+                    model = "magic"
                     ok = True
                 return R()
         return BE()
@@ -38,7 +38,7 @@ class ModelReg:
 
 def _ctx(tmp_path, replies):
     cfg = tmp_path / "m.yaml"
-    cfg.write_text("models: []\npersona:\n  primary_model: gremlin\n")
+    cfg.write_text("models: []\npersona:\n  primary_model: magic\n")
     return CommandContext(registry=ModelReg(replies), project_root=str(tmp_path),
                           config_path=str(cfg))
 

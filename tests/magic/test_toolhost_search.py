@@ -1,5 +1,5 @@
 """grep + view_file tools, and the tool-arg alias fallback."""
-from gremlin_core.magic.toolhost import ShellToolHost, ToolCall
+from magic_core.magic.toolhost import ShellToolHost, ToolCall
 
 
 def _repo(tmp_path):

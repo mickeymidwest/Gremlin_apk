@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
-from gremlin_core.backends.base import ModelBackend, ModelInfo, GenerationResult
-from gremlin_core.persona import PersonaBackend
-from gremlin_core.magic import reply as reply_mod
+from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+from magic_core.persona import PersonaBackend
+from magic_core.magic import reply as reply_mod
 
 
 @pytest.fixture(autouse=True)
@@ -52,8 +52,8 @@ def _answer(primary, msg="hi", root="/tmp"):
 
 
 def test_degeneration_surfaces_an_honest_note(tmp_path):
-    be = _DegenBackend("gremlin", "la la la la la", degen="repeated 'la' 5x")
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"), primary=be, fallbacks=[])
+    be = _DegenBackend("magic", "la la la la la", degen="repeated 'la' 5x")
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"), primary=be, fallbacks=[])
     events = _answer(p, root=str(tmp_path))
     deltas = "".join(v for k, v in events if k == "delta")
     done = [v for k, v in events if k == "done"][-1]
@@ -62,8 +62,8 @@ def test_degeneration_surfaces_an_honest_note(tmp_path):
 
 
 def test_clean_stream_has_no_note(tmp_path):
-    be = _DegenBackend("gremlin", "all good here", degen=None)
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"), primary=be, fallbacks=[])
+    be = _DegenBackend("magic", "all good here", degen=None)
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"), primary=be, fallbacks=[])
     events = _answer(p, root=str(tmp_path))
     deltas = "".join(v for k, v in events if k == "delta")
     assert "caught myself repeating" not in deltas
@@ -71,7 +71,7 @@ def test_clean_stream_has_no_note(tmp_path):
 
 
 def test_persona_exposes_producing_backends_flag(tmp_path):
-    be = _DegenBackend("gremlin", "x y z", degen="loop")
-    p = PersonaBackend(ModelInfo(name="gremlin", kind="local"), primary=be, fallbacks=[])
+    be = _DegenBackend("magic", "x y z", degen="loop")
+    p = PersonaBackend(ModelInfo(name="magic", kind="local"), primary=be, fallbacks=[])
     _collect(p.generate_stream("hi"))
     assert p._last_stream_degeneration == "loop"

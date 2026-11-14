@@ -1,5 +1,5 @@
 """N12 weekly self-audit: the pure compose() report logic + run() smoke."""
-from gremlin_core import self_audit as A
+from magic_core import self_audit as A
 
 
 def test_compose_all_clear():

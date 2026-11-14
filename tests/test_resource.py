@@ -1,5 +1,5 @@
 """Unified resource governor (Organoid #4)."""
-from gremlin_core import resource as R
+from magic_core import resource as R
 
 
 def test_real_readings_are_sane():
