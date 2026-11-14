@@ -144,6 +144,14 @@ class MCPClient:
             while time.monotonic() < deadline:
                 line = self._readline_until(deadline)
                 if line is None:
+                    # timed out/dead: the reader thread is wedged on readline();
+                    # kill the subprocess so its stdout closes and a stale thread
+                    # can't steal the next request's response (JSON-RPC framing).
+                    try:
+                        if self._proc:
+                            self._proc.terminate()
+                    except Exception:
+                        pass
                     return None
                 line = line.strip()
                 if not line:

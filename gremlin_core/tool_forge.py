@@ -118,6 +118,8 @@ def pending_code(root: str, name: str) -> str:
 
 def approve(root: str, name: str) -> bool:
     """Move a pending tool into the live set so it loads + runs."""
+    if not _valid_name(name):
+        return False
     pd, d = _pending_dir(root), _dir(root)
     d.mkdir(parents=True, exist_ok=True)
     moved = False
@@ -133,6 +135,8 @@ def approve(root: str, name: str) -> bool:
 
 
 def reject(root: str, name: str) -> bool:
+    if not _valid_name(name):
+        return False
     pd = _pending_dir(root)
     gone = False
     for ext in (".py", ".json"):
@@ -266,6 +270,8 @@ def list_forged(root: str) -> list:
 
 
 def remove(name: str, root: str) -> bool:
+    if not _valid_name(name):
+        return False
     d = _dir(root)
     gone = False
     for ext in (".py", ".json"):
