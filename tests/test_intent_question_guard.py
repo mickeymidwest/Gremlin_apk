@@ -30,3 +30,24 @@ def test_real_commands_not_swallowed():
         "deploy the new build",
     ]:
         assert not intent._QUESTION_HINT.search(msg), msg
+
+
+def test_code_authoring_requests_force_chat():
+    # "write/show/give me a function/script/regex/..." wants the code TEXT,
+    # not a file written or a project built.
+    for msg in [
+        "Write a Python function that returns the nth Fibonacci number",
+        "write me a bash script that auto takes pictures",
+        "show me a regex for emails",
+        "give me an example of a for loop",
+        "make a function to reverse a string",
+        "create a sql query to count users",
+    ]:
+        assert __import__("magic_core.intent", fromlist=["_CODE_TEXT_HINT"])._CODE_TEXT_HINT.search(msg), msg
+
+
+def test_real_projects_still_build():
+    from magic_core import intent
+    for msg in ["build me a tip calculator app", "make me a website for my band"]:
+        assert not intent._CODE_TEXT_HINT.search(msg), msg
+        assert not intent._QUESTION_HINT.search(msg), msg

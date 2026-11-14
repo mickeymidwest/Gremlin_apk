@@ -310,6 +310,16 @@ _QUESTION_HINT = re.compile(
 )
 
 
+_CODE_TEXT_HINT = re.compile(
+    r"(?i)\b(?:write|show|give|send|make|create|generate|code)\s+(?:me\s+)?"
+    r"(?:an?\s+|the\s+|some\s+)?"
+    r"(?:simple\s+|quick\s+|short\s+|little\s+|basic\s+|"
+    r"python|bash|shell|sh|js|javascript|typescript|ts|kotlin|rust|go|golang|c|cpp|c\+\+|java|sql|html|css|yaml|json|example)*\s*"
+    r"(?:function|func|method|class|script|snippet|example|regex|regexp|pattern|"
+    r"query|command|one[-\s]?liner|loop|code|program|algorithm|"
+    r"if[-\s]statement|for[-\s]loop|while[-\s]loop|block|statement|expression)s?\b")
+
+
 async def classify(router: Router, model_name: str, message: str, min_confidence: float = 0.6,
                    act_mode: bool = False) -> Intent:
     """Decide what the user actually wants.
@@ -339,9 +349,11 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
     if act_mode:
         min_confidence = min(min_confidence, 0.4)   # act mode: more willing to act
 
-    # A how-to QUESTION is chat, even in act mode and even when it carries an
-    # action word -- the user wants the explanation/code, not an action taken.
-    if _QUESTION_HINT.search(text):
+    # A how-to QUESTION, or a request to WRITE code (a function/script/regex/...),
+    # is chat even in act mode and even with an action word -- the user wants the
+    # explanation or the code TEXT in the reply, not a file written or a project
+    # built. "build me an app" has no code-unit word, so it still routes to build.
+    if _QUESTION_HINT.search(text) or _CODE_TEXT_HINT.search(text):
         return Intent(action="chat", confidence=1.0)
 
     # No action-suggestive word or path anywhere -> it's conversation.

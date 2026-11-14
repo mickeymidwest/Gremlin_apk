@@ -8,6 +8,7 @@ the local backend errors outright.
 """
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional
 
@@ -24,6 +25,29 @@ _SYSTEM = None  # persona backend already carries the system prompt
 # real repo; if it invented something, regenerate ONCE with that fed back.
 # Cheap (no extra model call unless a concrete reference is provably wrong).
 _GROUNDING_CHECK = True
+# Hydra P1.3 -- reviewer-reviser head. On by default; MAGIC_REVISE=0 disables.
+_REVISE = os.environ.get("MAGIC_REVISE", "1") != "0"
+_HARD_RE = re.compile(
+    r"(?i)(```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|"
+    r"regex|algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|"
+    r"sql|query|command|bash|shell|python|javascript|typescript|kotlin|rust|golang|"
+    r"docker|systemd|kubernetes|yaml|json|api|endpoint|schema|"
+    r"explain|how\s+(do|would|can|should)\s+i|how\s+to|why\s+(does|is|are|do|doesn)|"
+    r"step[-\s]by[-\s]step|calculate|prove|design|architect|compare|trade-?off|"
+    r"difference\s+between|what(?:'s| is)\s+the\s+best)\b)")
+
+
+def _looks_hard(message: str) -> bool:
+    """Turns worth the extra review latency: code/technical/how-to/analytical, or
+    just long. Casual short chat streams live instead."""
+    m = (message or "").strip()
+    return bool(_HARD_RE.search(m)) or len(m.split()) >= 30
+
+
+def _worth_reviewing(text: str) -> bool:
+    """A draft substantial enough that a critic pass can help."""
+    t = text or ""
+    return "```" in t or len(t.split()) >= 40
 
 
 def _memory_block(root: str, message: str = "") -> str:
@@ -451,6 +475,22 @@ async def answer_stream(primary, message: str, root: str,
         yield "done", _reply(msg, action="remember")
         return
 
+    # Hydra P1.3: substantive turns go through the full review pipeline (answer()
+    # runs look-first, loops, web, grounding, code-check AND the reviewer-reviser
+    # head), then we typewriter-stream the reviewed result. Casual turns keep the
+    # live token stream below.
+    if _REVISE and _looks_hard(message):
+        try:
+            _done = await answer(primary, message, root, history=history, fallback=fallback)
+        except Exception:
+            _done = None
+        if _done is not None:
+            _full = _done.get("answer") or ""
+            for _chunk in (re.findall(r"\S+\s+|\S+$", _full) or [_full]):
+                yield "delta", _chunk
+            yield "done", _done
+            return
+
     looked, evidence = await _look_first(message, root)
     if not looked:
         try:
@@ -687,6 +727,20 @@ async def answer(primary, message: str, root: str,
                 text = text + _cc.caveat(_ci)
         except Exception:
             text = text + _cc.caveat(_ci)
+
+    # Reviewer-reviser head (Hydra P1.3): a 2nd pass of the SAME 9B critiques the
+    # draft and rewrites it once on a real flaw. Gated to substantive, locally-
+    # generated answers; fail-open (keeps the draft on any error). Before footers.
+    if _REVISE and text and not used_fallback and _worth_reviewing(text):
+        try:
+            from . import revise as _revmod
+            _ev = (evidence or "") + (("\n" + web_ev) if web_ev else "")
+            _rtext, _changed = await _revmod.review_and_revise(
+                primary, message, text, evidence=_ev, history_msgs=hist)
+            if _changed and _rtext.strip():
+                text = _rtext
+        except Exception:
+            pass
 
     if web_sources and text:
         _figs = autoresearch.unverified_figures(text, web_ev)

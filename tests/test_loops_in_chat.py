@@ -24,6 +24,9 @@ class _Seq:
 @pytest.fixture(autouse=True)
 def quiet(monkeypatch):
     monkeypatch.setattr(reply, "_post_answer_bookkeeping", lambda *a, **k: asyncio.sleep(0))
+    # these tests exercise the loop path directly; the reviewer-reviser head is
+    # orthogonal and tested in test_revise.py -- keep it out of the way here.
+    monkeypatch.setattr(reply, "_REVISE", False)
 
 
 def _run(backend, msg, tmp_path, fallback=None, history=""):
