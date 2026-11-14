@@ -25,6 +25,35 @@ _MAX_RESIDENT = int(os.environ.get("MAGIC_CPU_MAX_RESIDENT", "2"))
 _RESIDENT: list = []
 _RESIDENT_LOCK = threading.Lock()
 
+
+def _avail_mb():
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except Exception:
+        return None
+    return None
+
+
+def _evict_all_nonpinned(exclude=None):
+    with _RESIDENT_LOCK:
+        for b in list(_RESIDENT):
+            if b is exclude or getattr(b, "_pinned", False):
+                continue
+            if b._lock.acquire(blocking=False):
+                try:
+                    try:
+                        _RESIDENT.remove(b)
+                    except ValueError:
+                        pass
+                    try:
+                        b._stop()
+                    except Exception:
+                        pass
+                finally:
+                    b._lock.release()
+
 _READY_TIMEOUT = 240.0   # CPU load of a 4B is slow the first time
 _GEN_TIMEOUT = 180.0
 
@@ -112,6 +141,10 @@ class CpuChatBackend(ModelBackend):
         # inspect.py shadows the stdlib `inspect` that llama_cpp needs.
         repo_root = str(Path(__file__).resolve().parent.parent.parent)
         try:
+            if not getattr(self, "_pinned", False):
+                _av = _avail_mb()
+                if _av is not None and _av < int(os.environ.get("GREMLIN_CPU_MIN_RAM_MB", "2200")):
+                    _evict_all_nonpinned(exclude=self)  # CALIBRATION §1: don't swap-thrash
             self._proc = subprocess.Popen(
                 [sys.executable, "-m", "magic_core._cpu_chat_worker",
                  self._model_path, str(self._n_ctx)],

@@ -14,6 +14,7 @@ import android.text.style.TypefaceSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -36,7 +37,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     fun load(saved: String) {
         clear()
         val all = ChatTranscript.parse(saved)
-        all.takeLast(MAX_SHOWN).forEach { draw(it) }
+        all.takeLast(MAX_SHOWN).forEach {
+            if (it.kind == Kind.MAGIC && hasCode(it.text)) drawRichMagic(it) else draw(it)
+        }
         turns.addAll(all)
         scrollToEnd()
     }
@@ -49,7 +52,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
 
     fun add(turn: Turn) {
         turns.add(turn)
-        draw(turn)
+        if (turn.kind == Kind.MAGIC && hasCode(turn.text)) drawRichMagic(turn) else draw(turn)
         scrollToEnd()
     }
 
@@ -71,8 +74,15 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         val text = answer.ifEmpty { streamText.toString() }
         val turn = Turn(Kind.MAGIC, text, note)
         turns.add(turn)
-        bubble.text = styled(text)
-        addFooter(turn)
+        if (hasCode(text)) {
+            // streamed as one plain bubble for the live feel; now re-lay it out
+            // as prose + proper code cards (each with its own Copy button).
+            list.removeView(bubble)
+            drawRichMagic(turn)
+        } else {
+            bubble.text = styled(text)
+            addFooter(turn)
+        }
         streamBubble = null
         scrollToEnd()
     }
@@ -127,6 +137,89 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
             setOnClickListener { copy(turn.text) }
         }
         list.addView(footer)
+    }
+
+    private fun hasCode(text: String) = text.contains("```")
+
+    private fun fadeIn(v: View) {
+        v.alpha = 0f
+        v.translationY = dp(14).toFloat()
+        v.animate().alpha(1f).translationY(0f).setDuration(220).start()
+    }
+
+    /** A MAGIC turn with code: prose bubbles + code cards, each card with its
+     *  own Copy button and horizontal scroll, instead of one flat bubble. */
+    private fun drawRichMagic(turn: Turn) {
+        for (part in ChatTranscript.parts(turn.text)) {
+            if (part.isCode) addCodeCard(part.text)
+            else {
+                val t = part.text.trim()
+                if (t.isNotEmpty()) addProseBubble(t)
+            }
+        }
+        addFooter(turn)
+    }
+
+    private fun addProseBubble(text: String) {
+        val sb = SpannableStringBuilder()
+        appendInline(sb, text)
+        val bubble = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setLineSpacing(dp(3).toFloat(), 1.12f)
+            setTextIsSelectable(true)
+            setText(sb)
+            setBackgroundResource(R.drawable.bg_bubble_bot)
+            setTextColor(color(R.color.magic_text_primary))
+            setPadding(dp(16), dp(11), dp(16), dp(11))
+        }
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        params.topMargin = dp(8)
+        params.marginEnd = dp(24)
+        params.gravity = Gravity.START
+        list.addView(bubble, params)
+        fadeIn(bubble)
+    }
+
+    private fun addCodeCard(code: String) {
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_code_card)
+            setPadding(dp(12), dp(8), dp(12), dp(10))
+        }
+        val copyBtn = TextView(context).apply {
+            text = "Copy"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(color(R.color.magic_accent))
+            setPadding(dp(10), dp(2), dp(4), dp(6))
+            setOnClickListener { copy(code) }
+        }
+        val header = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            addView(copyBtn)
+        }
+        card.addView(header, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        val codeView = TextView(context).apply {
+            text = code
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextColor(color(R.color.magic_text_primary))
+            setTextIsSelectable(true)
+            setHorizontallyScrolling(true)
+        }
+        val hs = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(codeView)
+        }
+        card.addView(hs)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        params.topMargin = dp(8)
+        params.marginEnd = dp(24)
+        list.addView(card, params)
+        fadeIn(card)
     }
 
     private fun copy(text: String) {

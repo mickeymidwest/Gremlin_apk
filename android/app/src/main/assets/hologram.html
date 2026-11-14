@@ -117,12 +117,9 @@
     if (next === 'idle') {
       safePause(vSpin);
       safePause(vTalk);
+      try { vIdle.currentTime = 0; } catch (e) {}
       showOnly(vIdle);
-      // Play the opening animation once, then settle into the cute blinking idle loop.
-  spinTimer = setTimeout(function () {
-    if (curState === 'opening') setState('idle');
-  }, 2600);
-  safePlay(vSpin);
+      safePlay(vIdle);  // the cute blinking idle loop (was wrongly playing hidden vSpin)
     } else if (next === 'thinking') {
       safePause(vIdle);
       safePause(vSpin);
@@ -151,6 +148,11 @@
     try { if (window.Android && window.Android.quit) window.Android.quit(); } catch (e) {}
   });
   safePlay(vIdle);
+  // Opening fallback: normally v-spin's 'ended' event hands off to idle; if the
+  // WebView drops that event, force idle so we never freeze on the opening frame.
+  spinTimer = setTimeout(function () {
+    if (curState === 'opening') setState('idle');
+  }, 3000);
 </script>
 </body>
 </html>

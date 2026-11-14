@@ -176,6 +176,13 @@ def _edit_locate(original: str, search: str, replace: str):
 def _precheck(path: str, text: str) -> str:
     """Return a rejection message if `text` is obviously broken for its
     file type, else "". Cheap static checks only -- syntax, not logic."""
+    try:
+        from . import code_check as _cc
+        _el = _cc.elision_in_source(text, path)
+        if _el:
+            return _el
+    except Exception:
+        pass
     if path.endswith(".py"):
         try:
             compile(text, path, "exec")

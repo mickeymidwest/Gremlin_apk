@@ -311,12 +311,19 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         prof = profile.prompt_block(root)
     except Exception:
         prof = ""
-    context = "\n\n".join(p for p in (
+    # STATIC context (does NOT depend on this message) -- goes in the cached
+    # prefix, BEFORE history, so llama.cpp reuses it turn to turn.
+    static_context = "\n\n".join(p for p in (
         prof,
-        _memory_block(root, message),
-        _skills_block(root, message),
         _pitfalls_block(root),
         notes.recent_away_context(root),
+    ) if p)
+    # DYNAMIC retrieval (re-ranked for THIS message) -- goes AFTER history, by
+    # the question, so a new message only invalidates the KV-cache tail instead
+    # of re-prefilling the whole conversation (the 60-80% latency win).
+    dynamic_context = "\n\n".join(p for p in (
+        _memory_block(root, message),
+        _skills_block(root, message),
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
@@ -325,13 +332,17 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     # back-reference check stays accurate.
     hist.append({"role": "user", "content": autoresearch.date_note()})
     hist.append({"role": "assistant", "content": "Noted."})
-    if context:
-        hist.append({"role": "user", "content": context})
+    if static_context:
+        hist.append({"role": "user", "content": static_context})
         hist.append({"role": "assistant", "content": "Understood -- I'll keep that in mind."})
     if history:
         hist.append({"role": "user", "content":
                      "Earlier in this conversation:\n" + history})
         hist.append({"role": "assistant", "content": "Got it, continuing from there."})
+    if dynamic_context:
+        hist.append({"role": "user", "content": dynamic_context})
+        hist.append({"role": "assistant", "content":
+                     "Got it -- that's the relevant memory/skills for this question."})
     if nudge:
         hist.append({"role": "user", "content": nudge})
         hist.append({"role": "assistant", "content": "Understood -- answering it fully this time."})
@@ -346,7 +357,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         hist.append({"role": "user", "content": web_evidence})
         hist.append({"role": "assistant", "content":
                      "Got it -- I'll use those search results, and say so if they don't answer it."})
-    return message, hist, "\n\n".join(p for p in (context, history,
+    return message, hist, "\n\n".join(p for p in (static_context, dynamic_context, history,
                                                     look.context_block(evidence) if evidence else "",
                                                     web_evidence) if p)
 
@@ -355,22 +366,22 @@ async def _gen(backend, prompt: str, hist: list):
     """backend.generate with history= when the backend takes it, else fall
     back to a flattened prompt (API fallbacks that predate the kwarg)."""
     try:
-        return await backend.generate(prompt, max_tokens=1024, temperature=0.6, history=hist)
+        return await backend.generate(prompt, max_tokens=2048, temperature=0.6, history=hist)
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {prompt}" if flat else prompt
-        return await backend.generate(flat, max_tokens=1024, temperature=0.6)
+        return await backend.generate(flat, max_tokens=2048, temperature=0.6)
 
 
 async def _stream(backend, prompt: str, hist: list):
     try:
-        agen = backend.generate_stream(prompt, max_tokens=1024, temperature=0.6, history=hist)
+        agen = backend.generate_stream(prompt, max_tokens=2048, temperature=0.6, history=hist)
         async for d in agen:
             yield d
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {prompt}" if flat else prompt
-        async for d in backend.generate_stream(flat, max_tokens=1024, temperature=0.6):
+        async for d in backend.generate_stream(flat, max_tokens=2048, temperature=0.6):
             yield d
 
 
@@ -517,7 +528,7 @@ async def answer_stream(primary, message: str, root: str,
                 pass
         try:
             from . import code_check as _cc
-            _ci = _cc.check_code_blocks(text)
+            _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
         except Exception:
             _ci = []
         if _ci:
@@ -656,17 +667,20 @@ async def answer(primary, message: str, root: str,
     # code; a chat answer didn't until now).
     try:
         from . import code_check as _cc
-        _ci = _cc.check_code_blocks(text)
+        _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
     except Exception:
         _ci = []
     if _ci:
-        _cprompt = (prompt + "\n\n[A syntax check of the code you wrote found: "
-                    + "; ".join(_ci) + ". Rewrite the answer with the code FIXED so "
-                    "it parses cleanly; keep everything else.]")
+        _cprompt = (prompt + "\n\n[A check of the code you wrote found: "
+                    + "; ".join(_ci) + ". Rewrite the answer with the code FIXED and "
+                    "written OUT IN FULL -- it must parse cleanly AND you must never "
+                    "summarize, shorten, or elide code with placeholders like '...', "
+                    "'# rest of code', or '// unchanged'. Write every line. Keep the "
+                    "rest of the answer.]")
         try:
             _r3 = await _gen(primary, _cprompt, hist)
             _t3 = (_r3.text or "").strip() if getattr(_r3, "ok", True) else ""
-            _still = _cc.check_code_blocks(_t3) if _t3 else _ci
+            _still = (_cc.check_code_blocks(_t3) + _cc.check_code_completeness(_t3)) if _t3 else _ci
             if _t3 and len(_still) < len(_ci):
                 text = _t3 + (_cc.caveat(_still) if _still else "")
             else:
@@ -745,3 +759,69 @@ async def answer_private(backend, message: str, *, system: str,
         pass
     return {"answer": _ans, "ok": bool(text),
             "error": getattr(r, "error", None), "model": getattr(r, "model", "magic")}
+
+
+async def answer_private_stream(backend, message: str, *, system: str,
+                                history_msgs: list, unfiltered: bool = False,
+                                fallback=None):
+    """Streaming twin of answer_private. Yields ('delta', str) as tokens arrive,
+    then exactly one ('done', {...}) with the complete, secret-scrubbed answer
+    plus the action-honesty caveat.
+
+    Same non-content rails as answer_private. The user's OWN secrets are held
+    back behind a tail window so none can cross to the client mid-stream, and if
+    a late token turns earlier text into [REDACTED] the divergent delta is not
+    emitted -- the 'done' frame always carries the authoritative scrubbed text.
+    """
+    from ..mutation_log import _scrub_str
+    TAIL = 200          # longer than any secret we scrub; held back until safe
+    acc, sent = "", ""
+
+    async def _agen(be):
+        try:
+            agen = be.generate_stream(message, system=system, max_tokens=900,
+                                      temperature=0.9, history=history_msgs)
+            async for d in agen:
+                yield d
+        except TypeError:
+            flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in history_msgs)
+            flat = f"{flat}\n\nUser: {message}" if flat else message
+            async for d in be.generate_stream(flat, max_tokens=900, temperature=0.9):
+                yield d
+
+    errored = False
+    try:
+        async for piece in _agen(backend):
+            if not piece:
+                continue
+            acc += piece
+            scrubbed = _scrub_str(acc)
+            commit_len = max(len(sent), len(scrubbed) - TAIL)
+            committable = scrubbed[:commit_len]
+            if committable.startswith(sent) and len(committable) > len(sent):
+                new = committable[len(sent):]
+                sent = committable
+                yield "delta", new
+    except Exception:
+        errored = True
+
+    if not acc.strip() and fallback is not None and backend is not fallback:
+        async for ev in answer_private_stream(fallback, message, system=system,
+                                              history_msgs=history_msgs,
+                                              unfiltered=unfiltered, fallback=None):
+            yield ev
+        return
+
+    full = _scrub_str(acc).strip()
+    if full.startswith(sent) and len(full) > len(sent):
+        yield "delta", full[len(sent):]
+    try:
+        from .. import action_honesty
+        cav = action_honesty.caveat(action_honesty.claims_execution(full))
+        if cav:
+            full += cav
+            yield "delta", cav
+    except Exception:
+        pass
+    yield "done", {"answer": full, "ok": bool(acc.strip()) and not errored,
+                   "error": None, "model": getattr(backend, "name", "magic")}

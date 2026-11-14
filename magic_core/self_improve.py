@@ -21,7 +21,9 @@ commit. Nothing here lets a model touch anything outside this repo.
 """
 from __future__ import annotations
 import asyncio
+import collections
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -84,6 +86,70 @@ def _format_source_dump(source: dict[str, str]) -> str:
 # what was being asked.
 DIFF_MAX_TOKENS = 4096
 
+# The whole magic_core dump is ~300K tokens -- far past any local window, so it
+# would be truncated to garbage. Select the files most relevant to the goal,
+# WHOLE (never cut mid-file), up to a char budget (~chars/4 tokens).
+SOURCE_BUDGET_CHARS = int(os.environ.get("MAGIC_SELFIMPROVE_SOURCE_CHARS", "96000"))
+
+_STOP = {
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "that",
+    "this", "it", "is", "are", "be", "make", "add", "fix", "use", "should", "when",
+    "from", "into", "magic", "code", "file", "files", "function", "method", "class",
+    "not", "dont", "its", "can", "more", "better", "every", "all", "any", "new",
+    "out", "up", "off", "harness", "loop", "loops", "stronger", "everything",
+}
+
+
+def _goal_tokens(text: str) -> set:
+    return {w for w in re.findall(r"[a-z0-9_]+", (text or "").lower())
+            if len(w) >= 3 and w not in _STOP}
+
+
+def select_relevant(source: dict, goal: str,
+                    budget_chars: int = SOURCE_BUDGET_CHARS) -> dict:
+    """Files most relevant to `goal`, whole, within a char budget. Files the
+    goal names by module stem are always kept (even if large); the rest fill the
+    remaining budget by goal-term frequency. Never returns empty or a mid-file
+    cut. Small packages (dump <= budget) are returned unchanged."""
+    if sum(len(c) + len(p) + 20 for p, c in source.items()) <= budget_chars:
+        return source
+
+    gt = _goal_tokens(goal)
+    scored = []
+    for path, content in source.items():
+        stem = path.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+        named = stem in gt
+        freq = collections.Counter(re.findall(r"[a-z0-9_]+", content.lower()))
+        # cap each term so one huge file can't dominate on sheer length
+        score = sum(min(freq.get(g, 0), 20) for g in gt) + (1000 if named else 0)
+        scored.append((score, len(content), path))
+    scored.sort(key=lambda t: (-t[0], t[1]))  # score desc, then smaller first
+
+    picked, used = {}, 0
+    # forced: anything the goal names by stem, in regardless of size
+    for score, size, path in scored:
+        if score >= 1000:
+            picked[path] = source[path]
+            used += size + len(path) + 20
+    for score, size, path in scored:
+        if path in picked:
+            continue
+        if score <= 0 and picked:
+            break  # nothing else is relevant
+        chunk = size + len(path) + 20
+        if used + chunk > budget_chars and picked:
+            continue  # too big -- try smaller lower-scored files instead
+        picked[path] = source[path]
+        used += chunk
+    if not picked:  # defensive: at least the single top-scored file
+        top = scored[0][2]
+        picked[top] = source[top]
+    return picked
+
+
+def _source_dump_for_goal(root: str, goal: str) -> str:
+    return _format_source_dump(select_relevant(gather_source(root), goal))
+
 
 async def propose_patch(
     router: Router,
@@ -93,7 +159,7 @@ async def propose_patch(
     synthesizer: Optional[str] = None,
 ) -> str:
     """Ask one or more models to propose a diff; merge if more than one."""
-    source_dump = _format_source_dump(gather_source(root))
+    source_dump = _source_dump_for_goal(root, goal)
     prompt = f"Goal: {goal}\n\nCurrent source:\n\n{source_dump}"
 
     if len(model_names) == 1:
@@ -142,7 +208,7 @@ async def propose_with_retry_and_teacher(
         if patch and patch.strip() and check_patch_applies(patch, root)[0]:
             return patch, False
 
-    source_dump = _format_source_dump(gather_source(root))
+    source_dump = _source_dump_for_goal(root, goal)
     prompt = f"Goal: {goal}\n\nCurrent source:\n\n{source_dump}"
     result = await router.route(teacher_model, prompt, system=TEACHER_PROPOSE_SYSTEM_PROMPT, max_tokens=DIFF_MAX_TOKENS)
     teacher_patch = result.text if result.ok else ""
