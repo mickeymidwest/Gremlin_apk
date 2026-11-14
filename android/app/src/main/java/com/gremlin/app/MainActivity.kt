@@ -248,7 +248,8 @@ class MainActivity : AppCompatActivity() {
         voiceOutput.stop()
 
         thinkingStatus.visibility = View.VISIBLE
-        hologramView.evaluateJavascript("setTalking(true)", null)
+        setHologramState("thinking")
+        ThinkingKeepAliveService.start(applicationContext)
         val id = beginTurn()
 
         Thread {
@@ -263,7 +264,8 @@ class MainActivity : AppCompatActivity() {
                     appendSystemTurn("Couldn't read $name.", true)
                     setBusy(false)
                     thinkingStatus.visibility = View.GONE
-                    hologramView.evaluateJavascript("setTalking(false)", null)
+                    ThinkingKeepAliveService.stop(applicationContext)
+                    setHologramState("idle")
                 }
                 return@Thread
             }
@@ -278,9 +280,11 @@ class MainActivity : AppCompatActivity() {
                 }
                 appendAssistantTurn(result.answer, sub)
                 setBusy(false)
+                ThinkingKeepAliveService.stop(applicationContext)
                 voiceOutput.speak(result.answer)
                 thinkingStatus.visibility = View.GONE
-                hologramView.evaluateJavascript("setTalking(false)", null)
+                setHologramState("responding")
+                finishHologramResponse()
                 updateTokenUsageLabel(result.tokenUsage)
             }
         }.start()
@@ -349,7 +353,7 @@ class MainActivity : AppCompatActivity() {
         Thread { gremlinClient.cancelStream() }.start()
         setBusy(false)
         thinkingStatus.visibility = View.GONE
-        hologramView.evaluateJavascript("setTalking(false)", null)
+        setHologramState("idle")
     }
 
     /** The send button doubles as Stop while Gremlin is working. */
@@ -360,6 +364,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopWork() {
+        ThinkingKeepAliveService.stop(applicationContext)
+        setHologramState("idle")
         Thread {
             gremlinClient.cancelStream()
             if (!prefs.getString("admin_token", null).isNullOrBlank()) gremlinClient.abortJobs()
@@ -369,6 +375,20 @@ class MainActivity : AppCompatActivity() {
     /** Shrinks the hologram while typing. Scaled rather than cropped,
      *  because hologram.html draws at a fixed size. */
     private var hologramAnimator: ValueAnimator? = null
+    private val hologramIdleHandler = Handler(Looper.getMainLooper())
+    private val hologramIdleReset = Runnable {
+        hologramView.evaluateJavascript("setState('idle')", null)
+    }
+
+    private fun setHologramState(state: String) {
+        hologramIdleHandler.removeCallbacks(hologramIdleReset)
+        hologramView.evaluateJavascript("setState('$state')", null)
+    }
+
+    private fun finishHologramResponse(delayMs: Long = 4500L) {
+        hologramIdleHandler.removeCallbacks(hologramIdleReset)
+        hologramIdleHandler.postDelayed(hologramIdleReset, delayMs)
+    }
 
     private fun setHologramSmall(small: Boolean) {
         val scale = resources.displayMetrics.density
@@ -528,6 +548,8 @@ class MainActivity : AppCompatActivity() {
     // API, but it's still the standard, documented integration path for
     override fun onDestroy() {
         super.onDestroy()
+        hologramIdleHandler.removeCallbacks(hologramIdleReset)
+        ThinkingKeepAliveService.stop(applicationContext)
         voiceOutput.shutdown()
     }
 
@@ -614,10 +636,10 @@ class MainActivity : AppCompatActivity() {
         // happens), this WebView lives in the same activity as the
         // chat call itself, so there's no need for the file-based
         // signal gremlin_core.consult uses for the desktop case.
-        hologramView.evaluateJavascript("setTalking(true)", null)
+        setHologramState("thinking")
         thinkingStatus.text = getString(R.string.thinking)
         thinkingStatus.visibility = View.VISIBLE
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)  // stay awake while waiting
+        ThinkingKeepAliveService.start(applicationContext)
         gremlinClient.prepareStream()
         val id = beginTurn()
 
@@ -651,6 +673,7 @@ class MainActivity : AppCompatActivity() {
                         if (started.compareAndSet(false, true)) {
                             beginAssistantStreamTurn()
                             thinkingStatus.visibility = View.GONE
+                            setHologramState("responding")
                         }
                         appendAssistantDelta(delta)
                     }
@@ -658,7 +681,7 @@ class MainActivity : AppCompatActivity() {
                 onDone = { result ->
                     runOnUiThread {
                         if (id != turnId) return@runOnUiThread
-                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        ThinkingKeepAliveService.stop(applicationContext)
                         val sub = subStatusFor(result.source)
                         if (started.get()) {
                             finishAssistantStreamTurn(result.answer, sub)
@@ -669,8 +692,13 @@ class MainActivity : AppCompatActivity() {
                             appendAssistantTurn(result.answer, sub)
                         }
                         setBusy(false)
-                        if (result.source != "stopped") voiceOutput.speak(result.answer)
-                        hologramView.evaluateJavascript("setTalking(false)", null)
+                        if (result.source != "stopped") {
+                            voiceOutput.speak(result.answer)
+                            if (!started.get()) setHologramState("responding")
+                            finishHologramResponse()
+                        } else {
+                            setHologramState("idle")
+                        }
                         thinkingStatus.visibility = View.GONE
                         updateTokenUsageLabel(result.tokenUsage)
                     }
@@ -777,15 +805,18 @@ class MainActivity : AppCompatActivity() {
             "/chat", "/skill", "/build", "/fix", "/model", "/override", "/defense", "/do", "/memory" -> {
                 val args = message.removePrefix(cmd).trim()
                 thinkingStatus.visibility = View.VISIBLE
-                hologramView.evaluateJavascript("setTalking(true)", null)
+                setHologramState("thinking")
+                ThinkingKeepAliveService.start(applicationContext)
                 val id = beginTurn()
                 Thread {
                     val answer = gremlinClient.command(cmd, args, currentThread)
                     runOnUiThread {
                         if (id != turnId) return@runOnUiThread
+                        ThinkingKeepAliveService.stop(applicationContext)
                         setBusy(false)
                         thinkingStatus.visibility = View.GONE
-                        hologramView.evaluateJavascript("setTalking(false)", null)
+                        setHologramState("responding")
+                        finishHologramResponse()
                         appendAssistantTurn(answer, null)
                         voiceOutput.speak(answer)
                     }

@@ -8,28 +8,41 @@
     background: transparent; width: 100%; height: 100%;
     display: flex; align-items: center; justify-content: center;
     -webkit-user-select: none; user-select: none;
-    perspective: 700px;
   }
-  #grem {
-    max-height: 100%; max-width: 100%; object-fit: contain;
+  #stage {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
     cursor: pointer;
+  }
+  .layer {
+    position: absolute;
+    max-height: 100%; max-width: 100%;
+    object-fit: contain;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease;
     filter: drop-shadow(0 0 14px rgba(90, 255, 140, 0.35));
-    transition: transform .25s ease, filter .25s ease;
-    transform-style: preserve-3d;
   }
-  #grem.talking {
-    filter: drop-shadow(0 0 24px rgba(120, 255, 170, 0.85));
-    transform: scale(1.03);
+  .layer.active {
+    opacity: 1;
+    pointer-events: auto;
   }
-  /* celebratory jump + spin when Gremlin finishes thinking */
-  #grem.spin {
-    animation: jumpspin .8s cubic-bezier(.34, 1.56, .5, 1) 1;
+  #img-think.active {
+    animation: grem-think 2.4s ease-in-out infinite;
   }
-  @keyframes jumpspin {
-    0%   { transform: translateY(0)     rotateY(0)      scale(1); }
-    30%  { transform: translateY(-26px) rotateY(170deg) scale(1.06); filter: drop-shadow(0 0 26px rgba(130,255,180,0.9)); }
-    60%  { transform: translateY(-26px) rotateY(360deg) scale(1.06); filter: drop-shadow(0 0 26px rgba(130,255,180,0.9)); }
-    100% { transform: translateY(0)     rotateY(360deg) scale(1); }
+  @keyframes grem-think {
+    0%, 100% {
+      transform: translateY(0px) rotate(0deg) scale(1);
+      filter: drop-shadow(0 0 14px rgba(90, 255, 140, 0.45));
+    }
+    50% {
+      transform: translateY(-4px) rotate(-1.5deg) scale(1.02);
+      filter: drop-shadow(0 0 24px rgba(120, 255, 175, 0.85));
+    }
+  }
+  #v-talk.active {
+    filter: drop-shadow(0 0 22px rgba(120, 255, 170, 0.78));
   }
   #quit-btn {
     position: fixed; top: 4px; right: 6px;
@@ -43,39 +56,93 @@
 </head>
 <body>
   <div id="quit-btn" title="Quit">&times;</div>
-  <video id="grem" autoplay loop muted playsinline>
-    <source src="gremlin.mp4" type="video/mp4">
-  </video>
+  <div id="stage">
+    <video id="v-idle" class="layer active" autoplay loop muted playsinline preload="auto" src="gremlin_idle.mp4"></video>
+    <img id="img-think" class="layer" src="gremlin_thinking.jpg" alt="">
+    <video id="v-spin" class="layer" muted playsinline preload="auto" src="gremlin_spin.mp4"></video>
+    <video id="v-talk" class="layer" loop muted playsinline preload="auto" src="gremlin_talk.mp4"></video>
+  </div>
 <script>
-  var grem = document.getElementById('grem');
-  var wasTalking = false;
+  var vIdle = document.getElementById('v-idle');
+  var imgThink = document.getElementById('img-think');
+  var vSpin = document.getElementById('v-spin');
+  var vTalk = document.getElementById('v-talk');
+  var layers = [vIdle, imgThink, vSpin, vTalk];
 
-  // MainActivity calls this: true while answering, false when done.
-  function setTalking(on) {
-    if (on) {
-      grem.classList.add('talking');
-      wasTalking = true;
-    } else {
-      grem.classList.remove('talking');
-      if (wasTalking) { doSpin(); wasTalking = false; }
+  var curState = 'idle';
+  var spinTimer = null;
+
+  function showOnly(el) {
+    for (var i = 0; i < layers.length; i++) {
+      if (layers[i] === el) layers[i].classList.add('active');
+      else layers[i].classList.remove('active');
     }
   }
-  function doSpin() {
-    grem.classList.remove('spin');
-    void grem.offsetWidth;        // reflow so the animation can restart
-    grem.classList.add('spin');
+
+  function safePlay(v) {
+    try {
+      var p = v.play();
+      if (p && p.catch) p.catch(function () {});
+    } catch (e) {}
   }
-  grem.addEventListener('animationend', function (e) {
-    if (e.animationName === 'jumpspin') grem.classList.remove('spin');
+
+  function safePause(v) {
+    try { v.pause(); } catch (e) {}
+  }
+
+  function startTalkLoop() {
+    if (spinTimer) { clearTimeout(spinTimer); spinTimer = null; }
+    if (curState !== 'responding') return;
+    safePause(vSpin);
+    try { vTalk.currentTime = 0; } catch (e) {}
+    showOnly(vTalk);
+    safePlay(vTalk);
+  }
+
+  vSpin.addEventListener('ended', function () {
+    startTalkLoop();
   });
 
-  grem.addEventListener('click', function () {
+  // States: 'idle' | 'thinking' | 'responding'
+  function setState(next) {
+    if (next !== 'idle' && next !== 'thinking' && next !== 'responding') next = 'idle';
+    if (next === curState) return;
+    curState = next;
+    if (spinTimer) { clearTimeout(spinTimer); spinTimer = null; }
+
+    if (next === 'idle') {
+      safePause(vSpin);
+      safePause(vTalk);
+      showOnly(vIdle);
+      safePlay(vIdle);
+    } else if (next === 'thinking') {
+      safePause(vIdle);
+      safePause(vSpin);
+      safePause(vTalk);
+      showOnly(imgThink);
+    } else if (next === 'responding') {
+      safePause(vIdle);
+      safePause(vTalk);
+      try { vSpin.currentTime = 0; } catch (e) {}
+      showOnly(vSpin);
+      safePlay(vSpin);
+      // Fallback in case WebView misses the ended event
+      spinTimer = setTimeout(startTalkLoop, 2600);
+    }
+  }
+
+  // Backwards-compatible alias
+  function setTalking(on) {
+    setState(on ? 'responding' : 'idle');
+  }
+
+  document.getElementById('stage').addEventListener('click', function () {
     try { if (window.Android && window.Android.openSettings) window.Android.openSettings(); } catch (e) {}
   });
   document.getElementById('quit-btn').addEventListener('click', function () {
     try { if (window.Android && window.Android.quit) window.Android.quit(); } catch (e) {}
   });
-  if (grem.play) { grem.play().catch(function () {}); }
+  safePlay(vIdle);
 </script>
 </body>
 </html>

@@ -14,6 +14,10 @@
          there's clearly no connection (e.g. airplane mode) instead of
          waiting out a connect timeout for nothing. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
 
     <!-- Install the APK that Settings -> Builds pulls from the desktop.
@@ -91,6 +95,11 @@
 
         <!-- Hands a downloaded build file (an .apk from Settings ->
              Builds) to the system installer via a content:// URI. -->
+        <service
+            android:name=".ThinkingKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
