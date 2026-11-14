@@ -97,3 +97,25 @@ def caveat(issues: list) -> str:
         return ""
     return ("\n\n(Code check: " + "; ".join(issues[:3])
             + " -- don't run it as-is, it won't parse.)")
+
+
+_EXT = {
+    ".sh": _bash, ".bash": _bash,
+    ".py": _python, ".pyw": _python,
+    ".js": _node,
+}
+
+
+def check_file(path: str) -> str:
+    """Syntax error for a SOURCE FILE, picked by extension (parse-only, never
+    runs it). '' when clean or the type is unknown. The pre-gate uses this so
+    a self-edit and a chat answer go through the SAME checker."""
+    fn = _EXT.get(os.path.splitext(path)[1].lower())
+    if not fn:
+        return ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            code = f.read()
+    except Exception:
+        return ""
+    return fn(code) or ""

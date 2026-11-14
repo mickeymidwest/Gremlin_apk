@@ -31,7 +31,7 @@ PROTECTED_TOKENS = [
     "ensure_only", "security_scan", "SecureExecutionSandbox",
     "claims_execution", "action_honesty", "injection_guard",
     "_scrub_str", "_scrub(", "GREMLIN_ALLOW_SECRETS", "AGY_READONLY",
-    "git apply --check", "py_compile", "NOPASSWD", "run_pregate",
+    "git apply --check", "check_file", "NOPASSWD", "run_pregate",
 ]
 
 
@@ -52,6 +52,17 @@ def _touched_py_files(patch: str) -> list[str]:
         if m:
             p = m.group(1).strip()
             if p.endswith(".py") and p != "/dev/null":
+                files.append(p)
+    return files
+
+
+def _touched_files(patch: str) -> list[str]:
+    files = []
+    for line in patch.splitlines():
+        m = re.match(r"\+\+\+ b/(.+)", line)
+        if m:
+            p = m.group(1).strip()
+            if p and p != "/dev/null":
                 files.append(p)
     return files
 
@@ -128,16 +139,20 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
         if not os.path.exists(py):
             py = "python3"
 
-        # (2) compile every touched .py in the patched tree.
-        for rel in _touched_py_files(patch):
+        # (2) syntax-check every touched SOURCE file with the SAME checker the
+        #     chat path uses (code_check: py compile, bash -n, node --check) --
+        #     one verification layer for both paths, not a py-only copy here.
+        from .magic import code_check as _cc
+        _wtabs = os.path.abspath(wt)
+        for rel in _touched_files(patch):
             tgt = os.path.join(wt, rel)
+            if os.path.commonpath([_wtabs, os.path.abspath(tgt)]) != _wtabs:
+                continue  # a patch path that escapes the worktree -- skip
             if not os.path.exists(tgt):
                 continue
-            c = subprocess.run([py, "-m", "py_compile", tgt],
-                               capture_output=True, text=True, timeout=60)
-            if c.returncode != 0:
-                last = (c.stderr.strip().splitlines() or ["py_compile failed"])[-1]
-                fails.append(f"{rel} does not compile: {last[:300]}")
+            err = _cc.check_file(tgt)
+            if err:
+                fails.append(f"{rel} has a syntax error: {err[:300]}")
 
         # (3) full test suite on the patched tree (only if it compiles).
         if run_tests and not fails:

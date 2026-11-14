@@ -443,9 +443,24 @@ async def run_self_edit(
                     pass
 
             fixer = model_names[0]
+            # Doc-lookup: verify the change against LIVE docs, same web-check
+            # the chat path got -- reviewers judge the patch with current docs
+            # in hand, not just compile+tests. Best-effort; no-op when the goal
+            # isn't a searchable/technical one.
+            _review_system = review_mod.REVIEW_SYSTEM_PROMPT
+            try:
+                from . import autoresearch as _ar
+                _srcs, _ev = await _ar.gather(goal)
+                if _ev:
+                    _review_system = _review_system + (
+                        "\n\nLive docs that may bear on this change -- check the "
+                        "patch against them and flag any outdated or wrong API/flag:\n"
+                        + _ev[:2500])
+            except Exception:
+                pass
             outcome = await review_mod.review_and_revise(
                 router, patch, goal, reviewer_a=reviewer_a, reviewer_b=reviewer_b, fixer=fixer,
-                root=root, run_tests=run_tests,
+                root=root, run_tests=run_tests, review_system=_review_system,
             )
             review_history = [
                 {"reviewer": r.reviewer, "approved": r.approved, "feedback": r.feedback}

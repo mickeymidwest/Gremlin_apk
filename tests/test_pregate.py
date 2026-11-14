@@ -53,7 +53,7 @@ def test_rejects_uncompilable_patch(tmp_path):
     subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
     ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
     assert ok is False
-    assert any("compile" in f for f in fails)
+    assert any("syntax error" in f for f in fails)
 
 
 def test_passes_clean_patch(tmp_path):
