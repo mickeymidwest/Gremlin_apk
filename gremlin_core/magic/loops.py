@@ -502,6 +502,7 @@ def _code_loop(call: Call, prompt: str, max_tokens: int, temperature: float, run
     trace, calls = [], 0
     best = None  # (problem count, attempt, code, raw)
     smoke, examples, name = None, [], None
+    prev_sig = None
     for attempt in range(tries):
         clean, _f, raw = call(messages, max_tokens, temperature, grammar=None)
         calls += 1
@@ -523,10 +524,18 @@ def _code_loop(call: Call, prompt: str, max_tokens: int, temperature: float, run
         trace.append(f"code: try {attempt + 1}: " + "; ".join(m for _, m in problems)[:200])
         if attempt == tries - 1:
             break
+        sig = tuple(problems[:5])
+        stagnation = (
+            "\nNote: your previous edit hit the EXACT SAME failure. Do not repeat it — "
+            "re-read the logic, edge cases, and return type carefully."
+            if sig == prev_sig else ""
+        )
+        prev_sig = sig
         report = "\n".join(f"- {m}" for _, m in problems[:5])
         messages = messages + [
             {"role": "assistant", "content": f"```python\n{code}\n```"},
             {"role": "user", "content": "I ran your code and found these problems:\n" + report +
+             stagnation +
              "\nFix the code. If a smoke input isn't valid for this function, it's fine to leave that "
              "behaviour alone. Reply with the complete corrected code only."}]
     weight, kept, code, raw = best

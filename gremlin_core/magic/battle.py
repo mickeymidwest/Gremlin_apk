@@ -213,7 +213,8 @@ def _skill_rank(skill: Skill, task: Task) -> int:
     without polluting the >=2 match / >=6 invoked thresholds that drive
     skill attribution and lifecycle (a semantic match is not a trigger
     firing, and must not be counted as one)."""
-    r = _skill_score(skill, task)
+    from .skill_retrieval import track_bonus
+    r = float(_skill_score(skill, task)) + track_bonus(skill)
     if embed.enabled():
         r += embed.bonus(f"{task.prompt} {' '.join(task.tags)}",
                          f"{skill.name} {skill.purpose} {skill.trigger_when}")

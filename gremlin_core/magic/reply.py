@@ -56,14 +56,9 @@ def _skills_block(root: str, message: str, limit: int = 3) -> str:
     import os
     if os.environ.get("GREMLIN_SAFE_MODE") == "1":
         return ""
-    """Magic skill cards whose trigger matches this message, folded into
-    the chat prompt as guidance. Until now skills only ever loaded into
-    /fix battles -- so a skill mickey wrote (or a seed like
-    "service-status-then-logs") never touched a plain answer. This closes
-    that loop: /skill new <x> now shapes how Gremlin answers, right away.
-    Non-deprecated skills only; on this box nothing runs battles to
-    promote candidates, so candidate + active both count here."""
-    import re
+    """Magic skill cards whose trigger matches this message, ranked by
+    relevance + track record and folded into the chat prompt as guidance."""
+    from .skill_retrieval import rank_skills
     from .store import Store
     try:
         skills = [s for s in Store(root).read_skills() if s.status != "deprecated"]
@@ -71,20 +66,7 @@ def _skills_block(root: str, message: str, limit: int = 3) -> str:
         return ""
     if not skills:
         return ""
-    hay = (message or "").lower()
-    hay_words = set(re.findall(r"[a-z]{4,}", hay))
-
-    def matches(s) -> bool:
-        if s.trigger_matcher:
-            try:
-                if re.search(s.trigger_matcher, hay, re.IGNORECASE):
-                    return True
-            except re.error:
-                pass
-        trig = set(re.findall(r"[a-z]{4,}", (s.trigger_when or "").lower()))
-        return len(trig & hay_words) >= 2
-
-    hits = [s for s in skills if matches(s)][:limit]
+    hits = rank_skills(skills, message or "", limit=limit)
     if not hits:
         return ""
     lines = ["Approaches that have worked here before (use the ones that fit):"]
