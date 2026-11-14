@@ -27,6 +27,8 @@ _SYSTEM = None  # persona backend already carries the system prompt
 _GROUNDING_CHECK = True
 # Hydra P1.3 -- reviewer-reviser head. On by default; MAGIC_REVISE=0 disables.
 _REVISE = os.environ.get("MAGIC_REVISE", "1") != "0"
+# Hydra P1.2 -- planner head. On by default; MAGIC_PLAN=0 disables.
+_PLAN = os.environ.get("MAGIC_PLAN", "1") != "0"
 _HARD_RE = re.compile(
     r"(?i)(```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|"
     r"regex|algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|"
@@ -646,6 +648,20 @@ async def answer(primary, message: str, root: str,
         except Exception:
             web_sources, web_ev = None, ""
     prompt, hist, ctx = _build_prompt(message, root, history, evidence, web_evidence=web_ev)
+
+    # Planner head (Hydra P1.2): on a hard turn, a short plan pass scaffolds the
+    # answer and flags missing live data (-> honest hedge). Prepended to the
+    # prompt; fail-open so a planner hiccup never blocks the answer.
+    if _PLAN and _looks_hard(message):
+        try:
+            from . import planner as _plmod
+            _pn = await _plmod.plan_note(primary, message,
+                                         evidence=(evidence or web_ev or ""),
+                                         grounded=bool(looked or web_sources))
+            if _pn:
+                prompt = _pn + "\n\n" + prompt
+        except Exception:
+            pass
 
     r = await _gen(primary, prompt, hist)
     used, used_fallback = getattr(r, "model", "magic"), False
