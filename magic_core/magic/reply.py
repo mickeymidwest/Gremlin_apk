@@ -311,12 +311,19 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         prof = profile.prompt_block(root)
     except Exception:
         prof = ""
-    context = "\n\n".join(p for p in (
+    # STATIC context (does NOT depend on this message) -- goes in the cached
+    # prefix, BEFORE history, so llama.cpp reuses it turn to turn.
+    static_context = "\n\n".join(p for p in (
         prof,
-        _memory_block(root, message),
-        _skills_block(root, message),
         _pitfalls_block(root),
         notes.recent_away_context(root),
+    ) if p)
+    # DYNAMIC retrieval (re-ranked for THIS message) -- goes AFTER history, by
+    # the question, so a new message only invalidates the KV-cache tail instead
+    # of re-prefilling the whole conversation (the 60-80% latency win).
+    dynamic_context = "\n\n".join(p for p in (
+        _memory_block(root, message),
+        _skills_block(root, message),
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
@@ -325,13 +332,17 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     # back-reference check stays accurate.
     hist.append({"role": "user", "content": autoresearch.date_note()})
     hist.append({"role": "assistant", "content": "Noted."})
-    if context:
-        hist.append({"role": "user", "content": context})
+    if static_context:
+        hist.append({"role": "user", "content": static_context})
         hist.append({"role": "assistant", "content": "Understood -- I'll keep that in mind."})
     if history:
         hist.append({"role": "user", "content":
                      "Earlier in this conversation:\n" + history})
         hist.append({"role": "assistant", "content": "Got it, continuing from there."})
+    if dynamic_context:
+        hist.append({"role": "user", "content": dynamic_context})
+        hist.append({"role": "assistant", "content":
+                     "Got it -- that's the relevant memory/skills for this question."})
     if nudge:
         hist.append({"role": "user", "content": nudge})
         hist.append({"role": "assistant", "content": "Understood -- answering it fully this time."})
@@ -346,7 +357,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         hist.append({"role": "user", "content": web_evidence})
         hist.append({"role": "assistant", "content":
                      "Got it -- I'll use those search results, and say so if they don't answer it."})
-    return message, hist, "\n\n".join(p for p in (context, history,
+    return message, hist, "\n\n".join(p for p in (static_context, dynamic_context, history,
                                                     look.context_block(evidence) if evidence else "",
                                                     web_evidence) if p)
 
