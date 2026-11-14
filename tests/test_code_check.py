@@ -72,3 +72,26 @@ def test_completeness_ignores_prose_ellipsis():
     # "..." in ordinary prose (outside a code fence) is not an elision marker.
     t = "Well... I think the rest of the code should stay as is, honestly."
     assert cc.check_code_completeness(t) == []
+
+
+def test_source_elision_passes_valid_ellipsis():
+    # Ellipsis, numpy slices and Callable[..., int] are valid code, never flagged.
+    assert cc.elision_in_source("g: Callable[..., int]\n", "a.py") == ""
+    assert cc.elision_in_source("x = arr[..., 0]\n", "a.py") == ""
+    assert cc.elision_in_source("class P:\n    def f(self): ...\n", "a.py") == ""
+
+
+def test_source_elision_exempts_pyi_stubs():
+    assert cc.elision_in_source("def f() -> int: ...\n", "a.pyi") == ""
+
+
+def test_source_elision_flags_rest_of_code_comment():
+    assert cc.elision_in_source("def f(x):\n    # ... rest of the code\n", "a.py") != ""
+
+
+def test_source_elision_flags_bare_unchanged_comment():
+    assert cc.elision_in_source("function f(){\n  // unchanged\n}\n", "a.js") != ""
+
+
+def test_source_elision_flags_omitted_for_brevity():
+    assert cc.elision_in_source("def f():\n    pass  # omitted for brevity\n", "a.py") != ""
