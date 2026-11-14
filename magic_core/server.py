@@ -913,6 +913,9 @@ def create_app(
             return jsonify({"error": "empty message"}), 400
 
         conv_key = request.headers.get("Authorization", "") or "default"
+        if body.get("reroll"):
+            # re-roll: drop the previous exchange so this one replaces it
+            conversation_history.drop_last(conv_key)
         magic_backend = registry.get("magic")
 
         if history_mod.is_clear_command(message):

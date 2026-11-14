@@ -28,6 +28,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     private val context: Context = list.context
     private val turns = mutableListOf<Turn>()
     private var streamBubble: TextView? = null
+    private var lastMagicStart = -1
     private var streamText = StringBuilder()
 
     private fun color(id: Int) = ContextCompat.getColor(context, id)
@@ -51,13 +52,25 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     }
 
     fun add(turn: Turn) {
+        if (turn.kind == Kind.MAGIC) lastMagicStart = list.childCount
         turns.add(turn)
         if (turn.kind == Kind.MAGIC && hasCode(turn.text)) drawRichMagic(turn) else draw(turn)
         scrollToEnd()
     }
 
+    /** Remove the most recent assistant turn's views + record (for a re-roll). */
+    fun removeLastAssistant() {
+        if (turns.isEmpty() || turns.last().kind != Kind.MAGIC) return
+        if (lastMagicStart in 0..list.childCount) {
+            while (list.childCount > lastMagicStart) list.removeViewAt(list.childCount - 1)
+        }
+        turns.removeAt(turns.size - 1)
+        lastMagicStart = -1
+    }
+
     fun beginStream() {
         streamText = StringBuilder()
+        lastMagicStart = list.childCount
         streamBubble = draw(Turn(Kind.MAGIC, ""))
     }
 

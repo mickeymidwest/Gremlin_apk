@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var hologramFrame: FrameLayout
     private lateinit var thinkingStatus: TextView
     private lateinit var messageInput: EditText
+    private var lastUserMessage: String? = null
     private lateinit var hologramView: WebView
 
     // Internal app storage -- no permission needed on any Android
@@ -409,12 +410,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun showMoreMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
+        menu.menu.add("Re-roll last answer")
         menu.menu.add("Switch model")
         menu.menu.add("Stop running jobs")
         menu.menu.add("Pair with QR code")
         menu.menu.add("Export chat")
         menu.setOnMenuItemClickListener { item ->
             when (item.title) {
+                "Re-roll last answer" -> rerollLast()
                 "Switch model" -> pickModel()
                 "Stop running jobs" -> Thread {
                     val result = magicClient.abortJobs()
@@ -629,6 +632,19 @@ class MainActivity : AppCompatActivity() {
 
         appendUserTurn(message)
         messageInput.setText("")
+        lastUserMessage = message
+        runTurn(message, false)
+    }
+
+    private fun rerollLast() {
+        if (busy) return
+        val m = lastUserMessage
+        if (m.isNullOrEmpty()) { appendSystemTurn("Nothing to re-roll yet.", false); return }
+        chat.removeLastAssistant()
+        runTurn(m, true)
+    }
+
+    private fun runTurn(message: String, reroll: Boolean) {
         voiceOutput.stop() // a new message shouldn't have magic still talking over it
 
         // Pushed directly rather than polled -- unlike the desktop
@@ -667,6 +683,7 @@ class MainActivity : AppCompatActivity() {
             val started = java.util.concurrent.atomic.AtomicBoolean(false)
             magicClient.chatStream(
                 message,
+                reroll,
                 onDelta = { delta ->
                     runOnUiThread {
                         if (id != turnId) return@runOnUiThread

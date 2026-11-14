@@ -213,6 +213,25 @@ class ConversationHistory:
             # write fails; losing durability is better than dropping the turn.
             pass
 
+    def drop_last(self, key: str) -> bool:
+        """Remove the most recent exchange so it can be re-generated (re-roll).
+        Drops from the in-memory window and rewrites the on-disk log without its
+        last line. Returns True if one was dropped."""
+        dq = self._load(key)
+        if not dq:
+            return False
+        dq.pop()
+        try:
+            path = self._path(key)
+            if path.exists():
+                lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                if lines:
+                    lines.pop()
+                path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
+        except OSError:
+            pass
+        return True
+
     def usage_totals(self, key: str) -> dict:
         """Cumulative token usage for this ENTIRE conversation -- reads
         the full on-disk file, not just the capped in-memory/render
