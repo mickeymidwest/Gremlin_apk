@@ -67,3 +67,59 @@ def test_passes_clean_patch(tmp_path):
     subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
     ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
     assert ok is True, fails
+
+
+def test_ast_rejects_comment_bypass(tmp_path):
+    repo = tmp_path / "r"; repo.mkdir()
+    _init_repo(repo)
+    (repo / "a.py").write_text("def f(m):\n    ensure_only(m)\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, capture_output=True)
+    # Delete the real call and mention the token in a comment to fool substring diff
+    (repo / "a.py").write_text("def f(m):\n    # ensure_only(m)\n    pass\n")
+    diff = subprocess.run(["git", "diff"], cwd=repo, capture_output=True, text=True).stdout
+    subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
+    ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
+    assert ok is False
+    assert any("ensure_only" in f for f in fails)
+
+
+def test_ast_rejects_if_false_bypass(tmp_path):
+    repo = tmp_path / "r"; repo.mkdir()
+    _init_repo(repo)
+    (repo / "a.py").write_text("def f(c):\n    return security_scan(c)\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, capture_output=True)
+    (repo / "a.py").write_text("def f(c):\n    if False:\n        return security_scan(c)\n    return []\n")
+    diff = subprocess.run(["git", "diff"], cwd=repo, capture_output=True, text=True).stdout
+    subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
+    ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
+    assert ok is False
+    assert any("security_scan" in f for f in fails)
+
+
+def test_ast_rejects_post_return_dead_code_bypass(tmp_path):
+    repo = tmp_path / "r"; repo.mkdir()
+    _init_repo(repo)
+    (repo / "a.py").write_text("def f(x):\n    _scrub(x)\n    return x\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, capture_output=True)
+    (repo / "a.py").write_text("def f(x):\n    return x\n    _scrub(x)\n")
+    diff = subprocess.run(["git", "diff"], cwd=repo, capture_output=True, text=True).stdout
+    subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
+    ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
+    assert ok is False
+    assert any("_scrub" in f for f in fails)
+
+
+def test_ast_allows_attribute_call_move(tmp_path):
+    repo = tmp_path / "r"; repo.mkdir()
+    _init_repo(repo)
+    (repo / "a.py").write_text("def f(x):\n    return injection_guard.guard_note(x, 'web')\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, capture_output=True)
+    (repo / "a.py").write_text("def f(x):\n    if True:\n        return injection_guard.guard_note(x, 'web')\n")
+    diff = subprocess.run(["git", "diff"], cwd=repo, capture_output=True, text=True).stdout
+    subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
+    ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
+    assert ok is True, fails

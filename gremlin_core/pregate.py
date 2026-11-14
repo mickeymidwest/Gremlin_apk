@@ -18,6 +18,7 @@ it is being checked. Deterministic; never raises (errors become failures).
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shutil
@@ -103,6 +104,183 @@ def _safety_regressions(patch: str) -> list[str]:
     return out
 
 
+PROTECTED_CALL_NAMES = (
+    "ensure_only",
+    "ensure_only_sync",
+    "security_scan",
+    "SecureExecutionSandbox",
+    "claims_execution",
+    "action_honesty",
+    "injection_guard",
+    "_scrub",
+    "_scrub_str",
+    "run_python_tool",
+    "run_pregate",
+    "run_pregate_sync",
+)
+
+
+def _const_truthiness(expr: ast.AST) -> bool | None:
+    if isinstance(expr, ast.Constant):
+        return bool(expr.value)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        inner = _const_truthiness(expr.operand)
+        return None if inner is None else (not inner)
+    if isinstance(expr, ast.BoolOp):
+        vals = [_const_truthiness(v) for v in expr.values]
+        if isinstance(expr.op, ast.And):
+            if any(v is False for v in vals):
+                return False
+            if all(v is True for v in vals):
+                return True
+            return None
+        if isinstance(expr.op, ast.Or):
+            if any(v is True for v in vals):
+                return True
+            if all(v is False for v in vals):
+                return False
+            return None
+    return None
+
+
+def _call_protected_name(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name) and func.id in PROTECTED_CALL_NAMES:
+        return func.id
+    if isinstance(func, ast.Attribute):
+        if func.attr in PROTECTED_CALL_NAMES:
+            return func.attr
+        if isinstance(func.value, ast.Name) and func.value.id in PROTECTED_CALL_NAMES:
+            return func.value.id
+    return None
+
+
+def _count_reachable_protected_calls(source: str) -> dict[str, int] | None:
+    """Count statically reachable calls to PROTECTED_CALL_NAMES in Python source.
+
+    Returns None on SyntaxError (handled separately by the syntax check).
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+
+    counts: dict[str, int] = {}
+
+    def _visit_stmts(stmts: list[ast.stmt]) -> None:
+        for stmt in stmts:
+            _visit(stmt)
+            if isinstance(stmt, (ast.Return, ast.Raise, ast.Break, ast.Continue)):
+                break
+
+    def _visit(node: ast.AST) -> None:
+        if isinstance(node, ast.If):
+            _visit(node.test)
+            truth = _const_truthiness(node.test)
+            if truth is True:
+                _visit_stmts(node.body)
+            elif truth is False:
+                _visit_stmts(node.orelse)
+            else:
+                _visit_stmts(node.body)
+                _visit_stmts(node.orelse)
+            return
+
+        if isinstance(node, ast.While):
+            _visit(node.test)
+            if _const_truthiness(node.test) is not False:
+                _visit_stmts(node.body)
+            _visit_stmts(node.orelse)
+            return
+
+        if isinstance(node, ast.IfExp):
+            _visit(node.test)
+            truth = _const_truthiness(node.test)
+            if truth is True:
+                _visit(node.body)
+            elif truth is False:
+                _visit(node.orelse)
+            else:
+                _visit(node.body)
+                _visit(node.orelse)
+            return
+
+        if isinstance(node, ast.Call):
+            hit = _call_protected_name(node)
+            if hit is not None:
+                counts[hit] = counts.get(hit, 0) + 1
+
+        for _field, value in ast.iter_fields(node):
+            if isinstance(value, list):
+                if value and all(isinstance(item, ast.stmt) for item in value):
+                    _visit_stmts(value)
+                else:
+                    for item in value:
+                        if isinstance(item, ast.AST):
+                            _visit(item)
+            elif isinstance(value, ast.AST):
+                _visit(value)
+
+    _visit_stmts(tree.body)
+    return counts
+
+
+def _git_head_text(root: str, rel: str) -> str:
+    try:
+        r = subprocess.run(
+            ["git", "-C", root, "show", f"HEAD:{rel}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return r.stdout if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _ast_safety_regressions(root: str, wt: str, patch: str) -> list[str]:
+    """Compare reachable protected calls between HEAD and patched worktree."""
+    orig_totals: dict[str, int] = {}
+    new_totals: dict[str, int] = {}
+    wt_abs = os.path.abspath(wt)
+    seen: set[str] = set()
+
+    for rel in _touched_py_files(patch):
+        if rel in seen:
+            continue
+        seen.add(rel)
+        tgt = os.path.join(wt, rel)
+        if os.path.commonpath([wt_abs, os.path.abspath(tgt)]) != wt_abs:
+            continue
+
+        orig_src = _git_head_text(root, rel)
+        if os.path.exists(tgt):
+            try:
+                with open(tgt, encoding="utf-8", errors="replace") as _f:
+                    new_src = _f.read()
+            except Exception:
+                continue
+        else:
+            new_src = ""
+
+        orig_counts = _count_reachable_protected_calls(orig_src)
+        new_counts = _count_reachable_protected_calls(new_src)
+        if orig_counts is None or new_counts is None:
+            continue
+
+        for name, cnt in orig_counts.items():
+            orig_totals[name] = orig_totals.get(name, 0) + cnt
+        for name, cnt in new_counts.items():
+            new_totals[name] = new_totals.get(name, 0) + cnt
+
+    out: list[str] = []
+    for name, oc in orig_totals.items():
+        nc = new_totals.get(name, 0)
+        if nc < oc:
+            out.append(
+                f"net removal of reachable safety call ({name!r}): -{oc}/+{nc}"
+            )
+    return out
+
+
 def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
                      test_timeout: int = 1200) -> tuple[bool, list[str]]:
     """(ok, failures). ok is True only when all enabled checks pass."""
@@ -167,6 +345,8 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
             err = _cc.check_file(tgt)
             if err:
                 fails.append(f"{rel} has a syntax error: {err[:300]}")
+
+        fails += _ast_safety_regressions(root, wt, patch)
 
         # (3) full test suite on the patched tree (only if it compiles).
         # CALIBRATION.md §1: 7.5GB box + a resident model (~5GB) means the full
