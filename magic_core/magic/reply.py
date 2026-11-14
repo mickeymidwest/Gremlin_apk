@@ -345,7 +345,16 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     # DYNAMIC retrieval (re-ranked for THIS message) -- goes AFTER history, by
     # the question, so a new message only invalidates the KV-cache tail instead
     # of re-prefilling the whole conversation (the 60-80% latency win).
+    # Active constraint window (Hydra P2): re-inject the user's standing
+    # instructions from this conversation, highest-recency, so a long chat can't
+    # drop a rule set several turns back.
+    try:
+        from . import constraints as _constr
+        _cons_block = _constr.block(_constr.extract(history, message))
+    except Exception:
+        _cons_block = ""
     dynamic_context = "\n\n".join(p for p in (
+        _cons_block,
         _memory_block(root, message),
         _skills_block(root, message),
     ) if p)

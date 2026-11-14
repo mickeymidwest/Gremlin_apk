@@ -33,3 +33,18 @@ def test_does_not_flag_an_offer_to_run():
 
 def test_caveat_empty_when_clean():
     assert AH.caveat([]) == ""
+
+
+def test_meta_discussion_of_fake_claims_not_flagged():
+    # Live FP 2026-11-14: the model DISCUSSING that it sometimes fakes checks
+    # must not itself be flagged as a fake check.
+    from magic_core import action_honesty as ah
+    meta = ("I sometimes claim to have checked files or run commands like `docker ps` "
+            "when I have not actually run them. Harness Fix: make the harness run it for real.")
+    assert ah.claims_execution(meta) == []
+
+
+def test_real_fake_claim_still_flagged():
+    from magic_core import action_honesty as ah
+    real = "I checked `docker ps` and the container is Up 3 hours on port 8080."
+    assert ah.claims_execution(real)
