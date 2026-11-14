@@ -29,10 +29,10 @@ def _first_err(out: str) -> str:
 _BASH_ILLUSTRATIVE = re.compile(r"^\s*\$\s|<[A-Za-z][\w .-]*>|^\s*\.\.\.", re.M)
 
 
-def _bash(code: str) -> str:
+def _bash(code: str, *, allow_illustrative: bool = True) -> str:
     # illustrative chat snippet (shell prompts "$ ", <placeholders>, ... elisions)
     # is not meant to parse -- don't false-flag it and trigger a regeneration.
-    if _BASH_ILLUSTRATIVE.search(code or ""):
+    if allow_illustrative and _BASH_ILLUSTRATIVE.search(code or ""):
         return ""
     # bash -n: parse only, never run. Reads the script from stdin.
     try:
@@ -125,4 +125,6 @@ def check_file(path: str) -> str:
             code = f.read()
     except Exception:
         return ""
+    if fn is _bash:
+        return _bash(code, allow_illustrative=False) or ""
     return fn(code) or ""

@@ -52,3 +52,16 @@ def test_honest_reply_offers_nearest():
     assert "can't find" in r.lower()
     assert "/home/mickey/robofuse-stack" in r
     assert "haven't inspected" in r.lower()
+
+
+def test_short_circuit_broadened_write_verbs():
+    missing = [{"path": "/tmp/newdir", "expanded": "/tmp/newdir", "nearest": None}]
+    for msg in [
+        "mkdir /tmp/newdir",
+        "touch /tmp/newdir/a.txt",
+        "create /tmp/newdir/app.py",
+        "write /tmp/newdir/out.log",
+        "save as /tmp/newdir/out.json",
+        "export to /tmp/newdir/data.csv",
+    ]:
+        assert pg.should_short_circuit(msg, missing) is False, msg

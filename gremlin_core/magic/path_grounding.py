@@ -31,7 +31,12 @@ _LOOK_VERB_RE = re.compile(
     r"is there|are there|does .* exist|find out)\b", re.I)
 _WRITE_VERB_RE = re.compile(
     r"\b(create|make|mkdir|touch|write|save|generate|move|mv|put|copy|cp|clone|"
-    r"download|install|extract|unzip|add)\b.{0,40}\b(to|in|into|at|under)\b", re.I)
+    r"download|install|extract|unzip|untar|add|init|initialize|scaffold|output|"
+    r"export|dump|render|deploy|append)\b"
+    r"(?:.{0,40}\b(to|in|into|at|under|as|on|onto|from)\b"
+    r"|\s+(?:the\s+)?(?:file|dir|directory|folder|repo|project)?\s*(?:~?/|\x22~?/|\x27~?/))",
+    re.I,
+)
 
 
 _FS_ROOTS = ("/home/", "/etc/", "/var/", "/tmp/", "/usr/", "/opt/", "/mnt/",

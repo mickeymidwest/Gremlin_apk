@@ -34,3 +34,10 @@ def test_caveat_text():
     c = cc.caveat(["the shell script above has a syntax error (x)"])
     assert "Code check" in c and "won't parse" in c
     assert cc.caveat([]) == ""
+
+
+def test_check_file_checks_real_sh_even_with_ellipsis(tmp_path):
+    p = tmp_path / "broken.sh"
+    p.write_text("#!/bin/bash\n...\nif [ 1 -eq 1 ]; then\n  echo hi\n")
+    err = cc.check_file(str(p))
+    assert err != ""
