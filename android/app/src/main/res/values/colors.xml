@@ -27,4 +27,5 @@
     <color name="pv_text_dim">#93A6D0</color>
     <color name="pv_bubble_user">#1C2E5E</color>
     <color name="pv_line">#263863</color>
+    <color name="ic_launcher_bg">#0D1512</color>
 </resources>

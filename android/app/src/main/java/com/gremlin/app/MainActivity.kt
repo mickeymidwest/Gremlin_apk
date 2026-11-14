@@ -617,6 +617,7 @@ class MainActivity : AppCompatActivity() {
         hologramView.evaluateJavascript("setTalking(true)", null)
         thinkingStatus.text = getString(R.string.thinking)
         thinkingStatus.visibility = View.VISIBLE
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)  // stay awake while waiting
         gremlinClient.prepareStream()
         val id = beginTurn()
 
@@ -657,6 +658,7 @@ class MainActivity : AppCompatActivity() {
                 onDone = { result ->
                     runOnUiThread {
                         if (id != turnId) return@runOnUiThread
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         val sub = subStatusFor(result.source)
                         if (started.get()) {
                             finishAssistantStreamTurn(result.answer, sub)

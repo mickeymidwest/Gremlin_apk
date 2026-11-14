@@ -1,6 +1,48 @@
 {
-  "battle_count": 0,
-  "accepted_history": [],
-  "trial_curve": [],
-  "best_by_task": {}
+  "battle_count": 34,
+  "accepted_history": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "trial_curve": [
+    {
+      "battle": 0,
+      "score": 0.0
+    }
+  ],
+  "best_by_task": {
+    "graph": 0.0
+  }
 }

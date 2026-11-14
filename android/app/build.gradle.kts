@@ -15,8 +15,8 @@ android {
         applicationId = "com.gremlin.app"
         minSdk = 24
         targetSdk = 35
-        versionCode = 24
-        versionName = "3.3"
+        versionCode = 25
+        versionName = "3.4"
 
         // Caps ML Kit's bundled OCR model, which ships .so files for
         // four ABIs (~41MB). Dropping this filter once took the APK from

@@ -1,0 +1,216 @@
+heavy.sh: pausing gremlin-watchdog.timer
+heavy.sh: pausing gremlin-update.timer
+heavy.sh: stopping gremlin.service
+               total        used        free      shared  buff/cache   available
+Mem:           7.5Gi       2.3Gi       848Mi        75Mi       5.0Gi       5.3Gi
+heavy.sh: running: env ABLATE_INNER=1 bash /home/mickey/Downloads/gremlin/bench/ablate.sh qwen3.5-9b
+=== ablation: GREMLIN_LOOP_SET=[none]  parts=quality,heldout ===
+  PASS  quality  code_palindrome                
+  PASS  quality  code_merge_intervals           
+  PASS  quality  format_json_only               
+  PASS  quality  format_react                   
+  PASS  quality  reason_wordprob                
+  PASS  quality  reason_seq                     
+  PASS  quality  longctx_needle                 
+  PASS  quality  overrefusal_bufferoverflow     
+  PASS  quality  hard_lru_cache                 
+  PASS  quality  hard_flatten                   
+  PASS  quality  hard_fix_binsearch             
+  PASS  quality  hard_roman                     
+  FAIL  quality  hard_parse_duration            AssertionError: 
+  PASS  quality  hard_lcs                       
+  PASS  quality  hard_age_algebra               
+  PASS  quality  hard_trains                    
+  PASS  quality  hard_syllogism                 
+  PASS  quality  hard_ledger_sum                
+  PASS  quality  hard_md_table                  
+  PASS  heldout  ho_rle                         
+  PASS  heldout  ho_balanced                    
+  PASS  heldout  ho_topk                        
+  PASS  heldout  ho_fix_second                  
+  PASS  heldout  ho_tank                        
+  PASS  heldout  ho_ages                        
+  PASS  heldout  ho_seq                         
+  PASS  heldout  ho_balance                     
+  PASS  heldout  ho_logic                       
+  PASS  heldout  ho_json                        
+  PASS  heldout  ho_table                       
+  PASS  heldout  ho_needle                      
+
+qwen3.5-9b +loops[none]: quality 18/19  heldout 12/12  load 56.6s  54.7 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
+=== ablation: GREMLIN_LOOP_SET=[code]  parts=quality,heldout ===
+  PASS  quality  code_palindrome                
+  PASS  quality  code_merge_intervals           
+  PASS  quality  format_json_only               
+  PASS  quality  format_react                   
+  PASS  quality  reason_wordprob                
+  PASS  quality  reason_seq                     
+  PASS  quality  longctx_needle                 
+  PASS  quality  overrefusal_bufferoverflow     
+  PASS  quality  hard_lru_cache                 
+  PASS  quality  hard_flatten                   
+  PASS  quality  hard_fix_binsearch             
+  PASS  quality  hard_roman                     
+  PASS  quality  hard_parse_duration            
+  PASS  quality  hard_lcs                       
+  PASS  quality  hard_age_algebra               
+  PASS  quality  hard_trains                    
+  PASS  quality  hard_syllogism                 
+  PASS  quality  hard_ledger_sum                
+  PASS  quality  hard_md_table                  
+  PASS  heldout  ho_rle                         
+  PASS  heldout  ho_balanced                    
+  PASS  heldout  ho_topk                        
+  PASS  heldout  ho_fix_second                  
+  PASS  heldout  ho_tank                        
+  PASS  heldout  ho_ages                        
+  PASS  heldout  ho_seq                         
+  PASS  heldout  ho_balance                     
+  PASS  heldout  ho_logic                       
+  PASS  heldout  ho_json                        
+  PASS  heldout  ho_table                       
+  PASS  heldout  ho_needle                      
+
+qwen3.5-9b +loops[code]: quality 19/19  heldout 12/12  load 29.4s  53.8 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
+=== ablation: GREMLIN_LOOP_SET=[math]  parts=quality,heldout ===
+  PASS  quality  code_palindrome                
+  PASS  quality  code_merge_intervals           
+  PASS  quality  format_json_only               
+  PASS  quality  format_react                   
+  PASS  quality  reason_wordprob                
+  PASS  quality  reason_seq                     
+  PASS  quality  longctx_needle                 
+  PASS  quality  overrefusal_bufferoverflow     
+  PASS  quality  hard_lru_cache                 
+  PASS  quality  hard_flatten                   
+  PASS  quality  hard_fix_binsearch             
+  PASS  quality  hard_roman                     
+  FAIL  quality  hard_parse_duration            ValueError: invalid literal for int() with base 10: '1h30'
+  PASS  quality  hard_lcs                       
+  PASS  quality  hard_age_algebra               
+  PASS  quality  hard_trains                    
+  PASS  quality  hard_syllogism                 
+  PASS  quality  hard_ledger_sum                
+  PASS  quality  hard_md_table                  
+  PASS  heldout  ho_rle                         
+  PASS  heldout  ho_balanced                    
+  PASS  heldout  ho_topk                        
+  PASS  heldout  ho_fix_second                  
+  PASS  heldout  ho_tank                        
+  PASS  heldout  ho_ages                        
+  PASS  heldout  ho_seq                         
+  PASS  heldout  ho_balance                     
+  PASS  heldout  ho_logic                       
+  PASS  heldout  ho_json                        
+  PASS  heldout  ho_table                       
+  PASS  heldout  ho_needle                      
+
+qwen3.5-9b +loops[math]: quality 18/19  heldout 12/12  load 30.4s  56.4 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
+=== ablation: GREMLIN_LOOP_SET=[vote]  parts=quality,heldout ===
+  PASS  quality  code_palindrome                
+  PASS  quality  code_merge_intervals           
+  PASS  quality  format_json_only               
+  PASS  quality  format_react                   
+  PASS  quality  reason_wordprob                
+  PASS  quality  reason_seq                     
+  PASS  quality  longctx_needle                 
+  PASS  quality  overrefusal_bufferoverflow     
+  PASS  quality  hard_lru_cache                 
+  PASS  quality  hard_flatten                   
+  PASS  quality  hard_fix_binsearch             
+  PASS  quality  hard_roman                     
+  FAIL  quality  hard_parse_duration            AssertionError: 
+  PASS  quality  hard_lcs                       
+  PASS  quality  hard_age_algebra               
+  PASS  quality  hard_trains                    
+  PASS  quality  hard_syllogism                 
+  PASS  quality  hard_ledger_sum                
+  PASS  quality  hard_md_table                  
+  PASS  heldout  ho_rle                         
+  PASS  heldout  ho_balanced                    
+  PASS  heldout  ho_topk                        
+  PASS  heldout  ho_fix_second                  
+  PASS  heldout  ho_tank                        
+  PASS  heldout  ho_ages                        
+  PASS  heldout  ho_seq                         
+  PASS  heldout  ho_balance                     
+  PASS  heldout  ho_logic                       
+  PASS  heldout  ho_json                        
+  PASS  heldout  ho_table                       
+  PASS  heldout  ho_needle                      
+
+qwen3.5-9b +loops[vote]: quality 18/19  heldout 12/12  load 26.3s  55.6 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
+=== ablation: GREMLIN_LOOP_SET=[format]  parts=quality,heldout ===
+  PASS  quality  code_palindrome                
+  PASS  quality  code_merge_intervals           
+  PASS  quality  format_json_only               
+  PASS  quality  format_react                   
+  PASS  quality  reason_wordprob                
+  PASS  quality  reason_seq                     
+  PASS  quality  longctx_needle                 
+  PASS  quality  overrefusal_bufferoverflow     
+  PASS  quality  hard_lru_cache                 
+  PASS  quality  hard_flatten                   
+  PASS  quality  hard_fix_binsearch             
+  PASS  quality  hard_roman                     
+  FAIL  quality  hard_parse_duration            AssertionError: 
+  PASS  quality  hard_lcs                       
+  PASS  quality  hard_age_algebra               
+  PASS  quality  hard_trains                    
+  PASS  quality  hard_syllogism                 
+  PASS  quality  hard_ledger_sum                
+  PASS  quality  hard_md_table                  
+  PASS  heldout  ho_rle                         
+  PASS  heldout  ho_balanced                    
+  PASS  heldout  ho_topk                        
+  PASS  heldout  ho_fix_second                  
+  PASS  heldout  ho_tank                        
+  PASS  heldout  ho_ages                        
+  PASS  heldout  ho_seq                         
+  PASS  heldout  ho_balance                     
+  PASS  heldout  ho_logic                       
+  PASS  heldout  ho_json                        
+  PASS  heldout  ho_table                       
+  PASS  heldout  ho_needle                      
+
+qwen3.5-9b +loops[format]: quality 18/19  heldout 12/12  load 38.3s  53.1 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
+=== ablation: GREMLIN_LOOP_SET=[all]  parts=quality,heldout ===
+  PASS  quality  code_palindrome                
+  PASS  quality  code_merge_intervals           
+  PASS  quality  format_json_only               
+  PASS  quality  format_react                   
+  PASS  quality  reason_wordprob                
+  PASS  quality  reason_seq                     
+  PASS  quality  longctx_needle                 
+  PASS  quality  overrefusal_bufferoverflow     
+  PASS  quality  hard_lru_cache                 
+  PASS  quality  hard_flatten                   
+  PASS  quality  hard_fix_binsearch             
+  PASS  quality  hard_roman                     
+  PASS  quality  hard_parse_duration            
+  PASS  quality  hard_lcs                       
+  PASS  quality  hard_age_algebra               
+  PASS  quality  hard_trains                    
+  PASS  quality  hard_syllogism                 
+  PASS  quality  hard_ledger_sum                
+  PASS  quality  hard_md_table                  
+  PASS  heldout  ho_rle                         
+  PASS  heldout  ho_balanced                    
+  PASS  heldout  ho_topk                        
+  PASS  heldout  ho_fix_second                  
+  PASS  heldout  ho_tank                        
+  PASS  heldout  ho_ages                        
+  PASS  heldout  ho_seq                         
+  PASS  heldout  ho_balance                     
+  PASS  heldout  ho_logic                       
+  PASS  heldout  ho_json                        
+  PASS  heldout  ho_table                       
+  PASS  heldout  ho_needle                      
+
+qwen3.5-9b +loops[all]: quality 19/19  heldout 12/12  load 22.1s  51.3 tok/s  -> /home/mickey/Downloads/gremlin/bench/quality-2026-11-08.jsonl
+done. Compare the 'qwen3.5-9b +loops[...]' rows in the newest bench/quality-*.jsonl:
+  venv/bin/python bench/quality.py --compare
+heavy.sh: command exited 0
+heavy.sh: restarting gremlin.service
+heavy.sh: waiting for daemon to answer before resuming timers
+heavy.sh: resuming gremlin-watchdog.timer gremlin-update.timer
