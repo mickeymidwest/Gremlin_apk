@@ -71,6 +71,17 @@ MUTATING_ACTIONS = {t.name for t in tools_mod.REGISTRY.all() if t.destructive}
 READ_ONLY_ACTIONS = {t.name for t in tools_mod.REGISTRY.all() if not t.destructive} | {"run_command_read", "find_file"}
 ALL_ACTIONS = READ_ONLY_ACTIONS | MUTATING_ACTIONS | {"chat"}
 
+
+def _mutating_actions():
+    # dynamic: forged (/forge) and MCP tools register AFTER import, so the
+    # frozen sets above miss them -- recompute from the live registry.
+    return {t.name for t in tools_mod.REGISTRY.all() if t.destructive}
+
+
+def _all_actions():
+    return ({t.name for t in tools_mod.REGISTRY.all()}
+            | {"chat", "run_command_read", "find_file"})
+
 # Directly-answerable without any model call at all -- unambiguous
 # enough that spending a classification call on them is pure waste.
 _FAST_PATHS: list[tuple[re.Pattern, str]] = [
@@ -231,7 +242,7 @@ def _parse_classification(raw: str) -> Optional[Intent]:
         return None
 
     action = str(data.get("action", "chat")).strip().lower()
-    if action not in ALL_ACTIONS:
+    if action not in _all_actions():
         return None
     args = data.get("args") or {}
     if not isinstance(args, dict):
@@ -356,7 +367,7 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
 
 def _finalize(intent: Intent, original_message: str) -> Intent:
     """Attach confirmation requirements + human-readable prompts."""
-    if intent.action in MUTATING_ACTIONS:
+    if intent.action in _mutating_actions():
         intent.needs_confirmation = True
         intent.confirmation_prompt = _confirmation_text(intent, original_message)
     return intent

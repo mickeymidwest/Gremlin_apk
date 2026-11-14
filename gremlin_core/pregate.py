@@ -21,12 +21,26 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import shutil
 import subprocess
 import tempfile
 
 # A NET removal of a line containing one of these counts as weakening a safety
 # rail -> automatic reject. Net (removed minus added) so a pure move/rename
 # that re-adds the line is fine; only a real reduction trips it.
+_MIN_TEST_RAM_MB = int(os.environ.get("GREMLIN_PREGATE_MIN_RAM_MB", "3000"))
+
+
+def _avail_ram_mb():
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except Exception:
+        return None
+    return None
+
+
 PROTECTED_TOKENS = [
     "ensure_only", "security_scan", "SecureExecutionSandbox",
     "claims_execution", "action_honesty", "injection_guard",
@@ -155,16 +169,30 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
                 fails.append(f"{rel} has a syntax error: {err[:300]}")
 
         # (3) full test suite on the patched tree (only if it compiles).
+        # CALIBRATION.md §1: 7.5GB box + a resident model (~5GB) means the full
+        # suite swap-thrashes. If RAM is tight, BLOCK (don't thrash, don't skip
+        # silently) -- re-run from the CLI via scripts/heavy.sh with the daemon
+        # stopped. With headroom, run at IDLE priority so the live daemon never
+        # starves.
         if run_tests and not fails:
-            try:
-                t = subprocess.run(
-                    [py, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
-                    cwd=wt, capture_output=True, text=True, timeout=test_timeout)
-                if t.returncode != 0:
-                    fails.append("tests fail on the patched tree:\n"
-                                 + _distill((t.stdout or "") + "\n" + (t.stderr or "")))
-            except subprocess.TimeoutExpired:
-                fails.append(f"test suite timed out after {test_timeout}s on the patched tree")
+            _avail = _avail_ram_mb()
+            if _avail is not None and _avail < _MIN_TEST_RAM_MB:
+                fails.append(
+                    f"can't safely run the test suite ({_avail} MB RAM free, a model is "
+                    f"resident -- CALIBRATION.md §1). Re-run this self-edit from the CLI "
+                    f"with the daemon stopped (scripts/heavy.sh).")
+            else:
+                try:
+                    _cmd = [py, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+                    if shutil.which("nice") and shutil.which("ionice"):
+                        _cmd = ["nice", "-n", "19", "ionice", "-c", "3"] + _cmd
+                    t = subprocess.run(
+                        _cmd, cwd=wt, capture_output=True, text=True, timeout=test_timeout)
+                    if t.returncode != 0:
+                        fails.append("tests fail on the patched tree:\n"
+                                     + _distill((t.stdout or "") + "\n" + (t.stderr or "")))
+                except subprocess.TimeoutExpired:
+                    fails.append(f"test suite timed out after {test_timeout}s on the patched tree")
 
         return (len(fails) == 0, fails)
     finally:

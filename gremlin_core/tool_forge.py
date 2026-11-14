@@ -174,7 +174,7 @@ def _name_from(description: str) -> str:
 
 
 def author(description: str, model, root: str, *, name: str | None = None,
-           capability: str = "read_only", require_approval: bool = False) -> dict:
+           capability: str = "mutates_external", require_approval: bool = False) -> dict:
     """Self-building: have the MODEL write a forged tool for `description`, then
     run it through the same forge (security scan + diagnostics + persist). The
     result carries the generated `code` so a caller can show it before it is

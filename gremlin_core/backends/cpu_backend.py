@@ -68,17 +68,27 @@ class CpuChatBackend(ModelBackend):
                 victims = sorted((b for b in _RESIDENT
                                   if b is not self and not b._pinned),
                                  key=lambda b: b._last_used)
-                if not victims:
+                # only evict a worker that is NOT mid-request: if we can grab
+                # its lock it's idle; if every candidate is busy, stay over-cap
+                # rather than kill an active generation.
+                v = None
+                for cand in victims:
+                    if cand._lock.acquire(blocking=False):
+                        v = cand
+                        break
+                if v is None:
                     break
-                v = victims[0]
                 try:
-                    _RESIDENT.remove(v)
-                except ValueError:
-                    pass
-                try:
-                    v._stop()   # frees its RAM
-                except Exception:
-                    pass
+                    try:
+                        _RESIDENT.remove(v)
+                    except ValueError:
+                        pass
+                    try:
+                        v._stop()   # frees its RAM
+                    except Exception:
+                        pass
+                finally:
+                    v._lock.release()
 
     def _forget_resident(self) -> None:
         with _RESIDENT_LOCK:

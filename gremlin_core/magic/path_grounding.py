@@ -34,11 +34,21 @@ _WRITE_VERB_RE = re.compile(
     r"download|install|extract|unzip|add)\b.{0,40}\b(to|in|into|at|under)\b", re.I)
 
 
+_FS_ROOTS = ("/home/", "/etc/", "/var/", "/tmp/", "/usr/", "/opt/", "/mnt/",
+             "/media/", "/data/", "/root/", "/srv/", "/boot/", "/lib/", "/run/",
+             "/sys/", "/proc/", "/dev/", "/sdcard/", "/storage/", "~/")
+
+
 def _candidates(message: str) -> list[str]:
     out: list[str] = []
     for m in _ABS_PATH_RE.finditer(message or ""):
         p = m.group(1).rstrip("/.,;:)\"'")
         if "://" in p or p in ("/", "~", "~/"):
+            continue
+        # A URL route / slash-command / API path (/chat/stream, /status,
+        # /api/v1/x) is NOT a filesystem path -- only treat it as one when it
+        # sits under a real fs root or carries a file extension.
+        if not (p.startswith(_FS_ROOTS) or os.path.splitext(p)[1]):
             continue
         segs = [s for s in p.lstrip("~").split("/") if s]
         if not segs:

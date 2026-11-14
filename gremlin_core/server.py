@@ -702,9 +702,9 @@ def create_app(
         # Single-flight + skip trivial answers so it can't pile up.
         if _wd_busy["on"] or len((_ans or "").strip()) < 40:
             return
+        _wd_busy["on"] = True   # set BEFORE start() so concurrent turns can't double-spawn
         import threading as _th
         def _run():
-            _wd_busy["on"] = True
             try:
                 from .magic import hive as _hive
                 _h = _hive.build_hive(registry, loop=loop)

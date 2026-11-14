@@ -155,18 +155,17 @@ class Hive:
             return "gremlin"
 
     def _model_for(self, spec: Specialist):
-        """A Model for this specialist: its CPU model, else the top-dog as a
-        fallback so a job still runs if the CPU helper isn't registered."""
-        for nm in (spec.model, self._primary_name()):
-            if not nm:
-                continue
-            try:
-                backend = self._registry.get(nm)
-            except Exception:
-                backend = None
-            if backend is not None:
-                return BackendModel(backend, loop=self._loop, temperature=spec.temperature), nm
-        return None, None
+        """A Model for this specialist -- ONLY its CPU model. No GPU-primary
+        fallback: a specialist lives on the CPU lane and must never queue
+        background work onto the GPU the top-dog is using. If its model is not
+        registered, the specialist is simply unavailable (caller skips)."""
+        try:
+            backend = self._registry.get(spec.model)
+        except Exception:
+            backend = None
+        if backend is None:
+            return None, None
+        return BackendModel(backend, loop=self._loop, temperature=spec.temperature), spec.model
 
     def ask(self, name: str, prompt: str, *, extra_system: str = "") -> HiveResult:
         """Run a specialist, bounded to its budget and best-effort. Never raises:
@@ -194,6 +193,12 @@ class Hive:
                 return HiveResult(name=name, text=text, ok=bool(text),
                                   secs=round(time.monotonic() - t0, 1), model=used)
             except _cf.TimeoutError:
+                # the CPU worker is still generating and holding its lock; stop
+                # it so it does not stay wedged for the backend's full timeout.
+                try:
+                    getattr(getattr(model, "_backend", None), "_stop", lambda: None)()
+                except Exception:
+                    pass
                 return HiveResult(name=name, ok=False, dropped=True,
                                   secs=round(time.monotonic() - t0, 1), model=used)
             except Exception:
