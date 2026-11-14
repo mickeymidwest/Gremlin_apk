@@ -26,7 +26,14 @@ def _first_err(out: str) -> str:
     return (out or "")[:200]
 
 
+_BASH_ILLUSTRATIVE = re.compile(r"^\s*\$\s|<[A-Za-z][\w .-]*>|^\s*\.\.\.", re.M)
+
+
 def _bash(code: str) -> str:
+    # illustrative chat snippet (shell prompts "$ ", <placeholders>, ... elisions)
+    # is not meant to parse -- don't false-flag it and trigger a regeneration.
+    if _BASH_ILLUSTRATIVE.search(code or ""):
+        return ""
     # bash -n: parse only, never run. Reads the script from stdin.
     try:
         p = subprocess.run(["bash", "-n"], input=code, text=True,

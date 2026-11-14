@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import json
 import shutil
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -128,10 +129,21 @@ def check_source(source: str, lang_ext: str) -> dict:
     fn = _BY_EXT.get(ext.lower())
     if fn is None:
         return {"ok": True, "lang": ext, "checker_ran": False, "diagnostics": []}
+    import tempfile
+    _tmp = None
     try:
-        diags = fn("<source>", source)
+        _fd, _tmp = tempfile.mkstemp(suffix=ext)
+        with os.fdopen(_fd, "w") as _f:
+            _f.write(source)
+        diags = fn(_tmp, source)
     except Exception:
         diags = None
+    finally:
+        if _tmp:
+            try:
+                os.unlink(_tmp)
+            except OSError:
+                pass
     if diags is None:
         return {"ok": True, "lang": ext, "checker_ran": False, "diagnostics": []}
     return {"ok": len(diags) == 0, "lang": ext, "checker_ran": True, "diagnostics": diags}
