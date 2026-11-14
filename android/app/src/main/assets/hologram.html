@@ -57,9 +57,9 @@
 <body>
   <div id="quit-btn" title="Quit">&times;</div>
   <div id="stage">
-    <video id="v-idle" class="layer active" autoplay loop muted playsinline preload="auto" src="gremlin_idle.mp4"></video>
+    <video id="v-idle" class="layer" loop muted playsinline preload="auto" src="gremlin_idle.mp4"></video>
     <img id="img-think" class="layer" src="gremlin_thinking.jpg" alt="">
-    <video id="v-spin" class="layer" muted playsinline preload="auto" src="gremlin_spin.mp4"></video>
+    <video id="v-spin" class="layer active" autoplay muted playsinline preload="auto" src="gremlin_spin.mp4"></video>
     <video id="v-talk" class="layer" loop muted playsinline preload="auto" src="gremlin_talk.mp4"></video>
   </div>
 <script>
@@ -69,7 +69,7 @@
   var vTalk = document.getElementById('v-talk');
   var layers = [vIdle, imgThink, vSpin, vTalk];
 
-  var curState = 'idle';
+  var curState = 'opening';
   var spinTimer = null;
 
   function showOnly(el) {
@@ -92,6 +92,10 @@
 
   function startTalkLoop() {
     if (spinTimer) { clearTimeout(spinTimer); spinTimer = null; }
+    if (curState === 'opening') {
+      setState('idle');
+      return;
+    }
     if (curState !== 'responding') return;
     safePause(vSpin);
     try { vTalk.currentTime = 0; } catch (e) {}
@@ -114,7 +118,11 @@
       safePause(vSpin);
       safePause(vTalk);
       showOnly(vIdle);
-      safePlay(vIdle);
+      // Play the opening animation once, then settle into the cute blinking idle loop.
+  spinTimer = setTimeout(function () {
+    if (curState === 'opening') setState('idle');
+  }, 2600);
+  safePlay(vSpin);
     } else if (next === 'thinking') {
       safePause(vIdle);
       safePause(vSpin);
