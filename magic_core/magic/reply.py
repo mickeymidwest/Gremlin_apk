@@ -759,3 +759,69 @@ async def answer_private(backend, message: str, *, system: str,
         pass
     return {"answer": _ans, "ok": bool(text),
             "error": getattr(r, "error", None), "model": getattr(r, "model", "magic")}
+
+
+async def answer_private_stream(backend, message: str, *, system: str,
+                                history_msgs: list, unfiltered: bool = False,
+                                fallback=None):
+    """Streaming twin of answer_private. Yields ('delta', str) as tokens arrive,
+    then exactly one ('done', {...}) with the complete, secret-scrubbed answer
+    plus the action-honesty caveat.
+
+    Same non-content rails as answer_private. The user's OWN secrets are held
+    back behind a tail window so none can cross to the client mid-stream, and if
+    a late token turns earlier text into [REDACTED] the divergent delta is not
+    emitted -- the 'done' frame always carries the authoritative scrubbed text.
+    """
+    from ..mutation_log import _scrub_str
+    TAIL = 200          # longer than any secret we scrub; held back until safe
+    acc, sent = "", ""
+
+    async def _agen(be):
+        try:
+            agen = be.generate_stream(message, system=system, max_tokens=900,
+                                      temperature=0.9, history=history_msgs)
+            async for d in agen:
+                yield d
+        except TypeError:
+            flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in history_msgs)
+            flat = f"{flat}\n\nUser: {message}" if flat else message
+            async for d in be.generate_stream(flat, max_tokens=900, temperature=0.9):
+                yield d
+
+    errored = False
+    try:
+        async for piece in _agen(backend):
+            if not piece:
+                continue
+            acc += piece
+            scrubbed = _scrub_str(acc)
+            commit_len = max(len(sent), len(scrubbed) - TAIL)
+            committable = scrubbed[:commit_len]
+            if committable.startswith(sent) and len(committable) > len(sent):
+                new = committable[len(sent):]
+                sent = committable
+                yield "delta", new
+    except Exception:
+        errored = True
+
+    if not acc.strip() and fallback is not None and backend is not fallback:
+        async for ev in answer_private_stream(fallback, message, system=system,
+                                              history_msgs=history_msgs,
+                                              unfiltered=unfiltered, fallback=None):
+            yield ev
+        return
+
+    full = _scrub_str(acc).strip()
+    if full.startswith(sent) and len(full) > len(sent):
+        yield "delta", full[len(sent):]
+    try:
+        from .. import action_honesty
+        cav = action_honesty.caveat(action_honesty.claims_execution(full))
+        if cav:
+            full += cav
+            yield "delta", cav
+    except Exception:
+        pass
+    yield "done", {"answer": full, "ok": bool(acc.strip()) and not errored,
+                   "error": None, "model": getattr(backend, "name", "magic")}
