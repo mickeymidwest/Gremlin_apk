@@ -99,6 +99,31 @@ def check_code_blocks(text: str) -> list:
     return out
 
 
+_ELISION = re.compile(
+    r"(?im)(?:#|//|/\*|<!--)\s*\.{3}\s*(?:rest|more|etc|continue|unchanged|same|and so on)"
+    r"|(?:#|//)\s*(?:\.\.\.|\u2026)\s*(?:rest|more|etc|unchanged|same)?"
+    r"|\b(?:the )?rest of (?:the )?(?:code|file|function|class|implementation|method|script)\b"
+    r"|\b(?:existing|previous|prior) (?:code|implementation|methods?|logic)\b"
+    r"|\bomitted for brevity\b|\bsame as (?:before|above)\b"
+    r"|(?:#|//)\s*(?:fill|add)\b.{0,20}\bhere\b"
+    r"|(?:#|//|/\*)\s*(?:unchanged|snip+|elided|truncated|remaining code)\b"
+    r"|(?:#|//)\s*TODO:?\s*implement"
+    r"|^\s*(?:\.\.\.|\u2026)\s*$")
+
+
+def check_code_completeness(text: str) -> list:
+    """Lazy-elision markers inside fenced code blocks -- the model summarizing
+    code (\"# ... rest of code\", \"// unchanged\", a standalone ...) instead of
+    writing it in full. Empty when clean. (Magic LAW: write code out in full.)"""
+    out = []
+    for m in _FENCE.finditer(text or ""):
+        em = _ELISION.search(m.group(2))
+        if em:
+            out.append("the code above is summarized/elided, not written in full "
+                       "(\"" + em.group(0).strip()[:50] + "\")")
+    return out
+
+
 def caveat(issues: list) -> str:
     if not issues:
         return ""

@@ -41,3 +41,34 @@ def test_check_file_checks_real_sh_even_with_ellipsis(tmp_path):
     p.write_text("#!/bin/bash\n...\nif [ 1 -eq 1 ]; then\n  echo hi\n")
     err = cc.check_file(str(p))
     assert err != ""
+
+
+def test_completeness_passes_full_code():
+    t = "```python\ndef f(x):\n    return x + 1\n```"
+    assert cc.check_code_completeness(t) == []
+
+
+def test_completeness_flags_rest_of_code():
+    t = "```python\ndef f(x):\n    # ... rest of the code\n    return x\n```"
+    assert cc.check_code_completeness(t) != []
+
+
+def test_completeness_flags_bare_unchanged():
+    t = "```js\nfunction f(){\n  // unchanged\n}\n```"
+    assert cc.check_code_completeness(t) != []
+
+
+def test_completeness_flags_standalone_ellipsis():
+    t = "```python\ndef f():\n    ...\n```"
+    assert cc.check_code_completeness(t) != []
+
+
+def test_completeness_flags_omitted_for_brevity():
+    t = "```python\ndef f():\n    pass  # omitted for brevity\n```"
+    assert cc.check_code_completeness(t) != []
+
+
+def test_completeness_ignores_prose_ellipsis():
+    # "..." in ordinary prose (outside a code fence) is not an elision marker.
+    t = "Well... I think the rest of the code should stay as is, honestly."
+    assert cc.check_code_completeness(t) == []

@@ -355,22 +355,22 @@ async def _gen(backend, prompt: str, hist: list):
     """backend.generate with history= when the backend takes it, else fall
     back to a flattened prompt (API fallbacks that predate the kwarg)."""
     try:
-        return await backend.generate(prompt, max_tokens=1024, temperature=0.6, history=hist)
+        return await backend.generate(prompt, max_tokens=2048, temperature=0.6, history=hist)
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {prompt}" if flat else prompt
-        return await backend.generate(flat, max_tokens=1024, temperature=0.6)
+        return await backend.generate(flat, max_tokens=2048, temperature=0.6)
 
 
 async def _stream(backend, prompt: str, hist: list):
     try:
-        agen = backend.generate_stream(prompt, max_tokens=1024, temperature=0.6, history=hist)
+        agen = backend.generate_stream(prompt, max_tokens=2048, temperature=0.6, history=hist)
         async for d in agen:
             yield d
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {prompt}" if flat else prompt
-        async for d in backend.generate_stream(flat, max_tokens=1024, temperature=0.6):
+        async for d in backend.generate_stream(flat, max_tokens=2048, temperature=0.6):
             yield d
 
 
@@ -517,7 +517,7 @@ async def answer_stream(primary, message: str, root: str,
                 pass
         try:
             from . import code_check as _cc
-            _ci = _cc.check_code_blocks(text)
+            _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
         except Exception:
             _ci = []
         if _ci:
@@ -656,17 +656,20 @@ async def answer(primary, message: str, root: str,
     # code; a chat answer didn't until now).
     try:
         from . import code_check as _cc
-        _ci = _cc.check_code_blocks(text)
+        _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
     except Exception:
         _ci = []
     if _ci:
-        _cprompt = (prompt + "\n\n[A syntax check of the code you wrote found: "
-                    + "; ".join(_ci) + ". Rewrite the answer with the code FIXED so "
-                    "it parses cleanly; keep everything else.]")
+        _cprompt = (prompt + "\n\n[A check of the code you wrote found: "
+                    + "; ".join(_ci) + ". Rewrite the answer with the code FIXED and "
+                    "written OUT IN FULL -- it must parse cleanly AND you must never "
+                    "summarize, shorten, or elide code with placeholders like '...', "
+                    "'# rest of code', or '// unchanged'. Write every line. Keep the "
+                    "rest of the answer.]")
         try:
             _r3 = await _gen(primary, _cprompt, hist)
             _t3 = (_r3.text or "").strip() if getattr(_r3, "ok", True) else ""
-            _still = _cc.check_code_blocks(_t3) if _t3 else _ci
+            _still = (_cc.check_code_blocks(_t3) + _cc.check_code_completeness(_t3)) if _t3 else _ci
             if _t3 and len(_still) < len(_ci):
                 text = _t3 + (_cc.caveat(_still) if _still else "")
             else:
