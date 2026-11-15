@@ -61,25 +61,89 @@ def _distill(text: str) -> str:
 
 
 def _touched_py_files(patch: str) -> list[str]:
-    files = []
+    files = set()
     for line in patch.splitlines():
-        m = re.match(r"\+\+\+ b/(.+)", line)
+        m = re.match(r"(?:\+\+\+ b/|--- a/)(.+)", line)
         if m:
             p = m.group(1).strip()
             if p.endswith(".py") and p != "/dev/null":
-                files.append(p)
-    return files
+                files.add(p)
+    return sorted(files)
 
 
 def _touched_files(patch: str) -> list[str]:
-    files = []
+    files = set()
     for line in patch.splitlines():
-        m = re.match(r"\+\+\+ b/(.+)", line)
+        m = re.match(r"(?:\+\+\+ b/|--- a/)(.+)", line)
         if m:
             p = m.group(1).strip()
             if p and p != "/dev/null":
-                files.append(p)
-    return files
+                files.add(p)
+    return sorted(files)
+
+
+# The self-edit may NEVER modify its own gate, the reviewers, the sandbox, or
+# the stored safety state -- editing these could disable every other check.
+_PROTECTED_PATHS = (
+    "magic_core/pregate.py",
+    "magic_core/review.py",
+    "magic_core/self_improve.py",
+    "magic_core/sandbox.py",
+    "magic_core/root_exec.py",
+    "magic_core/injection_guard.py",
+    "magic_core/action_honesty.py",
+    "magic_core/service_control.py",
+    "scripts/heavy.sh",
+)
+
+
+def _all_touched_paths(patch: str) -> set:
+    out = set()
+    for line in patch.splitlines():
+        m = re.match(r"(?:\+\+\+ b/|--- a/)(.+)", line)
+        if m:
+            p = m.group(1).strip()
+            if p and p != "/dev/null":
+                out.add(p)
+    return out
+
+
+def _protected_path_edits(patch: str) -> list[str]:
+    """Hard rejects that have nothing to do with code quality: a self-edit must
+    not disable its own supervision, weaken the test suite, or smuggle a symlink
+    or submodule in. These run before the worktree -- cheapest, strictest."""
+    fails = []
+    for p in sorted(_all_touched_paths(patch)):
+        if p in _PROTECTED_PATHS or p.startswith(".magic/") or p.startswith(".git/"):
+            fails.append(f"a self-edit may not modify the safety machinery itself ({p}) -- "
+                         "the gate, reviewers, sandbox, service allow-list, and .magic state "
+                         "are off-limits to self-editing")
+    # tests may be ADDED to, never weakened: no deleting/changing existing test
+    # lines, and no new skip/xfail markers.
+    cur = None
+    for line in patch.splitlines():
+        m = re.match(r"\+\+\+ b/(.+)", line)
+        if m:
+            cur = m.group(1).strip()
+            continue
+        if not (cur and cur.startswith("tests/")):
+            continue
+        if line.startswith("-") and not line.startswith("---") and line[1:].strip():
+            fails.append(f"a self-edit may not delete or change existing test lines "
+                         f"({cur}) -- add new tests, never weaken the suite")
+            break
+        if (line.startswith("+") and not line.startswith("+++")
+                and re.search(r"(?i)@?\b(pytest\.mark\.skip|mark\.xfail|pytest\.skip\()", line)):
+            fails.append(f"a self-edit may not add a skip/xfail marker to the tests ({cur})")
+            break
+    # no symlinks or submodule tricks (can escape the worktree / repo)
+    for line in patch.splitlines():
+        if re.search(r"\bmode 12\d{4}\b", line):
+            fails.append("a self-edit may not introduce a symlink (git mode 120000)")
+            break
+    if any(l.startswith("Subproject commit") for l in patch.splitlines()):
+        fails.append("a self-edit may not touch a git submodule")
+    return fails
 
 
 def _safety_regressions(patch: str) -> list[str]:
@@ -289,6 +353,9 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
 
     # (4) safety-rail check -- pure text, cheapest, run first.
     fails += _safety_regressions(patch)
+    # (5) structural hard-rejects: self-editing the gate, weakening tests,
+    #     symlinks/submodules. Also cheapest-first, before any worktree.
+    fails += _protected_path_edits(patch)
 
     # (1) does it apply at all?
     try:
@@ -347,6 +414,17 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
                 fails.append(f"{rel} has a syntax error: {err[:300]}")
 
         fails += _ast_safety_regressions(root, wt, patch)
+
+        # (6) a self-edit may not ADD elided/placeholder code ("# ... rest of
+        #     the code", "# TODO: implement", a bare ...). Check only ADDED lines.
+        _added = "\n".join(_l[1:] for _l in patch.splitlines()
+                            if _l.startswith("+") and not _l.startswith("+++"))
+        try:
+            _el = _cc.elision_in_source(_added, "added.py")
+        except Exception:
+            _el = ""
+        if _el:
+            fails.append("patch adds elided/placeholder code instead of the real thing: " + _el)
 
         # (3) full test suite on the patched tree (only if it compiles).
         # CALIBRATION.md §1: 7.5GB box + a resident model (~5GB) means the full
