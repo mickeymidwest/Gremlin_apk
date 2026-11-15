@@ -756,6 +756,39 @@ class MainActivity : AppCompatActivity() {
         val cmd = parts.getOrNull(0) ?: ""
 
         when (cmd) {
+            "/deep" -> {
+                val q = message.removePrefix("/deep").trim()
+                if (q.isEmpty()) {
+                    appendSystemTurn("Usage: /deep <a hard question> \u2014 summons the big MoE deep-reasoning head (slow: a few minutes).", true)
+                } else {
+                    setBusy(true)
+                    setHologramState("thinking")
+                    thinkingStatus.text = "Summoning the deep head\u2026 (this takes a few minutes)"
+                    thinkingStatus.visibility = View.VISIBLE
+                    ThinkingKeepAliveService.start(applicationContext)
+                    val id = beginTurn()
+                    Thread {
+                        val r = magicClient.deep(q)
+                        runOnUiThread {
+                            if (id != turnId) return@runOnUiThread
+                            setBusy(false)
+                            thinkingStatus.visibility = View.GONE
+                            ThinkingKeepAliveService.stop(applicationContext)
+                            val ans = r?.optString("answer").orEmpty()
+                            if (ans.isNotEmpty()) {
+                                appendAssistantTurn(ans, "deep brain")
+                                voiceOutput.speak(ans)
+                                finishHologramResponse()
+                            } else {
+                                appendSystemTurn(r?.optString("error")?.ifEmpty { null }
+                                    ?: "The deep head couldn\u2019t answer.", true)
+                                setHologramState("idle")
+                            }
+                        }
+                    }.start()
+                }
+            }
+
             "/claude" -> {
                 val rest = message.removePrefix("/claude").trim()
                 val confirmed = rest.endsWith(" confirm")
