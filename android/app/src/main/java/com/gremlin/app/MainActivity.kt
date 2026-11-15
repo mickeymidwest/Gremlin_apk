@@ -146,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         sendButton = findViewById(R.id.send_button)
         hologramFrame = findViewById(R.id.hologram_frame)
         chat = ChatView(findViewById<LinearLayout>(R.id.chat_list), findViewById<ScrollView>(R.id.chat_scroll))
+        chat.onEditLastUser = { editLastMessage() }
         if (historyFile.exists()) {
             chat.load(historyFile.readText())
         }
@@ -411,6 +412,7 @@ class MainActivity : AppCompatActivity() {
     private fun showMoreMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
         menu.menu.add("Re-roll last answer")
+        menu.menu.add("Continue")
         menu.menu.add("Switch model")
         menu.menu.add("Stop running jobs")
         menu.menu.add("Pair with QR code")
@@ -418,6 +420,7 @@ class MainActivity : AppCompatActivity() {
         menu.setOnMenuItemClickListener { item ->
             when (item.title) {
                 "Re-roll last answer" -> rerollLast()
+                "Continue" -> continueLast()
                 "Switch model" -> pickModel()
                 "Stop running jobs" -> Thread {
                     val result = magicClient.abortJobs()
@@ -636,15 +639,49 @@ class MainActivity : AppCompatActivity() {
         runTurn(message, false)
     }
 
-    private fun rerollLast() {
+    private fun rerollLast(editedMsg: String? = null) {
         if (busy) return
-        val m = lastUserMessage
+        val m = editedMsg ?: lastUserMessage ?: chat.lastUserText()
         if (m.isNullOrEmpty()) { appendSystemTurn("Nothing to re-roll yet.", false); return }
+        lastUserMessage = m
         chat.removeLastAssistant()
         runTurn(m, true)
     }
 
-    private fun runTurn(message: String, reroll: Boolean) {
+    private fun continueLast() {
+        if (busy) return
+        if (chat.lastAssistantText().isNullOrEmpty()) {
+            appendSystemTurn("Nothing to continue yet.", false)
+            return
+        }
+        runTurn(
+            "(Continue from exactly where you left off. Keep going naturally, without repeating or summarizing what you already said.)",
+            reroll = false,
+            cont = true,
+        )
+    }
+
+    private fun editLastMessage() {
+        if (busy) return
+        val cur = lastUserMessage ?: chat.lastUserText() ?: return
+        val et = EditText(this).apply { setText(cur); setSelection(cur.length) }
+        AlertDialog.Builder(this)
+            .setTitle("Edit your message, then re-roll the reply")
+            .setView(et)
+            .setPositiveButton("Re-roll") { _, _ ->
+                val nt = et.text.toString().trim()
+                if (nt.isNotEmpty()) {
+                    lastUserMessage = nt
+                    chat.updateLastUser(nt)
+                    saveHistory()
+                    rerollLast(nt)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun runTurn(message: String, reroll: Boolean, cont: Boolean = false) {
         voiceOutput.stop() // a new message shouldn't have magic still talking over it
 
         // Pushed directly rather than polled -- unlike the desktop
@@ -684,11 +721,12 @@ class MainActivity : AppCompatActivity() {
             magicClient.chatStream(
                 message,
                 reroll,
+                cont,
                 onDelta = { delta ->
                     runOnUiThread {
                         if (id != turnId) return@runOnUiThread
                         if (started.compareAndSet(false, true)) {
-                            beginAssistantStreamTurn()
+                            if (cont) chat.beginContinueStream() else beginAssistantStreamTurn()
                             thinkingStatus.visibility = View.GONE
                             setHologramState("responding")
                         }
@@ -704,6 +742,9 @@ class MainActivity : AppCompatActivity() {
                             finishAssistantStreamTurn(result.answer, sub)
                         } else if (result.source == "stopped") {
                             appendSystemTurn("Stopped.", false)
+                        } else if (cont) {
+                            chat.appendToLastAssistant(result.answer, sub)
+                            saveHistory()
                         } else {
                             // no deltas arrived (fallback path / action / clear)
                             appendAssistantTurn(result.answer, sub)

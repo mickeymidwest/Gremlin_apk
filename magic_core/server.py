@@ -917,39 +917,53 @@ def create_app(
         if auth_error:
             return auth_error
         body = request.get_json(silent=True) or {}
+        conv_key = request.headers.get("Authorization", "") or "default"
+        is_continue = bool(body.get("continue"))
+        is_reroll = bool(body.get("reroll")) and not is_continue
         message = body.get("message", "").strip()
+        if is_continue:
+            if not conversation_history.has_history(conv_key):
+                return jsonify({"error": "nothing to continue yet"}), 400
+            message = message or (
+                "(Continue from exactly where you left off. Keep going "
+                "naturally, without repeating or summarizing what you "
+                "already said.)"
+            )
+        elif is_reroll:
+            # re-roll: drop the previous exchange so this one replaces it;
+            # an optional `message` overrides the dropped turn's user text.
+            prev_user = conversation_history.last_user(conv_key)
+            conversation_history.drop_last(conv_key)
+            if not message and prev_user:
+                message = prev_user
         if not message:
             return jsonify({"error": "empty message"}), 400
-
-        conv_key = request.headers.get("Authorization", "") or "default"
-        if body.get("reroll"):
-            # re-roll: drop the previous exchange so this one replaces it
-            conversation_history.drop_last(conv_key)
         magic_backend = registry.get("magic")
 
-        if history_mod.is_clear_command(message):
-            conversation_history.clear(conv_key)
-            done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
-            return Response(_sse({"type": "done", **done}),
-                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+        if not is_continue:
+            if history_mod.is_clear_command(message):
+                conversation_history.clear(conv_key)
+                done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
+                return Response(_sse({"type": "done", **done}),
+                                mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        from . import notes as notes_mod
-        if notes_mod.is_remember_last_reply_command(message):
-            last = conversation_history.last_assistant(conv_key)
-            if not last:
-                done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
-            else:
-                notes_mod.remember_fact(str(project_root), last)
-                done = _chat_reply(f"Got it — I'll remember that: {last}")
-            return Response(_sse({"type": "done", **done}),
-                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+            from . import notes as notes_mod
+            if notes_mod.is_remember_last_reply_command(message):
+                last = conversation_history.last_assistant(conv_key)
+                if not last:
+                    done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
+                else:
+                    notes_mod.remember_fact(str(project_root), last)
+                    done = _chat_reply(f"Got it — I'll remember that: {last}")
+                return Response(_sse({"type": "done", **done}),
+                                mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
-        if action_result is not None:
-            conversation_history.record(conv_key, message, action_result.get("answer", ""))
-            action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
-            return Response(_sse({"type": "done", **action_result}),
-                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+            action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
+            if action_result is not None:
+                conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                return Response(_sse({"type": "done", **action_result}),
+                                mimetype="text/event-stream", headers=_SSE_HEADERS)
 
         history = conversation_history.render(conv_key)
         fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
@@ -983,10 +997,16 @@ def create_app(
                             _note_answer(final)
                             turn_usage = final.get("usage") or {}
                             with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
-                                conversation_history.record(
-                                    conv_key, message, final.get("answer", ""),
-                                    prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                    completion_tokens=turn_usage.get("completion_tokens", 0))
+                                if is_continue:
+                                    conversation_history.append_to_last(
+                                        conv_key, final.get("answer", ""),
+                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                        completion_tokens=turn_usage.get("completion_tokens", 0))
+                                else:
+                                    conversation_history.record(
+                                        conv_key, message, final.get("answer", ""),
+                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                        completion_tokens=turn_usage.get("completion_tokens", 0))
                             _maybe_compact(conv_key)
                             final["conversation_usage"] = conversation_history.usage_totals(conv_key)
                             _spawn_watchdog(message, final.get("answer", ""))

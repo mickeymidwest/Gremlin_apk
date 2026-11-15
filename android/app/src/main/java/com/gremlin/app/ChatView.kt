@@ -30,6 +30,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     private var streamBubble: TextView? = null
     private var lastMagicStart = -1
     private var streamText = StringBuilder()
+    private var streamBase = ""
+    private var lastUserBubble: TextView? = null
+    var onEditLastUser: (() -> Unit)? = null
 
     private fun color(id: Int) = ContextCompat.getColor(context, id)
     private fun dp(value: Int) = TypedValue.applyDimension(
@@ -39,6 +42,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         clear()
         val all = ChatTranscript.parse(saved)
         all.takeLast(MAX_SHOWN).forEach {
+            if (it.kind == Kind.MAGIC) lastMagicStart = list.childCount
             if (it.kind == Kind.MAGIC && hasCode(it.text)) drawRichMagic(it) else draw(it)
         }
         turns.addAll(all)
@@ -49,6 +53,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         turns.clear()
         list.removeAllViews()
         streamBubble = null
+        streamBase = ""
+        lastMagicStart = -1
+        lastUserBubble = null
     }
 
     fun add(turn: Turn) {
@@ -56,6 +63,18 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         turns.add(turn)
         if (turn.kind == Kind.MAGIC && hasCode(turn.text)) drawRichMagic(turn) else draw(turn)
         scrollToEnd()
+    }
+
+    fun lastUserText(): String? = turns.lastOrNull { it.kind == Kind.USER }?.text
+
+    fun lastAssistantText(): String? =
+        if (turns.isNotEmpty() && turns.last().kind == Kind.MAGIC) turns.last().text else null
+
+    /** Update the most recent USER bubble + record in place (for edit + re-roll). */
+    fun updateLastUser(newText: String) {
+        val idx = turns.indexOfLast { it.kind == Kind.USER }
+        if (idx >= 0) turns[idx] = Turn(Kind.USER, newText)
+        lastUserBubble?.text = styled(newText)
     }
 
     /** Remove the most recent assistant turn's views + record (for a re-roll). */
@@ -69,9 +88,33 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     }
 
     fun beginStream() {
+        streamBase = ""
         streamText = StringBuilder()
         lastMagicStart = list.childCount
         streamBubble = draw(Turn(Kind.MAGIC, ""))
+    }
+
+    /** Replace the last assistant bubble with a live stream pre-seeded with its text. */
+    fun beginContinueStream() {
+        val prev = lastAssistantText().orEmpty()
+        removeLastAssistant()
+        streamBase = if (prev.isNotEmpty()) "$prev " else ""
+        streamText = StringBuilder(streamBase)
+        lastMagicStart = list.childCount
+        streamBubble = draw(Turn(Kind.MAGIC, "")).also {
+            if (prev.isNotEmpty()) it.text = styled(prev)
+        }
+    }
+
+    /** Non-streamed fallback for Continue: merge extra onto the last assistant turn. */
+    fun appendToLastAssistant(extra: String, note: String?) {
+        val prev = lastAssistantText() ?: run {
+            add(Turn(Kind.MAGIC, extra, note))
+            return
+        }
+        val merged = if (extra.isNotBlank()) "$prev ${extra.trimStart()}".trim() else prev
+        removeLastAssistant()
+        add(Turn(Kind.MAGIC, merged, note))
     }
 
     fun appendStream(delta: String) {
@@ -84,7 +127,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
 
     fun finishStream(answer: String, note: String?) {
         val bubble = streamBubble ?: return
-        val text = answer.ifEmpty { streamText.toString() }
+        val raw = answer.ifEmpty { streamText.removePrefix(streamBase).toString() }
+        val text = if (streamBase.isNotEmpty()) "${streamBase.trimEnd()} ${raw.trimStart()}".trim() else raw
+        streamBase = ""
         val turn = Turn(Kind.MAGIC, text, note)
         turns.add(turn)
         if (hasCode(text)) {
@@ -119,6 +164,10 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
                 bubble.setBackgroundResource(R.drawable.bg_bubble_user)
                 bubble.setTextColor(color(R.color.magic_text_primary))
                 bubble.setPadding(dp(16), dp(11), dp(16), dp(11))
+                lastUserBubble = bubble
+                bubble.setOnLongClickListener {
+                    if (bubble === lastUserBubble) { onEditLastUser?.invoke(); true } else false
+                }
             }
             Kind.MAGIC -> {
                 params.gravity = Gravity.START

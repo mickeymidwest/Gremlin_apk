@@ -219,7 +219,13 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         } catch (e: Exception) { null }
     }
 
-    fun chatStream(message: String, reroll: Boolean = false, onDelta: (String) -> Unit, onDone: (ChatResult) -> Unit) {
+    fun chatStream(
+        message: String,
+        reroll: Boolean = false,
+        cont: Boolean = false,
+        onDelta: (String) -> Unit,
+        onDone: (ChatResult) -> Unit,
+    ) {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
         val token = prefs.getString("token", null)
@@ -247,7 +253,9 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                 readTimeout = desktopReadTimeoutMs
             }
             OutputStreamWriter(connection.outputStream).use {
-                it.write(JSONObject().put("message", message).put("token", token).put("reroll", reroll).toString())
+                val body = JSONObject().put("message", message).put("token", token).put("reroll", reroll)
+                if (cont) body.put("continue", true)
+                it.write(body.toString())
             }
             if (connection.responseCode !in 200..299) {
                 activeStream = null
