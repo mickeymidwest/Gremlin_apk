@@ -6,6 +6,7 @@ CONCURRENTLY with the GPU primary instead of swapping for it. Protocol: prints
 and writes one reply per line  {"text": "..."}  or  {"error": "..."}.
 """
 import json
+import os
 import sys
 
 _GRAMMAR_CACHE = {}
@@ -50,7 +51,9 @@ def main() -> None:
     n_ctx = int(sys.argv[2]) if len(sys.argv) > 2 else 8192
     try:
         from llama_cpp import Llama
-        model = Llama(model_path=model_path, n_gpu_layers=0, n_ctx=n_ctx, verbose=False)
+        _nthreads = int(os.environ.get("MAGIC_CPU_THREADS", "2"))  # 4C/8T i3: leave cores for GPU + parallel specialists
+        model = Llama(model_path=model_path, n_gpu_layers=0, n_ctx=n_ctx,
+                      n_threads=_nthreads, verbose=False)
     except Exception as e:  # llama_cpp missing / model unreadable -> no READY
         sys.stderr.write(f"cpu chat worker failed to load: {e}\n")
         sys.exit(1)

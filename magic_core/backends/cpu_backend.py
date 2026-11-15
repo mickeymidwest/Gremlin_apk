@@ -21,7 +21,21 @@ from .base import ModelBackend, ModelInfo, GenerationResult
 # in RAM; this box has ~5.8GB free, so >2 small models OOM. The hive loads a
 # specialist's model on demand and evicts the least-recently-used NON-pinned
 # worker past the cap; a pinned model (the tiny classifier) stays hot.
-_MAX_RESIDENT = int(os.environ.get("MAGIC_CPU_MAX_RESIDENT", "2"))
+def _default_max_resident() -> int:
+    # Keep ~3 small CPU models warm once there is RAM for it (Hive has 3
+    # distinct CPU models); stay at 2 on today's ~8GB box to avoid OOM.
+    try:
+        with open("/proc/meminfo") as _f:
+            for _line in _f:
+                if _line.startswith("MemTotal:"):
+                    _gb = int(_line.split()[1]) / (1024 * 1024)
+                    return 4 if _gb >= 24 else 2
+    except Exception:
+        pass
+    return 2
+
+
+_MAX_RESIDENT = int(os.environ.get("MAGIC_CPU_MAX_RESIDENT", str(_default_max_resident())))
 _RESIDENT: list = []
 _RESIDENT_LOCK = threading.Lock()
 
@@ -143,7 +157,9 @@ class CpuChatBackend(ModelBackend):
         try:
             if not getattr(self, "_pinned", False):
                 _av = _avail_mb()
-                if _av is not None and _av < int(os.environ.get("GREMLIN_CPU_MIN_RAM_MB", "2200")):
+                _min_ram = (os.environ.get("MAGIC_CPU_MIN_RAM_MB")
+                            or os.environ.get("GREMLIN_CPU_MIN_RAM_MB", "2200"))
+                if _av is not None and _av < int(_min_ram):
                     _evict_all_nonpinned(exclude=self)  # CALIBRATION §1: don't swap-thrash
             self._proc = subprocess.Popen(
                 [sys.executable, "-m", "magic_core._cpu_chat_worker",
