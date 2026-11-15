@@ -39,6 +39,11 @@ class ModelRegistry:
                 kind=entry["type"],
                 display_name=entry.get("display_name", name),
                 notes=entry.get("notes", ""),
+                footprint_mb=entry.get("footprint_mb", 0),
+                override_tensor=entry.get("override_tensor"),
+                use_mlock=entry.get("use_mlock", False),
+                use_mmap=entry.get("use_mmap", True),
+                n_threads=entry.get("n_threads"),
             )
 
             if entry["type"] == "local_gguf":
@@ -47,6 +52,7 @@ class ModelRegistry:
                     model_path=entry["model_path"],
                     n_ctx=entry.get("n_ctx", 4096),
                     n_gpu_layers=entry.get("n_gpu_layers", -1),
+                    n_threads=entry.get("n_threads"),
                     chat_format=entry.get("chat_format", "chatml"),
                     flash_attn=entry.get("flash_attn", False),
                     kv_cache_type=entry.get("kv_cache_type", "f16"),
@@ -55,6 +61,9 @@ class ModelRegistry:
                     lora_path=entry.get("lora_path"),
                     lora_scale=entry.get("lora_scale", 1.0),
                     repeat_penalty=entry.get("repeat_penalty", 1.1),
+                    override_tensor=entry.get("override_tensor"),
+                    use_mlock=entry.get("use_mlock", False),
+                    use_mmap=entry.get("use_mmap", True),
                 )
             elif entry["type"] == "local_vlm":
                 # A vision-language model: two files, weights + mmproj

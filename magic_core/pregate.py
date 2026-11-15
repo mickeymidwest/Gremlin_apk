@@ -22,7 +22,6 @@ import ast
 import os
 import re
 import shutil
-import shutil
 import subprocess
 import tempfile
 
@@ -219,8 +218,9 @@ def _call_protected_name(node: ast.Call) -> str | None:
     return None
 
 
-def _count_reachable_protected_calls(source: str) -> dict[str, int] | None:
-    """Count statically reachable calls to PROTECTED_CALL_NAMES in Python source.
+def _count_reachable_protected_calls(source: str) -> dict[tuple[str, str], int] | None:
+    """Count statically reachable calls to PROTECTED_CALL_NAMES in Python source,
+    keyed by (enclosing_function_qualname, call_name).
 
     Returns None on SyntaxError (handled separately by the syntax check).
     """
@@ -229,7 +229,8 @@ def _count_reachable_protected_calls(source: str) -> dict[str, int] | None:
     except SyntaxError:
         return None
 
-    counts: dict[str, int] = {}
+    counts: dict[tuple[str, str], int] = {}
+    scope_stack: list[str] = []
 
     def _visit_stmts(stmts: list[ast.stmt]) -> None:
         for stmt in stmts:
@@ -238,6 +239,23 @@ def _count_reachable_protected_calls(source: str) -> dict[str, int] | None:
                 break
 
     def _visit(node: ast.AST) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            for _field, value in ast.iter_fields(node):
+                if _field == "body":
+                    continue
+                if isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, ast.AST):
+                            _visit(item)
+                elif isinstance(value, ast.AST):
+                    _visit(value)
+            scope_stack.append(node.name)
+            try:
+                _visit_stmts(node.body)
+            finally:
+                scope_stack.pop()
+            return
+
         if isinstance(node, ast.If):
             _visit(node.test)
             truth = _const_truthiness(node.test)
@@ -272,7 +290,9 @@ def _count_reachable_protected_calls(source: str) -> dict[str, int] | None:
         if isinstance(node, ast.Call):
             hit = _call_protected_name(node)
             if hit is not None:
-                counts[hit] = counts.get(hit, 0) + 1
+                qualname = ".".join(scope_stack) if scope_stack else "<module>"
+                key = (qualname, hit)
+                counts[key] = counts.get(key, 0) + 1
 
         for _field, value in ast.iter_fields(node):
             if isinstance(value, list):
@@ -302,8 +322,8 @@ def _git_head_text(root: str, rel: str) -> str:
 
 def _ast_safety_regressions(root: str, wt: str, patch: str) -> list[str]:
     """Compare reachable protected calls between HEAD and patched worktree."""
-    orig_totals: dict[str, int] = {}
-    new_totals: dict[str, int] = {}
+    orig_totals: dict[tuple[str, str], int] = {}
+    new_totals: dict[tuple[str, str], int] = {}
     wt_abs = os.path.abspath(wt)
     seen: set[str] = set()
 
@@ -330,17 +350,17 @@ def _ast_safety_regressions(root: str, wt: str, patch: str) -> list[str]:
         if orig_counts is None or new_counts is None:
             continue
 
-        for name, cnt in orig_counts.items():
-            orig_totals[name] = orig_totals.get(name, 0) + cnt
-        for name, cnt in new_counts.items():
-            new_totals[name] = new_totals.get(name, 0) + cnt
+        for key, cnt in orig_counts.items():
+            orig_totals[key] = orig_totals.get(key, 0) + cnt
+        for key, cnt in new_counts.items():
+            new_totals[key] = new_totals.get(key, 0) + cnt
 
     out: list[str] = []
-    for name, oc in orig_totals.items():
-        nc = new_totals.get(name, 0)
+    for (qualname, name), oc in orig_totals.items():
+        nc = new_totals.get((qualname, name), 0)
         if nc < oc:
             out.append(
-                f"net removal of reachable safety call ({name!r}): -{oc}/+{nc}"
+                f"net removal of reachable safety call ({name!r} in {qualname}): -{oc}/+{nc}"
             )
     return out
 

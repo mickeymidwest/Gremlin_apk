@@ -641,13 +641,47 @@ def create_app(
         history = conversation_history.render(conv_key)
         fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
             or registry.get("gemini")
+
+        async def _chat_answer():
+            chat_be = magic_backend
+            if os.environ.get("MAGIC_HYDRA", "0") == "1":
+                try:
+                    from .magic.hydra import Hydra, _free_ram_mb
+                    from .magic import vram
+                    from .persona import PersonaBackend
+                    from .backends.base import ModelInfo
+                    _budget, _res = vram.swappable_budget_mb(registry)
+                    _ram = _free_ram_mb()
+                    _, _head = Hydra(
+                        heads=None,
+                    ).select(
+                        message, free_vram_mb=_budget, free_ram_mb=_ram,
+                        resident=_res or registry.primary_model_name(),
+                    )
+                    if _head is not None:
+                        _sel_be = registry.get(_head.name)
+                        if _sel_be is not None:
+                            if _head.gpu:
+                                await vram.ensure_only(registry, keep=_head.name)
+                            _prim = getattr(magic_backend, "primary", None)
+                            if _prim is not None and _sel_be is not _prim:
+                                chat_be = PersonaBackend(
+                                    ModelInfo(name="magic", kind="persona", display_name="Magic"),
+                                    primary=_sel_be,
+                                    fallbacks=getattr(magic_backend, "fallbacks", []),
+                                    system_prompt=getattr(magic_backend, "system_prompt", ""),
+                                )
+                except Exception:
+                    chat_be = magic_backend
+            return await magic_reply.answer(
+                chat_be, message, str(project_root),
+                history=history, fallback=fallback,
+            )
+
         try:
             result = run_coro(
                 loop,
-                _in_phase(agent_state.AgentState.REASONING, magic_reply.answer(
-                    magic_backend, message, str(project_root),
-                    history=history, fallback=fallback,
-                )),
+                _in_phase(agent_state.AgentState.REASONING, _chat_answer()),
                 # `magic serve` runs throttled (nice/ionice, see main.py's
                 # cmd_serve) so it doesn't step on Jellyfin -- a real answer
                 # under contention can still take real wall time.
@@ -1000,8 +1034,36 @@ def create_app(
             final = None
             try:
                 async with state_machine.phase(agent_state.AgentState.REASONING):
+                    stream_be = magic_backend
+                    if os.environ.get("MAGIC_HYDRA", "0") == "1":
+                        try:
+                            from .magic.hydra import Hydra, _free_ram_mb
+                            from .magic import vram
+                            from .persona import PersonaBackend
+                            from .backends.base import ModelInfo
+                            _budget, _res = vram.swappable_budget_mb(registry)
+                            _ram = _free_ram_mb()
+                            _, _head = Hydra().select(
+                                message, free_vram_mb=_budget, free_ram_mb=_ram,
+                                resident=_res or registry.primary_model_name(),
+                            )
+                            if _head is not None:
+                                _sel_be = registry.get(_head.name)
+                                if _sel_be is not None:
+                                    if _head.gpu:
+                                        await vram.ensure_only(registry, keep=_head.name)
+                                    _prim = getattr(magic_backend, "primary", None)
+                                    if _prim is not None and _sel_be is not _prim:
+                                        stream_be = PersonaBackend(
+                                            ModelInfo(name="magic", kind="persona", display_name="Magic"),
+                                            primary=_sel_be,
+                                            fallbacks=getattr(magic_backend, "fallbacks", []),
+                                            system_prompt=getattr(magic_backend, "system_prompt", ""),
+                                        )
+                        except Exception:
+                            stream_be = magic_backend
                     async for kind, payload in magic_reply.answer_stream(
-                        magic_backend, message, str(project_root),
+                        stream_be, message, str(project_root),
                         history=history, fallback=fallback,
                     ):
                         if kind == "done":
@@ -1116,7 +1178,24 @@ def create_app(
                      "and give a thorough, correct answer. Take the space you need; don't rush.")
 
         async def _go():
-            from .magic import vram
+            from .magic import vram, ensemble
+            from .mutation_log import _scrub_str
+            if ensemble.is_enabled():
+                prim_name = registry.primary_model_name() or "qwen3.5-9b"
+                prim_be = registry.get(prim_name)
+                cand_heads = []
+                if prim_be is not None and prim_be is not deep_be:
+                    cand_heads.append((prim_name, prim_be))
+                cand_heads.append(("qwen3-30b-a3b", deep_be))
+                text, winner, trace = await ensemble.ensemble_answer(
+                    cand_heads, message, deep_be,
+                    system=_DEEP_SYS, history_msgs=hist, max_tokens=2048,
+                    registry=registry,
+                )
+                text = (text or "").strip()
+                if text:
+                    return {"answer": _scrub_str(text), "ok": True,
+                            "error": None, "ensemble": trace, "winner": winner}
             await vram.ensure_only(registry, keep="qwen3-30b-a3b")
             try:
                 r = await deep_be.generate(message, system=_DEEP_SYS, max_tokens=2048,
@@ -1124,7 +1203,6 @@ def create_app(
             except TypeError:
                 r = await deep_be.generate(message, max_tokens=2048, temperature=0.4)
             text = (getattr(r, "text", "") or "").strip()
-            from .mutation_log import _scrub_str
             return {"answer": _scrub_str(text), "ok": bool(text),
                     "error": getattr(r, "error", None)}
 
@@ -1135,8 +1213,11 @@ def create_app(
         ans = (result.get("answer") or "").strip()
         if ans:
             conversation_history.record(conv_key, message, ans)
-        return jsonify({"answer": ans, "ok": bool(ans),
-                        "source": "deep brain (qwen3-30b-a3b)", "error": result.get("error")})
+        out_resp = {"answer": ans, "ok": bool(ans),
+                    "source": "deep brain (qwen3-30b-a3b)", "error": result.get("error")}
+        if result.get("ensemble"):
+            out_resp["ensemble"] = result["ensemble"]
+        return jsonify(out_resp)
 
     @app.route("/hydra", methods=["GET"])
     def hydra_status():
@@ -1144,7 +1225,7 @@ def create_app(
         if auth_error:
             return auth_error
         from .magic.hydra import Hydra
-        import shutil as _sh
+        from .magic import vram
         free_ram = None
         try:
             free_ram = int(open("/proc/meminfo").readline().split()[1]) // 1024  # MemTotal-ish
@@ -1154,7 +1235,9 @@ def create_app(
                     break
         except Exception:
             pass
-        heads = Hydra().report(free_ram_mb=free_ram)
+        vram_free = vram.free_mb()
+        _, res = vram.swappable_budget_mb(registry, free_vram_mb=vram_free)
+        heads = Hydra().report(free_vram_mb=vram_free, free_ram_mb=free_ram, resident=res)
         return jsonify({"heads": heads, "free_ram_mb": free_ram})
 
     @app.route("/update-check", methods=["GET"])

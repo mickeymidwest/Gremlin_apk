@@ -43,8 +43,9 @@ full-capability fallback — it is not limited to small items when it's the only
 _(update this live)_
 - **Claude:** DONE Batch 1 (crash bugs) + Batch 2 (CPU-Hive infra + summarize wiring) on main;
   PAUSED on main while agy runs. Vision fixed + privacy hardened + 18+ floor regression fixed earlier.
-- **agy:** RUNNING on branch `gemini-batch34` (worktree gremlin-wt-b34): Batch 3 (Hydra readiness),
-  Batch 4 (self-edit gate hardening), + reviewing Claude's Batch 1+2. Merge after review. (2026-11-15)
+- **agy:** DONE + MERGED to main — Batch 3 (Hydra readiness, kept dark behind MAGIC_HYDRA),
+  Batch 4 (self-edit gate AST qualname hardening + silent-failure logging). Reviewed Claude's
+  Batch 1+2: APPROVE (2 non-blocking fixes applied by Claude). (2026-11-15)
 
 ---
 
@@ -57,10 +58,16 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
 ### DONE
 - Hydra registry + auto-router (`magic_core/magic/hydra.py`) — inert today (only 9B
   fits), wakes with RAM. `/hydra` status, `/deep` endpoint (RAM-guarded 503).
+- Batch 3 Hydra readiness (`gemini-batch34`, kept dark): `qwen3-30b-a3b` head name + RAM-computed
+  `enabled`, MoE `override_tensor`/`use_mlock`/`use_mmap`/`n_threads` passthrough (`models.yaml` -> `Llama`),
+  `Hydra.available()` swappable VRAM budget + `/chat` & `/chat/stream` `MAGIC_HYDRA=1` dark flag wiring,
+  `ensemble.py` dynamic `MAGIC_ENSEMBLE` + `vram.ensure_only` + `/deep` wiring.
 - Best-of-N multi-head ensemble (`magic_core/magic/ensemble.py`) — built, **gated OFF**
   (`MAGIC_ENSEMBLE=1` flips it on once two brains can co-reside).
 - Self-edit hardening: protected-path/test-weakening/deleted-file/symlink bypasses
-  closed (`pregate.py`), false-approve fix (`review.py`), honesty hard-gate (`reply.py`).
+  closed (`pregate.py`), AST protected-call check keyed by `(enclosing_function_qualname, call_name)`
+  (`pregate.py`), false-approve fix (`review.py`), honesty hard-gate (`reply.py`), GBNF compile +
+  private scene-state warning logs.
 - Planner triage + constraint window (`planner.py`, `constraints.py`).
 - Magic 3.8 (country age-of-majority map ≥18, sliders, anti-slop, presets, streaming,
   code cards, re-roll). APK 4.5 via in-app Builds screen.
@@ -80,8 +87,8 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
 
 ### OPEN (Claude's hard half, ongoing)
 - Rest of self-edit hardening: GBNF-constrained reviewer verdicts, Gemini as a
-  blocking vote, import-check, test-count non-regression, AST keyed by function qualname.
+  blocking vote, import-check, test-count non-regression.
 
 ---
 
-_Last updated: 2026-11-15 by Claude._
+_Last updated: 2026-11-15 by agy._
