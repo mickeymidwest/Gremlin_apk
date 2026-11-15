@@ -951,4 +951,10 @@ async def answer_vision(backend, message: str, root: str, image_b64: str,
         text = _scrub_str(text)
     except Exception:
         pass
-    return _reply(text or "I couldn't make out the image.", source="vision", ok=bool(text))
+    if not text:
+        err = getattr(r, "error", None)
+        if err:
+            # Surface WHY vision failed instead of a silent "couldn't make out".
+            return _reply(f"Vision couldn't read the image \u2014 {err}", ok=False, source="vision")
+        return _reply("I looked but couldn't make out anything in the image.", ok=False, source="vision")
+    return _reply(text, source="vision", ok=True)

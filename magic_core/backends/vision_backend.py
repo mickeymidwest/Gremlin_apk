@@ -65,11 +65,14 @@ class VisionBackend(ModelBackend):
         n_ctx: int = 4096,
         n_gpu_layers: int = -1,
         idle_unload_seconds: float = 120.0,
+        clip_use_gpu: bool = False,  # clip/mmproj on CPU by default: GPU clip
+                                    # encode crashes CUDA on this 8GB box.
     ):
         super().__init__(info)
         self.model_path = model_path
         self.mmproj_path = mmproj_path
         self.handler = handler
+        self.clip_use_gpu = clip_use_gpu
         self.n_ctx = n_ctx
         self.n_gpu_layers = n_gpu_layers
         self.idle_unload_seconds = idle_unload_seconds
@@ -101,7 +104,11 @@ class VisionBackend(ModelBackend):
                     "upgrade llama-cpp-python, or pick a handler it does ship."
                 )
 
-            chat_handler = handler_cls(clip_model_path=self.mmproj_path, verbose=False)
+            import inspect as _inspect
+            _hk = {"clip_model_path": self.mmproj_path, "verbose": False}
+            if "use_gpu" in _inspect.signature(handler_cls.__init__).parameters:
+                _hk["use_gpu"] = self.clip_use_gpu
+            chat_handler = handler_cls(**_hk)
             return Llama(
                 model_path=self.model_path,
                 chat_handler=chat_handler,
