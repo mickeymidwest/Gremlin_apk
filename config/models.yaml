@@ -87,6 +87,17 @@ models:
   # CPU offload helper (Mickey's GPU-primary + CPU-helper design): runs on the
   # CPU in a CUDA-isolated subprocess (zero VRAM) so it is CONCURRENT with the
   # GPU primary. Used for cheap calls (a 2nd plan draft, etc.), never swapped.
+  # Vision head -- Magic's eyes (Qwen2.5-VL-7B). Weights + mmproj projector.
+  # Swapped onto the GPU (fits 8GB) when a photo/screenshot is attached.
+  - name: qwen2.5-vl-7b
+    type: local_vlm
+    display_name: "Qwen2.5-VL-7B (vision)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-VL-7B-Q4_K_M.gguf"
+    mmproj_path: "/home/mickey/Downloads/gremlin/models/Qwen2.5-VL-7B-mmproj-f16.gguf"
+    handler: qwen25vl
+    n_ctx: 8192
+    n_gpu_layers: -1
+
   - name: qwen3.5-4b-cpu
     type: local_cpu
     display_name: "Qwen3.5-4B (CPU helper)"

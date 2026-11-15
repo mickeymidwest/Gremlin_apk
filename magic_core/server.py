@@ -551,14 +551,23 @@ def create_app(
         # (a photo is never a command) and no memory/skill-block dance.
         if image_b64:
             history = conversation_history.render(conv_key)
+            _vis_be = registry.get("qwen2.5-vl-7b")   # Magic's own eyes (local VLM)
+            if _vis_be is None:
+                result = {"answer": "I can't see images yet -- the vision head isn't "
+                                    "installed on the desktop.", "ok": False,
+                          "consulted": False, "from_memory": False, "contributors": []}
+                result["synced_count"] = synced_count
+                return jsonify(result), 200
             try:
+                async def _see():
+                    from .magic import vram
+                    await vram.ensure_only(registry, keep="qwen2.5-vl-7b")  # swap the eyes in
+                    return await magic_reply.answer_vision(
+                        _vis_be, message, str(project_root), image_b64, image_mime, history=history)
                 result = run_coro(
                     loop,
-                    _in_phase(agent_state.AgentState.REASONING, magic_reply.answer_vision(
-                        registry.get("gemini"), message, str(project_root),
-                        image_b64, image_mime, history=history,
-                    )),
-                    timeout=120.0,
+                    _in_phase(agent_state.AgentState.REASONING, _see()),
+                    timeout=180.0,
                 )
             except job_control.JobAborted:
                 raise
