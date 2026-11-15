@@ -3,38 +3,39 @@ name: competing-hypotheses
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Systematically evaluate multiple potential root causes for a failure before committing
-  to a fix, ensuring the chosen solution is validated against all alternatives.
+purpose: Systematically validate the most probable root cause among multiple candidates by
+  executing targeted verification commands in sequence, ensuring the fix is applied only after
+  positive confirmation and regression testing.
 trigger_when: The diagnostic phase identifies two or more plausible root causes (e.g., config
   mismatch, path error, dependency issue, permission denial, or runtime state) that cannot
   be immediately distinguished by a single quick check.
 trigger_matcher: bug|failure|broken|why is|root cause|crash
 procedure:
-- 1. Enumerate exactly 3 distinct candidate hypotheses for the failure, explicitly naming
-  the specific file, line, or configuration item associated with each.
-- 2. For each hypothesis, write a precise, minimal command or code snippet to verify it (e.g.,
-  'read_file(path) to check syntax', 'run_command() to test perms', 'inspect_graph() to check
-  method signatures').
-- 3. Execute the verification for the most likely hypothesis first; if it fails, immediately
-  execute the verification for the second most likely hypothesis.
+- 1. Enumerate exactly 3 distinct candidate hypotheses, specifying the exact file path, line
+  number, or configuration key responsible for each.
+- 2. For each hypothesis, generate a single, executable verification command or code snippet
+  (e.g., `grep -n 'keyword' file.txt`, `ls -l path`, `python -c 'import module'`) that returns
+  a definitive True/False or Error status.
+- '3. Execute the verification command for the #1 most likely hypothesis first; if it returns
+  a clear error or confirms the issue, proceed to Step 4. If it returns no error, immediately
+  execute the #2 hypothesis verification.'
 - 4. If a verification step returns a clear error (SyntaxError, PermissionError, etc.), abort
-  that specific hypothesis and proceed to the next candidate without attempting a partial
-  file edit.
-- 5. Only commit to a fix when the evidence definitively rules out all other candidates and
-  the proposed fix resolves the specific error identified in the verification step.
-- 6. Before finalizing, run the full test suite (e.g., 'python -m pytest -q') to ensure the
-  fix does not introduce new failures or break the file's validity.
+  that specific hypothesis and proceed to the next candidate in the list without attempting
+  a partial file edit.
+- 5. Only commit to a fix when the evidence definitively rules out all other candidates AND
+  the proposed fix directly addresses the specific error identified in the verification step.
+- 6. Before finalizing, execute the full test suite (e.g., `python -m pytest -q`) to ensure
+  the fix resolves the failure without introducing new failures or breaking the file's validity.
 supersedes: skill_16994c9b
 provenance:
 - proposed
 - refined@1794716929
+- refined@1794720515
 created: 1793752469.3142495
 record:
-  uses: 2
-  wins: 1
-  losses: 1
-  score_deltas:
-  - 0.0
-  - 0.4154
-  last_used_battle: zoid_mb_buildalot-apk_1794718887
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
   battles_available: 0

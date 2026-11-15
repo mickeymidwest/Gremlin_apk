@@ -3,24 +3,30 @@ name: user-preference-learning
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Learn and apply the user's stated preferences and style
-trigger_when: the user expresses a preference or corrects your approach
+purpose: Identify and apply specific user constraints or corrections regarding code structure,
+  tool usage, and resource limits to prevent hallucinated fixes or unsafe operations.
+trigger_when: The user provides a direct correction, a constraint (e.g., 'do not use X', 'limit
+  memory to Y'), or points out a specific error in the current code generation.
 trigger_matcher: prefer|don't|always|never|I like|stop doing
 procedure:
-- Capture explicit preferences and the reason behind them
-- Apply them consistently in later work
-- Confirm when a new situation might conflict with a known preference
-supersedes: null
+- 1. Parse the user's input to extract the specific constraint, forbidden action, or required
+  modification.
+- 2. Immediately halt any current generation or planning that contradicts this new constraint.
+- 3. Inject the constraint as a hard rule into the immediate context window before proceeding
+  with the next code block.
+- 4. Verify the generated code does not violate the extracted constraint.
+- 5. If the constraint conflicts with a previous preference, explicitly acknowledge the conflict
+  and prioritize the user's latest instruction.
+- 6. Log the constraint with a timestamp for future reference if the session continues.
+supersedes: skill_5e0b1109
 provenance:
 - proposed
+- refined@1794720182
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 0
   wins: 0
-  losses: 3
-  score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0035_graph
-  battles_available: 3
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

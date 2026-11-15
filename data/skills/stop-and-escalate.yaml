@@ -3,24 +3,34 @@ name: stop-and-escalate
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Recognize when continuing autonomously is unsafe or unproductive
-trigger_when: stuck, looping, or facing an out-of-bounds action
+purpose: Halt autonomous execution immediately when the agent detects a state of no progress,
+  infinite looping, or potential safety violation, then escalate to human review or a specific,
+  safe recovery action.
+trigger_when: The agent's internal state indicates repeated failed attempts, circular logic,
+  or an action that violates safety policies or exceeds its defined authority.
 trigger_matcher: stuck|loop|can't proceed|permission|unsafe|need approval
 procedure:
-- Detect no-progress loops and halt instead of thrashing
-- Escalate when an action exceeds authority or could cause harm
-- Report state clearly and ask, rather than guess forward
-supersedes: null
+- 1. Immediately stop all file writing and code generation operations to prevent further corruption
+  or invalid syntax.
+- 2. Analyze the current execution log to confirm the presence of a loop (e.g., same error
+  repeated >2 times) or a state where no progress is being made.
+- 3. If a loop is detected, do not attempt to 'fix' the code locally; instead, trigger a full
+  system restart or ask the user to re-initialize the session.
+- 4. If an unsafe or out-of-bounds action is identified, explicitly state the risk and refuse
+  to execute the command.
+- 5. Generate a concise summary of the current state, the root cause of the loop/error, and
+  the specific action required to resolve it.
+- 6. Submit this summary to the human operator or a higher-level escalation channel for approval
+  before proceeding.
+supersedes: skill_34e886a0
 provenance:
 - proposed
+- refined@1794720042
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 0
   wins: 0
-  losses: 3
-  score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0036_textutils
-  battles_available: 3
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

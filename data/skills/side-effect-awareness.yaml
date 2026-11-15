@@ -3,25 +3,39 @@ name: side-effect-awareness
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Predict what a tool call will change before running it
-trigger_when: about to run a command with external effects
+purpose: Prevent silent corruption of codebases by ensuring every tool call that modifies
+  file state is explicitly verified against the current state before execution.
+trigger_when: The agent is about to invoke a tool (e.g., write_file, edit_file, rm, mv) that
+  will alter the content or structure of a file on disk.
 trigger_matcher: write|delete|install|push|deploy|modify|rm
 procedure:
-- Enumerate what state the call changes before running it
-- Confirm the change is intended and reversible or backed up
-- Dry-run when available before the real effect
-supersedes: null
+- 1. If the tool supports a 'dry-run', 'preview', or 'read-only verification' mode, execute
+  it first and compare the output against the intended change; if they do not match exactly,
+  abort and re-evaluate.
+- 2. If the tool does NOT support a dry-run, read the specific file path using a 'read_file'
+  tool to obtain the current exact content.
+- 3. Compare the proposed modification against the current content line-by-line to ensure
+  no unintended lines are added, removed, or corrupted.
+- 4. If the modification is complex or risky, generate a textual 'diff' representation of
+  the change and verify it matches the intended fix exactly before proceeding.
+- 5. If the change would make the file syntactically invalid, abort the edit and instead generate
+  the entire corrected file content to be written atomically via 'write_file'.
+- 6. If the change involves tests, run the specific test suite (e.g., 'python -m pytest -q')
+  and ensure the output is fully green before proceeding.
+- 7. If no dry-run is available and the change is not a full file rewrite, explicitly state
+  the risk of the change and require a human confirmation or a full backup of the file before
+  proceeding.
+supersedes: skill_23428a80
 provenance:
 - proposed
+- refined@1794719360
+- refined@1794719905
 created: 1793752469.3142495
 record:
-  uses: 4
+  uses: 1
   wins: 0
-  losses: 4
+  losses: 1
   score_deltas:
   - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0035_csvreport
-  battles_available: 4
+  last_used_battle: battle_0036_csvreport
+  battles_available: 1

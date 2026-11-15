@@ -20,9 +20,9 @@ provenance:
 - zoid_mini-ledger_1788934369
 created: 1788934378.885018
 record:
-  uses: 205
-  wins: 128
-  losses: 70
+  uses: 212
+  wins: 129
+  losses: 76
   score_deltas:
   - 0.75
   - 0.7364
@@ -229,5 +229,12 @@ record:
   - 0.625
   - 0.0
   - 0.4154
-  last_used_battle: zoid_mb_buildalot-apk_1794718887
-  battles_available: 37
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.625
+  last_used_battle: zoid_mb_bank-multi_1794720703
+  battles_available: 43

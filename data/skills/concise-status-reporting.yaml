@@ -3,52 +3,31 @@ name: concise-status-reporting
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Report status tightly, without narrating options not taken
-trigger_when: giving a progress/status update
+purpose: Generate a precise, actionable status update that eliminates ambiguity and prevents
+  redundant context loops.
+trigger_when: The agent is providing a progress or status update to the user.
 trigger_matcher: status|update|progress|so far|currently|report
 procedure:
-- Lead with state and next step
-- Omit options you won't pursue and re-derived context
-- 'Be specific: what''s done, what''s left, what''s blocked'
-supersedes: null
+- Identify the single most critical state change or decision made in the last action.
+- State this state change immediately as the first sentence.
+- List exactly one specific next step required to proceed.
+- If a blocker exists, name the specific error or missing dependency and the exact command
+  to resolve it.
+- Explicitly omit any discussion of alternative paths or re-derived context unless the blocker
+  prevents the current path.
+- Verify the output contains no full-file rewrites unless a syntax error is present.
+- Ensure the output does not include test execution results unless the test failure is the
+  immediate blocker.
+supersedes: skill_f13135a7
 provenance:
 - proposed
+- refined@1794719188
 created: 1793752469.3142495
 record:
-  uses: 31
+  uses: 1
   wins: 0
-  losses: 31
+  losses: 1
   score_deltas:
   - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0034_csvreport
-  battles_available: 31
+  last_used_battle: battle_0036_csvreport
+  battles_available: 1

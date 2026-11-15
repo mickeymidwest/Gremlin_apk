@@ -10,26 +10,31 @@ trigger_when: The user's request contains vague terms, missing constraints, or c
   requirements that could result in different valid code implementations or behaviors.
 trigger_matcher: ambiguous|unclear|could mean|which|either|not sure what
 procedure:
-- Scan the request for keywords like 'maybe', 'if possible', 'try', or ambiguous verbs (e.g.,
-  'fix', 'update') that lack specific criteria.
-- Map each potential interpretation to its likely code consequence (e.g., different logic,
-  different libraries, different error handling).
-- If two or more interpretations lead to materially different code or behavior, stop and generate
-  a single, targeted question asking the user to choose between them or provide the missing
-  constraint.
-- If only one interpretation is safe and contextually obvious, proceed without asking.
-- Do not ask for clarification on minor stylistic preferences unless they impact functionality.
-- Output the clarification question immediately after the analysis step, do not generate code
+- Scan the request for ambiguous verbs (e.g., 'fix', 'update', 'maybe') or missing constraints
+  that could lead to multiple valid code paths.
+- 'Analyze the specific ambiguity: determine if it affects logic, library choice, error handling,
+  or file structure.'
+- If the ambiguity results in materially different code or behavior, stop immediately and
+  generate a single, targeted question asking the user to choose between the options or provide
+  the missing constraint.
+- If the ambiguity is minor (style only) or only one interpretation is safe and obvious, proceed
+  to generate code without asking.
+- Output ONLY the clarification question and stop; do not generate any code or file edits
   yet.
+- Ensure the question is specific enough to allow the user to answer with a definitive choice
+  (e.g., 'Use Option A or Option B?') rather than a vague prompt.
 supersedes: skill_b065f688
 provenance:
 - proposed
 - refined@1794717099
+- refined@1794719520
 created: 1793752469.3142495
 record:
-  uses: 0
+  uses: 2
   wins: 0
-  losses: 0
-  score_deltas: []
-  last_used_battle: null
-  battles_available: 0
+  losses: 2
+  score_deltas:
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0036_graph
+  battles_available: 2
