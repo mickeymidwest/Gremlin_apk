@@ -1,21 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="magic_bg">#0D1512</color>
-    <color name="magic_surface">#132019</color>
-    <color name="magic_surface_hi">#1A2B23</color>
-    <!-- the borders fade from magic_accent (mint green) into this -->
-    <color name="magic_blue">#5AB8FF</color>
-    <color name="magic_accent">#7DFFCF</color>
-    <color name="magic_text_primary">#CFECE2</color>
-    <color name="magic_text_secondary">#9FD9C8</color>
-    <color name="magic_system">#FFD27D</color>
-    <color name="magic_error">#FF9D9D</color>
-    <color name="magic_bubble_user">#1F4A3C</color>
-    <color name="magic_code_bg">#0A100E</color>
-    <color name="magic_line">#24382F</color>
-    <color name="magic_online">#6DE3A0</color>
-    <color name="magic_busy">#FFD27D</color>
-    <color name="magic_offline">#FF9D9D</color>
+    <!-- Main UI: "control panel of the future" — deep-space void with a cyan/indigo
+         glow, matching the Hydra hologram. Every token name is unchanged; only the
+         values shifted from the old mint palette, so nothing in code breaks. -->
+    <color name="magic_bg">#060814</color>
+    <color name="magic_surface">#0C1022</color>
+    <color name="magic_surface_hi">#141B35</color>
+    <!-- borders fade from magic_accent (cyan) into this -->
+    <color name="magic_blue">#7C8BFF</color>
+    <color name="magic_accent">#3DE0FF</color>
+    <color name="magic_text_primary">#E2ECFF</color>
+    <color name="magic_text_secondary">#8EA2CE</color>
+    <color name="magic_system">#FFC24B</color>
+    <color name="magic_error">#FF6B8A</color>
+    <color name="magic_bubble_user">#15233F</color>
+    <color name="magic_code_bg">#070A16</color>
+    <color name="magic_line">#1C2640</color>
+    <color name="magic_online">#35F0C0</color>
+    <color name="magic_busy">#FFC24B</color>
+    <color name="magic_offline">#FF6B8A</color>
     <!-- Private mode: a warm, sensual dark palette (distinct from the mint UI) -->
     <color name="pv_bg">#080B16</color>
     <color name="pv_bg2">#0C1430</color>
@@ -27,5 +30,5 @@
     <color name="pv_text_dim">#93A6D0</color>
     <color name="pv_bubble_user">#1C2E5E</color>
     <color name="pv_line">#263863</color>
-    <color name="ic_launcher_bg">#0D1512</color>
+    <color name="ic_launcher_bg">#060814</color>
 </resources>

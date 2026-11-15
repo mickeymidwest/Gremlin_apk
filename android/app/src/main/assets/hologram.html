@@ -1,158 +1,356 @@
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
+<title>Magic Hydra</title>
+<meta name="claude:viewport-fit-sides" content="cover">
 <style>
-  html, body {
-    margin: 0; padding: 0; overflow: hidden;
-    background: transparent; width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
+  /* Layout: a full-bleed canvas "living harness" with preview-only chrome floating over it.
+     Single dark design on purpose -- this is a neon system readout, not a document. */
+  :root {
+    --void: #05060E;
+    --void2: #0A0D1C;
+    --core: #DFF6FF;      /* white-hot nucleus */
+    --cyan: #38E8FF;      /* the lead mind hue; others are set in JS */
+    --ink: #CBD8F5;       /* preview text */
+    --ink-dim: #6C7BA6;
+    --edge: rgba(120,160,255,0.16);
+    color-scheme: dark;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(130% 90% at 50% 18%, var(--void2) 0%, var(--void) 62%, #02030A 100%);
+    overflow: hidden;
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
     -webkit-user-select: none; user-select: none;
   }
-  #stage {
-    position: relative;
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    cursor: pointer;
+  #hydra {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; z-index: 0; touch-action: none;
   }
-  .layer {
-    position: absolute;
-    max-height: 100%; max-width: 100%;
-    object-fit: contain;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .18s ease;
-    filter: drop-shadow(0 0 14px rgba(90, 255, 140, 0.35));
+  /* --- preview chrome (hidden inside the app, where window.Android exists) --- */
+  #chrome { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+  #chrome.app { display: none; }
+  .wordmark {
+    position: absolute; left: 0; right: 0;
+    top: max(18px, env(safe-area-inset-top, 0px));
+    text-align: center; letter-spacing: .42em;
+    font-size: 13px; font-weight: 600; text-indent: .42em;
+    color: var(--ink);
+    text-shadow: 0 0 18px rgba(56,232,255,.55);
   }
-  .layer.active {
-    opacity: 1;
-    pointer-events: auto;
+  .tagline {
+    position: absolute; left: 0; right: 0; top: calc(max(18px, env(safe-area-inset-top,0px)) + 22px);
+    text-align: center; letter-spacing: .26em;
+    font-size: 9.5px; color: var(--ink-dim); text-transform: uppercase;
   }
-  #img-think.active {
-    animation: grem-think 2.4s ease-in-out infinite;
+  .statepill {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    top: calc(max(18px, env(safe-area-inset-top,0px)) + 46px);
+    font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--cyan); padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--edge);
+    background: rgba(10,16,34,.5); backdrop-filter: blur(4px);
   }
-  @keyframes grem-think {
-    0%, 100% {
-      transform: translateY(0px) rotate(0deg) scale(1);
-      filter: drop-shadow(0 0 14px rgba(90, 255, 140, 0.45));
-    }
-    50% {
-      transform: translateY(-4px) rotate(-1.5deg) scale(1.02);
-      filter: drop-shadow(0 0 24px rgba(120, 255, 175, 0.85));
-    }
+  #dock {
+    position: absolute; left: 0; right: 0;
+    bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+    display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+    padding-inline: 16px; pointer-events: auto;
   }
-  #v-talk.active {
-    filter: drop-shadow(0 0 22px rgba(120, 255, 170, 0.78));
+  #dock button {
+    font-family: inherit; font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink); background: rgba(14,20,42,.62); cursor: pointer;
+    border: 1px solid var(--edge); border-radius: 999px; padding: 9px 16px;
+    -webkit-tap-highlight-color: transparent; transition: border-color .2s, color .2s, background .2s;
   }
-  #quit-btn {
-    position: fixed; top: 4px; right: 6px;
-    width: 16px; height: 16px;
-    color: rgba(150, 255, 230, 0.5);
-    font: 12px monospace; text-align: center; line-height: 16px;
-    cursor: pointer; z-index: 10;
+  #dock button[aria-pressed="true"] {
+    color: #04121A; background: var(--cyan); border-color: var(--cyan);
+    box-shadow: 0 0 22px rgba(56,232,255,.5);
   }
-  #quit-btn:hover { color: rgba(255, 255, 255, 0.9); }
+  /* in-app quit affordance (shown only inside the app, where window.Android exists) */
+  #quit {
+    position: fixed; z-index: 3;
+    top: max(10px, env(safe-area-inset-top, 0px));
+    right: max(12px, env(safe-area-inset-right, 0px));
+    width: 26px; height: 26px; line-height: 24px; text-align: center;
+    border-radius: 50%; display: none; cursor: pointer;
+    color: var(--ink-dim); font-size: 18px; font-weight: 300;
+    border: 1px solid var(--edge); background: rgba(10,16,34,.45);
+  }
+  #quit:active { color: var(--ink); border-color: var(--cyan); }
+  @media (prefers-reduced-motion: reduce) { #hydra { } }
 </style>
-</head>
-<body>
-  <div id="quit-btn" title="Quit">&times;</div>
-  <div id="stage">
-    <video id="v-idle" class="layer" loop muted playsinline preload="auto" src="magic_idle.mp4"></video>
-    <img id="img-think" class="layer" src="magic_thinking.jpg" alt="">
-    <video id="v-spin" class="layer active" autoplay muted playsinline preload="auto" src="magic_spin.mp4"></video>
-    <video id="v-talk" class="layer" loop muted playsinline preload="auto" src="magic_talk.mp4"></video>
+
+<canvas id="hydra"></canvas>
+<div id="quit" title="Quit">&times;</div>
+
+<div id="chrome">
+  <div class="wordmark">M A G I C</div>
+  <div class="tagline">hydra &middot; one body, many minds</div>
+  <div class="statepill" id="statepill">idle</div>
+  <div id="dock">
+    <button data-state="idle" aria-pressed="true">Idle</button>
+    <button data-state="thinking" aria-pressed="false">Thinking</button>
+    <button data-state="responding" aria-pressed="false">Responding</button>
   </div>
+</div>
+
 <script>
-  var vIdle = document.getElementById('v-idle');
-  var imgThink = document.getElementById('img-think');
-  var vSpin = document.getElementById('v-spin');
-  var vTalk = document.getElementById('v-talk');
-  var layers = [vIdle, imgThink, vSpin, vTalk];
-
-  var curState = 'opening';
-  var spinTimer = null;
-
-  function showOnly(el) {
-    for (var i = 0; i < layers.length; i++) {
-      if (layers[i] === el) layers[i].classList.add('active');
-      else layers[i].classList.remove('active');
+(function () {
+  "use strict";
+  var inApp = !!(window.Android);
+  var chrome = document.getElementById("chrome");
+  if (inApp) {
+    chrome.classList.add("app");
+    document.body.style.background = "transparent";
+    var q = document.getElementById("quit");
+    if (q) {
+      q.style.display = "block";
+      q.addEventListener("click", function (e) {
+        e.stopPropagation();
+        try { if (window.Android && window.Android.quit) window.Android.quit(); } catch (err) {}
+      });
     }
   }
 
-  function safePlay(v) {
-    try {
-      var p = v.play();
-      if (p && p.catch) p.catch(function () {});
-    } catch (e) {}
+  var cv = document.getElementById("hydra");
+  var ctx = cv.getContext("2d");
+  var W = 0, H = 0, DPR = 1, CX = 0, CY = 0, UNIT = 0;
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2.5);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = Math.max(1, Math.round(W * DPR));
+    cv.height = Math.max(1, Math.round(H * DPR));
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    CX = W / 2; CY = H / 2;
+    UNIT = Math.min(W, H);
+  }
+  window.addEventListener("resize", resize);
+
+  // --- the minds (specialist heads). All one system; no names, "they are all Magic". ---
+  var HUES = [
+    { h: 188, s: 100, l: 62 },  // cyan
+    { h: 162, s: 86,  l: 60 },  // mint
+    { h: 232, s: 100, l: 72 },  // indigo
+    { h: 286, s: 92,  l: 72 },  // violet
+    { h: 330, s: 100, l: 70 }   // pink
+  ];
+  function col(c, a, dl) {
+    var l = c.l + (dl || 0);
+    return "hsla(" + c.h + "," + c.s + "%," + Math.max(0, Math.min(100, l)) + "%," + a + ")";
   }
 
-  function safePause(v) {
-    try { v.pause(); } catch (e) {}
+  var minds = HUES.map(function (c, i) {
+    return {
+      c: c,
+      ang: (i / HUES.length) * Math.PI * 2 + Math.random(),
+      spin: (0.10 + Math.random() * 0.06) * (i % 2 ? 1 : -1), // rad/sec
+      rad: 0.78 + (i % 3) * 0.14,     // * orbit radius
+      tilt: 0.42 + (i % 2) * 0.12,    // vertical squash -> 3D orbit feel
+      phase: Math.random() * 6.28,
+      flare: 0,                        // 0..1, lights up when active
+      pulses: []                       // energy travelling core<->mind
+    };
+  });
+
+  var stars = [];
+  for (var s = 0; s < 70; s++) {
+    stars.push({ x: Math.random(), y: Math.random(), z: 0.2 + Math.random() * 0.8, t: Math.random() * 6.28 });
   }
 
-  function startTalkLoop() {
-    if (spinTimer) { clearTimeout(spinTimer); spinTimer = null; }
-    if (curState === 'opening') {
-      setState('idle');
-      return;
+  // --- state machine (driven by the app via setState, or the preview dock) ---
+  var STATE = "idle";
+  var energy = 0;        // eased 0..1 overall intensity
+  var target = 0;
+  var blooms = [];       // expanding rings on 'responding'
+  var scan = 0;          // rotating scan sweep angle
+  var lastBloom = 0, lastThinkSeq = 0, seqIdx = 0;
+
+  window.setState = function (next) {
+    if (next !== "idle" && next !== "thinking" && next !== "responding") next = "idle";
+    if (next === STATE) return;
+    STATE = next;
+    target = next === "idle" ? 0.26 : next === "thinking" ? 0.85 : 1.0;
+    var pill = document.getElementById("statepill");
+    if (pill) pill.textContent = next;
+    var btns = document.querySelectorAll("#dock button");
+    for (var i = 0; i < btns.length; i++) btns[i].setAttribute("aria-pressed", btns[i].dataset.state === next ? "true" : "false");
+    if (next === "responding") spawnBloom();
+  };
+  window.setTalking = function (on) { window.setState(on ? "responding" : "idle"); };
+
+  function spawnBloom() { blooms.push({ r: UNIT * 0.1, a: 0.9 }); }
+
+  // preview interactions
+  document.querySelectorAll("#dock button").forEach(function (b) {
+    b.addEventListener("click", function () { window.setState(b.dataset.state); });
+  });
+  cv.addEventListener("click", function () {
+    if (inApp) { try { window.Android.openSettings && window.Android.openSettings(); } catch (e) {} return; }
+    var order = ["idle", "thinking", "responding"];
+    window.setState(order[(order.indexOf(STATE) + 1) % 3]);
+  });
+
+  function mindPos(m, R) {
+    var x = CX + Math.cos(m.ang) * R * m.rad;
+    var y = CY + Math.sin(m.ang) * R * m.rad * m.tilt - UNIT * 0.015;
+    return { x: x, y: y, front: Math.sin(m.ang) > -0.15 };
+  }
+
+  var t0 = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.05, (now - t0) / 1000); t0 = now;
+    var T = now / 1000;
+    energy += (target - energy) * Math.min(1, dt * 3.2);
+
+    var R = UNIT * 0.34;
+    var speed = (STATE === "thinking" ? 1.5 : STATE === "responding" ? 1.15 : 1) * (reduce ? 0.35 : 1);
+
+    ctx.clearRect(0, 0, W, H);
+
+    // ambient drift field
+    ctx.globalCompositeOperation = "lighter";
+    for (var i = 0; i < stars.length; i++) {
+      var st = stars[i];
+      var sx = ((st.x + T * 0.004 * st.z) % 1) * W;
+      var sy = ((st.y + T * 0.002 * st.z) % 1) * H;
+      var tw = 0.22 + 0.18 * Math.sin(T * 1.3 + st.t);
+      ctx.fillStyle = "rgba(120,180,255," + (tw * st.z * (0.5 + energy * 0.5)).toFixed(3) + ")";
+      ctx.fillRect(sx, sy, st.z * 1.6, st.z * 1.6);
     }
-    if (curState !== 'responding') return;
-    safePause(vSpin);
-    try { vTalk.currentTime = 0; } catch (e) {}
-    showOnly(vTalk);
-    safePlay(vTalk);
-  }
 
-  vSpin.addEventListener('ended', function () {
-    startTalkLoop();
-  });
+    // orbit guide ring (faint)
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = "rgba(90,140,230," + (0.05 + energy * 0.06).toFixed(3) + ")";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(CX, CY - UNIT * 0.015, R, R * 0.5, 0, 0, 6.2832); ctx.stroke();
 
-  // States: 'idle' | 'thinking' | 'responding'
-  function setState(next) {
-    if (next !== 'idle' && next !== 'thinking' && next !== 'responding') next = 'idle';
-    if (next === curState) return;
-    curState = next;
-    if (spinTimer) { clearTimeout(spinTimer); spinTimer = null; }
+    // advance minds
+    for (var k = 0; k < minds.length; k++) minds[k].ang += minds[k].spin * speed * dt;
 
-    if (next === 'idle') {
-      safePause(vSpin);
-      safePause(vTalk);
-      try { vIdle.currentTime = 0; } catch (e) {}
-      showOnly(vIdle);
-      safePlay(vIdle);  // the cute blinking idle loop (was wrongly playing hidden vSpin)
-    } else if (next === 'thinking') {
-      safePause(vIdle);
-      safePause(vSpin);
-      safePause(vTalk);
-      showOnly(imgThink);
-    } else if (next === 'responding') {
-      safePause(vIdle);
-      safePause(vTalk);
-      try { vSpin.currentTime = 0; } catch (e) {}
-      showOnly(vSpin);
-      safePlay(vSpin);
-      // Fallback in case WebView misses the ended event
-      spinTimer = setTimeout(startTalkLoop, 2600);
+    // sequence highlight while thinking (minds "confer" one after another)
+    if (STATE === "thinking" && now - lastThinkSeq > 420) {
+      lastThinkSeq = now; seqIdx = (seqIdx + 1) % minds.length;
+      minds[seqIdx].flare = 1; minds[seqIdx].pulses.push({ p: 0, dir: -1 }); // inward = routing
     }
+    if (STATE === "responding" && now - lastBloom > 1100) { lastBloom = now; spawnBloom(); }
+    if (STATE === "idle" && Math.random() < dt * 0.6) {
+      var rm = minds[(Math.random() * minds.length) | 0];
+      rm.pulses.push({ p: 0, dir: Math.random() < 0.5 ? 1 : -1 });
+    }
+    if (STATE === "responding" && Math.random() < dt * 6) {
+      var om = minds[(Math.random() * minds.length) | 0];
+      om.pulses.push({ p: 0, dir: 1 }); om.flare = Math.max(om.flare, 0.8); // outward = speaking
+    }
+
+    // split minds into behind / front so the core sits between them
+    var behind = [], front = [];
+    for (var m2 = 0; m2 < minds.length; m2++) {
+      var p = mindPos(minds[m2], R); p.m = minds[m2];
+      (p.front ? front : behind).push(p);
+    }
+
+    function drawFilament(p) {
+      var m = p.m;
+      var midx = (CX + p.x) / 2, midy = (CY + p.y) / 2 - UNIT * 0.06;
+      var base = 0.12 + energy * 0.30 + m.flare * 0.4;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = col(m.c, base * 0.5);
+      ctx.lineWidth = 1 + energy * 1.2 + m.flare * 1.5;
+      ctx.beginPath(); ctx.moveTo(CX, CY); ctx.quadraticCurveTo(midx, midy, p.x, p.y); ctx.stroke();
+      // travelling energy
+      for (var q = m.pulses.length - 1; q >= 0; q--) {
+        var pl = m.pulses[q];
+        pl.p += dt * (0.9 + energy * 0.8);
+        if (pl.p >= 1) { m.pulses.splice(q, 1); continue; }
+        var tt = pl.dir < 0 ? (1 - pl.p) : pl.p;
+        var bx = (1 - tt) * (1 - tt) * CX + 2 * (1 - tt) * tt * midx + tt * tt * p.x;
+        var by = (1 - tt) * (1 - tt) * CY + 2 * (1 - tt) * tt * midy + tt * tt * p.y;
+        var pr = (2.2 + energy * 2) * (1 - Math.abs(0.5 - pl.p) * 1.2);
+        var g = ctx.createRadialGradient(bx, by, 0, bx, by, pr * 3);
+        g.addColorStop(0, col(m.c, 0.9, 18)); g.addColorStop(1, col(m.c, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, pr * 3, 0, 6.2832); ctx.fill();
+      }
+    }
+    function drawMind(p) {
+      var m = p.m; m.flare *= 0.94;
+      var pr = UNIT * (0.016 + 0.006 * Math.sin(T * 2 + m.phase)) + m.flare * UNIT * 0.012;
+      var glow = pr * (5 + energy * 3 + m.flare * 4);
+      ctx.globalCompositeOperation = "lighter";
+      var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, glow);
+      g.addColorStop(0, col(m.c, 0.55 + m.flare * 0.4, 10));
+      g.addColorStop(0.4, col(m.c, 0.18));
+      g.addColorStop(1, col(m.c, 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, glow, 0, 6.2832); ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = col(m.c, 0.95, 28);
+      ctx.beginPath(); ctx.arc(p.x, p.y, pr * 0.72, 0, 6.2832); ctx.fill();
+    }
+
+    behind.forEach(drawFilament); behind.forEach(drawMind);
+
+    // ---- the CORE: Magic, the body/harness ----
+    var pulse = 1 + 0.05 * Math.sin(T * (STATE === "idle" ? 1.4 : 3.2));
+    var coreR = UNIT * (0.066 + energy * 0.02) * pulse;
+
+    // outer halo
+    ctx.globalCompositeOperation = "lighter";
+    var halo = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR * 6);
+    halo.addColorStop(0, "rgba(120,235,255," + (0.5 + energy * 0.4).toFixed(3) + ")");
+    halo.addColorStop(0.3, "rgba(70,150,255," + (0.16 + energy * 0.2).toFixed(3) + ")");
+    halo.addColorStop(1, "rgba(40,80,200,0)");
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(CX, CY, coreR * 6, 0, 6.2832); ctx.fill();
+
+    // rotating HUD arcs
+    scan += dt * (0.4 + energy * 1.6);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineWidth = 1.4;
+    for (var a = 0; a < 3; a++) {
+      var rr = coreR * (1.7 + a * 0.5);
+      var off = scan * (a % 2 ? -1 : 1) + a * 2;
+      ctx.strokeStyle = "rgba(90,210,255," + (0.14 + energy * 0.22).toFixed(3) + ")";
+      ctx.beginPath(); ctx.arc(CX, CY, rr, off, off + 1.1 + energy); ctx.stroke();
+      ctx.beginPath(); ctx.arc(CX, CY, rr, off + Math.PI, off + Math.PI + 0.7); ctx.stroke();
+    }
+
+    // responding blooms
+    for (var b2 = blooms.length - 1; b2 >= 0; b2--) {
+      var bl = blooms[b2];
+      bl.r += dt * UNIT * 0.9; bl.a *= 0.955;
+      if (bl.a < 0.02) { blooms.splice(b2, 1); continue; }
+      ctx.strokeStyle = "rgba(120,240,255," + bl.a.toFixed(3) + ")";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(CX, CY, bl.r, 0, 6.2832); ctx.stroke();
+    }
+
+    // nucleus
+    ctx.globalCompositeOperation = "lighter";
+    var nuc = ctx.createRadialGradient(CX, CY - coreR * 0.2, 0, CX, CY, coreR);
+    nuc.addColorStop(0, "rgba(255,255,255,0.98)");
+    nuc.addColorStop(0.5, "#DFF6FF");
+    nuc.addColorStop(1, "rgba(90,200,255,0.1)");
+    ctx.fillStyle = nuc; ctx.beginPath(); ctx.arc(CX, CY, coreR, 0, 6.2832); ctx.fill();
+
+    front.forEach(drawFilament); front.forEach(drawMind);
+
+    requestAnimationFrame(frame);
   }
 
-  // Backwards-compatible alias
-  function setTalking(on) {
-    setState(on ? 'responding' : 'idle');
-  }
+  resize();
+  window.setState("idle");
+  requestAnimationFrame(frame);
 
-  document.getElementById('stage').addEventListener('click', function () {
-    try { if (window.Android && window.Android.openSettings) window.Android.openSettings(); } catch (e) {}
-  });
-  document.getElementById('quit-btn').addEventListener('click', function () {
-    try { if (window.Android && window.Android.quit) window.Android.quit(); } catch (e) {}
-  });
-  safePlay(vIdle);
-  // Opening fallback: normally v-spin's 'ended' event hands off to idle; if the
-  // WebView drops that event, force idle so we never freeze on the opening frame.
-  spinTimer = setTimeout(function () {
-    if (curState === 'opening') setState('idle');
-  }, 3000);
+  // preview: auto-breathe through the states so it's alive without tapping
+  if (!inApp) {
+    var demo = [["thinking", 3200], ["responding", 3600], ["idle", 4200]];
+    var di = 0;
+    (function cycle() {
+      setTimeout(function () {
+        window.setState(demo[di][0]); di = (di + 1) % demo.length; cycle();
+      }, demo[di][1]);
+    })();
+  }
+})();
 </script>
-</body>
-</html>
