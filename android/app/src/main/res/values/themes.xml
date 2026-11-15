@@ -20,6 +20,14 @@
         <item name="editTextStyle">@style/Widget.Magic.EditText</item>
         <item name="android:editTextStyle">@style/Widget.Magic.EditText</item>
         <item name="android:textAllCaps">false</item>
+        <item name="android:windowAnimationStyle">@style/WindowAnim.Magic</item>
+    </style>
+
+    <style name="WindowAnim.Magic" parent="">
+        <item name="android:activityOpenEnterAnimation">@anim/screen_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/screen_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/screen_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/screen_exit</item>
     </style>
 
     <style name="Widget.Magic.Button" parent="Widget.MaterialComponents.Button.UnelevatedButton">

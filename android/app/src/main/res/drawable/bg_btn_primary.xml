@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Main action: filled green-to-blue -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="#550D1512">
+    android:color="#55060814">
     <item>
         <shape android:shape="rectangle">
             <corners android:radius="14dp" />

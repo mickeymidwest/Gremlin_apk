@@ -443,7 +443,7 @@
             android:layout_height="wrap_content"
             android:text="Reboot Desktop"
             android:background="@drawable/bg_btn_danger"
-            android:textColor="#FFE3E3" />
+            android:textColor="@color/magic_text_primary" />
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
