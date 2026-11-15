@@ -19,17 +19,17 @@
     <color name="magic_online">#35F0C0</color>
     <color name="magic_busy">#FFC24B</color>
     <color name="magic_offline">#FF6B8A</color>
-    <!-- Private mode: futuristic violet/pink — same deep-space world as the main app,
-         its own intimate identity (violet structure, pink warmth). Names unchanged. -->
-    <color name="pv_bg">#06050F</color>
-    <color name="pv_bg2">#0D0A20</color>
-    <color name="pv_surface">#140F2A</color>
-    <color name="pv_surface_hi">#1E1740</color>
-    <color name="pv_accent">#9A7BFF</color>
-    <color name="pv_accent2">#FF6FB0</color>
-    <color name="pv_text">#EFE9FF</color>
-    <color name="pv_text_dim">#A294D0</color>
-    <color name="pv_bubble_user">#261A48</color>
-    <color name="pv_line">#2E2658</color>
+    <!-- Private mode: nightly blue + silver — cool, metallic, no warm tones. Same
+         deep-space world as the main app, a quieter steel-blue identity. Names unchanged. -->
+    <color name="pv_bg">#05070E</color>
+    <color name="pv_bg2">#0A0E1A</color>
+    <color name="pv_surface">#10151F</color>
+    <color name="pv_surface_hi">#181F2C</color>
+    <color name="pv_accent">#5C9CFF</color>
+    <color name="pv_accent2">#B8C2D6</color>
+    <color name="pv_text">#E6ECF5</color>
+    <color name="pv_text_dim">#93A1BC</color>
+    <color name="pv_bubble_user">#19263C</color>
+    <color name="pv_line">#28334A</color>
     <color name="ic_launcher_bg">#060814</color>
 </resources>

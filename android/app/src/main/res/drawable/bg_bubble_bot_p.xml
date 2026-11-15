@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Her reply: lit-glass panel with a faint violet edge -->
+<!-- Her reply: lit-glass panel with a faint steel-blue edge -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <gradient android:angle="90"
         android:startColor="@color/pv_surface"
         android:endColor="@color/pv_surface_hi" />
-    <stroke android:width="1dp" android:color="#33B79AFF" />
+    <stroke android:width="1dp" android:color="#335C9CFF" />
     <corners android:topLeftRadius="6dp" android:topRightRadius="20dp" android:bottomLeftRadius="20dp" android:bottomRightRadius="20dp" />
 </shape>
