@@ -413,6 +413,7 @@ class MainActivity : AppCompatActivity() {
         val menu = PopupMenu(this, anchor)
         menu.menu.add("Re-roll last answer")
         menu.menu.add("Continue")
+        menu.menu.add("Memory")
         menu.menu.add("Switch model")
         menu.menu.add("Stop running jobs")
         menu.menu.add("Pair with QR code")
@@ -421,6 +422,7 @@ class MainActivity : AppCompatActivity() {
             when (item.title) {
                 "Re-roll last answer" -> rerollLast()
                 "Continue" -> continueLast()
+                "Memory" -> startActivity(Intent(this, MemoryActivity::class.java))
                 "Switch model" -> pickModel()
                 "Stop running jobs" -> Thread {
                     val result = magicClient.abortJobs()

@@ -267,3 +267,62 @@ def test_profile_route_get_put_and_conflict(tmp_path):
     finally:
         lp.call_soon_threadsafe(lp.stop)
         th.join(timeout=5)
+
+
+def test_memory_routes_list_and_forget_profile_and_notes(tmp_path):
+    import asyncio as aio
+    import threading
+    from magic_core import notes
+    from magic_core.server import create_app
+
+    class Reg:
+        def names(self):
+            return []
+
+        def primary_model_name(self):
+            return None
+
+    root = str(tmp_path)
+    profile.add(root, "solving", "Fix first, explain after")
+    profile.note(root, "funny", "Mickey laughed at swap junk drawer")
+    notes.remember_fact(root, "[user] Mickey's dog is named Cyclops")
+    notes.remember_fact(root, "[auto] User runs an RTX 2070 Super")
+
+    lp = aio.new_event_loop()
+    th = threading.Thread(target=lp.run_forever, daemon=True)
+    th.start()
+    try:
+        c = create_app(Reg(), router=None, project_root=tmp_path, loop=lp,
+                       token="t", admin_token="admin").test_client()
+        h = {"Authorization": "Bearer t"}
+        assert c.get("/memory").status_code == 401
+        assert c.post("/memory/forget", json={"text": "x"}).status_code == 401
+
+        r = c.get("/memory", headers=h).get_json()
+        texts = [it["text"] for it in r["items"]]
+        assert "Fix first, explain after" in texts
+        assert any("swap junk drawer" in t for t in texts)
+        assert "Mickey's dog is named Cyclops" in texts
+        assert "User runs an RTX 2070 Super" in texts
+        assert "Fix first, explain after" in r["prompt_block"]
+
+        # Forget a profile item and a learned note
+        f1 = c.post("/memory/forget", headers=h,
+                    json={"text": "Fix first, explain after"}).get_json()
+        assert f1["ok"] is True
+        f2 = c.post("/memory/forget", headers=h,
+                    json={"text": "Mickey's dog is named Cyclops"}).get_json()
+        assert f2["ok"] is True
+
+        # Stays gone on a fresh server instance (restart persistence)
+        c2 = create_app(Reg(), router=None, project_root=tmp_path, loop=lp,
+                        token="t", admin_token="admin").test_client()
+        r2 = c2.get("/memory", headers=h).get_json()
+        texts2 = [it["text"] for it in r2["items"]]
+        assert "Fix first, explain after" not in texts2
+        assert "Mickey's dog is named Cyclops" not in texts2
+        assert "User runs an RTX 2070 Super" in texts2
+    finally:
+        lp.call_soon_threadsafe(lp.stop)
+        th.join(timeout=5)
+

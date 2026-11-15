@@ -1598,6 +1598,47 @@ def create_app(
         text = profile_mod.read_text(root)
         return jsonify({"text": text, "version": profile_mod.version(text)})
 
+    @app.route("/memory", methods=["GET"])
+    def memory_list_route():
+        """What Magic remembers about Mickey: profile items + learned notes."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import profile as profile_mod
+        from . import notes as notes_mod
+        root = str(project_root)
+        prof_items = profile_mod.items(root)
+        note_texts = notes_mod.list_notes(root)
+        items = (
+            [{"text": it["text"], "kind": "profile",
+              "section": "Noticed" if it["noticed"] else it["section"]}
+             for it in prof_items]
+            + [{"text": t, "kind": "note", "section": "Memory"}
+               for t in note_texts]
+        )
+        return jsonify({
+            "items": items,
+            "profile": [it["text"] for it in prof_items],
+            "notes": note_texts,
+            "prompt_block": profile_mod.prompt_block(root),
+        })
+
+    @app.route("/memory/forget", methods=["POST"])
+    def memory_forget_route():
+        """Delete one remembered item (profile line or learned note) by text."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import profile as profile_mod
+        from . import notes as notes_mod
+        body = request.get_json(silent=True) or {}
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "text is required"}), 400
+        root = str(project_root)
+        removed = profile_mod.drop_by_text(root, text) or notes_mod.forget_note_by_text(root, text)
+        return jsonify({"ok": bool(removed), "removed": removed or ""})
+
     @app.route("/guard/phone", methods=["POST"])
     def guard_phone_route():
         """S3 phone guard: the app posts a security snapshot of the phone;

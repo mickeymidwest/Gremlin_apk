@@ -93,6 +93,11 @@
             android:exported="false"
             android:label="Conversations" />
 
+        <activity
+            android:name=".MemoryActivity"
+            android:exported="false"
+            android:label="Memory" />
+
         <!-- Hands a downloaded build file (an .apk from Settings ->
              Builds) to the system installer via a content:// URI. -->
         <service

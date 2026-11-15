@@ -646,6 +646,51 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
 
     data class ConversationInfo(val id: String, val title: String, val updated: Double)
 
+    data class MemoryItem(val text: String, val kind: String, val section: String)
+
+    /** GET /memory -- profile items + learned notes. Returns (items, errorOrNull). */
+    fun listMemory(): Pair<List<MemoryItem>, String?> {
+        val host = prefs.getString("host", null) ?: return Pair(emptyList(), "Not paired with a desktop")
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return Pair(emptyList(), "Not paired with a desktop")
+        return try {
+            val c = (URL("http://$host:$port/memory").openConnection() as HttpURLConnection)
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.connectTimeout = 5_000; c.readTimeout = 8_000
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val j = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+            if (code !in 200..299) return Pair(emptyList(), j.optString("error", "HTTP $code"))
+            val arr = j.optJSONArray("items") ?: JSONArray()
+            val out = ArrayList<MemoryItem>(arr.length())
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(MemoryItem(o.optString("text"), o.optString("kind", "note"), o.optString("section", "Memory")))
+            }
+            Pair(out, null)
+        } catch (e: Exception) {
+            Pair(emptyList(), "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
+    /** POST /memory/forget -- remove one remembered item by text. */
+    fun forgetMemory(text: String): Boolean {
+        val host = prefs.getString("host", null) ?: return false
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return false
+        return try {
+            val c = (URL("http://$host:$port/memory/forget").openConnection() as HttpURLConnection)
+            c.requestMethod = "POST"; c.doOutput = true
+            c.setRequestProperty("Authorization", "Bearer $token")
+            c.setRequestProperty("Content-Type", "application/json")
+            c.connectTimeout = 5_000; c.readTimeout = 8_000
+            c.outputStream.use { it.write(JSONObject().put("text", text).toString().toByteArray()) }
+            val code = c.responseCode
+            if (code !in 200..299) return false
+            JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optBoolean("ok", false)
+        } catch (e: Exception) { false }
+    }
+
     /** GET /conversations -- the recent-conversations list. */
     fun listConversations(): List<ConversationInfo> {
         val host = prefs.getString("host", null) ?: return emptyList()
