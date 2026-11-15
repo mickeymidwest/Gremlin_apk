@@ -8,7 +8,14 @@ def test_roster_has_the_real_heads():
     assert "qwen3.5-9b" in names                 # general
     assert "qwen3.5-9b-abliterated" in names     # uncensored / private
     assert "qwen2.5-14b" in names                # reason
-    assert h.by_name("qwen3-30b-a3b-abliterated").enabled is False  # dormant MoE
+    assert h.by_name("qwen3-30b-a3b").enabled is False  # dormant MoE on <24GB RAM
+
+
+def test_default_heads_computes_moe_enabled_from_free_ram():
+    low = Hydra(default_heads(free_ram_mb=8000)).by_name("qwen3-30b-a3b")
+    high = Hydra(default_heads(free_ram_mb=25000)).by_name("qwen3-30b-a3b")
+    assert low.enabled is False
+    assert high.enabled is True
 
 
 def test_available_respects_vram_and_ram_gates():
@@ -24,7 +31,7 @@ def test_available_respects_vram_and_ram_gates():
 
 def test_dormant_moe_head_wakes_with_enough_ram():
     h = Hydra()
-    moe = h.by_name("qwen3-30b-a3b-abliterated")
+    moe = h.by_name("qwen3-30b-a3b")
     moe.enabled = True  # once the model is present + enabled...
     # ...it's still gated until ~24GB RAM is free
     assert moe not in h.available(free_vram_mb=8000, free_ram_mb=8000)
@@ -54,7 +61,7 @@ def test_report_marks_states():
     rows = {r["name"]: r for r in h.report(free_vram_mb=7000, free_ram_mb=8000)}
     assert rows["qwen2.5-14b"]["state"] == "needs-hardware"  # 7600 > 7000 VRAM
     assert rows["qwen3.5-9b"]["state"] == "available"
-    assert rows["qwen3-30b-a3b-abliterated"]["state"] == "disabled"
+    assert rows["qwen3-30b-a3b"]["state"] == "disabled"
 
 
 def test_classify_task():
@@ -68,17 +75,17 @@ def test_classify_task():
 
 def test_auto_router_picks_deep_brain_when_available():
     h = Hydra()
-    h.by_name("qwen3-30b-a3b-abliterated").enabled = True
+    h.by_name("qwen3-30b-a3b").enabled = True
     task, head = h.select("think carefully and derive the quadratic formula",
                           free_vram_mb=8000, free_ram_mb=26000)
-    assert task == "deep" and head.name == "qwen3-30b-a3b-abliterated"
+    assert task == "deep" and head.name == "qwen3-30b-a3b"
     task2, head2 = h.select("hey whats up", free_vram_mb=8000, free_ram_mb=26000)
     assert task2 == "chat" and head2.kind == "general"
 
 
 def test_auto_router_falls_back_when_deep_cant_fit():
     h = Hydra()
-    h.by_name("qwen3-30b-a3b-abliterated").enabled = True
+    h.by_name("qwen3-30b-a3b").enabled = True
     task, head = h.select("think carefully and derive the quadratic formula",
                           free_vram_mb=8000, free_ram_mb=4000)
     assert task == "deep" and head.kind in ("reason", "general")

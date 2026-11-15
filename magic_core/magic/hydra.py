@@ -80,9 +80,22 @@ class Head:
     note: str = ""
 
 
-def default_heads() -> list[Head]:
+def _free_ram_mb() -> float:
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except Exception:
+        pass
+    return 0.0
+
+
+def default_heads(free_ram_mb: Optional[float] = None) -> list[Head]:
     """The roster -- reflects the models actually on the box, plus one dormant
     MoE slot that wakes up when the hardware can hold it."""
+    ram = _free_ram_mb() if free_ram_mb is None else free_ram_mb
+    moe_enabled = ram >= 24000
     return [
         Head("qwen3.5-9b", "general assistant -- the body's default voice",
              "general", footprint_mb=6600, priority=60),
@@ -99,10 +112,10 @@ def default_heads() -> list[Head]:
         # DORMANT -- the big MoE "deep" brain: 30B total / ~3B active, uncensored,
         # experts offloaded to host RAM. Lights up when ~24GB host RAM is free
         # (a Q4 fit without 2-bit brain-damage). See MAGIC-5.0-HYDRA-ROADMAP.md.
-        Head("qwen3-30b-a3b-abliterated",
+        Head("qwen3-30b-a3b",
              "MoE deep brain -- 30B total / 3B active, uncensored, experts in RAM",
              "deep", footprint_mb=6500, requires_ram_mb=24000, priority=80,
-             enabled=False, note="dormant -- lights up at ~24GB free RAM"),
+             enabled=moe_enabled, note="dormant -- lights up at ~24GB free RAM"),
     ]
 
 
