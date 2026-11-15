@@ -19,7 +19,16 @@ import json
 import os
 import re
 
-ENABLED = os.environ.get("MAGIC_ENSEMBLE", "0") == "1"
+
+def is_enabled() -> bool:
+    return os.environ.get("MAGIC_ENSEMBLE", "0") == "1"
+
+
+def __getattr__(name: str):
+    if name == "ENABLED":
+        return is_enabled()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _JUDGE_SYSTEM = (
     "You are picking the single best answer to a user's question from several "
@@ -69,12 +78,29 @@ async def _gen(backend, prompt, system, grammar=None, max_tokens=1024, temperatu
     return await backend.generate(prompt, max_tokens=max_tokens, temperature=temperature)
 
 
-async def generate_candidates(heads, question, *, system=None, history_msgs=None, max_tokens=1024):
+def _is_gpu_backend(be) -> bool:
+    if getattr(be, "is_cpu", False):
+        return False
+    info = getattr(be, "info", None)
+    kind = getattr(info, "kind", "") if info is not None else ""
+    if kind in ("local_cpu", "anthropic", "openai_compatible", "gemini"):
+        return False
+    if kind in ("local_gguf", "local_vlm"):
+        return True
+    return hasattr(be, "_llm") or type(be).__name__ in ("LlamaCppBackend", "VisionBackend")
+
+
+async def generate_candidates(heads, question, *, system=None, history_msgs=None,
+                              max_tokens=1024, registry=None):
     """heads: list of (label, backend). Returns [(label, text), ...] for the ones
     that produced a non-empty answer."""
+    from . import vram
     out = []
     for label, be in heads:
         try:
+            if registry is not None and _is_gpu_backend(be):
+                keep_name = getattr(getattr(be, "info", None), "name", None) or label
+                await vram.ensure_only(registry, keep=keep_name)
             r = await _gen(be, question, system, max_tokens=max_tokens, temperature=0.5,
                            history=history_msgs)
             t = (getattr(r, "text", "") or "").strip()
@@ -85,7 +111,7 @@ async def generate_candidates(heads, question, *, system=None, history_msgs=None
     return out
 
 
-async def judge(judge_backend, question, candidates):
+async def judge(judge_backend, question, candidates, *, registry=None):
     """candidates: [(label, text)]. Returns the index of the best, or 0 on any
     failure (fail-open to the first candidate)."""
     if len(candidates) <= 1:
@@ -95,6 +121,11 @@ async def judge(judge_backend, question, candidates):
         body += f"--- Candidate {i} ---\n{text}\n\n"
     body += "Which candidate is best? JSON only."
     try:
+        if registry is not None and _is_gpu_backend(judge_backend):
+            from . import vram
+            keep_name = getattr(getattr(judge_backend, "info", None), "name", None)
+            if keep_name:
+                await vram.ensure_only(registry, keep=keep_name)
         r = await _gen(judge_backend, body, _JUDGE_SYSTEM,
                        grammar=_judge_grammar(len(candidates)), max_tokens=120, temperature=0.1)
         idx = _parse_best(getattr(r, "text", "") or "", len(candidates))
@@ -104,16 +135,17 @@ async def judge(judge_backend, question, candidates):
 
 
 async def ensemble_answer(heads, question, judge_backend, *, system=None,
-                          history_msgs=None, max_tokens=1024):
+                          history_msgs=None, max_tokens=1024, registry=None):
     """Full best-of-N: every head answers, the judge picks. Returns
     (winner_text, winner_label, trace). Fail-open: empty when no candidate."""
     cands = await generate_candidates(heads, question, system=system,
-                                      history_msgs=history_msgs, max_tokens=max_tokens)
+                                      history_msgs=history_msgs, max_tokens=max_tokens,
+                                      registry=registry)
     if not cands:
         return "", "", {"candidates": 0}
     if len(cands) == 1:
         return cands[0][1], cands[0][0], {"candidates": 1, "winner": cands[0][0]}
-    best = await judge(judge_backend, question, cands)
+    best = await judge(judge_backend, question, cands, registry=registry)
     return cands[best][1], cands[best][0], {
         "candidates": len(cands), "winner": cands[best][0],
         "labels": [c[0] for c in cands],

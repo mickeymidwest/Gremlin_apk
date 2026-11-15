@@ -1178,7 +1178,24 @@ def create_app(
                      "and give a thorough, correct answer. Take the space you need; don't rush.")
 
         async def _go():
-            from .magic import vram
+            from .magic import vram, ensemble
+            from .mutation_log import _scrub_str
+            if ensemble.is_enabled():
+                prim_name = registry.primary_model_name() or "qwen3.5-9b"
+                prim_be = registry.get(prim_name)
+                cand_heads = []
+                if prim_be is not None and prim_be is not deep_be:
+                    cand_heads.append((prim_name, prim_be))
+                cand_heads.append(("qwen3-30b-a3b", deep_be))
+                text, winner, trace = await ensemble.ensemble_answer(
+                    cand_heads, message, deep_be,
+                    system=_DEEP_SYS, history_msgs=hist, max_tokens=2048,
+                    registry=registry,
+                )
+                text = (text or "").strip()
+                if text:
+                    return {"answer": _scrub_str(text), "ok": True,
+                            "error": None, "ensemble": trace, "winner": winner}
             await vram.ensure_only(registry, keep="qwen3-30b-a3b")
             try:
                 r = await deep_be.generate(message, system=_DEEP_SYS, max_tokens=2048,
@@ -1186,7 +1203,6 @@ def create_app(
             except TypeError:
                 r = await deep_be.generate(message, max_tokens=2048, temperature=0.4)
             text = (getattr(r, "text", "") or "").strip()
-            from .mutation_log import _scrub_str
             return {"answer": _scrub_str(text), "ok": bool(text),
                     "error": getattr(r, "error", None)}
 
@@ -1197,8 +1213,11 @@ def create_app(
         ans = (result.get("answer") or "").strip()
         if ans:
             conversation_history.record(conv_key, message, ans)
-        return jsonify({"answer": ans, "ok": bool(ans),
-                        "source": "deep brain (qwen3-30b-a3b)", "error": result.get("error")})
+        out_resp = {"answer": ans, "ok": bool(ans),
+                    "source": "deep brain (qwen3-30b-a3b)", "error": result.get("error")}
+        if result.get("ensemble"):
+            out_resp["ensemble"] = result["ensemble"]
+        return jsonify(out_resp)
 
     @app.route("/hydra", methods=["GET"])
     def hydra_status():
