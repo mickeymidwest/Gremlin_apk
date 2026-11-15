@@ -148,6 +148,39 @@ def forget_note(root: str, n: int) -> str | None:
     return raw
 
 
+def _clean_note_body(raw: str) -> str:
+    s = (raw or "").strip()
+    if s.startswith("-"):
+        s = s[1:]
+    body = re.sub(r"<!--.*?-->\s*$", "", s).strip()
+    return re.sub(r"^(?:\[[^\]]*\]\s*)+", "", body).strip()
+
+
+def list_notes(root: str) -> list[str]:
+    """Clean fact texts from magic_memory.txt, in file order."""
+    return [_clean_note_body(raw) for _idx, raw in _note_lines(root)]
+
+
+def forget_note_by_text(root: str, text: str) -> str | None:
+    """Delete the first fact matching `text` (clean body, raw line, or normalized).
+    Returns the removed text, or None."""
+    target = (text or "").strip()
+    if not target:
+        return None
+    clean_target = _clean_note_body(target)
+    norm_target = _normalize_note(clean_target)
+    facts = _note_lines(root)
+    for n, (_idx, raw) in enumerate(facts, 1):
+        body = _clean_note_body(raw)
+        if body == target or body == clean_target or raw.strip() == target:
+            return forget_note(root, n)
+    if norm_target:
+        for n, (_idx, raw) in enumerate(facts, 1):
+            if _normalize_note(_clean_note_body(raw)) == norm_target:
+                return forget_note(root, n)
+    return None
+
+
 def clear_notes(root: str) -> int:
     """Drop every fact line, keep the header. Returns how many were removed."""
     path = memory_file_path(root)

@@ -917,39 +917,53 @@ def create_app(
         if auth_error:
             return auth_error
         body = request.get_json(silent=True) or {}
+        conv_key = request.headers.get("Authorization", "") or "default"
+        is_continue = bool(body.get("continue"))
+        is_reroll = bool(body.get("reroll")) and not is_continue
         message = body.get("message", "").strip()
+        if is_continue:
+            if not conversation_history.has_history(conv_key):
+                return jsonify({"error": "nothing to continue yet"}), 400
+            message = message or (
+                "(Continue from exactly where you left off. Keep going "
+                "naturally, without repeating or summarizing what you "
+                "already said.)"
+            )
+        elif is_reroll:
+            # re-roll: drop the previous exchange so this one replaces it;
+            # an optional `message` overrides the dropped turn's user text.
+            prev_user = conversation_history.last_user(conv_key)
+            conversation_history.drop_last(conv_key)
+            if not message and prev_user:
+                message = prev_user
         if not message:
             return jsonify({"error": "empty message"}), 400
-
-        conv_key = request.headers.get("Authorization", "") or "default"
-        if body.get("reroll"):
-            # re-roll: drop the previous exchange so this one replaces it
-            conversation_history.drop_last(conv_key)
         magic_backend = registry.get("magic")
 
-        if history_mod.is_clear_command(message):
-            conversation_history.clear(conv_key)
-            done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
-            return Response(_sse({"type": "done", **done}),
-                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+        if not is_continue:
+            if history_mod.is_clear_command(message):
+                conversation_history.clear(conv_key)
+                done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
+                return Response(_sse({"type": "done", **done}),
+                                mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        from . import notes as notes_mod
-        if notes_mod.is_remember_last_reply_command(message):
-            last = conversation_history.last_assistant(conv_key)
-            if not last:
-                done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
-            else:
-                notes_mod.remember_fact(str(project_root), last)
-                done = _chat_reply(f"Got it — I'll remember that: {last}")
-            return Response(_sse({"type": "done", **done}),
-                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+            from . import notes as notes_mod
+            if notes_mod.is_remember_last_reply_command(message):
+                last = conversation_history.last_assistant(conv_key)
+                if not last:
+                    done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
+                else:
+                    notes_mod.remember_fact(str(project_root), last)
+                    done = _chat_reply(f"Got it — I'll remember that: {last}")
+                return Response(_sse({"type": "done", **done}),
+                                mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
-        if action_result is not None:
-            conversation_history.record(conv_key, message, action_result.get("answer", ""))
-            action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
-            return Response(_sse({"type": "done", **action_result}),
-                            mimetype="text/event-stream", headers=_SSE_HEADERS)
+            action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
+            if action_result is not None:
+                conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                return Response(_sse({"type": "done", **action_result}),
+                                mimetype="text/event-stream", headers=_SSE_HEADERS)
 
         history = conversation_history.render(conv_key)
         fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
@@ -983,10 +997,16 @@ def create_app(
                             _note_answer(final)
                             turn_usage = final.get("usage") or {}
                             with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
-                                conversation_history.record(
-                                    conv_key, message, final.get("answer", ""),
-                                    prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                    completion_tokens=turn_usage.get("completion_tokens", 0))
+                                if is_continue:
+                                    conversation_history.append_to_last(
+                                        conv_key, final.get("answer", ""),
+                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                        completion_tokens=turn_usage.get("completion_tokens", 0))
+                                else:
+                                    conversation_history.record(
+                                        conv_key, message, final.get("answer", ""),
+                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                        completion_tokens=turn_usage.get("completion_tokens", 0))
                             _maybe_compact(conv_key)
                             final["conversation_usage"] = conversation_history.usage_totals(conv_key)
                             _spawn_watchdog(message, final.get("answer", ""))
@@ -1577,6 +1597,47 @@ def create_app(
             return jsonify({"ok": True, "version": ver})
         text = profile_mod.read_text(root)
         return jsonify({"text": text, "version": profile_mod.version(text)})
+
+    @app.route("/memory", methods=["GET"])
+    def memory_list_route():
+        """What Magic remembers about Mickey: profile items + learned notes."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import profile as profile_mod
+        from . import notes as notes_mod
+        root = str(project_root)
+        prof_items = profile_mod.items(root)
+        note_texts = notes_mod.list_notes(root)
+        items = (
+            [{"text": it["text"], "kind": "profile",
+              "section": "Noticed" if it["noticed"] else it["section"]}
+             for it in prof_items]
+            + [{"text": t, "kind": "note", "section": "Memory"}
+               for t in note_texts]
+        )
+        return jsonify({
+            "items": items,
+            "profile": [it["text"] for it in prof_items],
+            "notes": note_texts,
+            "prompt_block": profile_mod.prompt_block(root),
+        })
+
+    @app.route("/memory/forget", methods=["POST"])
+    def memory_forget_route():
+        """Delete one remembered item (profile line or learned note) by text."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import profile as profile_mod
+        from . import notes as notes_mod
+        body = request.get_json(silent=True) or {}
+        text = str(body.get("text") or "").strip()
+        if not text:
+            return jsonify({"error": "text is required"}), 400
+        root = str(project_root)
+        removed = profile_mod.drop_by_text(root, text) or notes_mod.forget_note_by_text(root, text)
+        return jsonify({"ok": bool(removed), "removed": removed or ""})
 
     @app.route("/guard/phone", methods=["POST"])
     def guard_phone_route():

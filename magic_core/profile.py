@@ -266,6 +266,25 @@ def drop(root: str, n: int) -> Optional[str]:
     return it["text"]
 
 
+def drop_by_text(root: str, text: str) -> Optional[str]:
+    """Remove the first item matching `text` (exact or normalized). Returns its text, or None."""
+    target = (text or "").strip().lstrip("-").strip()
+    if not target:
+        return None
+    want = _norm(target)
+    with _LOCK:
+        its = items(root)
+        hit = next((it for it in its if it["text"].strip() == target), None)
+        if hit is None and want:
+            hit = next((it for it in its if _norm(it["text"]) == want), None)
+        if hit is None:
+            return None
+        lines = _read_lines(root)
+        del lines[hit["idx"]]
+        _write_lines(root, lines)
+    return hit["text"]
+
+
 _NOTICED_ITEM = re.compile(r"^\[[^\]]*\]\s*\(([a-z]+)\)\s*(.+)$")
 
 

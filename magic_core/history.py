@@ -232,6 +232,44 @@ class ConversationHistory:
             pass
         return True
 
+    def append_to_last(self, key: str, extra: str,
+                       prompt_tokens: int = 0, completion_tokens: int = 0) -> bool:
+        """Merge a continuation onto the most recent assistant reply in place
+        (backs normal-chat Continue). Updates both the in-memory window and the
+        last line of the on-disk JSONL log. Returns True if updated."""
+        extra = (extra or "").strip()
+        if not extra:
+            return False
+        dq = self._load(key)
+        if not dq:
+            return False
+        last = dq[-1]
+        last.assistant = (last.assistant + " " + extra).strip()
+        last.prompt_tokens += prompt_tokens
+        last.completion_tokens += completion_tokens
+        try:
+            path = self._path(key)
+            if path.exists():
+                lines = [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+                if lines:
+                    try:
+                        d = json.loads(lines[-1])
+                    except ValueError:
+                        d = {"user": last.user, "assistant": "", "at": last.at}
+                    d["assistant"] = last.assistant
+                    d["prompt_tokens"] = int(d.get("prompt_tokens", 0) or 0) + prompt_tokens
+                    d["completion_tokens"] = int(d.get("completion_tokens", 0) or 0) + completion_tokens
+                    lines[-1] = json.dumps(d)
+                    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+        return True
+
+    def last_user(self, key: str) -> Optional[str]:
+        """The most recent user message in this conversation, or None."""
+        dq = self._fresh(self._load(key))
+        return dq[-1].user if dq else None
+
     def usage_totals(self, key: str) -> dict:
         """Cumulative token usage for this ENTIRE conversation -- reads
         the full on-disk file, not just the capped in-memory/render
