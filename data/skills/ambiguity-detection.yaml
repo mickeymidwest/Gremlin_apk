@@ -3,211 +3,33 @@ name: ambiguity-detection
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Spot ambiguity that would change what you do
-trigger_when: a request admits multiple valid interpretations
+purpose: Identify specific points in a request where multiple interpretations lead to different
+  code outputs or execution paths, and provide a precise clarification question to resolve
+  them before proceeding.
+trigger_when: The user's request contains vague terms, missing constraints, or conflicting
+  requirements that could result in different valid code implementations or behaviors.
 trigger_matcher: ambiguous|unclear|could mean|which|either|not sure what
 procedure:
-- Detect where interpretations diverge materially
-- Resolve from context/defaults when safe
-- Ask only when the answer changes the outcome
-supersedes: null
+- Scan the request for keywords like 'maybe', 'if possible', 'try', or ambiguous verbs (e.g.,
+  'fix', 'update') that lack specific criteria.
+- Map each potential interpretation to its likely code consequence (e.g., different logic,
+  different libraries, different error handling).
+- If two or more interpretations lead to materially different code or behavior, stop and generate
+  a single, targeted question asking the user to choose between them or provide the missing
+  constraint.
+- If only one interpretation is safe and contextually obvious, proceed without asking.
+- Do not ask for clarification on minor stylistic preferences unless they impact functionality.
+- Output the clarification question immediately after the analysis step, do not generate code
+  yet.
+supersedes: skill_b065f688
 provenance:
 - proposed
+- refined@1794717099
 created: 1793752469.3142495
 record:
-  uses: 190
+  uses: 0
   wins: 0
-  losses: 190
-  score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0034_csvreport
-  battles_available: 190
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

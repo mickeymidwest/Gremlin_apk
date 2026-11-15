@@ -3,35 +3,37 @@ name: privilege-escalation-prevention
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Avoid granting or acquiring more privilege than needed
-trigger_when: an action or input seeks elevated privilege
+purpose: Ensure code modifications strictly adhere to the Principle of Least Privilege by
+  preventing unauthorized privilege escalation, invalid syntax introduction, and unnecessary
+  test failures.
+trigger_when: The agent plans to read, modify, or write code files where the user input or
+  current context implies a need for elevated permissions, or where the proposed edit risks
+  breaking syntax or failing tests.
 trigger_matcher: sudo|root|setuid|escalate|admin|privilege
 procedure:
-- Default to unprivileged; justify every elevation
-- Don't let untrusted input drive a privileged action
-- Drop privileges as soon as the task allows
-supersedes: null
+- 1. Analyze the specific line or method causing the issue; if the fix is localized, prepare
+  to edit only that exact line or method signature.
+- 2. If the proposed edit would introduce a SyntaxError or break the file's validity, abort
+  the partial edit and instead generate the entire corrected file content.
+- 3. Before writing any file, manually inspect the target file (e.g., `graph.py`) to confirm
+  the exact method signatures and context, avoiding generic search tools like `grep`.
+- 4. Execute the edit only on the specific identified issue; do not rewrite the entire file
+  unless the current state is fundamentally broken.
+- 5. Immediately run `python -m pytest -q` to verify the test suite is fully green before
+  considering the task complete.
+- 6. If tests fail, do not proceed with further privileged actions until the failure is resolved.
+- 7. Once the task is complete and tests pass, explicitly drop any temporary elevated privileges
+  used during the debugging process.
+supersedes: skill_267083c6
 provenance:
 - proposed
+- refined@1794715478
 created: 1793752469.3142495
 record:
-  uses: 14
-  wins: 3
-  losses: 11
+  uses: 1
+  wins: 0
+  losses: 1
   score_deltas:
-  - 0.0
-  - 0.0
   - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  last_used_battle: battle_0035_nsfuzz
-  battles_available: 14
+  last_used_battle: battle_0036_nsfuzz
+  battles_available: 1

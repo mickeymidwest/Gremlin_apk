@@ -7,48 +7,28 @@ purpose: Evolve data schemas while keeping old data readable
 trigger_when: changing a persisted data format
 trigger_matcher: schema|format|version field|evolve|compatibility|serialize
 procedure:
-- Version the schema and handle old versions on read
-- Avoid breaking changes; migrate forward deliberately
-- Test reading data written by prior versions
-supersedes: null
+- Identify the specific field or structure in the current file that needs modification based
+  on the new schema requirements.
+- Manually inspect the relevant section of the file (e.g., `graph.py`) to locate the exact
+  line containing the outdated definition.
+- Extract the precise line of code from the read file that represents the old schema.
+- Replace ONLY that specific line in the file with the new definition, ensuring the surrounding
+  code structure remains intact.
+- Verify the modified file is syntactically valid by running `python -m py_compile` or attempting
+  to import the module.
+- Run the full test suite (`python -m pytest -q`) to ensure no existing tests fail due to
+  the schema change.
+- If tests pass, commit the change; if they fail, revert and re-evaluate the specific line
+  replacement.
+supersedes: skill_a8e87dc4
 provenance:
 - proposed
+- refined@1794715959
 created: 1793752469.3142495
 record:
-  uses: 31
-  wins: 8
-  losses: 23
-  score_deltas:
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  last_used_battle: battle_0035_tlvfuzz
-  battles_available: 31
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

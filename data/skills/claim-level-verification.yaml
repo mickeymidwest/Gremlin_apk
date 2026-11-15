@@ -3,52 +3,33 @@ name: claim-level-verification
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Verify individual claims rather than trusting the answer as a whole
-trigger_when: an answer bundles several independent factual claims
+purpose: Verify individual factual claims within a response to prevent partial correctness
+  from masking errors, specifically for code generation and system configuration tasks.
+trigger_when: The model response contains multiple distinct factual assertions, code snippets,
+  or configuration steps that can be independently validated against known facts or constraints.
 trigger_matcher: answer|summary|report|findings|conclusion
 procedure:
-- Decompose the answer into atomic claims
-- Verify each claim independently; one true claim doesn't validate the rest
-- Report per-claim status when they differ
-supersedes: null
+- Extract every distinct factual claim, code snippet, or configuration instruction from the
+  response into a separate list.
+- 'For each extracted item, perform a targeted verification: check if the required header
+  file path matches the project''s actual structure, verify if the function definition location
+  is correct, and confirm if the installation command aligns with the system''s package manager
+  policies.'
+- If a verification fails, immediately identify the specific constraint or fact that was violated
+  (e.g., incorrect include path, wrong function definition location, invalid sudo usage).
+- Generate a specific correction for the failed item that adheres to the identified constraint.
+- Replace the incorrect item in the original response with the corrected version.
+- If multiple items fail, report the list of all corrections required before finalizing the
+  response.
+supersedes: skill_1c2154bf
 provenance:
 - proposed
+- refined@1794717800
 created: 1793752469.3142495
 record:
-  uses: 31
+  uses: 0
   wins: 0
-  losses: 31
-  score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0034_csvreport
-  battles_available: 31
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

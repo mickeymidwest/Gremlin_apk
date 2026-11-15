@@ -3,65 +3,34 @@ name: memory-confidence-scoring
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Attach a confidence level to stored facts
-trigger_when: writing a fact into persistent memory
+purpose: Assign a precise confidence score (0.0 to 1.0) to a memory fact based on verification
+  depth and source reliability before persisting it.
+trigger_when: The agent is about to write a new fact to persistent memory or update an existing
+  one.
 trigger_matcher: remember|store|save fact|note that|memory
 procedure:
-- Score each stored fact by how well it was verified
-- Let low-confidence memories be overridden more readily
-- Raise confidence when the fact is reconfirmed
-supersedes: null
+- Identify the specific source of the fact (e.g., 'read file line X', 'user input', 'previous
+  memory').
+- 'Assign a base score: 0.5 for user input, 0.8 for direct file reads, 0.9 for code execution
+  results.'
+- Apply a penalty of 0.2 if the fact was inferred or partially reconstructed.
+- Apply a bonus of 0.1 if the fact was cross-verified against another source immediately before
+  storage.
+- Calculate final score = base score + bonuses - penalties.
+- If final score < 0.6, flag the fact as 'low-confidence' and require a secondary verification
+  step before allowing it to override existing memory.
+- If final score >= 0.8, mark as 'high-confidence' and allow immediate override of conflicting
+  low-confidence memories.
+- Store the calculated score alongside the fact text in the memory record.
+supersedes: skill_33067cb1
 provenance:
 - proposed
+- refined@1794715730
 created: 1793752469.3142495
 record:
-  uses: 44
-  wins: 10
-  losses: 34
-  score_deltas:
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - 0.0
-  - 0.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  last_used_battle: battle_0035_tlvfuzz
-  battles_available: 44
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

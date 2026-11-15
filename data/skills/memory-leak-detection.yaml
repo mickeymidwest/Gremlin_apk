@@ -3,52 +3,29 @@ name: memory-leak-detection
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Find and fix unbounded memory growth
-trigger_when: a process grows in memory over time
+purpose: Locate and patch specific code blocks causing unbounded memory growth without rewriting
+  entire files or breaking syntax.
+trigger_when: Memory profiling shows a continuous upward trend in RSS/heap usage under stable
+  load, and the agent has read the relevant source file.
 trigger_matcher: memory leak|oom|growing|unbounded|rss|heap
 procedure:
-- Observe memory over time under representative load
-- Localize the retained allocations
-- Fix the root retention and verify the curve flattens
-supersedes: null
+- Parse the currently read source file to extract the exact line numbers and content of the
+  suspected memory-leaking function(s) identified by the profiler.
+- Construct a precise edit command targeting ONLY the specific lines within that function,
+  preserving the original file structure and surrounding context.
+- Execute the edit command to modify the file in-place.
+- Immediately run `python -m pytest -q` to ensure the modification did not introduce syntax
+  errors or break existing tests.
+- If tests pass, re-run the memory profiler to verify the growth curve has flattened or stabilized.
+supersedes: skill_61d375ff
 provenance:
 - proposed
+- refined@1794715594
 created: 1793752469.3142495
 record:
-  uses: 31
-  wins: 6
-  losses: 25
-  score_deltas:
-  - 1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - 0.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  - -1.0
-  last_used_battle: battle_0035_nsfuzz
-  battles_available: 31
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

@@ -12,8 +12,7 @@ procedure:
   password/root login
 - if PasswordAuthentication isn't `no` or PermitRootLogin isn't `no`, propose setting them
   (keys only) in a sshd_config.d drop-in
-- confirm the firewall limits port 22 to the LAN + Tailscale (magic-firewall), not every
-  interface
+- confirm the firewall limits port 22 to the LAN + Tailscale (magic-firewall), not every interface
 supersedes: null
 provenance:
 - seed-security-S1

@@ -3,115 +3,26 @@ name: intent-clarification
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Understand the real objective before acting on a vague request
-trigger_when: a request is broad or could mean several things
+purpose: Resolve ambiguity in user requests to prevent generating incorrect or incomplete
+  code by explicitly confirming the missing constraint or assumption.
+trigger_when: The user request lacks a specific constraint, input source, or error-handling
+  requirement that is critical for the code to function correctly.
 trigger_matcher: make|improve|fix|better|handle|vague|something
 procedure:
-- Infer the underlying goal; confirm if genuinely ambiguous
-- Don't start changing things on a guess of intent
-- Act once the objective is clear enough to verify
-supersedes: null
+- Identify the specific missing piece of information (e.g., file path, input validation rule,
+  or output format) that makes the current plan risky or likely to fail.
+- Draft a concise question asking the user for this specific missing detail.
+- Wait for the user's response before generating any code.
+- Only proceed to write code once the user has provided the necessary clarification.
+supersedes: skill_19cd0f77
 provenance:
 - proposed
+- refined@1794717379
 created: 1793752469.3142495
 record:
-  uses: 94
+  uses: 0
   wins: 0
-  losses: 94
-  score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0034_graph
-  battles_available: 94
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
