@@ -41,8 +41,10 @@ full-capability fallback — it is not limited to small items when it's the only
 
 ## Active lanes — WHO IS DOING WHAT RIGHT NOW
 _(update this live)_
-- **Claude:** standing up this coordination + merging agy's `gemini-lilstuff` branch. (2026-11-15)
-- **agy:** idle — last run `gemini-lilstuff` (continue/edit, memory panel, scene-state) MERGED.
+- **Claude:** DONE Batch 1 (crash bugs) + Batch 2 (CPU-Hive infra + summarize wiring) on main;
+  PAUSED on main while agy runs. Vision fixed + privacy hardened + 18+ floor regression fixed earlier.
+- **agy:** RUNNING on branch `gemini-batch34` (worktree gremlin-wt-b34): Batch 3 (Hydra readiness),
+  Batch 4 (self-edit gate hardening), + reviewing Claude's Batch 1+2. Merge after review. (2026-11-15)
 
 ---
 
