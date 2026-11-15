@@ -528,7 +528,7 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     if refusal:
         return {"answer": f"I won't touch that one: {refusal}", "action": "script_fix", "ok": False}
 
-    model_names = [ctx.registry.primary_model_name() or "magic"]
+    model_names = [getattr(ctx.registry, "primary_model_name", lambda: None)() or "magic"]
     new_content = await script_edit.propose_fix(ctx.router, model_names, path, problem)
     result = await script_edit.apply_fix(
         path, new_content, verify_command=None,
