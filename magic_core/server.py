@@ -1038,6 +1038,25 @@ def create_app(
         if deep_be is None:
             return jsonify({"answer": "", "ok": False,
                             "error": "the deep head (qwen3-30b-a3b) isn't installed yet"}), 503
+        # The deep head is a ~12GB model; on an 8GB card it needs a good chunk of
+        # free RAM to even load. Refuse cleanly when there isn't enough (don't
+        # grind for 2 minutes failing). It comes online when the RAM grows.
+        def _mem_avail_mb():
+            try:
+                for _ln in open("/proc/meminfo"):
+                    if _ln.startswith("MemAvailable:"):
+                        return int(_ln.split()[1]) // 1024
+            except Exception:
+                return None
+            return None
+        import os as _os
+        _free = _mem_avail_mb()
+        _need = int(_os.environ.get("MAGIC_DEEP_MIN_RAM_MB", "6500"))
+        if _free is not None and _free < _need:
+            return jsonify({"answer": "", "ok": False,
+                            "error": f"the deep head needs ~{_need}MB free RAM to load, but only "
+                                     f"{_free}MB is free. It'll come online once you add more RAM "
+                                     f"(it auto-activates -- no config change needed)."}), 503
         conv_key = request.headers.get("Authorization", "") or "default"
         history = conversation_history.render(conv_key)
         hist = []
