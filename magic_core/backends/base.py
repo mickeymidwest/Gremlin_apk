@@ -17,6 +17,11 @@ class ModelInfo:
     kind: str                 # "local" | "api"
     display_name: str = ""
     notes: str = ""
+    footprint_mb: int = 0
+    override_tensor: Optional[str | list[str]] = None
+    use_mlock: bool = False
+    use_mmap: bool = True
+    n_threads: Optional[int] = None
 
 
 @dataclass

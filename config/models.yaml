@@ -79,6 +79,9 @@ models:
     footprint_mb: 7800
     n_ctx: 8192
     n_gpu_layers: 24
+    override_tensor: ".ffn_.*_exps.=CPU"
+    use_mmap: true
+    use_mlock: false
     flash_attn: true
     kv_cache_type: q8_0
     chat_format: chatml-nothink

@@ -99,12 +99,15 @@ class LlamaCppBackend(ModelBackend):
         # normal word reuse, does discourage a model latching onto and
         # replaying a phrase from its own recent output.
         repeat_penalty: float = 1.1,
+        override_tensor: Optional[str | list[str]] = None,
+        use_mlock: bool = False,
+        use_mmap: bool = True,
     ):
         super().__init__(info)
         self.model_path = model_path
         self.n_ctx = n_ctx
         self.n_gpu_layers = n_gpu_layers
-        self.n_threads = n_threads
+        self.n_threads = n_threads if n_threads is not None else info.n_threads
         self.chat_format = chat_format
         self.kv_cache_type = kv_cache_type
         self.strip_reasoning = strip_reasoning
@@ -112,6 +115,9 @@ class LlamaCppBackend(ModelBackend):
         self.lora_path = lora_path
         self.lora_scale = lora_scale
         self.repeat_penalty = repeat_penalty
+        self.override_tensor = override_tensor if override_tensor is not None else info.override_tensor
+        self.use_mlock = use_mlock or info.use_mlock
+        self.use_mmap = use_mmap if use_mmap is not True else info.use_mmap
         # A quantized KV cache only works with flash attention on in
         # llama.cpp (the non-FA path has no quantized-V kernel), so asking
         # for one implies the other rather than erroring at load time.
@@ -153,8 +159,12 @@ class LlamaCppBackend(ModelBackend):
                 n_threads=self.n_threads,
                 chat_format=self.chat_format,
                 flash_attn=self.flash_attn,
+                use_mlock=self.use_mlock,
+                use_mmap=self.use_mmap,
                 verbose=False,
             )
+            if self.override_tensor:
+                kwargs["override_tensor"] = self.override_tensor
             if self.lora_path:
                 # a fine-tuned LoRA adapter riding on the base GGUF -- no
                 # merge needed (the merge step wants ~2x this box's RAM).
@@ -164,7 +174,13 @@ class LlamaCppBackend(ModelBackend):
                 t = self._KV_GGML_TYPE[self.kv_cache_type]
                 kwargs["type_k"] = t
                 kwargs["type_v"] = t
-            return Llama(**kwargs)
+            try:
+                return Llama(**kwargs)
+            except TypeError:
+                if "override_tensor" in kwargs:
+                    kwargs.pop("override_tensor", None)
+                    return Llama(**kwargs)
+                raise
 
         fut = loop.run_in_executor(self._executor, _load)
         try:

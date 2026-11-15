@@ -95,3 +95,47 @@ def test_private_task_routes_to_uncensored():
     h = Hydra()
     task, head = h.select("lets roleplay", free_vram_mb=8000, free_ram_mb=8000, private=True)
     assert head.kind == "uncensored"
+
+
+def test_moe_expert_offload_and_llamacpp_passthrough(tmp_path, monkeypatch):
+    import asyncio
+    import magic_core.backends.llamacpp_backend as backend_mod
+    from magic_core.registry import ModelRegistry
+
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        "models:\n"
+        "  - name: qwen3-30b-a3b\n"
+        "    type: local_gguf\n"
+        "    model_path: /fake/moe.gguf\n"
+        "    footprint_mb: 7800\n"
+        "    override_tensor: \".ffn_.*_exps.=CPU\"\n"
+        "    use_mlock: true\n"
+        "    use_mmap: false\n"
+        "    n_threads: 4\n"
+    )
+    reg = ModelRegistry.from_yaml(str(cfg))
+    be = reg.get("qwen3-30b-a3b")
+    assert be is not None
+    assert be.info.override_tensor == ".ffn_.*_exps.=CPU"
+    assert be.info.use_mlock is True
+    assert be.info.use_mmap is False
+    assert be.info.n_threads == 4
+    assert be.override_tensor == ".ffn_.*_exps.=CPU"
+    assert be.use_mlock is True
+    assert be.use_mmap is False
+    assert be.n_threads == 4
+
+    captured = {}
+    def _fake_llama(**kwargs):
+        captured.update(kwargs)
+        class _Dummy:
+            pass
+        return _Dummy()
+
+    monkeypatch.setattr(backend_mod, "Llama", _fake_llama)
+    asyncio.run(be.warmup())
+    assert captured["override_tensor"] == ".ffn_.*_exps.=CPU"
+    assert captured["use_mlock"] is True
+    assert captured["use_mmap"] is False
+    assert captured["n_threads"] == 4
