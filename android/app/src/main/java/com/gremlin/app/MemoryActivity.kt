@@ -66,7 +66,7 @@ class MemoryActivity : AppCompatActivity() {
                     this@MemoryActivity, 0, loaded
                 ) {
                     override fun getView(p: Int, cv: View?, parent: ViewGroup): View {
-                        val it = loaded[p]
+                        val item = loaded[p]
                         val row = LinearLayout(this@MemoryActivity).apply {
                             orientation = LinearLayout.HORIZONTAL
                             gravity = Gravity.CENTER_VERTICAL
@@ -77,19 +77,19 @@ class MemoryActivity : AppCompatActivity() {
                             orientation = LinearLayout.VERTICAL
                         }
                         val label = TextView(this@MemoryActivity).apply {
-                            text = it.section
+                            text = item.section
                             textSize = 11f
                             alpha = 0.7f
                         }
                         val body = TextView(this@MemoryActivity).apply {
-                            text = it.text
+                            text = item.text
                             textSize = 15f
                         }
                         col.addView(label)
                         col.addView(body)
                         val btn = Button(this@MemoryActivity).apply {
                             text = "Forget"
-                            setOnClickListener { forget(it) }
+                            setOnClickListener { forget(item) }
                         }
                         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                             rightMargin = (8 * d).toInt()
