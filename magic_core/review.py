@@ -113,6 +113,8 @@ async def _unload_if_local(router: Router, name: str) -> None:
         backend = router.registry.get(name)
     except Exception:
         return
+    if backend is None:
+        return
     if backend.info.kind in ("local_gguf", "local_vlm"):
         try:
             await backend.unload()

@@ -117,8 +117,9 @@ class ModelRegistry:
 
             primary = reg.get(primary_name)
             fallbacks = [reg.get(n) for n in fallback_names]
-            if last_resort_name:
-                reg.get(last_resort_name)  # validate it exists now, fail fast on a config typo
+            if last_resort_name and reg.get(last_resort_name) is None:
+                raise KeyError(
+                    f"last_resort_model {last_resort_name!r} is not in config/models.yaml")
 
             persona_info = ModelInfo(
                 name=persona_name,
