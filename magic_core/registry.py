@@ -130,10 +130,10 @@ class ModelRegistry:
 
         return reg
 
-    def get(self, name: str) -> ModelBackend:
-        if name not in self.backends:
-            raise KeyError(f"No model registered as '{name}'. Check config/models.yaml")
-        return self.backends[name]
+    def get(self, name: str) -> Optional[ModelBackend]:
+        # Return None for an unknown name -- callers probe optional models with
+        # `if registry.get(x)`; raising KeyError here crashed /build, /fix and others.
+        return self.backends.get(name)
 
     def names(self) -> list[str]:
         return list(self.backends.keys())

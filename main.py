@@ -984,8 +984,9 @@ async def main():
             extra_args = sys.argv[4:]
             do_apply = "--apply" in extra_args
             run_tests = "--test" in extra_args
-            reviewer_a = "gpt-oss-20b"
-            reviewer_b = "deepseek-r1-distill-8b"
+            from magic_core import tools as tools_mod
+            reviewer_a, reviewer_b = tools_mod._review_models(
+                tools_mod.ExecContext(router=router, registry=registry, project_root=str(PROJECT_ROOT)))
             target_dir = None
             for arg in extra_args:
                 if arg.startswith("--reviewer-a="):

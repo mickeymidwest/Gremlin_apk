@@ -66,7 +66,7 @@ def _coding_model_name(ctx: CommandContext) -> str:
     primary = ctx.registry.raw_config.get("persona", {}).get("primary_model", "magic")
     if ctx.loop is not None:
         return primary
-    return "qwen2.5-coder-7b" if ctx.registry.get("qwen2.5-coder-7b") else primary
+    return "qwen2.5-coder-14b" if ctx.registry.get("qwen2.5-coder-14b") else primary
 
 
 def _coding_backend(ctx: CommandContext):
@@ -748,7 +748,7 @@ async def _do(args: str, ctx: CommandContext) -> dict:
     from .model import BackendModel
     from .types import Task, BattleResult, Score
     from .store import Store
-    from . import lifecycle, reckoning
+    from . import lifecycle, reckoning, reflect
     backend = ctx.registry.get("magic") or ctx.registry.get(
         ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
     if backend is None:
