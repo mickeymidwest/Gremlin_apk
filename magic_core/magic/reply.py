@@ -722,10 +722,28 @@ async def answer(primary, message: str, root: str,
         try:
             from .. import action_honesty as _ah
             _hh = _ah.claims_execution(text)
-            if _hh:
-                text += _ah.caveat(_hh)
         except Exception:
-            pass
+            _hh = []
+        if _hh:
+            # Honesty HARD-GATE (Hydra P3): don't just footnote a fabricated
+            # "I ran/checked/verified X" -- reject it and regenerate honestly,
+            # with the offending claim quoted back. Nothing ran this turn.
+            _hprompt = (prompt + "\n\n[EVIDENCE_STATE: NO_TOOLS_RAN_THIS_TURN. Your draft "
+                        "claimed to have run, checked, verified, or seen live output, but "
+                        "nothing was actually executed this turn -- the claim is made up. "
+                        "Rewrite the answer WITHOUT any claim of having run/checked/verified/"
+                        "tested or seen real output. If you'd genuinely need to check "
+                        "something, say so plainly and offer to run it. Keep the rest.]")
+            try:
+                _rh = await _gen(primary, _hprompt, hist)
+                _th = (_rh.text or "").strip() if getattr(_rh, "ok", True) else ""
+                _still = _ah.claims_execution(_th) if _th else _hh
+                if _th and not _still:
+                    text = _th                      # clean rewrite -- use it
+                else:
+                    text = text + _ah.caveat(_hh)   # still fabricating -> fall back to the footer
+            except Exception:
+                text = text + _ah.caveat(_hh)
     # Code check: SYNTAX-check any script/code Magic wrote (bash -n, python
     # compile, node --check) and, if it won't parse, regenerate once with the
     # error fed back -- don't hand over a broken script (the battle loop checks
@@ -904,3 +922,33 @@ async def answer_private_stream(backend, message: str, *, system: str,
         pass
     yield "done", {"answer": full, "ok": bool(acc.strip()) and not errored,
                    "error": None, "model": getattr(backend, "name", "magic")}
+
+
+async def answer_vision(backend, message: str, root: str, image_b64: str,
+                        image_mime: str = "image/jpeg", history: str = "") -> dict:
+    """Answer about an attached image with a local vision head
+    (VisionBackend.generate_with_images). Low temperature on purpose -- this is
+    perception, not creativity. Returns a reply dict."""
+    import base64
+    try:
+        raw = base64.b64decode(image_b64)
+    except Exception:
+        return _reply("I couldn't read that image.", ok=False)
+    prompt = (message or "").strip() or (
+        "Describe this image in detail. If it's a screenshot, an app UI, an error "
+        "message, code, or a diagram, read the text out loud and explain what it shows.")
+    gwi = getattr(backend, "generate_with_images", None)
+    if gwi is None:
+        return _reply("I can't see images with the model that's loaded right now.", ok=False)
+    try:
+        r = await gwi(prompt, images=[raw], image_mime=image_mime,
+                      max_tokens=1536, temperature=0.2)
+    except Exception as e:  # noqa
+        return _reply(f"The vision head hit an error ({type(e).__name__}).", ok=False)
+    text = (getattr(r, "text", "") or "").strip()
+    try:
+        from ..mutation_log import _scrub_str
+        text = _scrub_str(text)
+    except Exception:
+        pass
+    return _reply(text or "I couldn't make out the image.", source="vision", ok=bool(text))
