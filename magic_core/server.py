@@ -681,6 +681,19 @@ def create_app(
         return jsonify(result)
 
     async def _summarize(_prompt: str) -> str:
+        # Prefer the CPU Hive summarizer (zero VRAM, keeps the GPU free for the
+        # answer); the 9B is the fallback. Gated OFF until there is RAM to keep
+        # the CPU model warm (MAGIC_SUMMARIZE_ON_CPU=1 flips it on). This is a
+        # background path (history compaction) so it never blocks a reply.
+        if os.environ.get("MAGIC_SUMMARIZE_ON_CPU", "0") == "1":
+            try:
+                from .magic import hive as _hive
+                _h = _hive.build_hive(registry, loop=loop)
+                _res = await loop.run_in_executor(None, lambda: _h.ask("summarizer", _prompt))
+                if getattr(_res, "ok", False) and getattr(_res, "text", ""):
+                    return _res.text
+            except Exception:
+                pass
         try:
             r = await registry.get("magic").generate(_prompt, max_tokens=400, temperature=0.2)
             return getattr(r, "text", "") if getattr(r, "ok", True) else ""
