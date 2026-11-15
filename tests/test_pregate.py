@@ -123,3 +123,22 @@ def test_ast_allows_attribute_call_move(tmp_path):
     subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
     ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
     assert ok is True, fails
+
+
+def test_ast_rejects_dummy_function_masking_bypass(tmp_path):
+    repo = tmp_path / "r"; repo.mkdir()
+    _init_repo(repo)
+    (repo / "a.py").write_text("def real_endpoint(m):\n    ensure_only(m)\n    return m\n")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True, capture_output=True)
+    # Delete ensure_only from real_endpoint and add a dummy _unused() that calls ensure_only()
+    (repo / "a.py").write_text(
+        "def real_endpoint(m):\n    return m\n\n"
+        "def _unused(m):\n    ensure_only(m)\n"
+    )
+    diff = subprocess.run(["git", "diff"], cwd=repo, capture_output=True, text=True).stdout
+    subprocess.run(["git", "checkout", "--", "a.py"], cwd=repo, check=True, capture_output=True)
+    ok, fails = pregate.run_pregate_sync(diff, str(repo), run_tests=False)
+    assert ok is False
+    assert any("ensure_only" in f and "real_endpoint" in f for f in fails)
+
