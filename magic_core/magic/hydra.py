@@ -31,6 +31,42 @@ KIND_FOR_TASK = {
 }
 
 
+import re as _re
+
+_CODE_RE = _re.compile(
+    r"(?i)```|\b(code|coding|script|function|func|method|class|bug|debug|error|traceback|"
+    r"regex|refactor|compile|syntax|sql|query|bash|shell|python|javascript|typescript|kotlin|"
+    r"rust|golang|\bgo\b|java|c\+\+|html|css|yaml|json|api|endpoint|docker|systemd)\b")
+_REASON_RE = _re.compile(
+    r"(?i)\b(why|how (does|do|would|can|should)|explain|analyze|analyse|compare|trade-?off|"
+    r"prove|derive|design|architect|reason|think (through|about)|plan|strategy|implications|"
+    r"pros and cons|step[-\s]by[-\s]step|walk me through|break (it|this) down)\b")
+_DEEP_RE = _re.compile(
+    r"(?i)\b(think (hard|deeply|carefully)|work (it|this) out|hard problem|complex|complicated|"
+    r"thoroughly|in depth|deep dive|from first principles|rigorous|prove that|derive)\b")
+
+
+def classify_task(message: str, private: bool = False) -> str:
+    """Map a request to a task kind the router understands: private | code |
+    deep | reason | chat. Cheap + deterministic (no model call). 'deep' is for
+    genuinely hard / open-ended reasoning that earns the big head."""
+    if private:
+        return "private"
+    m = (message or "").strip()
+    if not m:
+        return "chat"
+    if _CODE_RE.search(m):
+        return "code"
+    if _DEEP_RE.search(m):
+        return "deep"
+    hard = _REASON_RE.search(m)
+    if hard and len(m.split()) >= 25:
+        return "deep"      # a long, reasoning-heavy ask -> the deep brain
+    if hard:
+        return "reason"
+    return "chat"
+
+
 @dataclass
 class Head:
     name: str                 # the model/backend registry key
@@ -117,6 +153,15 @@ class Hydra:
             if res in pool and res.kind == best.kind:
                 return res
         return best
+
+    def select(self, message: str, free_vram_mb: float, free_ram_mb: float,
+               resident: Optional[str] = None, private: bool = False):
+        """(task, head) -- what Magic would route this request to, on its own.
+        This is the auto-router: no user command, no model name, just Magic
+        picking the best head that fits. Returns the chosen Head (or None)."""
+        task = classify_task(message, private=private)
+        head = self.route(task, free_vram_mb, free_ram_mb, resident=resident)
+        return task, head
 
     def report(self, free_vram_mb: Optional[float] = None,
                free_ram_mb: Optional[float] = None) -> list[dict]:

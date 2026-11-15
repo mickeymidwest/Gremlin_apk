@@ -55,3 +55,36 @@ def test_report_marks_states():
     assert rows["qwen2.5-14b"]["state"] == "needs-hardware"  # 7600 > 7000 VRAM
     assert rows["qwen3.5-9b"]["state"] == "available"
     assert rows["qwen3-30b-a3b-abliterated"]["state"] == "disabled"
+
+
+def test_classify_task():
+    from magic_core.magic.hydra import classify_task
+    assert classify_task("hey whats up") == "chat"
+    assert classify_task("write a python function to reverse a string") == "code"
+    assert classify_task("explain how TCP congestion control works") == "reason"
+    assert classify_task("think carefully and prove sqrt 2 is irrational") == "deep"
+    assert classify_task("anything", private=True) == "private"
+
+
+def test_auto_router_picks_deep_brain_when_available():
+    h = Hydra()
+    h.by_name("qwen3-30b-a3b-abliterated").enabled = True
+    task, head = h.select("think carefully and derive the quadratic formula",
+                          free_vram_mb=8000, free_ram_mb=26000)
+    assert task == "deep" and head.name == "qwen3-30b-a3b-abliterated"
+    task2, head2 = h.select("hey whats up", free_vram_mb=8000, free_ram_mb=26000)
+    assert task2 == "chat" and head2.kind == "general"
+
+
+def test_auto_router_falls_back_when_deep_cant_fit():
+    h = Hydra()
+    h.by_name("qwen3-30b-a3b-abliterated").enabled = True
+    task, head = h.select("think carefully and derive the quadratic formula",
+                          free_vram_mb=8000, free_ram_mb=4000)
+    assert task == "deep" and head.kind in ("reason", "general")
+
+
+def test_private_task_routes_to_uncensored():
+    h = Hydra()
+    task, head = h.select("lets roleplay", free_vram_mb=8000, free_ram_mb=8000, private=True)
+    assert head.kind == "uncensored"
