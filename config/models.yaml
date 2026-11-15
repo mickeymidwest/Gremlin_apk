@@ -68,6 +68,21 @@ models:
     kv_cache_type: q8_0
     chat_format: chatml-nothink
 
+  # MoE "deep" brain -- the Hydra's summon-on-demand head (Magic 3.0). 30B total
+  # / ~3B active, uncensored (huihui abliterated), IQ3_XXS. On 8GB it loads as the
+  # SOLE resident model (the 9B swaps out first via vram.ensure_only), with about
+  # half its layers offloaded to system RAM. n_gpu_layers is tuned to this box.
+  - name: qwen3-30b-a3b
+    type: local_gguf
+    display_name: "Qwen3-30B-A3B (MoE deep brain, abliterated)"
+    model_path: "/home/mickey/Downloads/gremlin/models/Qwen3-30B-A3B-abliterated.i1-IQ3_XXS.gguf"
+    footprint_mb: 7800
+    n_ctx: 8192
+    n_gpu_layers: 24
+    flash_attn: true
+    kv_cache_type: q8_0
+    chat_format: chatml-nothink
+
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   # CPU offload helper (Mickey's GPU-primary + CPU-helper design): runs on the
   # CPU in a CUDA-isolated subprocess (zero VRAM) so it is CONCURRENT with the

@@ -1021,6 +1021,75 @@ def create_app(
 
         return Response(_emit(), mimetype="text/event-stream", headers=_SSE_HEADERS)
 
+    @app.route("/deep", methods=["POST"])
+    def deep():
+        """Summon the Hydra's deep head -- the big MoE brain -- for one hard
+        question. Swaps it in (the 9B swaps out via vram.ensure_only), answers
+        directly (no loop/review pipeline -- the big model IS the deep answer),
+        and the 9B swaps back on the next normal chat. Slow on purpose."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        body = request.get_json(silent=True) or {}
+        message = (body.get("message") or "").strip()
+        if not message:
+            return jsonify({"error": "empty message"}), 400
+        deep_be = registry.get("qwen3-30b-a3b")
+        if deep_be is None:
+            return jsonify({"answer": "", "ok": False,
+                            "error": "the deep head (qwen3-30b-a3b) isn't installed yet"}), 503
+        conv_key = request.headers.get("Authorization", "") or "default"
+        history = conversation_history.render(conv_key)
+        hist = []
+        if history:
+            hist = [{"role": "user", "content": "Earlier in this conversation:\n" + history},
+                    {"role": "assistant", "content": "Noted."}]
+        _DEEP_SYS = ("You are Magic's deep-reasoning head -- a large model summoned for a hard "
+                     "problem. Think it through carefully and completely, reason step by step, "
+                     "and give a thorough, correct answer. Take the space you need; don't rush.")
+
+        async def _go():
+            from .magic import vram
+            await vram.ensure_only(registry, keep="qwen3-30b-a3b")
+            try:
+                r = await deep_be.generate(message, system=_DEEP_SYS, max_tokens=2048,
+                                           temperature=0.4, history=hist)
+            except TypeError:
+                r = await deep_be.generate(message, max_tokens=2048, temperature=0.4)
+            text = (getattr(r, "text", "") or "").strip()
+            from .mutation_log import _scrub_str
+            return {"answer": _scrub_str(text), "ok": bool(text),
+                    "error": getattr(r, "error", None)}
+
+        try:
+            result = run_coro(loop, _go(), timeout=900.0)
+        except Exception as e:  # noqa
+            return jsonify({"answer": "", "ok": False, "error": type(e).__name__}), 502
+        ans = (result.get("answer") or "").strip()
+        if ans:
+            conversation_history.record(conv_key, message, ans)
+        return jsonify({"answer": ans, "ok": bool(ans),
+                        "source": "deep brain (qwen3-30b-a3b)", "error": result.get("error")})
+
+    @app.route("/hydra", methods=["GET"])
+    def hydra_status():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from .magic.hydra import Hydra
+        import shutil as _sh
+        free_ram = None
+        try:
+            free_ram = int(open("/proc/meminfo").readline().split()[1]) // 1024  # MemTotal-ish
+            for line in open("/proc/meminfo"):
+                if line.startswith("MemAvailable:"):
+                    free_ram = int(line.split()[1]) // 1024
+                    break
+        except Exception:
+            pass
+        heads = Hydra().report(free_ram_mb=free_ram)
+        return jsonify({"heads": heads, "free_ram_mb": free_ram})
+
     @app.route("/update-check", methods=["GET"])
     def update_check_route():
         # Regular (non-admin) auth -- this only reads pending package
