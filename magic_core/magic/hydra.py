@@ -129,13 +129,28 @@ class Hydra:
                 return h
         return None
 
-    def available(self, free_vram_mb: float, free_ram_mb: float) -> list[Head]:
-        """Enabled heads that fit the hardware right now."""
+    def _vram_budget(self, free_vram_mb: float, resident: Optional[str] = None,
+                     swappable_vram_mb: float = 0.0) -> float:
+        budget = float(free_vram_mb or 0.0) + float(swappable_vram_mb or 0.0)
+        if resident and not swappable_vram_mb:
+            res = self.by_name(resident)
+            if res is not None and res.gpu and res.footprint_mb:
+                budget += res.footprint_mb
+        return budget
+
+    def available(self, free_vram_mb: float, free_ram_mb: float,
+                  resident: Optional[str] = None,
+                  swappable_vram_mb: float = 0.0) -> list[Head]:
+        """Enabled heads that fit the hardware right now (counting swappable
+        resident VRAM so an active 9B isn't marked unavailable by its own
+        VRAM footprint)."""
+        vram_budget = self._vram_budget(free_vram_mb, resident=resident,
+                                        swappable_vram_mb=swappable_vram_mb)
         out = []
         for h in self.heads:
             if not h.enabled:
                 continue
-            if h.gpu and h.footprint_mb and h.footprint_mb > free_vram_mb:
+            if h.gpu and h.footprint_mb and h.footprint_mb > vram_budget:
                 continue
             if h.requires_ram_mb and h.requires_ram_mb > free_ram_mb:
                 continue
@@ -143,11 +158,13 @@ class Hydra:
         return out
 
     def route(self, task: str, free_vram_mb: float, free_ram_mb: float,
-              resident: Optional[str] = None) -> Optional[Head]:
+              resident: Optional[str] = None,
+              swappable_vram_mb: float = 0.0) -> Optional[Head]:
         """Best available head for a task. Swap-cost-aware on a one-at-a-time
         GPU: if the resident head already serves this task, stay put rather than
         pay a cold model load off the HDD."""
-        avail = self.available(free_vram_mb, free_ram_mb)
+        avail = self.available(free_vram_mb, free_ram_mb, resident=resident,
+                               swappable_vram_mb=swappable_vram_mb)
         if not avail:
             return None
         wanted_kinds = KIND_FOR_TASK.get(task, ["general"])
@@ -168,22 +185,29 @@ class Hydra:
         return best
 
     def select(self, message: str, free_vram_mb: float, free_ram_mb: float,
-               resident: Optional[str] = None, private: bool = False):
+               resident: Optional[str] = None, private: bool = False,
+               swappable_vram_mb: float = 0.0):
         """(task, head) -- what Magic would route this request to, on its own.
         This is the auto-router: no user command, no model name, just Magic
         picking the best head that fits. Returns the chosen Head (or None)."""
         task = classify_task(message, private=private)
-        head = self.route(task, free_vram_mb, free_ram_mb, resident=resident)
+        head = self.route(task, free_vram_mb, free_ram_mb, resident=resident,
+                          swappable_vram_mb=swappable_vram_mb)
         return task, head
 
     def report(self, free_vram_mb: Optional[float] = None,
-               free_ram_mb: Optional[float] = None) -> list[dict]:
+               free_ram_mb: Optional[float] = None,
+               resident: Optional[str] = None,
+               swappable_vram_mb: float = 0.0) -> list[dict]:
         """Status of every head -- for a /hydra endpoint and Magic's self-report."""
+        vram_budget = (self._vram_budget(free_vram_mb, resident=resident,
+                                         swappable_vram_mb=swappable_vram_mb)
+                       if free_vram_mb is not None else None)
         rows = []
         for h in self.heads:
             fits = True
-            if free_vram_mb is not None and h.gpu and h.footprint_mb:
-                fits = fits and h.footprint_mb <= free_vram_mb
+            if vram_budget is not None and h.gpu and h.footprint_mb:
+                fits = fits and h.footprint_mb <= vram_budget
             if free_ram_mb is not None and h.requires_ram_mb:
                 fits = fits and h.requires_ram_mb <= free_ram_mb
             state = ("disabled" if not h.enabled

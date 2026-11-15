@@ -83,6 +83,24 @@ def _local_gguf_backends(registry):
     return seen
 
 
+def swappable_budget_mb(registry, free_vram_mb: float | None = None) -> tuple[float, str | None]:
+    """(swappable_vram_mb, resident_name). Total VRAM available once resident
+    local GPU models are accounted for (since ensure_only swaps them out)."""
+    free = free_mb() if free_vram_mb is None else free_vram_mb
+    if free is None:
+        free = 8000.0
+    resident_name: str | None = None
+    resident_fp = 0
+    for name, be in _local_gguf_backends(registry).items():
+        if getattr(be, "_llm", None) is not None:
+            cfg_fp = getattr(getattr(be, "info", None), "footprint_mb", 0) or None
+            fp = footprint_mb(_model_path(registry, name), configured=cfg_fp)
+            resident_fp += fp
+            if resident_name is None or name in _active:
+                resident_name = name
+    return float(free) + float(resident_fp), resident_name
+
+
 async def ensure_only(registry, keep: str | None) -> None:
     """Unload every resident local model except `keep`, and mark `keep`
     as the one Magic is holding so idle-eviction leaves it alone. Call
