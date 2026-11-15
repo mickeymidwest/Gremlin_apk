@@ -78,7 +78,7 @@ def _local_gguf_backends(registry):
         be = getattr(be, "primary", be)
         if be is None or be in seen.values():
             continue
-        if type(be).__name__ == "LlamaCppBackend":
+        if type(be).__name__ in ("LlamaCppBackend", "VisionBackend"):
             seen[name] = be
     return seen
 

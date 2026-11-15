@@ -562,8 +562,14 @@ def create_app(
                 async def _see():
                     from .magic import vram
                     await vram.ensure_only(registry, keep="qwen2.5-vl-7b")  # swap the eyes in
-                    return await magic_reply.answer_vision(
-                        _vis_be, message, str(project_root), image_b64, image_mime, history=history)
+                    try:
+                        return await magic_reply.answer_vision(
+                            _vis_be, message, str(project_root), image_b64, image_mime, history=history)
+                    finally:
+                        try:
+                            await _vis_be.unload()  # Free the eyes: next TEXT turn needs the VRAM
+                        except Exception:
+                            pass
                 result = run_coro(
                     loop,
                     _in_phase(agent_state.AgentState.REASONING, _see()),
