@@ -32,7 +32,11 @@ full-capability fallback — it is not limited to small items when it's the only
    force-push; move unwanted files to `.magic/trash/`; branch). Don't push `main`
    without Mickey asking. Self-edit `PROTECTED_PATHS` are off-limits to Magic's own
    self-edit (human-driven edits are fine).
-4. **Private-mode files** (`local_plugins/private_chat.py`, `PrivateChatActivity.kt`)
+4. **Android/Kotlin changes must COMPILE before merge:** the Python test suite does
+   NOT cover Kotlin. Run `cd android && ./gradlew assembleDebug` (via `heavy.sh`) on
+   any branch that touches `android/` before merging. (Caught magic-4.11: agys Memory
+   panel passed pytest but had an it-shadowing compile error.)
+5. **Private-mode files** (`local_plugins/private_chat.py`, `PrivateChatActivity.kt`)
    are gitignored and box-local — edit in place, never commit, 18+ hard floor stays.
 
 ## Active lanes — WHO IS DOING WHAT RIGHT NOW
