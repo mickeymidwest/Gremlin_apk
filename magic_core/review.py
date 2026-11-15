@@ -147,7 +147,13 @@ async def _review_once(
             "request_changes", "request changes", "not approve", "nt approve",
             "cannot approve", "do not approve", "would not approve", "wont approve",
             "reject", "disapprove", "changes requested", "not safe to apply",
-            "should not be applied"))
+            "should not be applied",
+            # a CONDITIONAL / hedged approval is not a clean approval -- "I'd
+            # approve this once you fix X" must fail closed, not pass.
+            "would approve", "approve once", "approve after", "approve if",
+            "approve this once", "approve, but", "approve but", "pending",
+            "conditional", "with changes", "after you", "once you", "if you fix",
+            "needs fixing", "needs changes", "provided ", "as long as", "assuming "))
         if "approve" in flat and not rejected:
             return ReviewRound(reviewer=reviewer, approved=True, feedback="")
         return ReviewRound(reviewer=reviewer, approved=False,
