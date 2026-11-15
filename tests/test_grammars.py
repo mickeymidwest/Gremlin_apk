@@ -51,14 +51,16 @@ def test_already_compiled_passes_through():
     assert grammars.compile(g) is g
 
 
-def test_malformed_grammar_degrades_to_none(monkeypatch):
+def test_malformed_grammar_degrades_to_none(monkeypatch, caplog):
     # A bad grammar must not sink the request -- it falls back to
-    # unconstrained generation. Force from_string to raise.
+    # unconstrained generation and logs why. Force from_string to raise.
     if grammars.LlamaGrammar is None:
         pytest.skip("llama_cpp not installed")
     monkeypatch.setattr(grammars.LlamaGrammar, "from_string",
                         staticmethod(lambda *a, **k: (_ for _ in ()).throw(ValueError("bad"))))
-    assert grammars.compile("this is : not ::= valid gbnf <<<") is None
+    with caplog.at_level("WARNING"):
+        assert backend_mod._build_grammar("this is : not ::= valid gbnf <<<") is None
+    assert any("GBNF grammar compile failed" in rec.message for rec in caplog.records)
 
 
 # ---- llama.cpp backend passthrough -----------------------------------

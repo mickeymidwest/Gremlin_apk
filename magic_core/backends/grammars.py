@@ -34,7 +34,10 @@ None as "no constraint" -- a clean no-op, never an error.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Optional
+
+_log = logging.getLogger(__name__)
 
 try:  # same guard shape as llamacpp_backend's `Llama` import
     from llama_cpp import LlamaGrammar
@@ -102,7 +105,8 @@ def compile(spec: Any) -> Any:
             grammar = LlamaGrammar.from_json_schema(json.dumps(spec))
         else:
             grammar = LlamaGrammar.from_string(spec, verbose=False)
-    except Exception:  # a malformed grammar must not sink the generation
+    except Exception as e:  # a malformed grammar must not sink the generation
+        _log.warning("GBNF grammar compile failed (%s): %s", type(e).__name__, e)
         return None
 
     if key is not None:

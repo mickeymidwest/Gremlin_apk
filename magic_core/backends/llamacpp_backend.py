@@ -5,6 +5,7 @@ via llama-cpp-python. Runs fully offline, no network calls.
 
 from __future__ import annotations
 import asyncio
+import logging
 import re
 import threading
 import time
@@ -15,6 +16,16 @@ from .base import ModelBackend, ModelInfo, GenerationResult
 from . import grammars
 from . import chatfmt  # noqa: F401  registers chatml-nothink
 from .. import output_health
+
+_log = logging.getLogger(__name__)
+
+
+def _build_grammar(grammar):
+    try:
+        return grammars.compile(grammar)
+    except Exception as e:
+        _log.warning("GBNF grammar compile failed (%s): %s", type(e).__name__, e)
+        return None
 
 try:
     from llama_cpp import Llama
@@ -192,6 +203,10 @@ class LlamaCppBackend(ModelBackend):
         self._llm = fut.result()
         self._last_used = time.monotonic()
 
+    @staticmethod
+    def _build_grammar(grammar):
+        return _build_grammar(grammar)
+
     async def warmup(self) -> None:
         async with self._lock:
             await self._ensure_loaded()
@@ -255,7 +270,7 @@ class LlamaCppBackend(ModelBackend):
             # Grammar-constrain the sampler when asked (local only). None
             # -> unconstrained, identical to before. Compiled+cached in
             # grammars.compile so the ReAct loop doesn't rebuild it per step.
-            _grammar = grammars.compile(grammar)
+            _grammar = self._build_grammar(grammar)
 
             try:
                 await self._ensure_loaded()
@@ -332,7 +347,7 @@ class LlamaCppBackend(ModelBackend):
         if self.no_think:
             messages[-1]["content"] += " /no_think"
 
-        _grammar = grammars.compile(grammar)
+        _grammar = self._build_grammar(grammar)
         loop = asyncio.get_event_loop()
         try:
             await asyncio.wait_for(
