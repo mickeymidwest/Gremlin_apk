@@ -472,6 +472,7 @@ async def run_self_edit(
     teacher_model: str = "gemini",
     patch: Optional[str] = None,
     used_teacher: bool = False,
+    use_build_loop: Optional[bool] = None,
 ) -> dict:
     """Non-interactive version of main.py's cmd_improve -- same propose ->
     two-reviewer gate -> apply pipeline, but returns a plain dict instead
@@ -489,6 +490,21 @@ async def run_self_edit(
     that already ran propose_patch itself (main.py's cmd_improve, so its
     dry-run preview and the patch actually reviewed/applied are the same
     proposal, not two separate model calls) skip proposing again here."""
+    from . import build_loop
+    loop_on = build_loop.enabled() if use_build_loop is None else bool(use_build_loop)
+    if loop_on and patch is None:
+        return await build_loop.run_self_improve_loop(
+            router,
+            root,
+            goal,
+            model_names,
+            reviewer_a=reviewer_a,
+            reviewer_b=reviewer_b,
+            run_tests=run_tests,
+            teach_on_failure=teach_on_failure,
+            teacher_model=teacher_model,
+        )
+
     try:
         with git_mutation_lock(root):
             if patch is None:

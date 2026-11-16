@@ -627,7 +627,54 @@ async def cmd_improve(
     consult_models: Optional[list[str]] = None,
     teach_on_failure: bool = False,
     teacher_model: str = "gemini",
+    use_loop: Optional[bool] = None,
 ):
+    from magic_core import build_loop
+    loop_on = build_loop.enabled() if use_loop is None else bool(use_loop)
+    if loop_on:
+        if not do_apply:
+            import shutil
+            import subprocess
+            import tempfile
+            wt = tempfile.mkdtemp(prefix="magic-improve-loop-")
+            try:
+                r = subprocess.run(
+                    ["git", "-C", PROJECT_ROOT, "worktree", "add", "--detach", "-q", wt, "HEAD"],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if r.returncode != 0:
+                    shutil.copytree(
+                        PROJECT_ROOT, wt, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models", "*.gguf"),
+                    )
+                res = await build_loop.run_build_loop(
+                    router, wt, goal, model_names,
+                    mode="self_improve",
+                    reviewer_a=reviewer_a, reviewer_b=reviewer_b,
+                    teacher_model=teacher_model, run_tests=run_tests, skip_review=True,
+                )
+                print(res.render_trace())
+                if res.combined_diff.strip():
+                    print("\n=== Combined diff ===\n" + res.combined_diff)
+                print("\n(dry run in isolated worktree -- rerun with --apply to commit to this repo)")
+            finally:
+                subprocess.run(
+                    ["git", "-C", PROJECT_ROOT, "worktree", "remove", "--force", wt],
+                    capture_output=True, text=True, timeout=30,
+                )
+                shutil.rmtree(wt, ignore_errors=True)
+            return
+
+        result = await self_improve.run_self_edit(
+            router, PROJECT_ROOT, goal, model_names,
+            reviewer_a=reviewer_a, reviewer_b=reviewer_b, run_tests=run_tests,
+            allow_consult_override=allow_consult_override, consult_models=consult_models,
+            teach_on_failure=teach_on_failure, teacher_model=teacher_model,
+            use_build_loop=True,
+        )
+        print(result.get("trace") or result.get("reason") or "build loop finished")
+        return
+
     print(f"Asking {', '.join(model_names)} to propose changes for: {goal}\n")
     patch, used_teacher = await self_improve.propose_with_retry_and_teacher(
         router, model_names, goal, PROJECT_ROOT, teacher_model,
@@ -675,19 +722,55 @@ async def cmd_build(
     reviewer_a: str,
     reviewer_b: str,
     target_dir: Optional[str] = None,
+    use_loop: Optional[bool] = None,
 ):
     safe_name = build_project.sanitize_folder_name(name)
     if not safe_name:
         print(f"'{name}' isn't a usable folder name -- letters, numbers, hyphens, underscores only.")
         return
     target_root = target_dir or str(Path.home() / "Downloads" / safe_name)
-    Path(target_root).mkdir(parents=True, exist_ok=True)
     # Just the primary, not every registered model -- see the matching
     # comment in actions.py's build_project handler.
     primary_name = registry.primary_model_name()
     model_names = [primary_name] if primary_name else [
         n for n in registry.names() if registry.get(n).info.kind != "persona"
     ]
+
+    from magic_core import build_loop
+    loop_on = build_loop.enabled() if use_loop is None else bool(use_loop)
+    if loop_on:
+        if not do_apply:
+            import shutil
+            import tempfile
+            wt = tempfile.mkdtemp(prefix="magic-build-preview-")
+            try:
+                if Path(target_root).exists():
+                    shutil.copytree(
+                        target_root, wt, dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns(".git", "__pycache__", "venv", ".venv"),
+                    )
+                res = await build_loop.run_build_loop(
+                    router, wt, goal, model_names,
+                    mode="build", magic_root=PROJECT_ROOT,
+                    reviewer_a=reviewer_a, reviewer_b=reviewer_b,
+                    run_tests=run_tests, skip_review=True,
+                )
+                print(res.render_trace())
+                print("\n(dry run -- rerun with --apply to actually write this)")
+            finally:
+                shutil.rmtree(wt, ignore_errors=True)
+            return
+
+        Path(target_root).mkdir(parents=True, exist_ok=True)
+        result = await build_project.run_build(
+            router, PROJECT_ROOT, target_root, goal, model_names,
+            reviewer_a=reviewer_a, reviewer_b=reviewer_b, run_tests=run_tests,
+            consult_models=registry.consult_models(), use_build_loop=True,
+        )
+        print(result.get("trace") or result.get("reason") or "build loop finished")
+        return
+
+    Path(target_root).mkdir(parents=True, exist_ok=True)
 
     bootstrap = build_project._is_bootstrap(target_root)
     label = "new project (whole files)" if bootstrap else "diff against existing project"
@@ -918,6 +1001,7 @@ async def main():
             run_tests = "--test" in extra_args
             allow_consult_override = "--allow-consult-override" in extra_args
             teach_on_failure = "--teach-on-failure" in extra_args
+            use_loop = True if "--loop" in extra_args else None
             # Defaults matching tools.py's _review_models(): gpt-oss-20b/
             # deepseek-r1-distill-8b were pruned from config/models.yaml
             # in the 5-model migration and no longer exist -- using them
@@ -940,6 +1024,7 @@ async def main():
                 allow_consult_override=allow_consult_override,
                 consult_models=registry.consult_models(),
                 teach_on_failure=teach_on_failure, teacher_model=teacher_model,
+                use_loop=use_loop,
             )
         elif cmd == "research":
             extra = sys.argv[2:]
@@ -984,6 +1069,7 @@ async def main():
             extra_args = sys.argv[4:]
             do_apply = "--apply" in extra_args
             run_tests = "--test" in extra_args
+            use_loop = True if "--loop" in extra_args else None
             from magic_core import tools as tools_mod
             reviewer_a, reviewer_b = tools_mod._review_models(
                 tools_mod.ExecContext(router=router, registry=registry, project_root=str(PROJECT_ROOT)))
@@ -995,7 +1081,7 @@ async def main():
                     reviewer_b = arg.split("=", 1)[1]
                 elif arg.startswith("--dir="):
                     target_dir = arg.split("=", 1)[1]
-            await cmd_build(registry, router, name, goal, do_apply, run_tests, reviewer_a, reviewer_b, target_dir)
+            await cmd_build(registry, router, name, goal, do_apply, run_tests, reviewer_a, reviewer_b, target_dir, use_loop=use_loop)
         elif cmd == "auto-fix":
             await cmd_auto_fix(registry, router)
         elif cmd == "edit":

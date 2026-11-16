@@ -474,6 +474,7 @@ async def run_build(
     teacher_model: str = "gemini",
     used_teacher: bool = False,
     skip_review: bool = False,
+    use_build_loop: Optional[bool] = None,
 ) -> dict:
     """Same propose -> two-reviewer gate -> apply pipeline as
     self_improve.run_self_edit, retargeted at an arbitrary new project
@@ -498,6 +499,22 @@ async def run_build(
     When True, the proposed patch is applied directly with no reviewer
     calls at all (not even a rubber-stamp) -- faster, and doesn't burn
     a review round on something mickey's fine deciding himself."""
+    from . import build_loop
+    loop_on = build_loop.enabled() if use_build_loop is None else bool(use_build_loop)
+    if loop_on and patch is None:
+        return await build_loop.run_project_build_loop(
+            router,
+            magic_root,
+            target_root,
+            goal,
+            model_names,
+            reviewer_a=reviewer_a,
+            reviewer_b=reviewer_b,
+            run_tests=run_tests,
+            teacher_model=teacher_model,
+            skip_review=skip_review,
+        )
+
     Path(target_root).mkdir(parents=True, exist_ok=True)
     bootstrap = _is_bootstrap(target_root)
 

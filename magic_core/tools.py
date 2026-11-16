@@ -443,8 +443,9 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
             run_hint="the changed code")
         receipt.unknown.append("it isn't live until Magic restarts")
     if result.get("applied") and result.get("committed"):
+        verdict = f"\n{result['verdict']}" if result.get("verdict") else ""
         return receipt_mod.attach({
-            "answer": f"Done -- {result.get('commit_message')}\nFiles changed: {result.get('files_changed')}",
+            "answer": f"Done -- {result.get('commit_message')}\nFiles changed: {result.get('files_changed')}{verdict}",
             "action": "self_edit",
             "ok": True,
         }, receipt)
@@ -501,9 +502,10 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
                             else ["NOT committed: " + str(result.get("warning") or "commit failed")]),
             run_hint="the program")
     if result.get("applied") and result.get("committed"):
+        verdict = f"\n{result['verdict']}" if result.get("verdict") else ""
         return receipt_mod.attach({
             "answer": f"Built it in ~/Downloads/{safe_name}/ -- {result.get('commit_message')}\n"
-                      f"Files: {result.get('files_changed')}",
+                      f"Files: {result.get('files_changed')}{verdict}",
             "action": "build_project",
             "ok": True,
         }, receipt)
