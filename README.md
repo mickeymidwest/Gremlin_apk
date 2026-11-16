@@ -1127,6 +1127,24 @@ to you.
 See `android/README.md` for Android-specific details (downloading the
 built APK, opening it in Android Studio, the Gradle wrapper caveat).
 
+## Reverse engineering with REA (`rea.tools` MCP integration)
+
+Magic integrates the real **REA (`rea-agents`, github.com/morluto/rea)** MCP server via `magic_core/mcp_bridge.py` (`data/mcp_servers.json`, `read_only: false`).
+
+- **Natural requests & `/inspect`:** Ask Magic `"reverse engineer /path/to/target"`, `"inspect /path/to/app.apk"`, `"run analyze-javascript-application on /path/to/app.js"`, or run `/inspect [rea_tool] <target>` from chat or CLI.
+- **Static analysis (unsandboxed, observe-only):**
+  - JS/TS/Electron/ASAR: `analyze_javascript_application`
+  - Android APKs: `inspect_apk_signature` + `inspect_android_package` (via `jadx-headless-mcp-0.7.1-all.jar` at `~/.local/share/rea/android/`)
+  - WebAssembly: `inspect_wasm_artifact` (via WABT 1.0.42 at `~/.local/share/rea/wabt/wabt-1.0.42/bin`)
+  - .NET / PE: `inspect_managed_artifact`, `inspect_pe_imports`, `inspect_pe_certificates`, `inspect_pe_load_config`
+  - Native ELF / Mach-O / Go / Rust / SQLite / GGUF: `inspect_binary_hardening`, `inspect_elf_notes`, `inspect_native_exports`, `inspect_native_initializers`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_sqlite_database`, `inspect_model_artifact`
+- **Dynamic execution (gated + bubblewrap-sandboxed):** Any REA tool that executes or drives a target (`capture_process_scenario`, `gdb_console`, `instrument_with_frida`, `execute_rizin_command`, `capture_browser_scenario`, etc.) stays behind Magic's confirmation gate (`read_only: false`) and runs inside `magic_core/bwrap_sandbox.py` (`--unshare-net`, `--clearenv`, read-only filesystem mounts, tmpfs `/tmp`).
+- **Optional `sudo` installs for deep native decompilation:** To enable Ghidra deep native decompilation, Apktool resource decoding, firmware extraction, and PCAP/ADB tools, run:
+  ```bash
+  sudo pacman -S --needed ghidra android-apktool binwalk wireshark-cli android-tools rizin
+  ```
+  and set `"GHIDRA_INSTALL_DIR": "/opt/ghidra"` in `data/mcp_servers.json`'s `env`.
+
 ## Scope note
 
 This is a local orchestration app that runs on top of Manjaro, not a new

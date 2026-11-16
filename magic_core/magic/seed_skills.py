@@ -1177,6 +1177,19 @@ _SEED = [
             "the correction should hold for every reply after this one, not just this one turn",
         ],
     ),
+    dict(
+        name="reverse-engineer-anything",
+        purpose="use the integrated REA MCP server (`rea-agents`, rea.tools) to reverse-engineer binaries, APKs, JS/Electron/.NET apps, and WASM",
+        trigger_when="asked to reverse engineer, decompile, disassemble, or inspect a binary, APK, JS/Electron app, .NET assembly, WASM module, or URL (`/inspect` or natural request)",
+        trigger_matcher=r"\brea\b|/inspect\b|reverse.?engineer|decompil|disassembl|analyze[_-]javascript|inspect[_-]apk|inspect[_-]android|inspect[_-]binary|inspect[_-]wasm|\.asar\b|\.wasm\b",
+        procedure=[
+            "route `/inspect <target>` or natural reverse-engineering requests through the `inspect` tool (which dispatches to REA's MCP server) or the specific `mcp_rea_<tool>` entry in `data/mcp_servers.json`",
+            "choose the right REA tool for the artifact: `analyze_javascript_application` for JS/TS/Electron/ASAR, `inspect_apk_signature` + `inspect_android_package` (JADX MCP) for Android APKs, `inspect_wasm_artifact` (WABT) for WASM, `inspect_managed_artifact` for .NET",
+            "for native ELF/PE/Mach-O binaries without Ghidra/IDA, start with REA's target-free static tools (`inspect_binary_hardening`, `inspect_elf_notes`, `inspect_native_exports`, `inspect_native_initializers`, `inspect_go_binary`, `inspect_rust_binary`, `inspect_pe_imports`)",
+            "keep dynamic target-executing tools (`capture_process_scenario`, `gdb_console`, `instrument_with_frida`, `execute_rizin_command`, `capture_browser_scenario`) behind Magic's confirmation gate and inside `bwrap_sandbox` (`--unshare-net`, `--clearenv`, read-only mounts)",
+            "cite the returned REA `evidence_id`, subject SHA-256 digest, and `normalized_result` findings, and distinguish static observations from runtime behavior",
+        ],
+    ),
 ]
 
 
