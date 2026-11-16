@@ -1,23 +1,200 @@
-"""Inspect skill (REA-style -- "reverse engineer anything", from a user
-screenshot 2026-11-09): read-only reverse engineering of a file/binary, an
-Android APK, or a website / JavaScript, to understand what it does and flag
-sketchy behaviour.
+"""Reverse-engineering / inspection via REA ("Reverse Engineer Anything",
+rea.tools / github.com/morluto/rea) over Magic's MCP bridge (`mcp_bridge`).
 
-OBSERVE-ONLY and defensive. Trusted, read-only tools (file, readelf, nm,
-objdump, strings, unzip, jadx) READ the target; the target is NEVER executed,
-nothing is modified, and only the file or URL Mickey points at is inspected.
-This is for understanding an app/binary/site (is it safe, what does it reach
-for), the same spirit as the guard/phone_guard checks -- not for attacking
-anything.
+REA (`rea-agents` MCP server configured in `data/mcp_servers.json`) is the
+PRIMARY path for reverse-engineering native binaries, Android APKs, JS/Electron
+apps, .NET assemblies, WASM modules, SQLite DBs, and GGUF models. The local
+read-only helpers below are kept only as an offline fallback when the REA MCP
+server is not available.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
+from typing import Optional
+
+from . import mcp_bridge
 
 _CLIP = 8000
+_DEFAULT_ROOT = str(Path(__file__).resolve().parent.parent)
+
+
+def _format_rea_result(tool_name: str, raw_text: str) -> str:
+    """Format a canonical REA MCP Evidence JSON string into a readable report
+    that preserves the Evidence ID, subject digest, provider, and normalized
+    result."""
+    text = (raw_text or "").strip()
+    if not text:
+        return f"[REA MCP · {tool_name}] (empty response)"
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return f"[REA MCP · {tool_name}]\n{_clip(text, 7500)}"
+    if not isinstance(obj, dict):
+        return f"[REA MCP · {tool_name}]\n{_clip(text, 7500)}"
+    if "error" in obj and isinstance(obj["error"], dict):
+        err = obj["error"]
+        return (
+            f"[REA MCP · {tool_name} · error={err.get('code', 'unknown')}]\n"
+            f"{err.get('message', text)}"
+        )
+    ev_id = obj.get("evidence_id") or "(no evidence_id)"
+    op = obj.get("operation") or tool_name
+    subj = obj.get("subject") or {}
+    prov = obj.get("provider") or {}
+    norm = obj.get("normalized_result")
+    header = [
+        f"[REA MCP · {op} · {ev_id}]",
+        f"Subject: {subj.get('local_path') or subj.get('name') or '?'} "
+        f"(format={subj.get('format')}, arch={subj.get('architecture')}, "
+        f"sha256={(subj.get('digest') or {}).get('sha256', '?')})",
+        f"Provider: {prov.get('name') or prov.get('id') or 'rea'} v{prov.get('version', '?')}",
+    ]
+    body = json.dumps(norm if norm is not None else obj, indent=2)
+    return "\n".join(header) + "\n" + _clip(body, 6500)
+
+
+_KNOWN_REA_PREFIX_RE = re.compile(
+    r"^(?:mcp_rea_)?((?:analyze|inspect|audit|open|binary|search|trace|list|compare|get)_[a-z0-9_]+|"
+    r"(?:analyze|inspect|audit|open|binary|search|trace|list|compare|get)-[a-z0-9-]+)\s+(.+)$",
+    re.I,
+)
+
+
+def parse_tool_and_target(raw: str, explicit_tool: str = "") -> tuple[str, str]:
+    """Split an optional leading REA tool name from the target string, e.g.
+    'analyze-javascript-application /tmp/app.js' -> ('analyze_javascript_application', '/tmp/app.js')."""
+    t = (explicit_tool or "").strip().lower().removeprefix("mcp_rea_").replace("-", "_")
+    s = (raw or "").strip()
+    if t:
+        return t, s
+    m = _KNOWN_REA_PREFIX_RE.match(s)
+    if m:
+        return m.group(1).lower().replace("-", "_"), m.group(2).strip()
+    return "", s
+
+
+def inspect_via_rea(
+    target: str,
+    *,
+    kind: str = "auto",
+    tool: str = "",
+    project_root: Optional[str] = None,
+) -> Optional[str]:
+    """Run real REA MCP inspection on `target`. Returns the formatted REA
+    report, or None if the REA MCP server is not available so the caller can
+    fall back to offline inspection."""
+    root = project_root or _DEFAULT_ROOT
+    parsed_tool, clean_target = parse_tool_and_target(target, tool)
+    client = mcp_bridge.get_client("rea", root=root)
+    if client is None:
+        return None
+
+    if parsed_tool:
+        r = mcp_bridge.call_tool("rea", parsed_tool, {"target": clean_target}, root=root)
+        return _format_rea_result(parsed_tool, r.get("text", ""))
+
+    if re.match(r"^https?://", clean_target, re.I):
+        import requests
+        try:
+            resp = requests.get(clean_target, headers={"User-Agent": "Mozilla/5.0 Magic/1.0"}, timeout=12)
+            body = resp.text or ""
+        except Exception:
+            return None
+        with tempfile.TemporaryDirectory(prefix="magic-rea-url-") as td:
+            inline = "\n".join(re.findall(r"<script\b[^>]*>(.*?)</script>", body, re.S | re.I)).strip()
+            js_code = inline if ("<html" in body[:4000].lower() or "<script" in body[:4000].lower()) else body
+            if not js_code.strip():
+                js_code = f"// fetched from {clean_target}\n"
+            f = Path(td) / "remote.js"
+            f.write_text(js_code)
+            r = mcp_bridge.call_tool(
+                "rea",
+                "analyze_javascript_application",
+                {"input_path": str(Path(td).resolve()), "source_paths": ["remote.js"]},
+                root=root,
+            )
+            if not r.get("is_error"):
+                return f"Target URL: {clean_target}\n" + _format_rea_result("analyze_javascript_application", r.get("text", ""))
+        return None
+
+    try:
+        p = Path(clean_target).expanduser().resolve()
+    except (OSError, ValueError):
+        return None
+    if not p.exists():
+        return None
+
+    low = p.name.lower()
+    if p.is_dir() or kind == "js" or low.endswith((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".asar")):
+        r = mcp_bridge.call_tool("rea", "analyze_javascript_application", {"input_path": str(p)}, root=root)
+        if not r.get("is_error"):
+            return _format_rea_result("analyze_javascript_application", r.get("text", ""))
+        return None
+
+    if kind == "apk" or low.endswith(".apk"):
+        sections = []
+        r_sig = mcp_bridge.call_tool("rea", "inspect_apk_signature", {"path": str(p)}, root=root)
+        if not r_sig.get("is_error"):
+            sections.append(_format_rea_result("inspect_apk_signature", r_sig.get("text", "")))
+        r_pkg = mcp_bridge.call_tool("rea", "inspect_android_package", {"path": str(p), "detail": "summary"}, root=root)
+        if not r_pkg.get("is_error"):
+            sections.append(_format_rea_result("inspect_android_package", r_pkg.get("text", "")))
+        if sections:
+            return _clip("\n\n".join(sections), 9000)
+        return None
+
+    if low.endswith(".wasm"):
+        r = mcp_bridge.call_tool("rea", "inspect_wasm_artifact", {"path": str(p), "detail": "summary"}, root=root)
+        if not r.get("is_error"):
+            return _format_rea_result("inspect_wasm_artifact", r.get("text", ""))
+
+    if low.endswith(".pyc"):
+        r = mcp_bridge.call_tool("rea", "inspect_python_pyc", {"path": str(p)}, root=root)
+        if not r.get("is_error"):
+            return _format_rea_result("inspect_python_pyc", r.get("text", ""))
+
+    if low.endswith((".sqlite", ".sqlite3", ".db")):
+        r = mcp_bridge.call_tool("rea", "inspect_sqlite_database", {"path": str(p)}, root=root)
+        if not r.get("is_error"):
+            return _format_rea_result("inspect_sqlite_database", r.get("text", ""))
+
+    if low.endswith((".gguf", ".safetensors")):
+        r = mcp_bridge.call_tool("rea", "inspect_model_artifact", {"path": str(p)}, root=root)
+        if not r.get("is_error"):
+            return _format_rea_result("inspect_model_artifact", r.get("text", ""))
+
+    if low.endswith((".dll", ".exe")):
+        sections = []
+        for tname, extra in (
+            ("inspect_binary_hardening", {}),
+            ("inspect_pe_imports", {}),
+            ("inspect_pe_certificates", {}),
+            ("inspect_managed_artifact", {"detail": "summary"}),
+        ):
+            r = mcp_bridge.call_tool("rea", tname, {"path": str(p), **extra}, root=root)
+            if not r.get("is_error"):
+                sections.append(_format_rea_result(tname, r.get("text", "")))
+        if sections:
+            return _clip("\n\n".join(sections), 9000)
+
+    sections = []
+    for tname, extra in (
+        ("inspect_binary_hardening", {}),
+        ("inspect_elf_notes", {}),
+        ("inspect_native_exports", {"detail": "summary"}),
+        ("inspect_native_initializers", {"limit": 32}),
+    ):
+        r = mcp_bridge.call_tool("rea", tname, {"path": str(p), **extra}, root=root)
+        if not r.get("is_error"):
+            sections.append(_format_rea_result(tname, r.get("text", "")))
+    if sections:
+        return _clip("\n\n".join(sections), 9000)
+    return None
 
 
 def _run(argv: list[str], timeout: float = 30.0) -> str:
@@ -76,6 +253,9 @@ def _notable_strings(data: bytes) -> list[str]:
 # ------------------------------------------------------------ file / binary
 
 def inspect_file(path: str) -> str:
+    rea_out = inspect_via_rea(path, kind="file")
+    if rea_out is not None:
+        return rea_out
     p = _resolve(path)
     if p is None:
         return f"I can't see a file at {path!r}. Give me a path to a file you have."
@@ -127,6 +307,9 @@ _RISKY_PERMS = {
 
 
 def inspect_apk(path: str, *, jadx_timeout: int = 90) -> str:
+    rea_out = inspect_via_rea(path, kind="apk")
+    if rea_out is not None:
+        return rea_out
     import tempfile
     p = _resolve(path)
     if p is None:
@@ -199,6 +382,9 @@ def inspect_site(target: str) -> str:
     t = (target or "").strip()
     if not t:
         return "Give me a URL (https://...) or a .js file/URL to inspect."
+    rea_out = inspect_via_rea(t, kind="js")
+    if rea_out is not None:
+        return rea_out
     is_url = bool(re.match(r"^https?://", t, re.I))
 
     if is_url:

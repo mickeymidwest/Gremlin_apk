@@ -1031,8 +1031,37 @@ async def _hive_cmd(args: str, ctx) -> dict:
             "answer": f"[{sub} \u00b7 {r.model} \u00b7 {r.secs}s]\n{r.text}"}
 
 
+async def _inspect_cmd(args: str, ctx: CommandContext) -> dict:
+    """Reverse-engineer / inspect a file, APK, JS/Electron app, WASM module, or
+    URL via the REA MCP server (`rea-agents`, with offline fallback).
+    Usage: `/inspect <target>` or `/inspect <rea_tool> <target>`."""
+    from .. import tools as tools_mod
+    t = (args or "").strip()
+    if not t:
+        return {
+            "ok": False,
+            "action": "inspect",
+            "answer": (
+                "Usage: /inspect <path | .apk | .js | .wasm | https://...>  or  "
+                "/inspect <rea_tool> <path>\n"
+                "Examples:\n"
+                "  /inspect /path/to/app.apk\n"
+                "  /inspect analyze_javascript_application /path/to/app.js\n"
+                "  /inspect inspect_apk_signature /path/to/app.apk\n"
+                "  /inspect inspect_binary_hardening /usr/bin/ls"
+            ),
+        }
+    exec_ctx = tools_mod.ExecContext(
+        router=ctx.router,
+        registry=ctx.registry,
+        project_root=ctx.project_root,
+    )
+    return await tools_mod._tool_inspect({"target": t}, exec_ctx)
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Magic. No tools, no routing.", _chat),
+    "inspect": Command("inspect", "Reverse-engineer / inspect a binary, APK, JS/Electron/.NET/WASM app, or URL via REA MCP (`rea.tools`). Usage: `/inspect [rea_tool] <target>`.", _inspect_cmd),
     "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
                      "new <desc> | improve <name> | <fix>. Falls back to Gemini to draft.", _skill),
     "defense": Command("defense", "Check your own box: surface | updates | ssh | "

@@ -37,3 +37,20 @@ def test_action_hint_fires_on_inspect_phrasings():
         assert H.search(c), f"_ACTION_HINT should fire on: {c!r}"
     for c in ["how was your day", "tell me a joke", "what time is it in Tokyo"]:
         assert not H.search(c), f"_ACTION_HINT should NOT fire on: {c!r}"
+
+
+def test_fast_inspect_intent_routes_rea_requests():
+    from magic_core import intent as I
+    i1 = I._fast_inspect_intent("reverse engineer /usr/bin/ls")
+    assert i1 is not None and i1.action == "inspect" and i1.args["target"] == "/usr/bin/ls"
+
+    i2 = I._fast_inspect_intent("run analyze-javascript-application on /tmp/app.js")
+    assert i2 is not None and i2.action == "inspect"
+    assert i2.args["target"] == "/tmp/app.js"
+    assert i2.args["tool"] == "analyze_javascript_application"
+
+    i3 = I._fast_inspect_intent("inspect_apk_signature /tmp/a.apk")
+    assert i3 is not None and i3.action == "inspect"
+    assert i3.args["target"] == "/tmp/a.apk"
+    assert i3.args["tool"] == "inspect_apk_signature"
+

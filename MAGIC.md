@@ -248,6 +248,7 @@ the list.
 | cmd | does |
 |---|---|
 | `/chat` | plain chat — folds in the memory file + recent away turns + this thread's history. The app's default. |
+| `/inspect` | reverse-engineer / inspect a binary, APK, JS/Electron/.NET/WASM app, or URL via the REA MCP server (`rea-agents` in `data/mcp_servers.json`, with offline fallback). Usage: `/inspect [rea_tool] <target>`. |
 | `/do` | answer a question that needs live data — Magic runs read-only shell (`df`, `ps`, `systemctl status`, `docker ps`) and shows the commands it ran |
 | `/memory` | what Magic remembers about you: `list` / `forget <n>` / `clear`. Same `~/Downloads/gremlin_memory.txt` you can edit by hand. |
 | `/profile` | how Mickey likes things: `show` / `keep <n>` / `drop <n>` / `add <section> <text>`. Guesses from chat land under Noticed until he keeps them. `~/Downloads/gremlin_profile.md`, editable by hand, never pushed. |

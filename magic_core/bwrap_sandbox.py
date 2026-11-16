@@ -89,3 +89,178 @@ def run_python_tool(script_path: str, stdin_data: str = "", *,
         return 124, "", "sandbox timeout"
     except Exception as e:  # noqa
         return 1, "", f"sandbox error: {type(e).__name__}: {e}"
+
+
+# REA tools audited with `executesForeignCode: true` in REA's contracts:
+# they launch, attach to, or drive an analysis target (PTY, debugger, Frida,
+# Rizin, Cutter, Electron/browser scenario, build computer). Static analysis
+# tools never execute the target and run unsandboxed; dynamic/execution tools
+# MUST run inside the bubblewrap sandbox so an untrusted binary cannot harm the
+# host filesystem, network, or environment.
+REA_DYNAMIC_EXEC_TOOLS: frozenset[str] = frozenset({
+    "capture_process_scenario",
+    "capture_browser_scenario",
+    "capture_electron_scenario",
+    "capture_native_ui_scenario",
+    "observe_native_calls",
+    "gdb_console",
+    "close_gdb_session",
+    "start_rizin_debug_session",
+    "rizin_debug_command",
+    "close_rizin_debug_session",
+    "execute_rizin_command",
+    "instrument_with_frida",
+    "load_frida_script",
+    "resume_frida_session",
+    "close_frida_session",
+    "cutter_command",
+    "start_build_computer",
+    "act_on_build_computer",
+    "start_build_capture",
+    "export_build_environment",
+    "check_build_task",
+    "measure_build_task",
+})
+
+_NON_EXEC_DESTRUCTIVE_TOOLS: frozenset[str] = frozenset({
+    "open_binary",
+    "close_binary",
+    "export_evidence_bundle",
+    "reset_investigation",
+    "update_analysis_settings",
+})
+
+
+def is_dynamic_exec_tool(tool: "dict | str") -> bool:
+    """Return True if an MCP tool executes or drives a target binary/app."""
+    if isinstance(tool, str):
+        name = tool.removeprefix("mcp_rea_")
+        return name in REA_DYNAMIC_EXEC_TOOLS
+    name = str(tool.get("name") or "").removeprefix("mcp_rea_")
+    if name in REA_DYNAMIC_EXEC_TOOLS:
+        return True
+    annotations = tool.get("annotations") or {}
+    if annotations.get("destructiveHint") and name not in _NON_EXEC_DESTRUCTIVE_TOOLS:
+        return True
+    return False
+
+
+def wrap_bwrap_command(
+    argv: list[str],
+    *,
+    ro_binds: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    mem_mb: int = 1024,
+) -> tuple[list[str], dict[str, str]]:
+    """Wrap an arbitrary command argv in bubblewrap isolation (--unshare-net,
+    --clearenv, read-only host mounts, tmpfs /tmp) for dynamic target execution.
+    Falls back to scrubbed env when bwrap is unavailable."""
+    safe_env = dict(_SCRUBBED_ENV)
+    if env:
+        for k in ("PATH", "REA_JADX_MCP_JAR", "REA_WABT_BIN_DIRECTORY", "GHIDRA_INSTALL_DIR", "JAVA_HOME"):
+            if k in env and env[k]:
+                safe_env[k] = str(env[k])
+    safe_env["NODE_OPTIONS"] = f"--max-old-space-size={int(mem_mb)}"
+
+    if not HAVE_BWRAP:
+        return list(argv), safe_env
+
+    cmd = [
+        "bwrap",
+        "--clearenv",
+        "--setenv", "HOME", "/tmp",
+        "--setenv", "LANG", "C.UTF-8",
+        "--setenv", "NODE_OPTIONS", safe_env["NODE_OPTIONS"],
+    ]
+    for k, v in safe_env.items():
+        if k not in ("HOME", "LANG", "NODE_OPTIONS"):
+            cmd += ["--setenv", k, v]
+    cmd += [
+        "--unshare-net", "--unshare-ipc", "--unshare-pid", "--unshare-uts",
+        "--die-with-parent", "--new-session",
+        "--proc", "/proc", "--dev", "/dev",
+        "--tmpfs", "/tmp", "--chdir", "/tmp",
+        "--ro-bind", "/usr", "/usr",
+        "--ro-bind", "/bin", "/bin",
+        "--ro-bind", "/lib", "/lib",
+    ]
+    seen_binds = {"/usr", "/bin", "/lib", "/tmp", "/proc", "/dev"}
+    extra_dirs = [
+        "/lib64", "/sbin", "/etc/alternatives", "/etc/ld.so.cache",
+        "/usr/lib", "/opt",
+        os.path.expanduser("~/.nvm"),
+        os.path.expanduser("~/.local"),
+    ]
+    for b in (ro_binds or []):
+        if b:
+            extra_dirs.append(os.path.abspath(os.path.expanduser(str(b))))
+    for d in extra_dirs:
+        if d and d not in seen_binds and os.path.exists(d):
+            seen_binds.add(d)
+            cmd += ["--ro-bind", d, d]
+    cmd += list(argv)
+    return cmd, safe_env
+
+
+def _extract_target_binds(arguments: dict) -> list[str]:
+    """Find existing local file/directory paths in tool arguments so they can be
+    read-only bound into the bwrap container when inspecting/running a target."""
+    binds: list[str] = []
+    if not isinstance(arguments, dict):
+        return binds
+    for val in arguments.values():
+        candidates = [val] if isinstance(val, str) else (val if isinstance(val, list) else [])
+        for item in candidates:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            p = os.path.abspath(os.path.expanduser(item.strip()))
+            if os.path.isdir(p):
+                binds.append(p)
+            elif os.path.isfile(p):
+                binds.append(os.path.dirname(p))
+    return binds
+
+
+def run_mcp_tool_sandboxed(
+    spec: dict,
+    tool_name: str,
+    arguments: dict,
+    *,
+    timeout: float = 60.0,
+    mem_mb: int = 1024,
+) -> dict:
+    """Execute a dynamic/target-executing MCP tool inside an isolated bubblewrap
+    sandbox so reverse-engineering an untrusted binary cannot touch the host
+    filesystem, network, or secrets."""
+    from .mcp_client import MCPClient
+
+    command = str(spec.get("command") or "")
+    args = [str(a) for a in (spec.get("args") or [])]
+    if not command:
+        return {"text": "MCP sandbox error: missing command", "is_error": True}
+
+    ro_binds = _extract_target_binds(arguments or {})
+    wrapped_argv, safe_env = wrap_bwrap_command(
+        [command, *args],
+        ro_binds=ro_binds,
+        env=spec.get("env"),
+        mem_mb=mem_mb,
+    )
+    client = MCPClient(
+        wrapped_argv[0],
+        wrapped_argv[1:],
+        env=safe_env,
+        cwd="/tmp",
+        timeout=timeout,
+        name=f"{spec.get('name', 'mcp')}-sandbox",
+    )
+    if not client.start():
+        return {
+            "text": f"Sandboxed MCP server {spec.get('name', 'mcp')} failed to start",
+            "is_error": True,
+        }
+    try:
+        return client.call_tool(tool_name, arguments or {})
+    finally:
+        client.stop()
+
