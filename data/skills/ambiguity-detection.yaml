@@ -15,7 +15,7 @@ procedure:
 - 'Analyze the specific ambiguity: determine if it affects logic, library choice, error handling,
   or file structure.'
 - If the ambiguity results in materially different code or behavior, stop immediately and
-  generate a single, targeted question asking the user to choose between the options or provide
+  generate a single, targeted question asking the user to choose between options or provide
   the missing constraint.
 - If the ambiguity is minor (style only) or only one interpretation is safe and obvious, proceed
   to generate code without asking.
@@ -28,6 +28,7 @@ provenance:
 - proposed
 - refined@1794717099
 - refined@1794719520
+- refined@1794802524
 created: 1793752469.3142495
 record:
   uses: 2
@@ -36,5 +37,5 @@ record:
   score_deltas:
   - 0.0
   - 0.0
-  last_used_battle: battle_0036_graph
+  last_used_battle: battle_0037_csvreport
   battles_available: 2

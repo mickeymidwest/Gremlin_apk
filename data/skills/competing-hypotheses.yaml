@@ -3,9 +3,9 @@ name: competing-hypotheses
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Systematically validate the most probable root cause among multiple candidates by
-  executing targeted verification commands in sequence, ensuring the fix is applied only after
-  positive confirmation and regression testing.
+purpose: Isolate the exact root cause among multiple candidates by executing targeted verification
+  commands in sequence, ensuring the fix is applied only after positive confirmation and full
+  regression testing.
 trigger_when: The diagnostic phase identifies two or more plausible root causes (e.g., config
   mismatch, path error, dependency issue, permission denial, or runtime state) that cannot
   be immediately distinguished by a single quick check.
@@ -13,9 +13,9 @@ trigger_matcher: bug|failure|broken|why is|root cause|crash
 procedure:
 - 1. Enumerate exactly 3 distinct candidate hypotheses, specifying the exact file path, line
   number, or configuration key responsible for each.
-- 2. For each hypothesis, generate a single, executable verification command or code snippet
-  (e.g., `grep -n 'keyword' file.txt`, `ls -l path`, `python -c 'import module'`) that returns
-  a definitive True/False or Error status.
+- 2. For each hypothesis, generate a single, executable verification command (e.g., `grep
+  -n 'keyword' file.txt`, `ls -l path`, `python -c 'import module'`) that returns a definitive
+  True/False or Error status.
 - '3. Execute the verification command for the #1 most likely hypothesis first; if it returns
   a clear error or confirms the issue, proceed to Step 4. If it returns no error, immediately
   execute the #2 hypothesis verification.'
@@ -31,11 +31,15 @@ provenance:
 - proposed
 - refined@1794716929
 - refined@1794720515
+- refined@1794802806
 created: 1793752469.3142495
 record:
-  uses: 0
-  wins: 0
-  losses: 0
-  score_deltas: []
-  last_used_battle: null
-  battles_available: 0
+  uses: 3
+  wins: 1
+  losses: 1
+  score_deltas:
+  - 0.0
+  - 0.1636
+  - 0.7615
+  last_used_battle: zoid_mb_buildalot-apk_1794804492
+  battles_available: 1

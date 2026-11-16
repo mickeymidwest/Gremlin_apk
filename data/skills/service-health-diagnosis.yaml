@@ -3,34 +3,39 @@ name: service-health-diagnosis
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Diagnose a service failure by executing specific diagnostic commands, analyzing output
-  for error patterns, and generating a targeted fix based on the evidence.
+purpose: Diagnose and repair failing services by executing targeted commands, analyzing specific
+  error patterns, and applying precise code fixes without unnecessary file rewriting.
 trigger_when: A service is reported as down, returning non-200 status codes, or exhibiting
   specific error messages in logs.
 trigger_matcher: service|down|inactive|failed|not responding|unhealthy
 procedure:
-- Identify the exact service name and its expected port or endpoint.
-- Execute a status check command (e.g., `curl -v`, `netstat`, or `systemctl status`) and capture
-  the raw output.
-- Parse the output specifically for error codes (e.g., 503, 502, ECONNREFUSED), stack traces,
-  or missing resource indicators.
-- Cross-reference the error pattern against the provided logs to confirm the failure mode
-  (e.g., timeout vs. syntax error).
-- Formulate a single, concrete hypothesis explaining the failure based strictly on the observed
-  evidence.
-- Generate a code fix or configuration change that directly addresses the identified root
-  cause.
-- Apply the fix and immediately re-run the status check to verify the service is now responding
-  correctly.
+- Identify the exact service name, its expected port, and the specific error message or status
+  code from the logs.
+- Execute a targeted diagnostic command (e.g., `curl -v` for HTTP, `systemctl status` for
+  systemd) and capture the raw output.
+- Parse the output strictly for the specific error pattern identified (e.g., 'Connection refused',
+  '503 Service Unavailable', or a specific Python traceback line).
+- If the error indicates a syntax error or missing method in a Python file, read the relevant
+  section of the file to locate the exact line causing the issue.
+- If the error is a syntax error or the fix requires rewriting logic, generate the WHOLE corrected
+  file content; otherwise, generate only the specific line or block to edit.
+- 'Apply the fix using the appropriate tool: `write_file` with the full content if the file
+  was rewritten, or `edit_file` with the specific line change if only a snippet was modified.'
+- Run the verification command (e.g., `curl` or `pytest`) immediately after the fix.
+- Confirm the service is now responding correctly or the error is resolved before concluding
+  the task.
 supersedes: skill_2e87c158
 provenance:
 - proposed
 - refined@1794720329
+- refined@1794802367
+- refined@1794803533
 created: 1793752469.3142495
 record:
-  uses: 0
-  wins: 0
+  uses: 1
+  wins: 1
   losses: 0
-  score_deltas: []
-  last_used_battle: null
+  score_deltas:
+  - 0.7615
+  last_used_battle: zoid_mb_buildalot-apk_1794804492
   battles_available: 0

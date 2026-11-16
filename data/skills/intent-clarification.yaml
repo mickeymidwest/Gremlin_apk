@@ -9,11 +9,12 @@ trigger_when: The user request lacks a specific constraint, input source, error-
   or file modification scope that is critical for the code to function correctly.
 trigger_matcher: make|improve|fix|better|handle|vague|something
 procedure:
-- Analyze the user's request to identify exactly which missing piece of information (e.g.,
-  specific file path, validation rule, output format, or edit scope) makes the current plan
-  risky or likely to fail.
-- Draft a single, concise question that asks ONLY for that specific missing detail, avoiding
-  any request for unrelated context.
+- Scan the user's request for missing critical details such as specific file paths, validation
+  rules, output formats, or edit scopes.
+- Identify the single most critical missing piece of information that would cause the generated
+  code to fail or behave unexpectedly.
+- Draft a concise, single-sentence question that asks ONLY for that specific missing detail,
+  avoiding any unrelated context.
 - Stop generation immediately and output ONLY the clarifying question to the user.
 - Wait for the user's response before generating any code or file edits.
 - Only proceed to write code or edit files once the user has provided the necessary clarification
@@ -23,13 +24,12 @@ provenance:
 - proposed
 - refined@1794717379
 - refined@1794719731
+- refined@1794803139
 created: 1793752469.3142495
 record:
-  uses: 2
+  uses: 0
   wins: 0
-  losses: 2
-  score_deltas:
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0036_csvreport
-  battles_available: 2
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
