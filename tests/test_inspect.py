@@ -58,3 +58,46 @@ def test_tool_empty_target_asks():
 def test_inspect_registered_read_only():
     t = tools.REGISTRY.get("inspect")
     assert t is not None and t.capability == "read_only"
+
+
+def test_inspect_via_rea_primary_and_fallback(monkeypatch, tmp_path):
+    js_file = tmp_path / "app.js"
+    js_file.write_text("console.log('hi');")
+
+    # Offline fallback when REA MCP client is unavailable
+    monkeypatch.setattr(I.mcp_bridge, "get_client", lambda name, root=None: None)
+    assert I.inspect_via_rea(str(js_file)) is None
+    offline = I.inspect_site(str(js_file))
+    assert "Target:" in offline
+
+    # Primary REA MCP path when REA client is available
+    calls = []
+
+    def _fake_call(srv, tool_name, args, root=None):
+        calls.append((srv, tool_name, args))
+        return {
+            "is_error": False,
+            "text": (
+                '{"evidence_id":"ev_test123","operation":"' + tool_name + '",'
+                '"subject":{"name":"app.js","format":"javascript","architecture":null,'
+                '"digest":{"sha256":"abc"}},'
+                '"provider":{"name":"REA JS","version":"1"},'
+                '"normalized_result":{"ok":true}}'
+            ),
+        }
+
+    monkeypatch.setattr(I.mcp_bridge, "get_client", lambda name, root=None: object())
+    monkeypatch.setattr(I.mcp_bridge, "call_tool", _fake_call)
+    out = I.inspect_site(str(js_file))
+    assert "[REA MCP · analyze_javascript_application · ev_test123]" in out
+    assert calls and calls[0][1] == "analyze_javascript_application"
+
+    # Explicit REA tool prefix via _tool_inspect
+    calls.clear()
+    ctx = tools.ExecContext(router=None, registry=None, project_root=str(tmp_path))
+    res = asyncio.run(
+        tools._tool_inspect({"target": f"analyze-javascript-application {js_file}"}, ctx)
+    )
+    assert res["ok"] and "ev_test123" in res["answer"]
+    assert calls[0][1] == "analyze_javascript_application"
+

@@ -118,9 +118,10 @@ _ACTION_HINT = re.compile(
         search|google|look\s*up|latest|news|current\s+(price|events|version)|
         what.s\s+(happening|going\s+on|new)|read\s+(this|that)\s+(page|link|url|article)|
         inspect|reverse\s*engineer|decompile|disassemble|take\s+apart|
+        analyze[-_]javascript|inspect[-_]apk|inspect[-_]android|inspect[-_]binary|inspect[-_]wasm|rea|
         is\s+(this|that|it)\s+(safe|sketchy|malicious|legit)|what\s+does\s+(this|that|it)\s+(do|app|apk|file|binary|site|page)
       )\b
-    | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|go|rs|c|cpp|h|apk|so|elf|bin|exe|jar|html?)\b
+    | [~/][\w./-]*\.(sh|py|ya?ml|json|conf|cfg|toml|txt|md|service|timer|ts|js|mjs|cjs|go|rs|c|cpp|h|apk|wasm|asar|pyc|so|elf|bin|exe|dll|jar|html?)\b
     | https?://\S+
     | \b(pacman|systemd|systemctl|docker|compose|cron|udev|grub)\b
     | \bgrep\b | \bread\s+(the\s+)?(file|contents)\b | \blint\b | \bdiagnose\b | \bcheck\s+\S+\.\w+\b | \bdoes\s+\S+\.\w+\s+(compile|parse)\b | \blocate\b | \bfind\s+(the\s+)?(file|files)\b | \bwhere\s+is\s+\S+\.\w{1,6}\b | \bwhat.?s\s+in\s+[~/\w.-]*\.\w{1,6}\b
@@ -134,21 +135,103 @@ _ACTION_HINT = re.compile(
 
 _WORD_RE = re.compile(r"[a-z]+")
 
+_RE_HINT = re.compile(
+    r"""(?i)\b(
+        rea|inspect\w*|reverse\s*engineer\w*|decompil\w*|disassembl\w*|take\s+apart|
+        analyze[-_]javascript\w*|apk|wasm|asar|elf|macho|ghidra|jadx|frida|rizin|
+        hardening|pe_imports|binary_session|open_binary|sketchy|malware|malicious|spyware
+    )\b
+    | \.(apk|wasm|asar|elf|so|exe|dll|pyc|beam)\b""",
+    re.VERBOSE,
+)
+
+_EXPLICIT_REA_TOOL_RE = re.compile(
+    r"""(?i)\b(?:mcp_rea_)?(
+        analyze[-_]javascript[-_]application|
+        inspect[-_]apk[-_]signature|
+        inspect[-_]android[-_]package|
+        inspect[-_]binary[-_]hardening|
+        inspect[-_]wasm[-_]artifact|
+        inspect[-_]managed[-_]artifact|
+        inspect[-_]elf[-_]notes|
+        inspect[-_]elf[-_]unwind[-_]ranges|
+        inspect[-_]native[-_]exports|
+        inspect[-_]native[-_]initializers|
+        inspect[-_]go[-_]binary|
+        inspect[-_]rust[-_]binary|
+        inspect[-_]pe[-_]imports|
+        inspect[-_]pe[-_]certificates|
+        inspect[-_]pe[-_]load[-_]config|
+        inspect[-_]pe[-_]resources|
+        inspect[-_]sqlite[-_]database|
+        inspect[-_]model[-_]artifact|
+        inspect[-_]python[-_]pyc|
+        audit[-_]release[-_]exposure
+    )\b""",
+    re.VERBOSE,
+)
+
+_PATH_OR_URL_RE = re.compile(r"(https?://\S+|[~/][\w./+-]+)")
+
+_UNAMBIGUOUS_RE_RE = re.compile(
+    r"""(?i)^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|hey\s+|magic\s+)*
+    (?:(?:use|run|call)\s+(?:rea(?:'s)?\s+)?)?
+    (
+        reverse\s*engineer|inspect|decompile|disassemble|take\s+apart|
+        (?:mcp_rea_)?(?:analyze[-_]javascript[-_]application|inspect[-_]apk[-_]signature|
+        inspect[-_]android[-_]package|inspect[-_]binary[-_]hardening|inspect[-_]wasm[-_]artifact|
+        inspect[-_]managed[-_]artifact|inspect[-_]elf[-_]notes|inspect[-_]native[-_]exports|
+        inspect[-_]go[-_]binary|inspect[-_]rust[-_]binary|inspect[-_]sqlite[-_]database|
+        inspect[-_]model[-_]artifact|inspect[-_]python[-_]pyc|audit[-_]release[-_]exposure)
+    )\b""",
+    re.VERBOSE,
+)
+
+
+def _fast_inspect_intent(message: str) -> Optional["Intent"]:
+    """Unambiguous reverse-engineering / REA inspection request with an explicit
+    path or URL -> route straight to `inspect` (which dispatches to REA MCP)."""
+    text = (message or "").strip()
+    if not text:
+        return None
+    pm = _PATH_OR_URL_RE.search(text)
+    if not pm:
+        return None
+    target = pm.group(1).rstrip(".,;:!?)")
+    tm = _EXPLICIT_REA_TOOL_RE.search(text)
+    if tm:
+        tool_name = tm.group(1).lower().replace("-", "_")
+        return Intent(action="inspect", args={"target": target, "tool": tool_name}, confidence=1.0)
+    if _UNAMBIGUOUS_RE_RE.search(text):
+        return Intent(action="inspect", args={"target": target}, confidence=1.0)
+    return None
+
 
 def _relevant_tool_names(message: str, limit: int = 6) -> "list[str]":
     """Tools worth showing the classifier for THIS message, ranked by word
     overlap with each tool's name+description, so the prompt stays lean (a
     weak model is confused + token-bloated by 20+ tool schemas). A catch-all
     (run_command) is always kept so a genuine action can still route."""
-    msg = set(_WORD_RE.findall((message or "").lower()))
-    vis = [t for t in tools_mod.REGISTRY.all() if t.classifier_visible]
+    raw = (message or "").lower().replace("-", "_")
+    msg = set(_WORD_RE.findall(raw))
+    is_re = bool(_RE_HINT.search(message or ""))
+    vis = [
+        t for t in tools_mod.REGISTRY.all()
+        if t.classifier_visible and (is_re or not t.name.startswith("mcp_rea_"))
+    ]
 
     def _score(t):
         hay = set(_WORD_RE.findall((t.name + " " + t.description).lower()))
-        return len(msg & hay)
+        bonus = 3 if (not t.name.startswith("mcp_")) else 0
+        if t.name.removeprefix("mcp_rea_") in raw:
+            bonus += 10
+        return len(msg & hay) + (bonus if len(msg & hay) > 0 else 0)
 
-    ranked = sorted(vis, key=lambda t: (-_score(t), t.name))
+    ranked = sorted(vis, key=lambda t: (-_score(t), t.name.startswith("mcp_"), t.name))
     chosen = [t.name for t in ranked if _score(t) > 0][:limit]
+    if is_re and "inspect" not in chosen and tools_mod.REGISTRY.get("inspect") is not None:
+        chosen.insert(0, "inspect")
+        chosen = chosen[:limit]
     for core in ("run_command",):
         if core not in chosen and tools_mod.REGISTRY.get(core) is not None:
             chosen.append(core)
@@ -346,6 +429,9 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
     quick = fast_path(text)
     if quick:
         return _finalize(Intent(action=quick, args={}, confidence=1.0), text)
+    fast_re = _fast_inspect_intent(text)
+    if fast_re is not None:
+        return _finalize(fast_re, text)
     if act_mode:
         min_confidence = min(min_confidence, 0.4)   # act mode: more willing to act
 
@@ -405,6 +491,14 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
 
 def _finalize(intent: Intent, original_message: str) -> Intent:
     """Attach confirmation requirements + human-readable prompts."""
+    if intent.action == "inspect" or intent.action.startswith("mcp_rea_"):
+        if not any(intent.args.get(k) for k in ("target", "path", "input_path", "url")):
+            pm = _PATH_OR_URL_RE.search(original_message or "")
+            if pm:
+                intent.args["target"] = pm.group(1).rstrip(".,;:!?)")
+        tm = _EXPLICIT_REA_TOOL_RE.search(original_message or "")
+        if tm and intent.action == "inspect" and "tool" not in intent.args:
+            intent.args["tool"] = tm.group(1).lower().replace("-", "_")
     if intent.action in _mutating_actions():
         intent.needs_confirmation = True
         intent.confirmation_prompt = _confirmation_text(intent, original_message)
@@ -413,6 +507,10 @@ def _finalize(intent: Intent, original_message: str) -> Intent:
 
 def _confirmation_text(intent: Intent, original_message: str) -> str:
     a = intent.args
+    if intent.action.startswith("mcp_rea_"):
+        op = intent.action.removeprefix("mcp_rea_")
+        target = a.get("path") or a.get("input_path") or a.get("target") or "the target"
+        return f"I'd run REA's `{op}` on {target}. Want me to go ahead?"
     if intent.action == "reboot":
         return "That'll reboot the desktop right now. Want me to go ahead?"
     if intent.action == "rollback":

@@ -552,15 +552,43 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
 # --------------------------------------------------------------- registry
 
 async def _tool_inspect(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
-    """Read-only reverse engineering / inspection of a file, APK, or URL the
-    user points at. Observe-only: reads/decompiles, never runs the target."""
+    """Read-only reverse engineering / inspection of a file, APK, JS app, or URL
+    via the real REA MCP server (`rea-agents`, with offline fallback when REA is
+    not running). Observe-only: reads/decompiles, never runs the target."""
     from . import inspect as rev
-    target = str(args.get("target") or args.get("path") or args.get("url") or "").strip()
+    target = str(
+        args.get("target") or args.get("path") or args.get("input_path") or args.get("url") or ""
+    ).strip()
+    explicit_tool = str(args.get("tool") or "").strip()
     if not target:
-        return {"answer": "What should I inspect? A file path, an .apk, or an https:// URL.",
+        return {"answer": "What should I inspect? A file path, an .apk, a JS/Electron app, or an https:// URL.",
                 "action": "inspect", "ok": False}
+    parsed_tool, clean_target = rev.parse_tool_and_target(target, explicit_tool)
+    if parsed_tool:
+        try:
+            report = await asyncio.to_thread(
+                rev.inspect_via_rea,
+                clean_target,
+                tool=parsed_tool,
+                project_root=getattr(ctx, "project_root", None),
+            )
+            if report:
+                return {"answer": report, "action": "inspect", "ok": True}
+        except Exception as e:
+            return {"answer": f"Couldn't inspect {clean_target!r}: {type(e).__name__}",
+                    "action": "inspect", "ok": False}
+        target = clean_target
     low = target.lower()
-    if re.match(r"^https?://", target, re.I) or low.endswith((".js", ".html", ".htm")):
+    is_dir = False
+    try:
+        is_dir = Path(target).expanduser().is_dir()
+    except OSError:
+        pass
+    if (
+        re.match(r"^https?://", target, re.I)
+        or low.endswith((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".asar", ".html", ".htm"))
+        or is_dir
+    ):
         fn = rev.inspect_site
     elif low.endswith(".apk"):
         fn = rev.inspect_apk
@@ -598,16 +626,22 @@ REGISTRY.register(Tool(
 REGISTRY.register(Tool(
     name="inspect",
     description=(
-        "read-only reverse-engineering / inspection of a FILE or binary, an Android APK, or a "
-        "website / URL the user points at -- to understand what it is and flag sketchy behaviour: "
-        "the permissions an app asks for, the URLs/IPs a binary or script reaches for, obfuscated or "
-        "suspicious code, phishing/MITM red flags on a page. OBSERVE-ONLY -- it reads and decompiles "
-        "the target, never runs or changes it. Use for \"what does this file/app/site do\", \"is "
-        'this apk safe\", \"inspect X\", \"reverse engineer X\". args: {"target": "<file path, .apk, or https URL>"}'
+        "read-only reverse-engineering / inspection of a FILE or native binary (ELF/PE/Mach-O), "
+        "an Android APK, a JS/Electron/.NET/WASM app, or a website / URL the user points at -- "
+        "powered by REA (rea.tools / rea-agents MCP server: analyze_javascript_application, "
+        "inspect_apk_signature, inspect_android_package, inspect_binary_hardening, "
+        "inspect_wasm_artifact, inspect_managed_artifact, etc., with offline fallback). "
+        "OBSERVE-ONLY -- it reads and decompiles the target, never executes or modifies it. "
+        'Use for "what does this file/binary/app/site do", "is this apk safe", "inspect X", '
+        '"reverse engineer X", "decompile/disassemble X". '
+        'args: {"target": "<file/dir path, .apk, .js, .wasm, or https URL>", "tool": "<optional REA MCP tool name>"}'
     ),
     parameters={
         "type": "object",
-        "properties": {"target": {"type": "string", "description": "a file path, an .apk, or an https:// URL"}},
+        "properties": {
+            "target": {"type": "string", "description": "a file/dir path, .apk, .js, .wasm, or https:// URL"},
+            "tool": {"type": "string", "description": "optional specific REA MCP tool (e.g. analyze_javascript_application, inspect_apk_signature)"},
+        },
         "required": ["target"],
     },
     handler=_tool_inspect,
