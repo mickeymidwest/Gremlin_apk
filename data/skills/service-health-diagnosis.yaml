@@ -32,10 +32,15 @@ provenance:
 - refined@1794803533
 created: 1793752469.3142495
 record:
-  uses: 1
+  uses: 6
   wins: 1
-  losses: 0
+  losses: 5
   score_deltas:
   - 0.7615
-  last_used_battle: zoid_mb_buildalot-apk_1794804492
-  battles_available: 0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0038_graph
+  battles_available: 5

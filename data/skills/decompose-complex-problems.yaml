@@ -3,299 +3,40 @@ name: decompose-complex-problems
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Break a complicated goal into independently solvable tasks
-trigger_when: a request spans multiple subsystems or steps
+purpose: Break a complex request into a strict, ordered sequence of executable code operations
+  to ensure correctness and avoid partial edits that break the system.
+trigger_when: The user request involves modifying code, running tests, or fixing errors that
+  require multiple distinct actions (e.g., reading, editing, writing, testing) or spans multiple
+  files/modules.
 trigger_matcher: build|implement|refactor|migrate|complex|whole
 procedure:
-- Split the goal into tasks with clear, checkable outcomes
-- Order by dependency; identify what can be done independently
-- Verify each piece before composing the whole
-supersedes: null
+- 1. Identify the specific file(s) and line numbers that MUST be changed to fix the immediate
+  error or implement the feature.
+- 2. If the change is a simple line replacement, execute a 'read_file' to get the exact context,
+  then use 'edit_file' with the specific line change ONLY. Do not rewrite the whole file unless
+  the syntax is broken.
+- 3. If the change requires rewriting a function or file structure, execute 'write_file' with
+  the COMPLETE, corrected content of that file. Do not attempt to patch a broken file.
+- 4. Immediately execute 'run_tests' or 'run_command' to verify the specific change did not
+  introduce new errors.
+- 5. If tests fail, isolate the failing test case and repeat steps 1-4 for that specific failure.
+  Do not proceed to the next task until the current one is fully verified.
+- 6. Only after all tests pass and the specific issue is resolved, proceed to the next independent
+  task in the original plan.
+supersedes: skill_6e5ab931
 provenance:
 - proposed
+- refined@1794804856
 created: 1793752469.3142495
 record:
-  uses: 278
-  wins: 61
-  losses: 211
+  uses: 5
+  wins: 1
+  losses: 4
   score_deltas:
   - 0.0
   - 0.0
   - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.6923
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  - 0.0
-  - 0.5538
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.75
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.4091
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.875
-  - 0.0818
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.2455
-  - 0.7615
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.8308
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.5538
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
   - 0.875
   - 0.0
-  - 0.6231
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.75
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.75
-  - 0.0
-  - 0.6923
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.75
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.6923
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.75
-  - 0.0
-  - 0.5538
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.6231
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  - 0.0818
-  - 0.6231
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  - 0.0
-  - 0.8308
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.875
-  - 0.0818
-  - 0.6231
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.7615
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.4846
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.75
-  - 0.0818
-  - 0.4846
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.625
-  - 0.0
-  - 0.4154
-  - 0.625
-  - 0.5
-  - 0.1636
-  - 0.7615
-  last_used_battle: zoid_mb_buildalot-apk_1794804492
-  battles_available: 188
+  last_used_battle: zoid_mb_klondike-apk_1794807335
+  battles_available: 3

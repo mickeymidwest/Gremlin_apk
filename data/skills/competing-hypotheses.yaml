@@ -13,9 +13,9 @@ trigger_matcher: bug|failure|broken|why is|root cause|crash
 procedure:
 - 1. Enumerate exactly 3 distinct candidate hypotheses, specifying the exact file path, line
   number, or configuration key responsible for each.
-- 2. For each hypothesis, generate a single, executable verification command (e.g., `grep
-  -n 'keyword' file.txt`, `ls -l path`, `python -c 'import module'`) that returns a definitive
-  True/False or Error status.
+- 2. For each hypothesis, generate a single, executable verification command that returns
+  a definitive True/False or Error status (e.g., `grep -n 'keyword' file.txt`, `ls -l path`,
+  `python -c 'import module'`), avoiding broad searches like `grep` for method definitions.
 - '3. Execute the verification command for the #1 most likely hypothesis first; if it returns
   a clear error or confirms the issue, proceed to Step 4. If it returns no error, immediately
   execute the #2 hypothesis verification.'
@@ -26,20 +26,27 @@ procedure:
   the proposed fix directly addresses the specific error identified in the verification step.
 - 6. Before finalizing, execute the full test suite (e.g., `python -m pytest -q`) to ensure
   the fix resolves the failure without introducing new failures or breaking the file's validity.
+- 7. If the fix requires modifying a file, edit only the specific line or section identified
+  by the hypothesis; if the edit would make the file invalid (SyntaxError), switch to `write_file`
+  with the WHOLE corrected file content.
+- 8. If the fix requires modifying tests, update the test file directly rather than relying
+  solely on `pytest` to detect the issue; ensure the test passes after the edit.
 supersedes: skill_16994c9b
 provenance:
 - proposed
 - refined@1794716929
 - refined@1794720515
 - refined@1794802806
+- refined@1794805074
 created: 1793752469.3142495
 record:
-  uses: 3
-  wins: 1
-  losses: 1
+  uses: 4
+  wins: 0
+  losses: 4
   score_deltas:
   - 0.0
-  - 0.1636
-  - 0.7615
-  last_used_battle: zoid_mb_buildalot-apk_1794804492
-  battles_available: 1
+  - 0.0
+  - 0.0
+  - 0.0
+  last_used_battle: zoid_mb_klondike-apk_1794807335
+  battles_available: 3
