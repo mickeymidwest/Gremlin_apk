@@ -43,9 +43,7 @@ full-capability fallback — it is not limited to small items when it's the only
 _(update this live)_
 - **Claude:** DONE Batch 1 (crash bugs) + Batch 2 (CPU-Hive infra + summarize wiring) on main;
   PAUSED on main while agy runs. Vision fixed + privacy hardened + 18+ floor regression fixed earlier.
-- **agy:** DONE + MERGED to main — Batch 3 (Hydra readiness, kept dark behind MAGIC_HYDRA),
-  Batch 4 (self-edit gate AST qualname hardening + silent-failure logging). Reviewed Claude's
-  Batch 1+2: APPROVE (2 non-blocking fixes applied by Claude). (2026-11-15)
+- **agy:** DONE on `gemini-rea` (worktree `gremlin-wt-rea`, ready for merge) — full REA (`rea.tools` / `rea-agents@6.9.0`) MCP integration into Magic: Node `v26.13.1` (`~/.nvm`), `rea-agents@6.9.0` + `jadx-headless-mcp-0.7.1-all.jar` + `wabt-1.0.42`, `data/mcp_servers.json` (`read_only: false`, 255 tools registered), `bwrap_sandbox.py` isolation for dynamic execution tools, `inspect.py`/`tools.py`/`intent.py`/`commands.py` routing (`/inspect` + natural language), `reverse-engineer-anything` skill card, tested end-to-end. Previously DONE + MERGED: Batch 3 + Batch 4. (2026-11-15)
 
 ---
 
@@ -73,6 +71,7 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
   code cards, re-roll). APK 4.5 via in-app Builds screen.
 - agy's lil-stuff: Continue+Edit in normal chat, Memory panel (`/memory`,
   `/memory/forget`), scene-state tracking in private mode. (branch `gemini-lilstuff`)
+- REA (`rea.tools` / `rea-agents@6.9.0`) MCP integration (`gemini-rea`): Node `v26.13.1` + `rea-agents@6.9.0` + JADX headless MCP `0.7.1` + WABT `1.0.42` user-level, `data/mcp_servers.json` (`read_only: false`, 255 tools registered), dynamic target execution isolated in `bwrap_sandbox.py`, `inspect.py`/`tools.py`/`intent.py`/`commands.py` (`/inspect`) routed to REA MCP with offline fallback, `reverse-engineer-anything` skill card (`data/skills/reverse-engineer-anything.yaml`). Needs `sudo pacman -S --needed ghidra android-apktool binwalk wireshark-cli android-tools rizin` (and `GHIDRA_INSTALL_DIR=/opt/ghidra`) for deep native decompilation / firmware / PCAP.
 
 ### KNOWN-BROKEN
 - Vision (Qwen2.5-VL-7B): loads + routes but image embedding comes back empty
