@@ -374,3 +374,43 @@ def test_self_review_llm_reviewer_can_block_and_approve(tmp_path):
     ))
     assert rep_ok.approved
     assert rep_ok.verdict_line.startswith("VERDICT: APPROVE")
+
+
+# ------------------------------------------------------------ WIRING: self_improve & build_project
+
+def test_self_improve_routes_through_build_loop_when_enabled(tmp_path, monkeypatch):
+    from magic_core import self_improve
+
+    repo = tmp_path / "r"
+    _init_mini_repo(repo)
+    called = []
+
+    async def _fake_loop(router, root, goal, model_names, **kw):
+        called.append((root, goal, model_names, kw))
+        return {"ok": True, "applied": True, "committed": True, "commits": ["abc"], "verdict": "VERDICT: APPROVE"}
+
+    monkeypatch.setattr(build_loop, "run_self_improve_loop", _fake_loop)
+    monkeypatch.setenv("MAGIC_BUILD_LOOP", "1")
+    res = asyncio.run(self_improve.run_self_edit(
+        router=None, root=str(repo), goal="Add a helper", model_names=["m"],
+    ))
+    assert res["applied"] is True
+    assert len(called) == 1 and called[0][1] == "Add a helper"
+
+
+def test_build_project_routes_through_build_loop_when_enabled(tmp_path, monkeypatch):
+    from magic_core import build_project
+
+    called = []
+
+    async def _fake_proj_loop(router, magic_root, target_root, goal, model_names, **kw):
+        called.append((magic_root, target_root, goal, model_names, kw))
+        return {"ok": True, "applied": True, "committed": True, "commits": ["def"], "verdict": "VERDICT: APPROVE"}
+
+    monkeypatch.setattr(build_loop, "run_project_build_loop", _fake_proj_loop)
+    res = asyncio.run(build_project.run_build(
+        router=None, magic_root=str(tmp_path), target_root=str(tmp_path / "proj"),
+        goal="Build CLI tool", model_names=["m"], use_build_loop=True,
+    ))
+    assert res["applied"] is True
+    assert len(called) == 1 and called[0][2] == "Build CLI tool"
