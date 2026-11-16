@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 # A NET removal of a line containing one of these counts as weakening a safety
@@ -87,6 +88,7 @@ _PROTECTED_PATHS = (
     "magic_core/pregate.py",
     "magic_core/review.py",
     "magic_core/self_improve.py",
+    "magic_core/build_loop.py",
     "magic_core/sandbox.py",
     "magic_core/root_exec.py",
     "magic_core/injection_guard.py",
@@ -366,7 +368,7 @@ def _ast_safety_regressions(root: str, wt: str, patch: str) -> list[str]:
 
 
 def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
-                     test_timeout: int = 1200) -> tuple[bool, list[str]]:
+                     test_timeout: int = 1200, test_filter: str = "") -> tuple[bool, list[str]]:
     """(ok, failures). ok is True only when all enabled checks pass."""
     root = os.path.abspath(root)
     fails: list[str] = []
@@ -414,9 +416,15 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
                          + ap.stderr.strip()[:300])
             return (False, fails)
 
-        py = os.path.join(root, "venv", "bin", "python")
-        if not os.path.exists(py):
-            py = "python3"
+        py = "python3"
+        for _cand in (
+            os.path.join(root, "venv", "bin", "python"),
+            os.path.join(os.path.dirname(root), "gremlin", "venv", "bin", "python"),
+            sys.executable,
+        ):
+            if _cand and os.path.exists(_cand):
+                py = _cand
+                break
 
         # (2) syntax-check every touched SOURCE file with the SAME checker the
         #     chat path uses (code_check: py compile, bash -n, node --check) --
@@ -462,6 +470,8 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
             else:
                 try:
                     _cmd = [py, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+                    if test_filter:
+                        _cmd += ["-k", test_filter]
                     if shutil.which("nice") and shutil.which("ionice"):
                         _cmd = ["nice", "-n", "19", "ionice", "-c", "3"] + _cmd
                     t = subprocess.run(
