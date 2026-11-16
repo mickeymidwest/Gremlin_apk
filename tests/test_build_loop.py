@@ -414,3 +414,109 @@ def test_build_project_routes_through_build_loop_when_enabled(tmp_path, monkeypa
     ))
     assert res["applied"] is True
     assert len(called) == 1 and called[0][2] == "Build CLI tool"
+
+
+# ------------------------------------------------------------ WIRING: /build, /fix, /do & main CLI
+
+def test_commands_build_fix_do_dispatch_to_build_loop(tmp_path, monkeypatch):
+    from magic_core.magic.commands import CommandContext, dispatch
+
+    class _FakeReg:
+        raw_config = {"persona": {"primary_model": "qwen3-8b"}}
+        def get(self, name):
+            return None
+        def names(self):
+            return []
+
+    ctx = CommandContext(registry=_FakeReg(), project_root=str(tmp_path), config_path=str(tmp_path / "models.yaml"))
+    seen = []
+
+    async def _fake_proj_loop(*a, **kw):
+        seen.append(("build", a[3]))
+        return {"ok": True, "applied": True, "commits": ["111"], "trace": "BUILD_TRACE", "verdict": "VERDICT: APPROVE"}
+
+    async def _fake_fix_loop(args, _ctx):
+        seen.append(("fix", args))
+        return {"ok": True, "action": "fix", "answer": "FIX_TRACE", "verdict": "VERDICT: APPROVE"}
+
+    async def _fake_do_loop(args, _ctx):
+        seen.append(("do", args))
+        return {"ok": True, "action": "do", "answer": "DO_TRACE", "verdict": "VERDICT: APPROVE"}
+
+    monkeypatch.setattr(build_loop, "run_project_build_loop", _fake_proj_loop)
+    monkeypatch.setattr(build_loop, "run_fix_loop", _fake_fix_loop)
+    monkeypatch.setattr(build_loop, "run_do_loop", _fake_do_loop)
+
+    r_build = asyncio.run(dispatch("/build --loop demo: a hello script", ctx))
+    r_fix = asyncio.run(dispatch("/fix --loop tighten error check", ctx))
+    r_do = asyncio.run(dispatch("/do --loop check disk; check memory", ctx))
+
+    assert r_build["ok"] and "BUILD_TRACE" in r_build["answer"]
+    assert r_fix["ok"] and "FIX_TRACE" in r_fix["answer"]
+    assert r_do["ok"] and "DO_TRACE" in r_do["answer"]
+    assert [s[0] for s in seen] == ["build", "fix", "do"]
+
+
+def test_run_do_loop_runs_steps_and_verifies_live_output(tmp_path, monkeypatch):
+    from magic_core.magic import commands as cmd_mod
+    from magic_core.magic.commands import CommandContext
+
+    class _FakeReg:
+        raw_config = {"persona": {"primary_model": "qwen3-8b"}}
+        def get(self, name):
+            return None
+
+    ctx = CommandContext(registry=_FakeReg(), project_root=str(tmp_path), config_path=str(tmp_path / "models.yaml"))
+
+    calls = []
+
+    async def _fake_do_single(q, _ctx):
+        calls.append(q)
+        return {"ok": True, "action": "do", "answer": f"checked {q}\n\n$ df -h"}
+
+    monkeypatch.setattr(cmd_mod, "_do_single", _fake_do_single)
+    res = asyncio.run(cmd_mod.dispatch("/do --loop learn check disk; check ram", ctx))
+    assert res["ok"] is True
+    assert calls == ["learn check disk", "learn check ram"]
+    assert "VERDICT: APPROVE" in res["answer"]
+    assert "$ df -h" in res["answer"]
+
+
+def test_main_cmd_improve_and_cmd_build_loop_flag(tmp_path, monkeypatch, capsys):
+    import main as main_mod
+
+    class _FakeReg:
+        def primary_model_name(self):
+            return "m"
+        def names(self):
+            return ["m"]
+        def consult_models(self):
+            return []
+
+    called = []
+
+    async def _fake_run_self_edit(*a, **kw):
+        called.append(("improve", kw.get("use_build_loop")))
+        return {"applied": True, "committed": True, "trace": "IMPROVE_LOOP_OK", "verdict": "VERDICT: APPROVE"}
+
+    async def _fake_run_build(*a, **kw):
+        called.append(("build", kw.get("use_build_loop")))
+        return {"applied": True, "committed": True, "trace": "BUILD_LOOP_OK", "verdict": "VERDICT: APPROVE"}
+
+    monkeypatch.setattr(main_mod.self_improve, "run_self_edit", _fake_run_self_edit)
+    monkeypatch.setattr(main_mod.build_project, "run_build", _fake_run_build)
+
+    asyncio.run(main_mod.cmd_improve(
+        router=None, model_names=["m"], goal="add doc", do_apply=True,
+        run_tests=True, reviewer_a="gemini", reviewer_b="gemini", use_loop=True,
+    ))
+    asyncio.run(main_mod.cmd_build(
+        registry=_FakeReg(), router=None, name="demo", goal="build app", do_apply=True,
+        run_tests=True, reviewer_a="gemini", reviewer_b="gemini",
+        target_dir=str(tmp_path / "demo"), use_loop=True,
+    ))
+
+    out = capsys.readouterr().out
+    assert "IMPROVE_LOOP_OK" in out
+    assert "BUILD_LOOP_OK" in out
+    assert called == [("improve", True), ("build", True)]

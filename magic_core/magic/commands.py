@@ -117,11 +117,14 @@ async def _chat(args: str, ctx: CommandContext) -> dict:
 
 
 async def _build(args: str, ctx: CommandContext) -> dict:
-    if not args.strip():
-        return {"ok": False, "answer": "Usage: /build <what to build>  ·  "
+    from .. import build_loop
+
+    use_loop, clean_args = build_loop.strip_loop_flag(args)
+    if not clean_args.strip():
+        return {"ok": False, "answer": "Usage: /build [--loop] <what to build>  ·  "
                 "/build android <project-dir> [as <name>]"}
 
-    parts = args.split()
+    parts = clean_args.split()
 
     # Android APK build is a subprocess (gradle), not a model battle --
     # fine to run under the server. "/build android <dir> [as <name>]"
@@ -151,20 +154,35 @@ async def _build(args: str, ctx: CommandContext) -> dict:
     router = ctx.router or Router(ctx.registry)
 
     # "/build <name>: <goal>"  or  "/build <goal>"  (name derived from the goal)
-    if ":" in args:
-        name, goal = (p.strip() for p in args.split(":", 1))
+    if ":" in clean_args:
+        name, goal = (p.strip() for p in clean_args.split(":", 1))
     else:
-        name, goal = build_project.sanitize_folder_name(args[:40]) or "magic-build", args
+        name, goal = build_project.sanitize_folder_name(clean_args[:40]) or "magic-build", clean_args
     target = str(Path(ctx.project_root).resolve().parent / (build_project.sanitize_folder_name(name) or "magic-build"))
 
     coder = _coding_model_name(ctx)
     from . import vram
     await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
     reviewer = "gemini" if ctx.registry.get("gemini") else coder
+    if use_loop:
+        result = await build_loop.run_project_build_loop(
+            router, str(ctx.project_root), target, goal,
+            model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
+            run_tests=True, teacher_model=reviewer, skip_review=False,
+        )
+        return {
+            "ok": bool(result.get("applied") or result.get("ok")),
+            "answer": (result.get("trace") or result.get("answer") or result.get("reason", "build finished")),
+            "build": Path(target).name,
+            "action": "build",
+            "verdict": result.get("verdict", ""),
+            "commits": result.get("commits", []),
+        }
+
     result = await build_project.run_build(
         router, str(ctx.project_root), target, goal,
         model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
-        teacher_model=reviewer,
+        teacher_model=reviewer, use_build_loop=False,
     )
     return {"ok": bool(result.get("applied") or result.get("ok", True)),
             "answer": (result.get("answer") or result.get("summary")
@@ -222,12 +240,21 @@ async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
 async def _fix(args: str, ctx: CommandContext) -> dict:
     """Run one Magic battle against a throwaway copy of the Magic repo,
     scored by the repo's own pytest. Returns the diff -- applying it is a
-    separate, confirmed step (snapshot first)."""
-    if not args.strip():
-        return {"ok": False, "answer": "Usage: /fix <what to improve in the harness>"}
+    separate, confirmed step (snapshot first).
+
+    With `--loop` (or `MAGIC_BUILD_LOOP=1`), runs the disciplined 7-stage
+    build loop (`build_loop.run_fix_loop`) instead of a single battle."""
+    from .. import build_loop
+
+    use_loop, clean_args = build_loop.strip_loop_flag(args)
+    if not clean_args.strip():
+        return {"ok": False, "answer": "Usage: /fix [--loop] [--apply] <what to improve in the harness>"}
     if ctx.loop is not None:      # under the server -- too heavy for this box
         return {"ok": False, "action": "fix",
                 "answer": _HEAVY_ON_DESKTOP.format(cmd="fix", args=args)}
+    if use_loop:
+        return await build_loop.run_fix_loop(args, ctx)
+    args = clean_args
     import os
     import shutil
     import tempfile
@@ -729,7 +756,7 @@ async def _profile(args: str, ctx: CommandContext) -> dict:
                       f"/profile add <{sections}> <text>"}
 
 
-async def _do(args: str, ctx: CommandContext) -> dict:
+async def _do_single(args: str, ctx: CommandContext) -> dict:
     """A bounded read-only ReAct loop: Magic actually runs df / ps /
     systemctl status / jadx / grep to answer a question about live state
     or a target. Nothing that changes state can run (toolhost readonly).
@@ -790,6 +817,17 @@ async def _do(args: str, ctx: CommandContext) -> dict:
 
     return {"ok": True, "action": "do",
             "answer": await asyncio.get_event_loop().run_in_executor(None, run)}
+
+
+async def _do(args: str, ctx: CommandContext) -> dict:
+    """Dispatch `/do` — routes through `build_loop.run_do_loop` when `--loop`
+    or `MAGIC_BUILD_LOOP=1` is set; otherwise runs `_do_single`."""
+    from .. import build_loop
+
+    use_loop, clean_args = build_loop.strip_loop_flag(args)
+    if use_loop:
+        return await build_loop.run_do_loop(args, ctx)
+    return await _do_single(clean_args, ctx)
 
 
 async def _defense(args: str, ctx: CommandContext) -> dict:
