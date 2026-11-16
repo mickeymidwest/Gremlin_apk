@@ -520,3 +520,58 @@ def test_main_cmd_improve_and_cmd_build_loop_flag(tmp_path, monkeypatch, capsys)
     assert "IMPROVE_LOOP_OK" in out
     assert "BUILD_LOOP_OK" in out
     assert called == [("improve", True), ("build", True)]
+
+
+def test_build_mode_bootstrap_then_incremental_step_and_marker(tmp_path):
+    magic_root = tmp_path / "magic"
+    magic_root.mkdir()
+    proj_root = tmp_path / "demo_proj"
+
+    steps = [
+        build_loop.BuildStep(
+            index=1,
+            title="Bootstrap calculator module",
+            files=["calc.py"],
+            verify_cmd="python3 -c \"import calc; print('CALC_OK:', calc.double(6))\"",
+            expect_output="CALC_OK: 12",
+        ),
+        build_loop.BuildStep(
+            index=2,
+            title="Add pytest suite for calc",
+            files=["test_calc.py"],
+            verify_cmd="python3 -m pytest -q test_calc.py",
+            expect_output="1 passed",
+        ),
+    ]
+
+    def proposer(step, _total, _outcomes):
+        if step.index == 1:
+            return (
+                "=== FILE: calc.py ===\n"
+                "def double(x):\n"
+                "    return x * 2\n"
+                "=== END FILE ===\n"
+            )
+        return _make_diff(
+            proj_root,
+            "test_calc.py",
+            "from calc import double\n\ndef test_double():\n    assert double(7) == 14\n",
+        )
+
+    res = asyncio.run(build_loop.run_project_build_loop(
+        router=None,
+        magic_root=str(magic_root),
+        target_root=str(proj_root),
+        goal="Build demo_proj calculator",
+        model_names=["fake"],
+        steps=steps,
+        step_proposer=proposer,
+        run_tests=True,
+        skip_review=True,
+    ))
+
+    assert res["ok"] is True, res.get("trace")
+    assert len(res["commits"]) == 2
+    assert (proj_root / ".magic-build.json").exists()
+    assert "CALC_OK: 12" in res["trace"]
+    assert "VERDICT: APPROVE" in res["verdict"]

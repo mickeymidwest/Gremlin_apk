@@ -43,7 +43,7 @@ full-capability fallback — it is not limited to small items when it's the only
 _(update this live)_
 - **Claude:** DONE Batch 1 (crash bugs) + Batch 2 (CPU-Hive infra + summarize wiring) on main;
   PAUSED on main while agy runs. Vision fixed + privacy hardened + 18+ floor regression fixed earlier.
-- **agy:** DONE on `gemini-rea` (worktree `gremlin-wt-rea`, ready for merge) — full REA (`rea.tools` / `rea-agents@6.9.0`) MCP integration into Magic: Node `v26.13.1` (`~/.nvm`), `rea-agents@6.9.0` + `jadx-headless-mcp-0.7.1-all.jar` + `wabt-1.0.42`, `data/mcp_servers.json` (`read_only: false`, 255 tools registered), `bwrap_sandbox.py` isolation for dynamic execution tools, `inspect.py`/`tools.py`/`intent.py`/`commands.py` routing (`/inspect` + natural language), `reverse-engineer-anything` skill card, tested end-to-end. Previously DONE + MERGED: Batch 3 + Batch 4. (2026-11-15)
+- **agy:** DONE on `gemini-buildloop` (worktree `gremlin-wt-bl`, ready for review/merge) — Magic's 7-stage disciplined build/self-edit loop (`magic_core/build_loop.py`: PLAN -> ONE STEP AT A TIME -> pregate TEST -> functional VERIFY -> STOP-AND-FIX -> COMMIT per step -> SELF-REVIEW / VERDICT), `pregate.py` (`build_loop.py` added to `_PROTECTED_PATHS`, `test_filter` support, venv python resolution), wired into `self_improve.run_self_edit`, `build_project.run_build`, `/build`, `/fix`, `/do` (`commands.py`), `main.py` (`cmd_improve`/`cmd_build` `--loop`), and `tools.py` behind `--loop` / `MAGIC_BUILD_LOOP=1`, with 15 tests in `tests/test_build_loop.py` and end-to-end verified. Previously DONE: `gemini-rea` (REA MCP integration), Batch 3 + Batch 4. (2026-11-16)
 
 ---
 
@@ -72,6 +72,7 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
 - agy's lil-stuff: Continue+Edit in normal chat, Memory panel (`/memory`,
   `/memory/forget`), scene-state tracking in private mode. (branch `gemini-lilstuff`)
 - REA (`rea.tools` / `rea-agents@6.9.0`) MCP integration (`gemini-rea`): Node `v26.13.1` + `rea-agents@6.9.0` + JADX headless MCP `0.7.1` + WABT `1.0.42` user-level, `data/mcp_servers.json` (`read_only: false`, 255 tools registered), dynamic target execution isolated in `bwrap_sandbox.py`, `inspect.py`/`tools.py`/`intent.py`/`commands.py` (`/inspect`) routed to REA MCP with offline fallback, `reverse-engineer-anything` skill card (`data/skills/reverse-engineer-anything.yaml`). Needs `sudo pacman -S --needed ghidra android-apktool binwalk wireshark-cli android-tools rizin` (and `GHIDRA_INSTALL_DIR=/opt/ghidra`) for deep native decompilation / firmware / PCAP.
+- Disciplined build/self-edit loop (`gemini-buildloop`): `magic_core/build_loop.py` orchestrating PLAN -> ONE STEP AT A TIME -> `pregate.py` TEST -> functional `verify_step_sync` VERIFY -> STOP-AND-FIX -> per-step git COMMIT -> SELF-REVIEW / VERDICT; wired behind `--loop` / `MAGIC_BUILD_LOOP=1` across `self_improve.run_self_edit`, `build_project.run_build`, `/build`/`/fix`/`/do` (`commands.py`), `main.py` (`cmd_improve`/`cmd_build`), and `tools.py`; `pregate.py` protects `build_loop.py`, supports `test_filter`, and resolves the venv python cleanly in worktrees. Tests: `tests/test_build_loop.py`.
 
 ### KNOWN-BROKEN
 - Vision (Qwen2.5-VL-7B): loads + routes but image embedding comes back empty
@@ -90,4 +91,4 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
 
 ---
 
-_Last updated: 2026-11-15 by agy._
+_Last updated: 2026-11-16 by agy._
