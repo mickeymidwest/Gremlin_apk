@@ -10,19 +10,19 @@ trigger_when: The user's request contains vague terms, missing constraints, or c
   requirements that could result in different valid code implementations or behaviors.
 trigger_matcher: ambiguous|unclear|could mean|which|either|not sure what
 procedure:
-- Scan the request for ambiguous verbs (e.g., 'fix', 'update', 'maybe') or missing constraints
-  that could lead to multiple valid code paths.
-- 'Analyze the specific ambiguity: determine if it affects logic, library choice, error handling,
-  or file structure.'
+- Scan the request for ambiguous verbs (e.g., 'fix', 'update', 'maybe'), missing constraints,
+  or conflicting requirements.
+- Analyze the specific ambiguity to determine if it affects logic, library choice, error handling,
+  or file structure.
 - If the ambiguity results in materially different code or behavior, STOP immediately and
   generate a single, targeted question asking the user to choose between options or provide
   the missing constraint.
 - If the ambiguity is minor (style only) or only one interpretation is safe and obvious, proceed
   to generate code without asking.
-- Output ONLY the clarification question and stop; do not generate any code or file edits
-  yet.
 - Ensure the question is specific enough to allow the user to answer with a definitive choice
   (e.g., 'Use Option A or Option B?') rather than a vague prompt.
+- Output ONLY the clarification question and stop; do not generate any code or file edits
+  yet.
 supersedes: skill_b065f688
 provenance:
 - proposed
@@ -30,6 +30,7 @@ provenance:
 - refined@1794719520
 - refined@1794802524
 - refined@1794805803
+- refined@1794889844
 created: 1793752469.3142495
 record:
   uses: 0
