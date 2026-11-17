@@ -17,8 +17,6 @@ procedure:
 - If the ambiguity results in materially different code or behavior, STOP immediately and
   generate a single, targeted question asking the user to choose between options or provide
   the missing constraint.
-- If the ambiguity is minor (style only) or only one interpretation is safe and obvious, proceed
-  to generate code without asking.
 - Ensure the question is specific enough to allow the user to answer with a definitive choice
   (e.g., 'Use Option A or Option B?') rather than a vague prompt.
 - Output ONLY the clarification question and stop; do not generate any code or file edits
@@ -31,11 +29,14 @@ provenance:
 - refined@1794802524
 - refined@1794805803
 - refined@1794889844
+- refined@1794892154
 created: 1793752469.3142495
 record:
-  uses: 0
+  uses: 2
   wins: 0
-  losses: 0
-  score_deltas: []
-  last_used_battle: null
-  battles_available: 0
+  losses: 2
+  score_deltas:
+  - 0.0
+  - 0.0
+  last_used_battle: battle_0040_csvreport
+  battles_available: 2

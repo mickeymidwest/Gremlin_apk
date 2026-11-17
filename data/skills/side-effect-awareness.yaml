@@ -9,20 +9,19 @@ trigger_when: The agent is about to invoke a tool (e.g., write_file, edit_file, 
   will alter the content or structure of a file on disk.
 trigger_matcher: write|delete|install|push|deploy|modify|rm
 procedure:
-- 1. Identify the target file path and the exact lines, sections, or entire file content to
-  be modified.
-- 2. If the modification is a small, localized fix (e.g., a single line or function), use
-  'read_file' to fetch the ENTIRE current content of the target file.
-- 3. Extract the exact lines to be changed from the fetched content and apply the modification
-  to create a new, complete file string.
-- 4. Validate the new file string for syntax correctness (e.g., run a quick parse check or
-  import test) before proceeding.
-- 5. If the modification is complex, risky, or involves multiple sections, generate a textual
+- Identify the target file path and the exact content or lines to be modified.
+- If the modification is small (single line/function), use 'read_file' to fetch the ENTIRE
+  current content of the target file.
+- Extract the specific lines to be changed and apply the modification to create a new, complete
+  file string.
+- Validate the new file string for syntax correctness by running a quick parse check or import
+  test.
+- If the modification is complex, risky, or involves multiple sections, generate a textual
   diff of the proposed change and require explicit human confirmation or a full backup before
   proceeding.
-- 6. If the change involves tests, run the specific test suite and abort if output is not
-  fully green.
-- 7. Execute the modification tool only after all previous checks pass and the new file content
+- If the change involves tests, run the specific test suite and abort if output is not fully
+  green.
+- Execute the modification tool only after all previous checks pass and the new file content
   is syntactically valid.
 supersedes: skill_23428a80
 provenance:
@@ -33,14 +32,13 @@ provenance:
 - refined@1794802974
 - refined@1794805605
 - refined@1794888632
+- refined@1794891661
+- refined@1794892623
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 0
   wins: 0
-  losses: 3
-  score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0039_csvreport
-  battles_available: 3
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0

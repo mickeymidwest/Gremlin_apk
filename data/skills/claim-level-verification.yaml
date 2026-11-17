@@ -3,21 +3,28 @@ name: claim-level-verification
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Verify individual factual claims within a response to prevent partial correctness
-  from masking errors, specifically for code generation and system configuration tasks.
+purpose: Verify individual factual claims, code snippets, or configuration steps within a
+  response to prevent partial correctness from masking errors, specifically for code generation
+  and system configuration tasks.
 trigger_when: The model response contains multiple distinct factual assertions, code snippets,
-  or configuration steps that can be independently validated against known facts or constraints.
+  or configuration steps that can be independently validated against known facts, project
+  structure, or system constraints.
 trigger_matcher: answer|summary|report|findings|conclusion
 procedure:
 - Extract every distinct factual claim, code snippet, or configuration instruction from the
   response into a separate list.
-- 'For each extracted item, perform a targeted verification: check if the required header
-  file path matches the project''s actual structure, verify if the function definition location
-  is correct, and confirm if the installation command aligns with the system''s package manager
-  policies.'
-- If a verification fails, immediately identify the specific constraint or fact that was violated
-  (e.g., incorrect include path, wrong function definition location, invalid sudo usage).
-- Generate a specific correction for the failed item that adheres to the identified constraint.
+- 'For each extracted item, perform targeted verification: check header file paths against
+  the actual project structure, verify function definition locations, and confirm installation
+  commands align with system package manager policies.'
+- If a verification fails, identify the specific constraint violated (e.g., incorrect include
+  path, wrong function signature, invalid sudo usage) and generate a specific correction adhering
+  to that constraint.
+- If the correction involves modifying a file, do not rewrite the entire file; instead, edit
+  only the exact lines or sections affected by copying the correct content from the read file.
+- If the correction would make the file invalid (SyntaxError) or if the edit is complex, switch
+  to write_file with the WHOLE corrected file instead of partial edits.
+- If the verification involves tests, do not manually inspect or edit the test files; instead,
+  run `python -m pytest -q` to ensure the tests are fully green.
 - Replace the incorrect item in the original response with the corrected version.
 - If multiple items fail, report the list of all corrections required before finalizing the
   response.
@@ -25,14 +32,13 @@ supersedes: skill_1c2154bf
 provenance:
 - proposed
 - refined@1794717800
+- refined@1794891846
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 1
   wins: 0
-  losses: 3
+  losses: 1
   score_deltas:
   - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0039_csvreport
-  battles_available: 3
+  last_used_battle: battle_0040_csvreport
+  battles_available: 1

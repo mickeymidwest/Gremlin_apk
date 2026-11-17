@@ -4,17 +4,18 @@ status: candidate
 destination: card
 council_reviewed: false
 purpose: Resolve ambiguity in user requests to prevent generating incorrect or incomplete
-  code by explicitly confirming the missing constraint or assumption.
+  code by explicitly confirming the missing constraint, input source, error-handling requirement,
+  or file modification scope.
 trigger_when: The user request lacks a specific constraint, input source, error-handling requirement,
   or file modification scope that is critical for the code to function correctly.
 trigger_matcher: make|improve|fix|better|handle|vague|something
 procedure:
-- Analyze the user's request to identify if the goal is to generate new code, modify an existing
-  file, or run tests.
-- If modifying an existing file, determine the exact line numbers or method signatures to
-  change based on the user's description of the error or desired behavior.
-- If the user has not provided the specific file path, validate rules, or output format, identify
-  the single most critical missing detail required to execute the task safely.
+- Analyze the user's request to determine if the goal is generating new code, modifying an
+  existing file, or running tests.
+- If modifying an existing file, identify the EXACT file path and the specific line numbers
+  or method signatures to change based on the user's description.
+- If the user has not provided the specific file path, validation rules, or output format,
+  identify the SINGLE most critical missing detail required to execute the task safely.
 - Draft a concise, single-sentence question that asks ONLY for that specific missing detail,
   avoiding any unrelated context or assumptions.
 - Stop generation immediately and output ONLY the clarifying question to the user.
@@ -28,14 +29,13 @@ provenance:
 - refined@1794719731
 - refined@1794803139
 - refined@1794888484
+- refined@1794892300
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 1
   wins: 0
-  losses: 3
+  losses: 1
   score_deltas:
   - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0039_graph
-  battles_available: 3
+  last_used_battle: battle_0040_csvreport
+  battles_available: 1
