@@ -1,6 +1,6 @@
 id: skill_5e0b1109
 name: user-preference-learning
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Enforce user-specified constraints, forbidden tools, and structural edits by halting
@@ -29,10 +29,15 @@ provenance:
 - refined@1794975503
 created: 1793752469.3142495
 record:
-  uses: 1
-  wins: 1
-  losses: 0
+  uses: 6
+  wins: 4
+  losses: 1
   score_deltas:
   - 0.5714
-  last_used_battle: battle_0041_csvreport
-  battles_available: 1
+  - 0.5
+  - -0.2
+  - 0.1667
+  - 0.2857
+  - 0.4444
+  last_used_battle: battle_0042_graph
+  battles_available: 6

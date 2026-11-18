@@ -9,18 +9,18 @@ trigger_when: A service is reported as down, returning non-200 status codes, or 
   specific error messages in logs.
 trigger_matcher: service|down|inactive|failed|not responding|unhealthy
 procedure:
-- Identify the exact service name, its expected port, and the specific error message or status
+- Extract the exact service name, expected port, and the specific error message or status
   code from the logs.
 - Execute a targeted diagnostic command (e.g., `curl -v` for HTTP, `systemctl status` for
   systemd) and capture the raw output.
 - Parse the output strictly for the specific error pattern identified (e.g., 'Connection refused',
   '503 Service Unavailable', or a specific Python traceback line).
-- If the error indicates a syntax error or missing method in a Python file, read the relevant
-  section of the file to locate the exact line causing the issue.
-- If the error is a syntax error or the fix requires rewriting logic, generate the WHOLE corrected
-  file content; otherwise, generate only the specific line or block to edit.
-- 'Apply the fix using the appropriate tool: `write_file` with the full content if the file
-  was rewritten, or `edit_file` with the specific line change if only a snippet was modified.'
+- 'If the error indicates a syntax error or a missing method in a Python file: Read the relevant
+  section of the file to locate the exact line causing the issue.'
+- 'If the fix requires rewriting logic or the current edit would make the file invalid (SyntaxError):
+  Generate the WHOLE corrected file content using `write_file`.'
+- 'If the fix is a specific line or block change and the rest of the file is valid: Generate
+  only the specific line or block to edit using `edit_file`.'
 - Run the verification command (e.g., `curl` or `pytest`) immediately after the fix.
 - Confirm the service is now responding correctly or the error is resolved before concluding
   the task.
@@ -30,34 +30,16 @@ provenance:
 - refined@1794720329
 - refined@1794802367
 - refined@1794803533
+- refined@1794978833
 created: 1793752469.3142495
 record:
-  uses: 23
-  wins: 4
-  losses: 19
+  uses: 4
+  wins: 2
+  losses: 1
   score_deltas:
-  - 0.7615
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.4154
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.6
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.4846
-  last_used_battle: zoid_mb_buildalot-apk_1794978228
-  battles_available: 20
+  - -0.2
+  - 0.1667
+  - 0.2857
+  - 0.4444
+  last_used_battle: battle_0042_graph
+  battles_available: 4

@@ -1,6 +1,6 @@
 id: skill_34e886a0
 name: stop-and-escalate
-status: candidate
+status: active
 destination: card
 council_reviewed: false
 purpose: Halt autonomous execution immediately upon detecting a state of no progress, infinite
@@ -29,11 +29,16 @@ provenance:
 - refined@1794975314
 created: 1793752469.3142495
 record:
-  uses: 2
-  wins: 1
-  losses: 1
+  uses: 7
+  wins: 4
+  losses: 2
   score_deltas:
   - 0.0
   - 0.5714
-  last_used_battle: battle_0041_csvreport
-  battles_available: 2
+  - 0.5
+  - -0.2
+  - 0.1667
+  - 0.2857
+  - 0.4444
+  last_used_battle: battle_0042_graph
+  battles_available: 7
