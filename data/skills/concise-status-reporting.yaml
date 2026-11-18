@@ -11,8 +11,8 @@ procedure:
 - Identify the single most critical state change or decision made in the last action.
 - State this state change immediately as the first sentence.
 - List exactly one specific next step required to proceed.
-- If a blocker exists, name the specific error or missing dependency and the exact command
-  to resolve it.
+- If a blocker exists, name the specific error or missing dependency and provide the exact
+  command to resolve it.
 - Explicitly omit any discussion of alternative paths or re-derived context unless the blocker
   prevents the current path.
 - Verify the output contains no full-file rewrites unless a syntax error is present.
@@ -22,14 +22,13 @@ supersedes: skill_f13135a7
 provenance:
 - proposed
 - refined@1794719188
+- refined@1794975148
 created: 1793752469.3142495
 record:
-  uses: 3
-  wins: 0
-  losses: 3
+  uses: 1
+  wins: 1
+  losses: 0
   score_deltas:
-  - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0039_csvreport
-  battles_available: 3
+  - 0.5714
+  last_used_battle: battle_0041_csvreport
+  battles_available: 1

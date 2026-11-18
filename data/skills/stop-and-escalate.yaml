@@ -3,37 +3,37 @@ name: stop-and-escalate
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Halt autonomous execution immediately when the agent detects a state of no progress,
-  infinite looping, or potential safety violation, then escalate to human review or a specific,
-  safe recovery action.
-trigger_when: The agent's internal state indicates repeated failed attempts, circular logic,
-  or an action that violates safety policies or exceeds its defined authority.
+purpose: Halt autonomous execution immediately upon detecting a state of no progress, infinite
+  looping, or potential safety violation, then escalate to human review or a specific, safe
+  recovery action.
+trigger_when: The agent's internal state indicates repeated failed attempts (same error >2
+  times), circular logic, or an action violating safety policies/exceeding authority.
 trigger_matcher: stuck|loop|can't proceed|permission|unsafe|need approval
 procedure:
-- 1. Immediately stop all file writing and code generation operations to prevent further corruption
+- 1. Immediately halt all file writing and code generation operations to prevent corruption
   or invalid syntax.
-- 2. Analyze the current execution log to confirm the presence of a loop (e.g., same error
-  repeated >2 times) or a state where no progress is being made.
-- 3. If a loop is detected, do not attempt to 'fix' the code locally; instead, trigger a full
-  system restart or ask the user to re-initialize the session.
+- 2. Analyze the current execution log to confirm a loop (same error repeated >2 times) or
+  zero progress state.
+- 3. If a loop is detected, do NOT attempt local code fixes; instead, trigger a full system
+  restart or ask the user to re-initialize the session.
 - 4. If an unsafe or out-of-bounds action is identified, explicitly state the risk and refuse
   to execute the command.
-- 5. Generate a concise summary of the current state, the root cause of the loop/error, and
-  the specific action required to resolve it.
-- 6. Submit this summary to the human operator or a higher-level escalation channel for approval
-  before proceeding.
+- '5. Generate a concise summary containing: current state, root cause of the loop/error,
+  and the specific action required to resolve it.'
+- 6. Submit this summary to the human operator or escalation channel for approval before proceeding
+  with any recovery.
 supersedes: skill_34e886a0
 provenance:
 - proposed
 - refined@1794720042
+- refined@1794975314
 created: 1793752469.3142495
 record:
-  uses: 3
-  wins: 0
-  losses: 3
+  uses: 2
+  wins: 1
+  losses: 1
   score_deltas:
   - 0.0
-  - 0.0
-  - 0.0
-  last_used_battle: battle_0039_graph
-  battles_available: 3
+  - 0.5714
+  last_used_battle: battle_0041_csvreport
+  battles_available: 2

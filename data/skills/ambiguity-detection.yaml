@@ -10,17 +10,18 @@ trigger_when: The user's request contains vague terms, missing constraints, or c
   requirements that could result in different valid code implementations or behaviors.
 trigger_matcher: ambiguous|unclear|could mean|which|either|not sure what
 procedure:
-- Scan the request for ambiguous verbs (e.g., 'fix', 'update', 'maybe'), missing constraints,
-  or conflicting requirements.
+- Scan the request for ambiguous verbs (e.g., 'fix', 'update'), missing constraints, or conflicting
+  requirements.
 - Analyze the specific ambiguity to determine if it affects logic, library choice, error handling,
   or file structure.
 - If the ambiguity results in materially different code or behavior, STOP immediately and
-  generate a single, targeted question asking the user to choose between options or provide
-  the missing constraint.
+  do not generate any code or file edits.
+- Generate a single, targeted question asking the user to choose between specific options
+  or provide the missing constraint.
 - Ensure the question is specific enough to allow the user to answer with a definitive choice
-  (e.g., 'Use Option A or Option B?') rather than a vague prompt.
-- Output ONLY the clarification question and stop; do not generate any code or file edits
-  yet.
+  (e.g., 'Use Option A or Option B?').
+- Output ONLY the clarification question and stop; do not generate any code, file edits, or
+  explanations.
 supersedes: skill_b065f688
 provenance:
 - proposed
@@ -30,13 +31,16 @@ provenance:
 - refined@1794805803
 - refined@1794889844
 - refined@1794892154
+- refined@1794974778
 created: 1793752469.3142495
 record:
-  uses: 2
-  wins: 0
-  losses: 2
+  uses: 4
+  wins: 1
+  losses: 3
   score_deltas:
+  - 0.6
   - 0.0
   - 0.0
-  last_used_battle: battle_0040_csvreport
-  battles_available: 2
+  - 0.0
+  last_used_battle: battle_0041_graph
+  battles_available: 4
