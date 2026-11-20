@@ -572,10 +572,24 @@ def _confirmation_text(intent: Intent, original_message: str) -> str:
 # human decision-making pace broke the whole confirmation flow. 30
 # minutes is a much more realistic window for "let me think about it".
 _PENDING_TTL_SECONDS = 1800.0
+# High-blast-radius actions (reboot, rollback, shell commands, self-edit, OS updates)
+# expire sooner so an ignored prompt cannot fire half an hour later.
+_DESTRUCTIVE_TTL_SECONDS = 300.0
+_HIGH_RISK_CONFIRM_ACTIONS = frozenset({
+    "reboot", "rollback", "run_command", "self_edit", "apply_updates",
+})
 
 _AFFIRMATIVE = re.compile(
     r"^\s*(y|ya|yes+|yeah|yep|yup|sure|ok|okay|do it|go|go ahead|please do|"
     r"send it|confirm|confirmed|affirmative|absolutely|definitely)\b[\s.!]*",
+    re.IGNORECASE,
+)
+_AFFIRMATIVE_CONFIRM = re.compile(
+    r"^\s*(?:y|ya|yes+|yeah|yep|yup|sure|ok|okay|do it|go|go ahead|please do|"
+    r"send it|confirm|confirmed|affirmative|absolutely|definitely)"
+    r"(?:[\s,]+(?:please|thanks|thank you|thing|do it|go ahead|go for it|"
+    r"proceed|continue|run it|build it|fix it|restart it|reboot|rollback|apply it|now|man|bro)){0,2}"
+    r"[\s.!]*$",
     re.IGNORECASE,
 )
 _NEGATIVE = re.compile(
@@ -603,7 +617,12 @@ class PendingConfirmations:
         if entry is None:
             return None
         intent, stamp = entry
-        if time.time() - stamp > self._ttl:
+        eff_ttl = (
+            min(self._ttl, _DESTRUCTIVE_TTL_SECONDS)
+            if intent.action in _HIGH_RISK_CONFIRM_ACTIONS
+            else self._ttl
+        )
+        if time.time() - stamp > eff_ttl:
             self._pending.pop(key, None)
             return None
         return intent
@@ -613,7 +632,12 @@ class PendingConfirmations:
 
 
 def is_affirmative(message: str) -> bool:
-    return bool(_AFFIRMATIVE.match(message or ""))
+    """True only for standalone or short confirmation replies ('yes', 'ok, do it'),
+    never arbitrary sentences that happen to start with 'ok'/'sure'/'go'."""
+    m = (message or "").strip()
+    if not m or "?" in m:
+        return False
+    return bool(_AFFIRMATIVE_CONFIRM.fullmatch(m))
 
 
 def is_bare_affirmative(message: str) -> bool:

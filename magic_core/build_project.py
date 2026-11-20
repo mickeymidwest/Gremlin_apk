@@ -218,7 +218,12 @@ def parse_file_blocks(text: str) -> dict[str, str]:
     for match in pattern.finditer(text):
         path = match.group(1).strip()
         content = match.group(2)
-        if not path or path.startswith("/") or ".." in Path(path).parts:
+        if (
+            not path
+            or path.startswith("/")
+            or ".." in Path(path).parts
+            or any(part.lower() == ".git" for part in Path(path).parts)
+        ):
             continue
         files[path] = content
     return files
@@ -443,17 +448,31 @@ async def write_new_files(
     if not files:
         return {"applied": False, "reason": "no files to write"}
 
+    # Pre-validate all target paths before writing any file (never write into .git/)
+    for rel_path in files:
+        if any(part.lower() == ".git" for part in Path(rel_path).parts):
+            return {"applied": False, "reason": f"refused -- path targets .git directory: {rel_path}"}
+        cand = (root_path / rel_path).resolve()
+        try:
+            rel_resolved = cand.relative_to(root_path)
+        except ValueError:
+            continue
+        if any(part.lower() == ".git" for part in rel_resolved.parts):
+            return {"applied": False, "reason": f"refused -- path targets .git directory: {rel_path}"}
+
     written = []
     for rel_path, content in files.items():
         # Defence in depth: never write outside the project folder, whatever
-        # the caller passed. parse_file_blocks already drops absolute/".."
+        # the caller passed. parse_file_blocks already drops absolute/".."/.git
         # paths, but this file-writer must not trust that on its own.
         full_path = (root_path / rel_path).resolve()
         if full_path == root_path:   # "." / "" -> the folder itself, not a file
             continue
         try:
-            full_path.relative_to(root_path)
+            rel_resolved = full_path.relative_to(root_path)
         except ValueError:
+            continue
+        if any(part.lower() == ".git" for part in rel_resolved.parts):
             continue
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content)

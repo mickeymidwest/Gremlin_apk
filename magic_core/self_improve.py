@@ -315,6 +315,21 @@ async def apply_patch(
     """
     root = str(Path(root).resolve())
 
+    # Unconditional immutable safety lock: no caller (including consult-override
+    # or direct apply_patch) may ever modify protected paths, weaken safety rails,
+    # or violate .magic/decisions.md rules.
+    from . import pregate as _pg
+    hard_blocks = (
+        _pg._protected_path_edits(patch_text)
+        + _pg._safety_regressions(patch_text)
+        + _pg.decision_violations(patch_text)
+    )
+    if hard_blocks:
+        return {
+            "applied": False,
+            "reason": "blocked by immutable safety gate: " + "; ".join(hard_blocks[:3]),
+        }
+
     if not (Path(root) / ".git").exists():
         _run(["git", "init"], root)
         _run(["git", "config", "user.email", "magic@localhost"], root)
@@ -551,6 +566,28 @@ async def run_self_edit(
             applied_by = f"{','.join(model_names)} (reviewed by {reviewer_a},{reviewer_b})"
 
             if not outcome.approved:
+                # Never allow consult_override to bypass deterministic pre-gate,
+                # hive:patch_auditor, or immutable protected-path/safety rules.
+                from . import pregate as _pg
+                hard_blocks = (
+                    _pg._protected_path_edits(outcome.patch)
+                    + _pg._safety_regressions(outcome.patch)
+                    + _pg.decision_violations(outcome.patch)
+                )
+                blocked_by_hard_gate = bool(hard_blocks) or (
+                    bool(outcome.history)
+                    and not outcome.history[-1].approved
+                    and outcome.history[-1].reviewer in ("pre-gate", "hive:patch_auditor")
+                )
+                if blocked_by_hard_gate:
+                    why = "; ".join(hard_blocks[:3]) if hard_blocks else outcome.reason
+                    return {
+                        "applied": False,
+                        "reason": f"blocked by immutable safety gate (consult override forbidden): {why}",
+                        "patch": outcome.patch,
+                        "review_history": review_history,
+                    }
+
                 if not (allow_consult_override and consult_models):
                     return {
                         "applied": False,

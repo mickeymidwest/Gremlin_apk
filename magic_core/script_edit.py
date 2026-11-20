@@ -52,13 +52,26 @@ SENSITIVE_PREFIXES = [
 ]
 
 
-def check_path_safety(path: str) -> Optional[str]:
+_MAGIC_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def check_path_safety(path: str, project_root: Optional[str] = None) -> Optional[str]:
     """Returns a refusal reason if this path shouldn't be touched, or
     None if it's fine."""
-    resolved = str(Path(path).expanduser().resolve())
+    resolved = Path(path).expanduser().resolve()
+    resolved_str = str(resolved)
     for prefix in SENSITIVE_PREFIXES:
-        if resolved == prefix or resolved.startswith(prefix.rstrip("/") + "/"):
+        if resolved_str == prefix or resolved_str.startswith(prefix.rstrip("/") + "/"):
             return f"refusing to edit anything under {prefix} -- that's a system path, not a personal script"
+    protected_roots = [_MAGIC_REPO_ROOT]
+    if project_root:
+        protected_roots.append(Path(project_root).expanduser().resolve())
+    for repo_root in protected_roots:
+        if resolved == repo_root or repo_root in resolved.parents:
+            return (
+                f"refusing to edit {resolved.name} inside Magic's repository ({repo_root}) "
+                "via script_edit -- use self_edit instead (enforces pregate and review)"
+            )
     return None
 
 
@@ -120,6 +133,13 @@ async def apply_fix(
     be anywhere on disk, not necessarily inside this project.
     Never raises for an expected failure -- comes back as
     {"applied": False, "reason": ...}."""
+    try:
+        refusal = check_path_safety(file_path, project_root=project_root)
+    except TypeError:
+        refusal = check_path_safety(file_path)
+    if refusal:
+        return {"applied": False, "reason": refusal, "backup_path": None}
+
     path = Path(file_path)
     original_content = path.read_text()
     backup = backup_path(path)

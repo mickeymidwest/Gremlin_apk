@@ -640,6 +640,7 @@ def create_app(
         # before anything else so it can't be mistaken for a chat message.
         if history_mod.is_clear_command(message):
             conversation_history.clear(conv_key)
+            pending_confirmations.clear(conv_key)
             return jsonify(_chat_reply("Cleared -- fresh start. I won't reference anything from before this."))
 
         # "remember that" / "save that" with nothing restated -- keep
@@ -650,6 +651,7 @@ def create_app(
         # itself in the action-hint list.
         from . import notes as notes_mod
         if notes_mod.is_remember_last_reply_command(message):
+            pending_confirmations.clear(conv_key)
             last = conversation_history.last_assistant(conv_key)
             if not last:
                 return jsonify(_chat_reply("There's nothing recent to remember yet -- ask me something first."))
@@ -1106,6 +1108,7 @@ def create_app(
         if not is_continue:
             if history_mod.is_clear_command(message):
                 conversation_history.clear(conv_key)
+                pending_confirmations.clear(conv_key)
                 done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
                 done["synced_count"] = synced_count
                 return Response(_sse({"type": "done", **done}),
@@ -1113,6 +1116,7 @@ def create_app(
 
             from . import notes as notes_mod
             if notes_mod.is_remember_last_reply_command(message):
+                pending_confirmations.clear(conv_key)
                 last = conversation_history.last_assistant(conv_key)
                 if not last:
                     done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
@@ -1694,7 +1698,10 @@ def create_app(
         if not path or not problem:
             return jsonify({"error": "'path' and 'problem' are required"}), 400
 
-        refusal = script_edit.check_path_safety(path)
+        try:
+            refusal = script_edit.check_path_safety(path, project_root=str(project_root))
+        except TypeError:
+            refusal = script_edit.check_path_safety(path)
         if refusal:
             return jsonify({"ok": False, "error": refusal}), 400
 

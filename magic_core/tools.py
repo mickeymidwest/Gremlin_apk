@@ -575,7 +575,10 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     if not problem:
         return {"answer": f"What's wrong with {Path(path).name}?", "action": "script_fix", "ok": False}
 
-    refusal = script_edit.check_path_safety(path)
+    try:
+        refusal = script_edit.check_path_safety(path, project_root=ctx.project_root)
+    except TypeError:
+        refusal = script_edit.check_path_safety(path)
     if refusal:
         return {"answer": f"I won't touch that one: {refusal}", "action": "script_fix", "ok": False}
 

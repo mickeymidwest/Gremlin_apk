@@ -135,7 +135,7 @@ def _load_allowlist(project_root: str) -> dict:
     }
 
 
-_SAFE_UNIT = re.compile(r"^[A-Za-z0-9_.@:-]+$")
+_SAFE_UNIT = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@:-]*$")
 _SYSTEMD_SUFFIX = (".service", ".timer", ".socket", ".target", ".path",
                    ".mount", ".scope", ".slice")
 
@@ -156,7 +156,7 @@ def resolve_unit(project_root: str, name: str, *, allow_any: bool = False) -> Op
     Exact match only -- no globbing, no prefix matching -- so an allow
     entry only ever means exactly what it says."""
     name = (name or "").strip()
-    if not name:
+    if not name or name.startswith("-"):
         return None
     name = _FRIENDLY.get(name.lower(), name)   # "updates" -> magic-update.timer
     allow = _load_allowlist(project_root)
@@ -168,8 +168,8 @@ def resolve_unit(project_root: str, name: str, *, allow_any: bool = False) -> Op
         return "systemd", f"{name}.service"
     if allow_any and _SAFE_UNIT.match(name):
         # override (sudo) is on: any user-scoped unit/container, not just the
-        # allow-list. Still name-validated (no shell metacharacters), still
-        # systemctl --user (your session, never root).
+        # allow-list. Still name-validated (no shell metacharacters or leading
+        # hyphens), still systemctl --user (your session, never root).
         if name.endswith(_SYSTEMD_SUFFIX):
             return "systemd", name
         if name.startswith("magic-"):
@@ -186,17 +186,21 @@ def allowed_names(project_root: str) -> list[str]:
 
 
 async def get_status(kind: str, name: str) -> SandboxResult:
+    if not _SAFE_UNIT.match(name or ""):
+        return SandboxResult(stdout="", stderr=f"unsafe unit name: {name!r}", exit_code=2, timed_out=False)
     sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_STATUS_TIMEOUT_S)
     if kind == "docker":
         return await sandbox.run_safe_command(f"docker ps -a --filter name=^{name}$")
-    return await sandbox.run_safe_command(f"systemctl --user status {name} --no-pager -n 5")
+    return await sandbox.run_safe_command(f"systemctl --user status --no-pager -n 5 -- {name}")
 
 
 async def restart(kind: str, name: str) -> SandboxResult:
+    if not _SAFE_UNIT.match(name or ""):
+        return SandboxResult(stdout="", stderr=f"unsafe unit name: {name!r}", exit_code=2, timed_out=False)
     sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_ACTION_TIMEOUT_S)
     if kind == "docker":
-        return await sandbox.run_safe_command(f"docker restart {name}")
-    return await sandbox.run_safe_command(f"systemctl --user restart {name}")
+        return await sandbox.run_safe_command(f"docker restart -- {name}")
+    return await sandbox.run_safe_command(f"systemctl --user restart -- {name}")
 
 
 async def restart_and_verify(project_root: str, kind: str, name: str,
@@ -230,17 +234,21 @@ async def restart_and_verify(project_root: str, kind: str, name: str,
 
 
 async def stop(kind: str, name: str) -> SandboxResult:
+    if not _SAFE_UNIT.match(name or ""):
+        return SandboxResult(stdout="", stderr=f"unsafe unit name: {name!r}", exit_code=2, timed_out=False)
     sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_ACTION_TIMEOUT_S)
     if kind == "docker":
-        return await sandbox.run_safe_command(f"docker stop {name}")
-    return await sandbox.run_safe_command(f"systemctl --user stop {name}")
+        return await sandbox.run_safe_command(f"docker stop -- {name}")
+    return await sandbox.run_safe_command(f"systemctl --user stop -- {name}")
 
 
 async def start(kind: str, name: str) -> SandboxResult:
+    if not _SAFE_UNIT.match(name or ""):
+        return SandboxResult(stdout="", stderr=f"unsafe unit name: {name!r}", exit_code=2, timed_out=False)
     sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_ACTION_TIMEOUT_S)
     if kind == "docker":
-        return await sandbox.run_safe_command(f"docker start {name}")
-    return await sandbox.run_safe_command(f"systemctl --user start {name}")
+        return await sandbox.run_safe_command(f"docker start -- {name}")
+    return await sandbox.run_safe_command(f"systemctl --user start -- {name}")
 
 
 # ------------------------------------------------- "is X running?" check

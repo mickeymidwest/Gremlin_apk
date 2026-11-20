@@ -52,8 +52,14 @@ def test_no_log_when_local_model_answers(tmp_path):
     assert not (Path(tmp_path) / "data" / "learning_log.jsonl").exists()
 
 
-def test_matching_skill_cards_fold_into_the_chat_prompt(tmp_path):
+def test_matching_skill_cards_fold_into_the_chat_prompt(tmp_path, monkeypatch):
+    from magic_core import autoresearch
     from magic_core.magic.seed_skills import seed
+
+    async def _no_web(*_a, **_kw):
+        return None, ""
+
+    monkeypatch.setattr(autoresearch, "gather", _no_web)
     seed(str(tmp_path))
     be = Backend(FakeR("checking the logs now"))
     asyncio.run(reply.answer(be, "the jellyfin container keeps crashing", str(tmp_path)))

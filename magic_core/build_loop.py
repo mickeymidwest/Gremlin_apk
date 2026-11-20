@@ -701,27 +701,64 @@ def verify_step_sync(
         elif files:
             wt_path = Path(wt).resolve()
             for rel_path, content in files.items():
+                if any(part.lower() == ".git" for part in Path(rel_path).parts):
+                    return VerifyResult(
+                        ok=False,
+                        command=cmd,
+                        output="",
+                        exit_code=1,
+                        reason=f"refused -- file path targets .git directory: {rel_path}",
+                    )
                 full = (wt_path / rel_path).resolve()
                 try:
-                    full.relative_to(wt_path)
+                    rel_resolved = full.relative_to(wt_path)
                 except ValueError:
                     continue
+                if any(part.lower() == ".git" for part in rel_resolved.parts):
+                    return VerifyResult(
+                        ok=False,
+                        command=cmd,
+                        output="",
+                        exit_code=1,
+                        reason=f"refused -- file path targets .git directory: {rel_path}",
+                    )
                 full.parent.mkdir(parents=True, exist_ok=True)
                 full.write_text(content, encoding="utf-8")
                 if content.startswith("#!"):
                     full.chmod(full.stat().st_mode | 0o111)
 
-        env = dict(os.environ)
+        try:
+            parsed_cmd = shlex.split(cmd)
+        except ValueError as e:
+            return VerifyResult(
+                ok=False,
+                command=cmd,
+                output="",
+                exit_code=1,
+                reason=f"refused malformed verify command: {e}",
+            )
+        if not parsed_cmd:
+            return VerifyResult(ok=False, command=cmd, output="", exit_code=1, reason="empty verify command")
+        _secret_env = re.compile(
+            r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH|CREDENTIAL|COOKIE)$"
+            r"|^(?:AWS|GITHUB|ANTHROPIC|GEMINI|OPENAI)_",
+            re.I,
+        )
+        env = {k: v for k, v in os.environ.items() if not _secret_env.search(k)}
+        env["PATH"] = str(Path(py_bin).parent) + os.pathsep + "/usr/bin:/bin"
         env["PYTHONPATH"] = wt + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        from . import bwrap_sandbox as _bs
         proc = subprocess.run(
-            cmd,
-            shell=True,
+            parsed_cmd,
+            shell=False,
             cwd=wt,
             env=env,
             capture_output=True,
             text=True,
             timeout=timeout,
             stdin=subprocess.DEVNULL,
+            preexec_fn=_bs._limits(2048, max(10, int(timeout))),
         )
         out = ((proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")).strip()
         if proc.returncode != 0:
@@ -1084,7 +1121,11 @@ async def self_review(
     reviewer_history: list[dict] = []
 
     if mode == "self_improve" and combined_diff.strip():
-        for err in pregate._safety_regressions(combined_diff) + pregate._protected_path_edits(combined_diff):
+        for err in (
+            pregate._safety_regressions(combined_diff)
+            + pregate._protected_path_edits(combined_diff)
+            + pregate.decision_violations(combined_diff)
+        ):
             blocking.append(f"combined diff safety violation: {err}")
 
     for out in outcomes:
@@ -1319,6 +1360,104 @@ async def run_build_loop(
         if use_battle and step_proposer is None and router is not None:
             pre_sha = _git_head_sha(root_abs)
             v_cmd = f"pytest -q -k {step.test_filter}" if step.test_filter else ("pytest -q" if run_tests else "")
+            if mode == "self_improve" and pre_sha:
+                # Isolate self_improve battles in a detached git worktree so the
+                # live tree is never dirtied, uncommitted edits cannot skip
+                # pregate, and full pregate runs before anything lands on HEAD.
+                wt = tempfile.mkdtemp(prefix="buildloop-battle-")
+                wt_ok = False
+                step_diff = ""
+                try:
+                    wt_add = self_improve._run(
+                        ["git", "worktree", "add", "--detach", "-q", wt, pre_sha], root_abs
+                    )
+                    if wt_add.returncode != 0:
+                        b_ok, b_msg = False, f"failed to create isolated battle worktree: {wt_add.stderr.strip()}"
+                    else:
+                        wt_ok = True
+                        b_ok, b_msg = await run_step_with_battle(
+                            router, model_names, wt, step_goal,
+                            verify_cmd=v_cmd, step_budget=max(8, max_step_retries * 4), on_event=log,
+                            store_root=(magic_root or root_abs),
+                        )
+                        if b_ok:
+                            self_improve._run(["git", "add", "-A"], wt)
+                            cp_patch = self_improve._run(["git", "diff", "--cached", pre_sha], wt)
+                            step_diff = (cp_patch.stdout or "") if cp_patch.returncode == 0 else ""
+                finally:
+                    if wt_ok:
+                        self_improve._run(["git", "worktree", "remove", "--force", wt], root_abs)
+                    shutil.rmtree(wt, ignore_errors=True)
+
+                v_res = VerifyResult(ok=b_ok, command=(v_cmd or "run_battle"), output=b_msg[:500])
+                outcome.attempts.append(StepAttempt(
+                    attempt=1, patch=step_diff, test_ok=b_ok, test_detail=b_msg[:500],
+                    verify_ok=b_ok, verify_result=v_res,
+                    error="" if b_ok else (b_msg or "battle step failed"),
+                ))
+                outcome.test_ok = b_ok
+                outcome.verify_result = v_res
+                if not b_ok or not step_diff.strip():
+                    outcome.status = "failed"
+                    outcome.error = (b_msg or "battle step failed") if not b_ok else "battle produced no diff to commit"
+                    outcome.test_ok = False
+                    outcome.verify_result = VerifyResult(ok=False, command=(v_cmd or "run_battle"), output=outcome.error[:500])
+                    outcomes.append(outcome)
+                    stopped_on_red = True
+                    halted_at_step = step.index
+                    log(f"  [Step {step.index} HALTED] {outcome.error[:240]}")
+                    continue
+
+                gate_fails = (
+                    pregate._protected_path_edits(step_diff)
+                    + pregate._safety_regressions(step_diff)
+                    + pregate.decision_violations(step_diff)
+                )
+                ok_pre, pre_fails = (False, gate_fails) if gate_fails else await asyncio.to_thread(
+                    pregate.run_pregate_sync, step_diff, root_abs, run_tests=run_tests
+                )
+                if not ok_pre:
+                    all_fails = gate_fails or pre_fails
+                    outcome.status = "failed"
+                    outcome.error = "self_improve safety/pregate blocked battle diff: " + "; ".join(all_fails[:3])
+                    outcome.test_ok = False
+                    outcome.verify_result = VerifyResult(ok=False, command=(v_cmd or "run_battle"), output=outcome.error[:500])
+                    outcomes.append(outcome)
+                    stopped_on_red = True
+                    halted_at_step = step.index
+                    log(f"  [Step {step.index} BLOCKED] {outcome.error[:240]}")
+                    continue
+
+                apply_res = await self_improve.apply_patch(
+                    step_diff, root_abs, f"step {step.index}/{total_steps}: {step.title}",
+                    applied_by="build_loop:battle", run_tests=False,
+                )
+                if not apply_res.get("applied") or not apply_res.get("committed"):
+                    outcome.status = "failed"
+                    outcome.error = str(apply_res.get("reason") or apply_res.get("warning") or "apply_patch failed")
+                    outcome.test_ok = False
+                    outcome.verify_result = VerifyResult(ok=False, command=(v_cmd or "run_battle"), output=outcome.error[:500])
+                    outcomes.append(outcome)
+                    stopped_on_red = True
+                    halted_at_step = step.index
+                    log(f"  [Step {step.index} HALTED] {outcome.error[:240]}")
+                    continue
+
+                post_sha = _git_head_sha(root_abs)
+                changed = list(apply_res.get("files_changed") or [])
+                outcome.status = "committed"
+                outcome.commit_sha = post_sha
+                outcome.commit_message = f"step {step.index}/{total_steps}: {step.title}"
+                outcome.files_changed = changed
+                outcomes.append(outcome)
+                if post_sha and post_sha != pre_sha:
+                    commits.append(post_sha)
+                for f in changed:
+                    if f not in all_files_changed:
+                        all_files_changed.append(f)
+                log(f"  [Step {step.index} COMMITTED {post_sha}] {outcome.commit_message}")
+                continue
+
             b_ok, b_msg = await run_step_with_battle(
                 router, model_names, root_abs, step_goal,
                 verify_cmd=v_cmd, step_budget=max(8, max_step_retries * 4), on_event=log,
@@ -1345,25 +1484,6 @@ async def run_build_loop(
                 continue
             changed: list[str] = []
             if pre_sha and post_sha and pre_sha != post_sha:
-                if mode == "self_improve":
-                    cp_patch = self_improve._run(["git", "diff", pre_sha, post_sha], root_abs)
-                    step_diff = (cp_patch.stdout or "") if cp_patch.returncode == 0 else ""
-                    gate_fails = (
-                        pregate._protected_path_edits(step_diff)
-                        + pregate._safety_regressions(step_diff)
-                        + pregate.decision_violations(step_diff)
-                    )
-                    if gate_fails:
-                        self_improve._run(["git", "reset", "--hard", pre_sha], root_abs)
-                        outcome.status = "failed"
-                        outcome.error = "self_improve safety gate blocked battle commit: " + "; ".join(gate_fails[:3])
-                        outcome.test_ok = False
-                        outcome.verify_result = VerifyResult(ok=False, command=(v_cmd or "run_battle"), output=outcome.error[:500])
-                        outcomes.append(outcome)
-                        stopped_on_red = True
-                        halted_at_step = step.index
-                        log(f"  [Step {step.index} BLOCKED] {outcome.error[:240]}")
-                        continue
                 cp_d = self_improve._run(["git", "diff", "--name-only", pre_sha, post_sha], root_abs)
                 if cp_d.returncode == 0:
                     changed = [ln.strip() for ln in (cp_d.stdout or "").splitlines() if ln.strip()]
@@ -1597,6 +1717,15 @@ async def run_build_loop(
         skip_llm_review=skip_review,
     )
     review_history.extend(sr.reviewer_history)
+    # If final self-review blocked on a combined-diff safety violation, or
+    # rejected the completed commits (not a mid-plan stop-on-red preserving
+    # earlier clean steps), restore HEAD to base_sha so blocked commits never
+    # remain on HEAD.
+    has_safety_block = any("safety violation" in b.lower() for b in sr.blocking_issues)
+    if (not sr.approved) and base_sha and commits and (has_safety_block or not stopped_on_red):
+        self_improve._run(["git", "reset", "--hard", base_sha], root_abs)
+        commits.clear()
+        log(f"  [ROLLBACK] Reset HEAD to {base_sha} because final self-review blocked: {sr.verdict_line}")
     overall_ok = (not stopped_on_red) and sr.approved and bool(commits)
 
     # If build mode succeeded, write the `.magic-build.json` marker and learning log

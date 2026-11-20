@@ -136,13 +136,13 @@ def test_toolhost_skill_view_delegate_and_run_script_tools(tmp_path):
     assert sv.ok and "Run git bisect" in sv.output
 
     rpc = th.run(ToolCall("run_script_tools", {
-        "script": "r = call_tool('read_file', {'path': 'sample.py'})\nprint('LEN', len(r['output']))"
+        "calls": [{"name": "read_file", "args": {"path": "sample.py"}}]
     }))
-    assert rpc.ok and "LEN" in rpc.output
+    assert rpc.ok and "def foo" in rpc.output
 
     # Recursion into run_script_tools is blocked
     bad_rpc = th.run(ToolCall("run_script_tools", {
-        "script": "call_tool('run_script_tools', {'script': 'print(1)'})"
+        "calls": [{"name": "run_script_tools", "args": {"calls": []}}]
     }))
     assert not bad_rpc.ok and "disallowed" in bad_rpc.output
 

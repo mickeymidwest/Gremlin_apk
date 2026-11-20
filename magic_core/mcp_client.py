@@ -24,13 +24,16 @@ PROTOCOL_VERSION = "2024-11-05"
 class MCPClient:
     def __init__(self, command: str, args: Optional[list] = None,
                  env: Optional[dict] = None, cwd: Optional[str] = None,
-                 timeout: float = 20.0, name: str = ""):
+                 timeout: float = 20.0, name: str = "",
+                 preexec_fn=None, inherit_env: bool = True):
         self.command = command
         self.args = list(args or [])
         self.env = env
         self.cwd = cwd
         self.timeout = timeout
         self.name = name or command
+        self._preexec_fn = preexec_fn
+        self._inherit_env = inherit_env
         self._proc: Optional[subprocess.Popen] = None
         self._id = 0
         self._lock = threading.Lock()
@@ -40,14 +43,15 @@ class MCPClient:
     def start(self) -> bool:
         """Launch the server and run the initialize handshake. Returns True on
         success; on any failure the client is left stopped and returns False."""
-        full_env = dict(os.environ)
+        full_env = dict(os.environ) if self._inherit_env else {}
         if self.env:
             full_env.update(self.env)
         try:
             self._proc = subprocess.Popen(
                 [self.command, *self.args],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, bufsize=1, env=full_env, cwd=self.cwd)
+                text=True, bufsize=1, env=full_env, cwd=self.cwd,
+                preexec_fn=self._preexec_fn)
         except (OSError, ValueError):
             self._proc = None
             return False

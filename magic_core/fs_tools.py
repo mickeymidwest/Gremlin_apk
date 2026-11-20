@@ -107,6 +107,22 @@ def read_file(path: str, project_root: str, *, allow_home: bool = False,
     return {"ok": True, "answer": f"{p}:\n{text}{note}", "path": str(p)}
 
 
+def _should_skip_dir(dirpath: str, dirname: str, base: Path, root: Path) -> bool:
+    if dirname in _SKIP_DIRS or dirname.startswith("."):
+        return True
+    cand = Path(dirpath) / dirname
+    if cand.is_symlink():
+        return True
+    for anchor in (root, base):
+        try:
+            rel_posix = cand.relative_to(anchor).as_posix()
+            if rel_posix in _SKIP_DIRS:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def list_dir(path: str, project_root: str, *, allow_home: bool = False,
              limit: int = MAX_LIST) -> dict:
     target = path or project_root
@@ -128,6 +144,8 @@ def list_dir(path: str, project_root: str, *, allow_home: bool = False,
             break
         if _denied(e):
             continue
+        if e.is_symlink() and _resolve(str(e), project_root, allow_home=allow_home) is None:
+            continue
         try:
             kind = "dir " if e.is_dir() else "file"
             size = e.stat().st_size if e.is_file() else 0
@@ -143,8 +161,8 @@ def search_files(pattern: str, project_root: str, *, allow_home: bool = False,
                  subdir: str = "", max_hits: int = MAX_HITS) -> dict:
     if not (pattern or "").strip():
         return {"ok": False, "answer": "What should I search for?"}
-    base = _resolve(subdir, project_root, allow_home=allow_home) if subdir \
-        else Path(project_root).resolve()
+    root = Path(project_root).resolve()
+    base = _resolve(subdir, project_root, allow_home=allow_home) if subdir else root
     if base is None or not base.exists():
         return {"ok": False, "answer": f"Can't search {subdir or project_root!r} -- outside scope."}
     try:
@@ -152,17 +170,20 @@ def search_files(pattern: str, project_root: str, *, allow_home: bool = False,
     except re.error as e:
         return {"ok": False, "answer": f"Bad search pattern: {e}"}
     hits, scanned = [], 0
-    for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        dirnames[:] = [d for d in dirnames if not _should_skip_dir(dirpath, d, base, root)]
         for fn in filenames:
             fp = Path(dirpath) / fn
             if _denied(fp):
                 continue
+            rp = _resolve(str(fp), project_root, allow_home=allow_home)
+            if rp is None or not rp.is_file():
+                continue
             scanned += 1
             try:
-                if fp.stat().st_size > 2 * 1024 * 1024:
+                if rp.stat().st_size > 2 * 1024 * 1024:
                     continue
-                for i, line in enumerate(fp.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+                for i, line in enumerate(rp.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
                     if rx.search(line):
                         rel = fp.relative_to(base)
                         hits.append(f"  {rel}:{i}: {_scrub_str(line.strip()[:160])}")
@@ -187,17 +208,19 @@ def find_files(name: str, project_root: str, *, allow_home: bool = False,
     import fnmatch
     if not (name or "").strip():
         return {"ok": False, "answer": "What filename should I look for?"}
-    base = _resolve(subdir, project_root, allow_home=allow_home) if subdir \
-        else Path(project_root).resolve()
+    root = Path(project_root).resolve()
+    base = _resolve(subdir, project_root, allow_home=allow_home) if subdir else root
     if base is None or not base.exists():
         return {"ok": False, "answer": f"Can't search {subdir or project_root!r} -- outside scope."}
     pat = name if any(c in name for c in "*?[") else f"*{name}*"
     hits: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+        dirnames[:] = [d for d in dirnames if not _should_skip_dir(dirpath, d, base, root)]
         for fn in filenames:
             fp = Path(dirpath) / fn
             if _denied(fp):
+                continue
+            if _resolve(str(fp), project_root, allow_home=allow_home) is None:
                 continue
             if fnmatch.fnmatch(fn.lower(), pat.lower()):
                 hits.append("  " + str(fp.relative_to(base)))

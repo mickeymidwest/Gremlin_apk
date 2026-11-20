@@ -151,10 +151,11 @@ def wrap_bwrap_command(
     ro_binds: list[str] | None = None,
     env: dict[str, str] | None = None,
     mem_mb: int = 1024,
+    require_bwrap: bool = False,
 ) -> tuple[list[str], dict[str, str]]:
     """Wrap an arbitrary command argv in bubblewrap isolation (--unshare-net,
     --clearenv, read-only host mounts, tmpfs /tmp) for dynamic target execution.
-    Falls back to scrubbed env when bwrap is unavailable."""
+    Raises RuntimeError when require_bwrap=True and bwrap is unavailable."""
     safe_env = dict(_SCRUBBED_ENV)
     if env:
         for k in ("PATH", "REA_JADX_MCP_JAR", "REA_WABT_BIN_DIRECTORY", "GHIDRA_INSTALL_DIR", "JAVA_HOME"):
@@ -163,6 +164,8 @@ def wrap_bwrap_command(
     safe_env["NODE_OPTIONS"] = f"--max-old-space-size={int(mem_mb)}"
 
     if not HAVE_BWRAP:
+        if require_bwrap:
+            raise RuntimeError("bubblewrap (bwrap) is not installed; refusing unsandboxed execution")
         return list(argv), safe_env
 
     cmd = [
@@ -189,7 +192,7 @@ def wrap_bwrap_command(
         "/lib64", "/sbin", "/etc/alternatives", "/etc/ld.so.cache",
         "/usr/lib", "/opt",
         os.path.expanduser("~/.nvm"),
-        os.path.expanduser("~/.local"),
+        os.path.expanduser("~/.local/bin"),
     ]
     for b in (ro_binds or []):
         if b:
@@ -204,7 +207,8 @@ def wrap_bwrap_command(
 
 def _extract_target_binds(arguments: dict) -> list[str]:
     """Find existing local file/directory paths in tool arguments so they can be
-    read-only bound into the bwrap container when inspecting/running a target."""
+    read-only bound into the bwrap container when inspecting/running a target.
+    Files are bound individually (never mounting the whole parent directory)."""
     binds: list[str] = []
     if not isinstance(arguments, dict):
         return binds
@@ -214,10 +218,8 @@ def _extract_target_binds(arguments: dict) -> list[str]:
             if not isinstance(item, str) or not item.strip():
                 continue
             p = os.path.abspath(os.path.expanduser(item.strip()))
-            if os.path.isdir(p):
+            if os.path.isdir(p) or os.path.isfile(p):
                 binds.append(p)
-            elif os.path.isfile(p):
-                binds.append(os.path.dirname(p))
     return binds
 
 
@@ -231,8 +233,14 @@ def run_mcp_tool_sandboxed(
 ) -> dict:
     """Execute a dynamic/target-executing MCP tool inside an isolated bubblewrap
     sandbox so reverse-engineering an untrusted binary cannot touch the host
-    filesystem, network, or secrets."""
+    filesystem, network, or secrets. Fails closed if bwrap is unavailable."""
     from .mcp_client import MCPClient
+
+    if not HAVE_BWRAP:
+        return {
+            "text": "MCP sandbox error: bubblewrap (bwrap) is unavailable; refusing to execute dynamic tool unsandboxed",
+            "is_error": True,
+        }
 
     command = str(spec.get("command") or "")
     args = [str(a) for a in (spec.get("args") or [])]
@@ -245,6 +253,7 @@ def run_mcp_tool_sandboxed(
         ro_binds=ro_binds,
         env=spec.get("env"),
         mem_mb=mem_mb,
+        require_bwrap=True,
     )
     client = MCPClient(
         wrapped_argv[0],
@@ -253,6 +262,8 @@ def run_mcp_tool_sandboxed(
         cwd="/tmp",
         timeout=timeout,
         name=f"{spec.get('name', 'mcp')}-sandbox",
+        preexec_fn=_limits(mem_mb, max(10, int(timeout))),
+        inherit_env=False,
     )
     if not client.start():
         return {

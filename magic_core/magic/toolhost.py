@@ -242,12 +242,18 @@ class ShellToolHost:
         "read_ref":   "read_ref(ref, start, count)     -- read more of a large output that was stored as a ref (you will see 'stored as ref N'); pages `count` lines from line `start`",
         "skill_view": "skill_view(name)                -- load full steps of a skill card on demand",
         "delegate_task": "delegate_task(goal, file_slice, constraints) -- run an isolated read-only child worker returning {status, diff, short_summary}",
-        "run_script_tools": "run_script_tools(script)     -- execute a Python snippet calling call_tool(name, args) across allowed read/edit tools in one turn",
+        "run_script_tools": "run_script_tools(calls)      -- run a declarative JSON batch (max 10) of [{\"name\": ..., \"args\": {...}}] allowed tool calls in one turn (no Python exec)",
     }
 
     # Phase-gated tool space (MAGIC.md section 8, #2): a small model does
     # much better when it can't edit before it has looked.
     EXPLORE_TOOLS = ("repo_map", "grep", "read_file", "read_files", "view_file", "find_symbol", "find_callers", "git_diff", "list_dir", "run_shell", "read_ref", "mcp_read", "web_docs", "skill_view", "delegate_task", "run_script_tools")
+
+    # Tools that mutate state or chain/create tools -- always stripped in readonly mode.
+    _READONLY_BLOCKED_TOOLS = frozenset({
+        "write_file", "edit_file", "multi_edit", "undo_last",
+        "revert_to_best", "forge_tool", "run_script_tools",
+    })
 
     # Shell verbs that can change state -- blocked in read-only mode so
     # /do can answer "what's using my disk" by actually checking, without
@@ -258,7 +264,12 @@ class ShellToolHost:
         "systemctl", "reboot", "shutdown", "poweroff", "mount", "umount",
         "pacman", "yay", "pip", "npm", "apt", "docker rm", "docker stop",
         "docker rmi", "docker kill", "git commit", "git push", "git reset",
-        "git checkout", "git clean", "curl", "wget", "nc", "ncat",
+        "git checkout", "git clean", "git apply", "git rm", "git mv", "git add",
+        "git stash", "git rebase", "git merge", "git cherry-pick", "git config",
+        "curl", "wget", "nc", "ncat",
+        "touch", "mkdir", "rmdir", "mktemp", "patch", "crontab", "at",
+        "sudo", "su", "pkexec", "doas", "env", "xargs", "eval", "exec", "source",
+        "sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh",
         # general-purpose interpreters -- a one-liner in any of these
         # sidesteps every verb check above (python -c "os.remove(...)").
         # sed/awk/find stay allowed (read-only text work is their bread
@@ -273,13 +284,15 @@ class ShellToolHost:
     #                                        so 2>&1 and 2>/dev/null pass)
     #   sed -i / perl -i / -i''           -- in-place edit
     #   find ... -delete / -exec / -ok / -fprint
+    #   awk ... system(...) / output redirection
     #   bash -c / sh -c / zsh -c          -- nested shell one-liner
     _READONLY_EXTRA = re.compile(
         r"""\$\(|`|<\(|>\("""
         r"""|['"a-zA-Z.]>>?|&>|>\|"""
         r"""|(?:sed|perl)\s(?:[^|;&]*\s)?-i\b"""
         r"""|-delete\b|-exec[a-z]*\s|-ok\s|-fprint\b"""
-        r"""|(?:^|[|;&\s])(?:ba|z)?sh\s+-c\b""")
+        r"""|\b(?:g|m|n)?awk\b[^|;&]*(?:\bsystem\s*\(|>>?|\|\s*['"])"""
+        r"""|(?:^|[|;&\s])(?:\S*/)?(?:ba|z|da)?sh\b""")
 
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
                  allowed: "tuple[str, ...] | None" = None, readonly: bool = False,
@@ -321,7 +334,7 @@ class ShellToolHost:
         self.protect_glob = protect_glob
         if readonly:
             self.allowed = tuple(t for t in self.allowed
-                                 if t not in ("write_file", "edit_file", "undo_last"))
+                                 if t not in self._READONLY_BLOCKED_TOOLS)
         # Put the interpreter running Einherjar first on PATH so the agent's
         # `pytest` / `python` resolve to the env that actually has the test
         # deps -- otherwise a bare shell has neither and the agent can't
@@ -426,6 +439,59 @@ class ShellToolHost:
                 return only
         return ""
 
+    def _readonly_shell_block(self, cmd: str) -> str | None:
+        """Return a block reason if `cmd` can mutate state in readonly mode, else None."""
+        import shlex as _shlex
+        low = cmd.lower()
+        if self._READONLY_EXTRA.search(low):
+            return "a redirect / substitution / shell / in-place edit"
+        # Single-word command verbs checked by normalized basename (catches /bin/rm, /usr/bin/python3, env, xargs, bash)
+        single_verbs = {v for v in self._WRITE_VERBS if " " not in v}
+        two_word_verbs = {tuple(v.split()) for v in self._WRITE_VERBS if " " in v}
+        # Split on shell separators outside quotes via shlex
+        try:
+            lex = _shlex.shlex(cmd, posix=True, punctuation_chars="|;&\n")
+            lex.whitespace_split = True
+            tokens = list(lex)
+        except ValueError:
+            return "unbalanced shell quoting"
+        segments: list[list[str]] = [[]]
+        for tok in tokens:
+            if tok in ("|", "||", "&", "&&", ";", "\n"):
+                if segments[-1]:
+                    segments.append([])
+            else:
+                segments[-1].append(tok)
+        for seg in segments:
+            if not seg:
+                continue
+            # Skip leading VAR=val env assignments
+            idx = 0
+            while idx < len(seg) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[idx]):
+                idx += 1
+            if idx >= len(seg):
+                continue
+            cmd_tok = seg[idx]
+            base = os.path.basename(cmd_tok).lower()
+            if base in single_verbs or base.startswith("python"):
+                return base
+            if idx + 1 < len(seg):
+                pair = (base, seg[idx + 1].lower())
+                if pair in two_word_verbs:
+                    return " ".join(pair)
+                # git -C ... <subcmd>
+                if base == "git":
+                    for sub in seg[idx + 1:]:
+                        if not sub.startswith("-"):
+                            if ("git", sub.lower()) in two_word_verbs:
+                                return f"git {sub.lower()}"
+                            break
+            # Check remaining tokens for redirection operators or sneaky interpreter/shell calls
+            for t in seg[idx + 1:]:
+                if t in (">", ">>", ">|", "&>", "&>>"):
+                    return t
+        return None
+
     def _t_run_shell(self, args: dict) -> ToolResult:
         cmd = self._val(args, "cmd", "command", "shell", "run")
         if not cmd:
@@ -434,11 +500,7 @@ class ShellToolHost:
         # in the sandbox env) -- run it through the interpreter that has it
         cmd = re.sub(r"^(\s*)pytest(\s|$)", rf"\1{sys.executable} -m pytest\2", cmd)
         if self.readonly:
-            low = cmd.lower()
-            hit = next((v for v in self._WRITE_VERBS
-                        if re.search(rf"(^|[|;&\s]){re.escape(v)}([|;&\s]|$)", low)), None)
-            if not hit and self._READONLY_EXTRA.search(low):
-                hit = "a redirect / substitution / in-place edit"
+            hit = self._readonly_shell_block(cmd)
             if hit:
                 return ToolResult(False, f"read-only mode: `{hit}` can change state and is blocked. "
                                          "Use a command that only reads (df, du, ls, ps, cat, ...).")
@@ -952,8 +1014,11 @@ class ShellToolHost:
 
     def unlock_all(self) -> None:
         """Called by battle.py once the agent has actually looked at the
-        code -- opens the editing tools."""
-        self.allowed = tuple(self.TOOLS)
+        code -- opens the editing tools (unless readonly=True)."""
+        if self.readonly:
+            self.allowed = tuple(t for t in self.TOOLS if t not in self._READONLY_BLOCKED_TOOLS)
+        else:
+            self.allowed = tuple(self.TOOLS)
 
     def _t_undo_last(self, args: dict) -> ToolResult:
         r = subprocess.run(["git", "-C", str(self.root), "reset", "--hard", "HEAD~1"],
@@ -1184,40 +1249,55 @@ class ShellToolHost:
         return ToolResult(res.get("status") == "ok", self._clip(_json.dumps(res)))
 
     def _t_run_script_tools(self, args: dict) -> ToolResult:
-        """Single-turn programmatic tool execution via safe `call_tool(name, args)` RPC."""
-        script = str(args.get("script") or args.get("code") or "").strip()
-        if not script:
-            return ToolResult(False, "run_script_tools needs 'script'")
-        if len(script) > 6000:
-            return ToolResult(False, "script too long (>6000 chars)")
+        """Single-turn declarative batch of allowed tool calls (NO in-process Python exec).
+        Accepts `calls`: a list (or JSON string) of {"name": str, "args": dict} objects (max 10)."""
         import json as _json
-        calls_made = 0
-        outputs: list[str] = []
+        raw_calls = args.get("calls")
+        if raw_calls is None:
+            raw_calls = args.get("script") if "script" in args else args.get("code")
+        if raw_calls is None:
+            return ToolResult(False, "run_script_tools needs 'calls' as a JSON list of {name, args} objects")
+        if isinstance(raw_calls, str):
+            s = raw_calls.strip()
+            if not s:
+                return ToolResult(False, "run_script_tools needs non-empty 'calls'")
+            if len(s) > 6000:
+                return ToolResult(False, "calls payload too long (>6000 chars)")
+            try:
+                parsed = _json.loads(s)
+            except ValueError:
+                return ToolResult(
+                    False,
+                    "run_script_tools only accepts a declarative JSON list of {name, args} calls; "
+                    "arbitrary Python execution is disabled",
+                )
+            if isinstance(parsed, dict) and isinstance(parsed.get("calls"), list):
+                calls = parsed["calls"]
+            elif isinstance(parsed, list):
+                calls = parsed
+            else:
+                return ToolResult(False, "run_script_tools JSON must be a list of {name, args} objects")
+        elif isinstance(raw_calls, list):
+            calls = raw_calls
+        else:
+            return ToolResult(False, "run_script_tools 'calls' must be a list of {name, args} objects")
 
-        def call_tool(tname: str, targs: dict | None = None) -> dict:
-            nonlocal calls_made
-            if calls_made >= 10:
-                raise RuntimeError("call_tool budget exceeded (max 10)")
+        if not calls:
+            return ToolResult(False, "run_script_tools 'calls' list is empty")
+        if len(calls) > 10:
+            return ToolResult(False, "run_script_tools budget exceeded (max 10 calls)")
+
+        results: list[dict] = []
+        for idx, item in enumerate(calls):
+            if not isinstance(item, dict):
+                return ToolResult(False, f"calls[{idx}] must be an object with 'name' and optional 'args'")
+            tname = str(item.get("name") or item.get("tool") or "").strip()
+            targs = item.get("args") if isinstance(item.get("args"), dict) else {}
+            if not tname:
+                return ToolResult(False, f"calls[{idx}] missing tool 'name'")
             if tname in ("run_script_tools", "delegate_task"):
-                raise RuntimeError(f"recursive/nested tool {tname!r} is disallowed inside run_script_tools")
-            calls_made += 1
-            res = self.run(ToolCall(name=tname, args=targs or {}))
-            return {"ok": res.ok, "output": res.output}
-
-        safe_builtins = {
-            "len": len, "range": range, "enumerate": enumerate, "min": min, "max": max,
-            "sum": sum, "sorted": sorted, "any": any, "all": all, "str": str,
-            "int": int, "float": float, "bool": bool, "list": list, "dict": dict,
-            "set": set, "tuple": tuple, "zip": zip,
-            "print": lambda *a: outputs.append(" ".join(str(x) for x in a)),
-        }
-        ns = {"__builtins__": safe_builtins, "call_tool": call_tool, "json": _json, "re": re}
-        try:
-            exec(compile(script, "<run_script_tools>", "exec"), ns, ns)
-        except Exception as e:
-            return ToolResult(False, f"{type(e).__name__}: {e}")
-        ret = ns.get("result")
-        body = "\n".join(outputs)
-        if ret is not None:
-            body = (body + "\n" + str(ret)).strip()
-        return ToolResult(True, self._clip(body or f"completed {calls_made} tool call(s)"))
+                return ToolResult(False, f"recursive/nested tool {tname!r} is disallowed inside run_script_tools")
+            res = self.run(ToolCall(name=tname, args=targs))
+            results.append({"name": tname, "ok": res.ok, "output": res.output})
+        all_ok = all(r["ok"] for r in results)
+        return ToolResult(all_ok, self._clip(_json.dumps(results)))

@@ -16,25 +16,20 @@ _SECRET_NAME_RE = re.compile(r"(?:^|/)(?:\.env(?:\.|$)|\.ssh(?:/|$)|server_token
 
 
 def _safe_read_path(raw: str, project_root: str) -> tuple[str, str]:
-    """Return (label, text) for a jailed file inside project_root or home, else ('', '')."""
+    """Return (label, scrubbed_text) via fs_tools.read_file (jailed to
+    project_root unless Override is active, full secret denylist, and scrubbing)."""
     s = (raw or "").strip()
-    if not s or _SECRET_NAME_RE.search(s):
+    if not s:
         return "", ""
-    root = Path(project_root).resolve()
-    home = Path.home().resolve()
-    try:
-        cand = Path(s).expanduser()
-        p = cand.resolve() if cand.is_absolute() else (root / cand).resolve()
-    except Exception:
+    from . import fs_tools, override_session
+    res = fs_tools.read_file(
+        s, project_root, allow_home=override_session.is_active(), max_bytes=4096,
+    )
+    if not res.get("ok"):
         return "", ""
-    if p != root and root not in p.parents and p != home and home not in p.parents:
-        return "", ""
-    if _SECRET_NAME_RE.search(str(p)) or not p.is_file():
-        return "", ""
-    try:
-        text = p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return "", ""
+    ans = res.get("answer") or ""
+    prefix = f"{res.get('path', '')}:\n"
+    text = ans[len(prefix):] if prefix and ans.startswith(prefix) else ans
     if len(text) > 4000:
         text = text[:4000] + "\n... [truncated]"
     return s, text
@@ -42,11 +37,12 @@ def _safe_read_path(raw: str, project_root: str) -> tuple[str, str]:
 
 def _git_diff(project_root: str) -> str:
     try:
+        from .mutation_log import _scrub_str
         proc = subprocess.run(
             ["git", "-C", str(project_root), "diff"],
             capture_output=True, text=True, timeout=8,
         )
-        out = (proc.stdout or "").strip()
+        out = _scrub_str((proc.stdout or "").strip())
         if not out:
             return "(working tree diff is clean)"
         return out[:4000] + ("\n... [truncated]" if len(out) > 4000 else "")

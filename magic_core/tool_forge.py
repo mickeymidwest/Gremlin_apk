@@ -117,10 +117,25 @@ def pending_code(root: str, name: str) -> str:
 
 
 def approve(root: str, name: str) -> bool:
-    """Move a pending tool into the live set so it loads + runs."""
+    """Move a pending tool into the live set so it loads + runs. Re-runs
+    security_scan() fail-closed before promoting."""
     if not _valid_name(name):
         return False
     pd, d = _pending_dir(root), _dir(root)
+    py_src = pd / f"{name}.py"
+    meta_src = pd / f"{name}.json"
+    if not py_src.exists():
+        return False
+    try:
+        meta = json.loads(meta_src.read_text(encoding="utf-8")) if meta_src.exists() else {}
+    except (OSError, ValueError):
+        meta = {}
+    try:
+        code = py_src.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if security_scan(code) and not meta.get("unsafe_allowed"):
+        return False
     d.mkdir(parents=True, exist_ok=True)
     moved = False
     for ext in (".py", ".json"):
@@ -203,10 +218,107 @@ def author(description: str, model, root: str, *, name: str | None = None,
     return out
 
 
+_BLOCKED_IMPORTS = frozenset({
+    "ctypes", "cffi", "importlib", "_imp", "runpy", "code", "codeop",
+    "socket", "http", "urllib", "requests", "httpx", "aiohttp",
+    "ftplib", "smtplib", "telnetlib", "xmlrpc", "webbrowser",
+    "pty", "fcntl", "resource", "signal", "multiprocessing",
+    "marshal", "pickle", "shelve", "builtins",
+})
+_BLOCKED_CALL_NAMES = frozenset({
+    "eval", "exec", "compile", "__import__",
+    "getattr", "setattr", "delattr",
+    "globals", "locals", "vars", "breakpoint",
+})
+_BLOCKED_DUNDER_ATTRS = frozenset({
+    "__builtins__", "__subclasses__", "__globals__", "__code__",
+    "__import__", "__loader__", "__spec__", "__getattribute__",
+    "__bases__", "__mro__",
+})
+_BLOCKED_OS_ATTRS = frozenset({
+    "system", "popen", "fork", "forkpty", "setuid", "setgid", "seteuid", "setegid",
+    "kill", "killpg", "remove", "unlink", "rmdir", "removedirs",
+    "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+    "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+})
+_BLOCKED_SUBPROC_BINS = frozenset({
+    "sh", "bash", "zsh", "dash", "fish", "ksh", "csh", "tcsh",
+    "python", "python2", "python3", "perl", "ruby", "node", "php",
+    "env", "xargs", "sudo", "su", "pkexec", "doas",
+    "rm", "dd", "mkfs", "shred", "curl", "wget", "nc", "ncat", "socat",
+})
+
+
+def _ast_security_scan(code: str) -> list[str]:
+    import ast as _ast
+    import os as _os
+    issues: list[str] = []
+    try:
+        tree = _ast.parse(code)
+    except SyntaxError:
+        return ["syntax error"]
+
+    def _add(label: str) -> None:
+        if label not in issues:
+            issues.append(label)
+
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                top = (alias.name or "").split(".")[0]
+                if top in _BLOCKED_IMPORTS:
+                    _add(f"blocked import: {top}")
+        elif isinstance(node, _ast.ImportFrom):
+            top = (node.module or "").split(".")[0]
+            if top in _BLOCKED_IMPORTS:
+                _add(f"blocked import: {top}")
+        elif isinstance(node, _ast.Attribute):
+            if node.attr in _BLOCKED_DUNDER_ATTRS:
+                _add(f"blocked dunder access: {node.attr}")
+            elif isinstance(node.value, _ast.Name):
+                if node.value.id == "os" and node.attr in _BLOCKED_OS_ATTRS:
+                    _add("os.system" if node.attr == "system" else f"blocked os.{node.attr}")
+                elif node.value.id == "shutil" and node.attr == "rmtree":
+                    _add("recursive delete")
+        elif isinstance(node, _ast.Name):
+            if node.id in _BLOCKED_DUNDER_ATTRS:
+                _add(f"blocked dunder access: {node.id}")
+        elif isinstance(node, _ast.Call):
+            fn = node.func
+            if isinstance(fn, _ast.Name) and fn.id in _BLOCKED_CALL_NAMES:
+                _add(f"blocked builtin call: {fn.id}")
+            elif isinstance(fn, _ast.Attribute):
+                if fn.attr in ("Popen", "run", "call", "check_call", "check_output", "getoutput", "getstatusoutput"):
+                    for kw in node.keywords:
+                        if kw.arg == "shell" and not (isinstance(kw.value, _ast.Constant) and kw.value.value is False):
+                            _add("subprocess shell=True")
+                    if node.args:
+                        arg0 = node.args[0]
+                        if isinstance(arg0, (_ast.List, _ast.Tuple)) and arg0.elts:
+                            first = arg0.elts[0]
+                            if isinstance(first, _ast.Constant) and isinstance(first.value, str):
+                                base = _os.path.basename(first.value).lower()
+                                if base in _BLOCKED_SUBPROC_BINS or base.startswith("python"):
+                                    _add(f"blocked subprocess binary: {base}")
+                            else:
+                                _add("dynamic subprocess command")
+                        elif isinstance(arg0, _ast.Constant) and isinstance(arg0.value, str):
+                            base = _os.path.basename(arg0.value.split()[0]).lower() if arg0.value.split() else ""
+                            if base in _BLOCKED_SUBPROC_BINS or base.startswith("python"):
+                                _add(f"blocked subprocess binary: {base}")
+                        else:
+                            _add("dynamic subprocess command")
+    return issues
+
+
 def security_scan(code: str) -> list:
-    """List of hard-blocked pattern names found in the code. Empty = clean."""
+    """List of hard-blocked pattern/AST findings in the code. Empty = clean."""
     text = code or ""
-    return [name for pat, name in _DANGER if pat.search(text)]
+    found = [name for pat, name in _DANGER if pat.search(text)]
+    for item in _ast_security_scan(text):
+        if item not in found:
+            found.append(item)
+    return found
 
 
 def _valid_name(name: str) -> bool:
@@ -296,6 +408,18 @@ def run_forged_sync(name: str, args: dict, root: str, *, timeout: int = 30) -> d
         return {"ok": False, "answer": f"no forged tool named {name!r}"}
     if not _valid_name(name):
         return {"ok": False, "answer": "bad tool name"}
+    meta_path = _dir(root) / f"{name}.json"
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    except (OSError, ValueError):
+        meta = {}
+    try:
+        src = script.read_text(encoding="utf-8")
+    except OSError:
+        return {"ok": False, "answer": f"could not read forged tool {name!r}"}
+    blocked = security_scan(src)
+    if blocked and not meta.get("unsafe_allowed"):
+        return {"ok": False, "answer": f"forged tool {name!r} blocked by security scan: {', '.join(blocked)}"}
     from . import bwrap_sandbox
     rc, out, err = bwrap_sandbox.run_python_tool(
         str(script), stdin_data=json.dumps(args or {}), timeout=timeout)
@@ -394,7 +518,14 @@ def load_into_registry(root: str, *, registry=None) -> int:
             name = m["name"]
         except (OSError, ValueError, KeyError):
             continue
-        if not (d / f"{name}.py").exists():
+        script_path = d / f"{name}.py"
+        if not script_path.exists():
+            continue
+        try:
+            src = script_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if security_scan(src) and not m.get("unsafe_allowed"):
             continue
         cap = m.get("capability", "mutates_external")
         schema = m.get("parameters") or {"type": "object", "properties": {}}

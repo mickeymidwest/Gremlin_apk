@@ -801,7 +801,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
                 try:
                     passed, signal = on_done()
                 except Exception as e:  # noqa
-                    passed, signal = True, f"(verify raised: {e})"
+                    passed, signal = False, f"(verify raised: {type(e).__name__}: {e})"
                 if not passed:
                     transcript.steps.append(StepRecord(
                         kind="note", content=f"DONE rejected -- check still failing:\n{signal}"))

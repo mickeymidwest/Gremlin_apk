@@ -243,22 +243,29 @@ async def review_and_revise(
                 await _unload_if_local(router, fixer)
                 continue
         if root and hasattr(router, "registry"):
+            _loop = asyncio.get_running_loop()
             try:
                 from .magic import hive as _hv
                 _dec_path = os.path.join(root, ".magic", "decisions.md")
                 _dec_txt = open(_dec_path, encoding="utf-8", errors="replace").read() if os.path.exists(_dec_path) else ""
                 _aud_ok, _aud_issues, _ = await asyncio.to_thread(
-                    lambda: _hv.build_hive(router.registry, loop=asyncio.get_running_loop()).audit_patch(
+                    lambda: _hv.build_hive(router.registry, loop=_loop).audit_patch(
                         goal, current_patch, decisions_text=_dec_txt)
                 )
-                if not _aud_ok:
-                    fb = "Hive patch_auditor blocked (fail-closed):\n- " + "\n- ".join(_aud_issues)
-                    history.append(ReviewRound(reviewer="hive:patch_auditor", approved=False, feedback=fb))
-                    current_patch = await _revise(router, fixer, current_patch, goal, fb, revise_system)
-                    await _unload_if_local(router, fixer)
-                    continue
-            except Exception:
-                pass
+            except Exception as _aud_exc:
+                import logging as _logging
+                _logging.getLogger(__name__).warning(
+                    "hive:patch_auditor failed (failing closed): %s: %s",
+                    type(_aud_exc).__name__, _aud_exc,
+                )
+                _aud_ok = False
+                _aud_issues = [f"hive patch_auditor error (fail-closed): {type(_aud_exc).__name__}: {_aud_exc}"]
+            if not _aud_ok:
+                fb = "Hive patch_auditor blocked (fail-closed):\n- " + "\n- ".join(_aud_issues)
+                history.append(ReviewRound(reviewer="hive:patch_auditor", approved=False, feedback=fb))
+                current_patch = await _revise(router, fixer, current_patch, goal, fb, revise_system)
+                await _unload_if_local(router, fixer)
+                continue
         review_a = await _review_once(router, reviewer_a, current_patch, goal, review_system)
         history.append(review_a)
         await _unload_if_local(router, reviewer_a)
