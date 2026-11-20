@@ -19,7 +19,8 @@ _SYSTEM = (
     '{"steps": [up to 4 very short steps to answer it well], '
     '"missing": [any CURRENT or LIVE facts needed that cannot be known from '
     "training alone -- today's date, a file's live contents, a current price, this "
-    'machine\'s live state -- else an empty list]}. Be terse. JSON only.'
+    'machine\'s live state -- else an empty list]}. Steps are internal guidance only '
+    "(never write 'Research X' steps when no search results are provided). Be terse. JSON only."
 )
 
 _GRAMMAR = (
@@ -92,4 +93,8 @@ async def plan_note(backend, question: str, evidence: str = "", grounded: bool =
                     "guessing or inventing a value.")
     if not bits:
         return ""
-    return "[Planning note (do not quote this back): " + " ".join(bits) + "]"
+    return (
+        "[Planning note (internal only -- NEVER quote this back, NEVER echo step "
+        "labels as headings, and NEVER claim to have searched or verified anything "
+        "not in the provided context): " + " ".join(bits) + "]"
+    )

@@ -95,15 +95,18 @@ def _render_budget(primary_n_ctx: Optional[int]) -> int:
 # nuke the thread by accident -- it has to be aimed at the conversation
 # or memory itself.
 _CLEAR_PATTERN = re.compile(
-    r"""^\s*(
-        (clear|wipe|reset|forget|erase|drop|start\s+over|start\s+fresh|new\s+conversation)
+    r"""^\s*(?:(?:no|nah|nope|hey|wait|ok|okay|please|actually|man|bro|magic)[,!\s]+)*
+    (
+        (?:clear|wipe|reset)(?:\s+(?:please|now|it|all))?\s*[.!?]*$
+      | (?:clear|wipe|reset|forget|erase|drop|start\s+over|start\s+fresh|new\s+conversation)
         \b[^.?!]*\b
-        (conversation|chat|history|memory|context|thread|everything|this|it|all)
+        (conversation|chat|history|memory|context|thread|everything|this|it|all|fresh|slate)
       | forget\s+(everything|all\s+of\s+this|what\s+we|this\s+(chat|conversation))
-      | start\s+(over|fresh|again|a\s+new\s+(chat|conversation))
+      | (?:let'?s\s+)?start\s+(over|fresh|again|a\s+new\s+(chat|conversation))
+      | fresh\s+(start|slate)\s*[.!?]*$
       | clear\s+(memory|history|context|the\s+(chat|conversation|thread))
       | wipe\s+(memory|history|the\s+(chat|conversation))
-      | new\s+(chat|conversation|thread)\s*$
+      | new\s+(chat|conversation|thread)\s*[.!?]*$
     )""",
     re.IGNORECASE | re.VERBOSE,
 )

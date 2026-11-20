@@ -92,10 +92,67 @@ _QWORDS = {
 }
 
 
+_ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\ufeff]")
+_CODE_LINE_RE = re.compile(
+    r"^\s*(?:def |class |import |from |return |if |for |while |try:|except |Traceback|File \"|[{}()\[\]]|//|/\*|\# )"
+)
+
+
+def _clean_prompt_text(text: str) -> str:
+    """Strip zero-width junk and outer quotation marks from a user line."""
+    t = _ZERO_WIDTH_RE.sub("", text or "").strip()
+    while len(t) >= 2 and (
+        (t[0] == '"' and t[-1] == '"')
+        or (t[0] == "'" and t[-1] == "'")
+        or (t[0] == "\u201c" and t[-1] == "\u201d")
+    ):
+        t = t[1:-1].strip()
+    # Handle one-sided pasted quotes (e.g. missing leading quote on line 1)
+    if t.endswith(('"', "\u201d")) and t.count('"') + t.count("\u201c") + t.count("\u201d") == 1:
+        t = t[:-1].strip()
+    if t.startswith(('"', "\u201c")) and t.count('"') + t.count("\u201c") + t.count("\u201d") == 1:
+        t = t[1:].strip()
+    return t
+
+
+def _split_multi_items(message: str) -> list[str]:
+    """Split a multi-line paste of 2-5 distinct standalone prompts/questions so
+    each factual item can be searched on its own instead of mashing unrelated
+    topics into one hopeless query. Returns [] for ordinary single-topic text
+    or code."""
+    raw = message or ""
+    if "\n" not in raw or "```" in raw:
+        return []
+    raw_lines = [ln.strip() for ln in raw.splitlines() if _ZERO_WIDTH_RE.sub("", ln).strip()]
+    if not (2 <= len(raw_lines) <= 5):
+        return []
+    if any(_CODE_LINE_RE.match(ln) for ln in raw_lines):
+        return []
+    cleaned = [_clean_prompt_text(ln) for ln in raw_lines]
+    if any(len(c) < 12 or len(c) > 220 for c in cleaned):
+        return []
+    quoted_count = sum(1 for ln in raw_lines if '"' in ln or "\u201c" in ln or "\u201d" in ln)
+    punct_end_count = sum(1 for c in cleaned if c.endswith(("?", ".", "!")))
+    qmark_count = sum(1 for c in cleaned if c.endswith("?"))
+    if quoted_count >= 2 or qmark_count >= 2 or (punct_end_count == len(cleaned) and len(cleaned) >= 2):
+        # Ensure lines aren't just one single-topic paragraph split across lines:
+        # require at least two lines to carry distinct subject terms.
+        term_sets = [set(_subject_terms(c)) for c in cleaned]
+        non_empty = [ts for ts in term_sets if ts]
+        has_disjoint_topics = any(
+            not (non_empty[i] & non_empty[j])
+            for i in range(len(non_empty))
+            for j in range(i + 1, len(non_empty))
+        )
+        if len(non_empty) >= 2 and (quoted_count >= 2 or qmark_count >= 2 or has_disjoint_topics):
+            return cleaned
+    return []
+
+
 def _looks_like_question(text: str) -> bool:
     """Ends with '?' or opens with an interrogative word. Apostrophes are
     stripped so 'what's' / 'who's' count."""
-    t = text.strip()
+    t = _clean_prompt_text(text)
     if t.endswith("?"):
         return True
     m = re.match(r"\s*([a-z']+)", t, re.I)
@@ -200,7 +257,10 @@ def should_search(message: str) -> bool:
       3. General multi-word external questions (yes/no, 'why did', 'does X')
          also qualify once local, creative, opinion, smalltalk, self-addressed,
          and generic coding questions are excluded."""
-    text = (message or "").strip()
+    multi = _split_multi_items(message)
+    if multi:
+        return any(should_search(item) for item in multi)
+    text = _clean_prompt_text(message)
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
         return False
@@ -545,6 +605,27 @@ def _source_tier(url: str, snippet: str = "") -> int:
     return 1
 
 
+def _proper_entities(text: str) -> list[str]:
+    """Capitalized non-sentence-initial entity tokens (e.g. 'Tupac', 'Eminem',
+    'Togashi') from a raw prompt, lowercased and deduped."""
+    cleaned = _clean_prompt_text(text)
+    tokens = re.findall(r"[A-Za-z][A-Za-z0-9'-]*", cleaned)
+    out: list[str] = []
+    seen: set[str] = set()
+    for idx, tok in enumerate(tokens):
+        low = tok.lower().strip("'-")
+        if len(low) < 2 or low in _SUBJECT_IGNORE or low in seen:
+            continue
+        is_cap = tok[0].isupper() or (tok.isupper() and len(tok) >= 2)
+        # Skip sentence-initial capitalized common lead words unless ALL-CAPS acronym (MGK, DBZ)
+        if idx == 0 and not (tok.isupper() and len(tok) >= 2):
+            continue
+        if is_cap:
+            seen.add(low)
+            out.append(low)
+    return out
+
+
 def _rank_results(results: list[dict], keep: int = 3, query: str = "") -> list[dict]:
     """Keep top `keep` results, prioritizing authoritative/general sources that
     match the query's terms and dropping Tier 3 spam/social when better exist."""
@@ -566,10 +647,29 @@ def _rank_results(results: list[dict], keep: int = 3, query: str = "") -> list[d
     if any(tier < 3 for _, _, tier in scored):
         scored = [item for item in scored if item[2] < 3]
 
-    def _key(item: tuple[int, dict, int]) -> tuple[int, int, int, int, int]:
+    # When a query names capitalized proper entities (e.g. "Tupac" alongside
+    # "Black Panther") and at least one authoritative/general hit matches ALL of
+    # them, drop off-topic hits (like Marvel's Black Panther wiki) that miss a
+    # proper entity matched by the on-topic hit.
+    prop_ents = _proper_entities(query) if query else []
+    if prop_ents and len(scored) > 1:
+        def _prop_miss(r: dict) -> int:
+            blob = ((r.get("title") or "") + " " + (r.get("snippet") or "")).lower()
+            return sum(
+                1 for e in prop_ents
+                if e not in blob and not (len(e) >= 5 and e.endswith("s") and e[:-1] in blob)
+            )
+        if any(_prop_miss(r) == 0 and tier <= 1 for _, r, tier in scored):
+            filtered = [item for item in scored if _prop_miss(item[1]) == 0]
+            if filtered:
+                scored = filtered
+
+    def _key(item: tuple[int, dict, int]) -> tuple[int, int, int, int, int, int]:
         idx, r, tier = item
         miss = len(_missing_subject_terms(query, [r])) if query else 0
-        return (1 if tier >= 3 else 0, 1 if tier == 2 else 0, miss, tier, idx)
+        url_l = (r.get("url") or "").lower()
+        wiki_pref = 0 if ("wikipedia.org" in url_l or "britannica.com" in url_l) else 1
+        return (1 if tier >= 3 else 0, 1 if tier == 2 else 0, miss, tier, wiki_pref, idx)
 
     indexed = sorted(scored, key=_key)
     return [r for _, r, _ in indexed[:keep]]
@@ -733,18 +833,11 @@ def can_fallback_search(message: str) -> bool:
     return bool(_looks_like_question(t) or _FACTUAL_LOOKUP.search(t) or _DECLARATIVE_LOOKUP.search(t))
 
 
-async def gather(message: str, *, limit: int | None = None, history: str = "", force: bool = False):
-    """If `message` warrants it, run a live web search and return
-    (sources, evidence_text); otherwise (None, ''). Never raises --
-    if a search runs and returns empty, tiny, or blocked evidence, fails
-    closed by returning `(None, NO_USABLE_SOURCE)` so the model refuses
-    to improvise instead of guessing from stale weights.
-
-    Gemini-style multi-step tool chain: contextual query -> search (with condensed
-    keyword retry if empty) -> fetch 1-2 distinct source pages when snippets won't
-    carry the whole answer or the question compares multiple options."""
+async def _gather_single(message: str, *, limit: int | None = None, history: str = "", force: bool = False):
+    """Single-topic search + rank + page-fetch + fail-closed validation."""
     if limit is None:
         limit = _GATHER_LIMIT
+    message = _clean_prompt_text(message)
     if not force and not should_search(message) and not _tech_followup(message, history) and not _correction_followup(message, history):
         return None, ""
     cq = contextual_query(message, history)
@@ -878,7 +971,63 @@ async def gather(message: str, *, limit: int | None = None, history: str = "", f
     subj_terms = _subject_terms(message)
     if _REQUIRE_ENTITY_OVERLAP and subj_terms and len(missing_after_fetch) == len(subj_terms):
         return None, NO_USABLE_SOURCE
+    # Guard against fictional-wiki hijack on real-world proper entities (e.g.
+    # Marvel's "Black Panther" fandom wiki hijacking "Tupac ... Black Panther"):
+    # if the lead capitalized entity is absent from ALL results + fetched text
+    # and every surviving result is a fandom.com wiki, fail closed.
+    prop_ents = _proper_entities(message)
+    if (
+        _REQUIRE_ENTITY_OVERLAP
+        and prop_ents
+        and prop_ents[0] in missing_after_fetch
+        and all("fandom.com" in (r.get("url") or "").lower() for r in results)
+    ):
+        return None, NO_USABLE_SOURCE
     return sources, evidence
+
+
+async def gather(message: str, *, limit: int | None = None, history: str = "", force: bool = False):
+    """If `message` warrants it, run a live web search and return
+    (sources, evidence_text); otherwise (None, ''). Never raises --
+    if a search runs and returns empty, tiny, or blocked evidence, fails
+    closed by returning `(None, NO_USABLE_SOURCE)` so the model refuses
+    to improvise instead of guessing from stale weights.
+
+    Handles both single-topic prompts and multi-item pastes (2-5 distinct
+    newline-separated prompts searched independently in parallel)."""
+    multi = _split_multi_items(message)
+    if multi:
+        targets = [it for it in multi if should_search(it)]
+        if not targets and force:
+            targets = [
+                it for it in multi
+                if not _SELF_LOCAL.search(it) and not _CREATIVE.search(it) and not _SMALLTALK.search(it)
+            ]
+        if not targets:
+            return None, ""
+        per_item = await asyncio.gather(
+            *(_gather_single(it, limit=limit, history="", force=True) for it in targets[:4])
+        )
+        all_sources: list[dict] = []
+        seen_urls: set[str] = set()
+        ev_sections: list[str] = []
+        any_no_source = False
+        for it, (srcs, ev) in zip(targets[:4], per_item):
+            if srcs and ev and not is_no_source(ev):
+                for s in srcs:
+                    u = (s.get("url") or "").strip()
+                    if u and u not in seen_urls:
+                        seen_urls.add(u)
+                        all_sources.append(s)
+                ev_sections.append(f'--- Sources for "{it}" ---\n{ev}')
+            elif is_no_source(ev):
+                any_no_source = True
+        if all_sources and ev_sections:
+            return all_sources, "\n\n".join(ev_sections)
+        if any_no_source:
+            return None, NO_USABLE_SOURCE
+        return None, ""
+    return await _gather_single(message, limit=limit, history=history, force=force)
 
 
 def footer(sources: list[dict]) -> str:

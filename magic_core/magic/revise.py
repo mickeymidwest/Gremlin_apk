@@ -31,16 +31,39 @@ _CRITIC_SYSTEM = (
 
 _REVISE_SYSTEM = (
     "You are the assistant improving your OWN draft. You get the user's request, your "
-    "draft, and one reviewer note (plus any retrieved evidence). Output the FULL "
-    "corrected answer only -- fix the noted problem, drop ANY draft claims/names/"
+    "draft, and one reviewer note (plus any retrieved evidence). Output ONLY the final "
+    "reply directly to the user -- fix the noted problem, drop ANY draft claims/names/"
     "episodes/dates that contradict or are absent from the verified evidence, keep only "
     "what is supported (or state plainly what wasn't in the results), and write any "
     "code out in full with no placeholders or elisions. If the retrieved results are "
     "about a different person, show, or fictional character that shares a name with the "
     "user's subject, NEVER accuse the user of confusing them -- just state plainly "
     "that the search results didn't cover the actual subject. Be direct, natural, and "
-    "concise; no robotic lectures, no preamble, no filler sign-off."
+    "concise; NEVER open with meta-preamble like 'Sure, here is the corrected answer:' "
+    "or mention any draft, review, or revision; no robotic lectures, no filler sign-off."
 )
+
+_THINK_PAIR_RE = re.compile(r"<(think|thinking)\b[^>]*>.*?</\1>", re.DOTALL | re.IGNORECASE)
+_THINK_CLOSE_RE = re.compile(r"</(?:think|thinking)\s*>", re.IGNORECASE)
+_PREAMBLE_RE = re.compile(
+    r"^(?:\s*(?:sure|okay|alright|got\s+it|certainly|of\s+course)[,!.:\s—–-]*)?"
+    r"(?:here(?:'s|\s+is)\s+(?:the\s+|a\s+|my\s+)?(?:full\s+|final\s+)?"
+    r"(?:corrected|revised|updated|improved|fixed|cleaned(?:\s+up)?)\s+"
+    r"(?:answer|reply|response|version)|(?:corrected|revised|updated)\s+(?:answer|reply|response))"
+    r"\s*[:—–-]\s*",
+    re.IGNORECASE,
+)
+
+
+def _clean_revised_output(text: str) -> str:
+    """Strip leaked <think> blocks and robotic revision preambles."""
+    t = _THINK_PAIR_RE.sub("", text or "")
+    m = _THINK_CLOSE_RE.search(t)
+    if m and not re.search(r"<(?:think|thinking)\b", t[:m.start()], re.IGNORECASE):
+        t = t[m.end():]
+    t = t.strip()
+    t = _PREAMBLE_RE.sub("", t, count=1).strip()
+    return t
 
 # GBNF so a grammar-capable backend emits exactly the verdict shape.
 _VERDICT_GRAMMAR = (
@@ -156,7 +179,8 @@ async def review_and_revise(backend, question: str, draft: str, *,
     else:
         revise_prompt = (f"User's request:\n{question}\n\nYour draft:\n{draft}{rev_ev}\n\n"
                          f"Reviewer note -- problem: {flaw}\n"
-                         f"how to fix: {fix}\n\nNow write the full corrected answer.")
+                         f"how to fix: {fix}\n\nReply directly to the user with the fixed answer "
+                         "(no preamble like 'Sure, here is the corrected answer:' and no mention of any draft).")
     revise_max_tokens = 2048
     real_backend = getattr(backend, "primary", backend)
     if (
@@ -170,7 +194,7 @@ async def review_and_revise(backend, question: str, draft: str, *,
         r2 = await _gen(backend, revise_prompt, _REVISE_SYSTEM,
                         ([] if (drop_draft_on_fail and combined_ev) else history_msgs),
                         max_tokens=revise_max_tokens)
-        t2 = (getattr(r2, "text", "") or "").strip() if getattr(r2, "ok", True) else ""
+        t2 = _clean_revised_output(getattr(r2, "text", "") or "") if getattr(r2, "ok", True) else ""
     except Exception:
         return draft, False
     # For fresh web rewrites, don't reject a concise true answer just because the

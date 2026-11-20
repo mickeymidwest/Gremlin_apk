@@ -649,13 +649,13 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
             if _extra_ev:
                 wev = "\n\n".join([wev, *_extra_ev])
             if _changed and _rtext.strip():
-                return ws, wev, _rtext.strip()
+                return ws, wev, _strip_think(_rtext)
             return (ws, wev, "") if for_stream else (ws, wev, text)
         except Exception:
             pass
     sprompt, shist, _ = _build_prompt(message, root, history, evidence, web_evidence=wev)
     r = await _gen(primary, sprompt, shist, think=not _is_casual_chat(message))
-    t_new = (r.text or "").strip() if getattr(r, "ok", True) else ""
+    t_new = _strip_think(r.text or "") if getattr(r, "ok", True) else ""
     if not t_new:
         return None, "", ""
     return ws, wev, t_new
@@ -806,7 +806,9 @@ async def answer_stream(primary, message: str, root: str,
     # user is already reading. (PersonaBackend also stops rather than
     # re-answers mid-stream; this is the same rule one layer up.)
     if acc.strip():
-        text = acc.strip()
+        text = _strip_think(acc)
+        if not text:
+            text = acc.strip()
         if stream_broke and text.count("```") % 2 == 1:
             fence_close = "\n```\n"
             text += fence_close
@@ -830,10 +832,14 @@ async def answer_stream(primary, message: str, root: str,
                 primary, message, root, history, evidence, text, for_stream=True)
             if _ws2:
                 web_sources, web_ev = _ws2, _wev2
+                _t2 = _strip_think(_t2)
                 if _t2:
                     _add = "\n\nWait — I just checked that against real sources:\n\n" + _t2
-                    text += _add
                     yield "delta", _add
+                    # Keep ONLY the verified answer in `text` (used for the final
+                    # `done` frame and saved conversation history) so the retracted
+                    # unsearched draft never poisons later turns or final bubble.
+                    text = _t2
         if web_sources and web_ev and text and not stream_broke:
             _unsup = await _web_fact_check(text, web_ev, message)
             if _unsup:
@@ -973,7 +979,7 @@ async def answer(primary, message: str, root: str,
             r2 = await _gen(primary, retry_prompt, hist, think=_think)
             # only use the retry if it actually succeeded -- a failed r2
             # ("error" text, ok=False) must not overwrite the real draft below.
-            t2 = (r2.text or "").strip() if getattr(r2, "ok", True) else ""
+            t2 = _strip_think(r2.text or "") if getattr(r2, "ok", True) else ""
             for k, v in ((getattr(r2, "meta", None) or {}).get("usage") or {}).items():
                 if isinstance(v, (int, float)) and isinstance(usage.get(k, 0), (int, float)):
                     usage[k] = usage.get(k, 0) + v
@@ -1018,9 +1024,9 @@ async def answer(primary, message: str, root: str,
             _hprompt = prompt + "\n\n" + _SOFT["no_web_or_tools_guard_prompt"]
             try:
                 _rh = await _gen(primary, _hprompt, hist, think=_think)
-                _th = (_rh.text or "").strip() if getattr(_rh, "ok", True) else ""
+                _th = _strip_think(_rh.text or "") if getattr(_rh, "ok", True) else ""
                 _still = (([] if looked else _ah.claims_execution(_th))
-                          + _ah.claims_web_search(_th)) if _th else _hh
+                          + ([] if web_sources else _ah.claims_web_search(_th))) if _th else _hh
                 if _th and not _still:
                     text = _th                      # clean rewrite -- use it
                 else:
@@ -1040,7 +1046,7 @@ async def answer(primary, message: str, root: str,
         _cprompt = prompt + "\n\n" + _SOFT["code_check_retry_prompt"].format(issues="; ".join(_ci))
         try:
             _r3 = await _gen(primary, _cprompt, hist, think=_think)
-            _t3 = (_r3.text or "").strip() if getattr(_r3, "ok", True) else ""
+            _t3 = _strip_think(_r3.text or "") if getattr(_r3, "ok", True) else ""
             _still = (_cc.check_code_blocks(_t3) + _cc.check_code_completeness(_t3)) if _t3 else _ci
             if _t3 and len(_still) < len(_ci):
                 text = _t3 + (_cc.caveat(_still) if _still else "")
@@ -1052,6 +1058,7 @@ async def answer(primary, message: str, root: str,
     # Reviewer-reviser head (Hydra P1.3): a 2nd pass of the SAME 9B critiques the
     # draft and rewrites it once on a real flaw, using live web lookup whenever
     # external facts need verifying. Fail-open (keeps draft on error). Before footers.
+    _rev_changed = False
     if _REVISE and text and not used_fallback and _worth_reviewing(text):
         try:
             from . import revise as _revmod
@@ -1065,10 +1072,36 @@ async def answer(primary, message: str, root: str,
             if _rev_ws and not web_sources:
                 web_sources = _rev_ws
                 web_ev = "\n\n".join(_rev_ev) if _rev_ev else web_ev
-            if _changed and _rtext.strip():
+            _rtext = _strip_think(_rtext)
+            if _changed and _rtext:
                 text = _rtext
+                _rev_changed = True
         except Exception:
             pass
+
+    # Re-enforce action-honesty if the reviser rewrote the text without web/tool evidence.
+    if _rev_changed and text:
+        try:
+            from .. import action_honesty as _ah2
+            _hh2 = (
+                ([] if looked else _ah2.claims_execution(text))
+                + ([] if web_sources else _ah2.claims_web_search(text))
+            )
+        except Exception:
+            _hh2 = []
+        if _hh2:
+            _hprompt2 = prompt + "\n\n" + _SOFT["no_web_or_tools_guard_prompt"]
+            try:
+                _rh2 = await _gen(primary, _hprompt2, hist, think=_think)
+                _th2 = _strip_think(_rh2.text or "") if getattr(_rh2, "ok", True) else ""
+                _still2 = (([] if looked else _ah2.claims_execution(_th2))
+                           + ([] if web_sources else _ah2.claims_web_search(_th2))) if _th2 else _hh2
+                if _th2 and not _still2:
+                    text = _th2
+                else:
+                    text = text + _ah2.caveat(_hh2)
+            except Exception:
+                text = text + _ah2.caveat(_hh2)
 
     if _no_source and not web_sources and not _admits_unverified(text):
         text = _NO_SOURCE_REPLY
@@ -1082,7 +1115,7 @@ async def answer(primary, message: str, root: str,
                         "search results, or say plainly what wasn't verified.]")
             try:
                 _rw = await _gen(primary, _wprompt, hist, think=_think)
-                _tw = (_rw.text or "").strip() if getattr(_rw, "ok", True) else ""
+                _tw = _strip_think(_rw.text or "") if getattr(_rw, "ok", True) else ""
                 _still_unsup = await _web_fact_check(_tw, web_ev, message) if _tw else _unsup
                 if _tw and len(_still_unsup) < len(_unsup):
                     text = _tw + grounding.web_caveat(_still_unsup)
