@@ -30,6 +30,7 @@ from . import root_exec, script_edit, self_improve, snapshots
 from . import receipt as receipt_mod
 from . import service_control
 from . import update_check as update_check_mod
+from .guardrails_config import get_guardrails
 from .registry import ModelRegistry
 from .router import Router
 from .sandbox import SandboxResult, SecureExecutionSandbox
@@ -396,10 +397,10 @@ async def _tool_service_restart(args: dict[str, Any], ctx: ExecContext) -> dict[
             status_ok, status_out = status.exit_code in (0, 3), status.stdout
         except Exception:
             status_ok = False
-        if status_ok and canonical == "magic.service":
+        if status_ok and canonical == _SERVICE_HEALTH_UNIT:
             import urllib.request
             def _probe():
-                with urllib.request.urlopen("http://127.0.0.1:8765/status", timeout=4.0) as resp:
+                with urllib.request.urlopen(_SERVICE_HEALTH_URL, timeout=_SERVICE_HEALTH_TIMEOUT_S) as resp:
                     return resp.status
             try:
                 code = await asyncio.to_thread(_probe)
@@ -418,8 +419,12 @@ async def _tool_service_restart(args: dict[str, Any], ctx: ExecContext) -> dict[
                               receipt)
 
 
+_SC_CFG = get_guardrails()["hard_gates"]["service_control"]
 # how long to let a restarted service settle before checking it
-SERVICE_SETTLE_SECONDS = 4.0
+SERVICE_SETTLE_SECONDS = float(_SC_CFG["restart_settle_s"])
+_SERVICE_HEALTH_URL = str(_SC_CFG["health_url"])
+_SERVICE_HEALTH_UNIT = str(_SC_CFG["health_target_unit"])
+_SERVICE_HEALTH_TIMEOUT_S = float(_SC_CFG["health_timeout_s"])
 
 
 def _approvers(result: dict[str, Any]) -> list[str]:
@@ -921,10 +926,10 @@ REGISTRY.register(Tool(
 REGISTRY.register(Tool(
     name="service_stop",
     description=(
-        'stop / pause a named service or container ("pause the battles", "stop jellyfin"). '
-        'args: {"name": "<service/container, or a phrase like \'the battles\'>"}. Normally only '
+        'stop / pause a named service or container ("pause updates", "stop jellyfin"). '
+        'args: {"name": "<service/container, or a friendly alias like \'updates\'>"}. Normally only '
         "allow-listed names; while override (sudo) is ON it can stop any of your own user "
-        "units/containers, so \"pause the battles\" stops magic-zoid.timer."
+        "units/containers, so \"pause updates\" stops magic-update.timer."
     ),
     parameters={"type": "object",
                 "properties": {"name": {"type": "string", "description": "the service/container or a phrase"}},
@@ -937,8 +942,8 @@ REGISTRY.register(Tool(
 REGISTRY.register(Tool(
     name="service_start",
     description=(
-        'start / resume a named service or container ("start the battles again", "start jellyfin"). '
-        'args: {"name": "<service/container, or a phrase like \'the battles\'>"}. Allow-listed names, '
+        'start / resume a named service or container ("start updates again", "start jellyfin"). '
+        'args: {"name": "<service/container, or a friendly alias like \'updates\'>"}. Allow-listed names, '
         "plus any of your own user units/containers while override (sudo) is ON."
     ),
     parameters={"type": "object",

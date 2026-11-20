@@ -91,12 +91,12 @@ def _free_ram_mb() -> float:
     return 0.0
 
 
-def default_heads(free_ram_mb: Optional[float] = None) -> list[Head]:
+def default_heads(free_ram_mb: Optional[float] = None, registry=None) -> list[Head]:
     """The roster -- reflects the models actually on the box, plus one dormant
     MoE slot that wakes up when the hardware can hold it."""
     ram = _free_ram_mb() if free_ram_mb is None else free_ram_mb
     moe_enabled = ram >= 24000
-    return [
+    heads = [
         Head("qwen3.5-9b", "general assistant -- the body's default voice",
              "general", footprint_mb=6600, priority=60),
         Head("qwen3.5-9b-abliterated", "uncensored -- private roleplay / companion",
@@ -114,9 +114,16 @@ def default_heads(free_ram_mb: Optional[float] = None) -> list[Head]:
         # (a Q4 fit without 2-bit brain-damage). See MAGIC-5.0-HYDRA-ROADMAP.md.
         Head("qwen3-30b-a3b",
              "MoE deep brain -- 30B total / 3B active, uncensored, experts in RAM",
-             "deep", footprint_mb=6500, requires_ram_mb=24000, priority=80,
+             "deep", footprint_mb=7800, requires_ram_mb=24000, priority=80,
              enabled=moe_enabled, note="dormant -- lights up at ~24GB free RAM"),
     ]
+    if registry is not None and hasattr(registry, "get"):
+        for h in heads:
+            be = registry.get(h.name)
+            fp = getattr(getattr(be, "info", None), "footprint_mb", 0) or 0
+            if fp:
+                h.footprint_mb = int(fp)
+    return heads
 
 
 class Hydra:

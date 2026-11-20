@@ -681,17 +681,20 @@ def create_app(
             chat_be = magic_backend
             if os.environ.get("MAGIC_HYDRA", "0") == "1":
                 try:
-                    from .magic.hydra import Hydra, _free_ram_mb
+                    from .magic.hydra import Hydra, _free_ram_mb, default_heads
                     from .magic import vram
                     from .persona import PersonaBackend
                     from .backends.base import ModelInfo
-                    _budget, _res = vram.swappable_budget_mb(registry)
+                    _raw_free = vram.free_mb()
+                    _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
+                    _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
+                    _swap_mb = max(0.0, float(_budget) - _raw_vram)
                     _ram = _free_ram_mb()
                     _, _head = Hydra(
-                        heads=None,
+                        heads=default_heads(free_ram_mb=_ram, registry=registry),
                     ).select(
-                        message, free_vram_mb=_budget, free_ram_mb=_ram,
-                        resident=_res or registry.primary_model_name(),
+                        message, free_vram_mb=_raw_vram, free_ram_mb=_ram,
+                        resident=_res, swappable_vram_mb=_swap_mb,
                     )
                     if _head is not None:
                         _sel_be = registry.get(_head.name)
@@ -754,8 +757,8 @@ def create_app(
 
     async def _summarize(_prompt: str) -> str:
         # Prefer the CPU Hive summarizer (zero VRAM, keeps the GPU free for the
-        # answer); the 9B is the fallback. Auto-enabled on >=24GB RAM or when
-        # MAGIC_SUMMARIZE_ON_CPU=1.
+        # answer); the GPU primary is the fallback, ONLY when idle so background
+        # compaction never contends for the GPU lock during live chat turns.
         _cpu_sum = os.environ.get("MAGIC_SUMMARIZE_ON_CPU")
         _auto_cpu = False
         if _cpu_sum is None:
@@ -773,8 +776,24 @@ def create_app(
                     return _res.text
             except Exception:
                 pass
+        if state_machine.state != agent_state.AgentState.IDLE:
+            return ""
+        magic_be = registry.get("magic")
+        if magic_be is None:
+            return ""
+        prim_be = getattr(magic_be, "primary", magic_be)
+        prim_lock = getattr(prim_be, "_lock", None)
+        if prim_lock is not None and getattr(prim_lock, "locked", lambda: False)():
+            return ""
+        idle_min_s = float(os.environ.get("MAGIC_COMPACT_IDLE_S", "30"))
+        if idle_min_s > 0 and getattr(prim_be, "_llm", None) is not None and hasattr(prim_be, "idle_seconds"):
+            try:
+                if prim_be.idle_seconds() < idle_min_s:
+                    return ""
+            except Exception:
+                pass
         try:
-            r = await registry.get("magic").generate(_prompt, max_tokens=400, temperature=0.2)
+            r = await magic_be.generate(_prompt, max_tokens=400, temperature=0.2)
             return getattr(r, "text", "") if getattr(r, "ok", True) else ""
         except Exception:
             return ""
@@ -802,6 +821,7 @@ def create_app(
             pass
 
     _wd_busy = {"on": False}
+    _wd_lock = threading.Lock()
 
     def _log_watchdog(_msg, _ans, concerns):
         try:
@@ -819,10 +839,12 @@ def create_app(
         # background on the CPU (never blocking the reply) and logs concerns.
         # Stays on even in override/private -- honesty, not a content gate.
         # Single-flight + skip trivial answers so it can't pile up.
-        if _wd_busy["on"] or len((_ans or "").strip()) < 40:
+        if len((_ans or "").strip()) < 40:
             return
-        _wd_busy["on"] = True   # set BEFORE start() so concurrent turns can't double-spawn
-        import threading as _th
+        with _wd_lock:
+            if _wd_busy["on"]:
+                return
+            _wd_busy["on"] = True   # set atomically BEFORE start() so concurrent turns can't double-spawn
         def _run():
             try:
                 from .magic import hive as _hive
@@ -838,8 +860,13 @@ def create_app(
             except Exception:
                 pass
             finally:
+                with _wd_lock:
+                    _wd_busy["on"] = False
+        try:
+            threading.Thread(target=_run, daemon=True).start()
+        except Exception:
+            with _wd_lock:
                 _wd_busy["on"] = False
-        _th.Thread(target=_run, daemon=True).start()
 
     def _chat_reply(answer: str, action: str = "chat", ok: bool = True,
                     receipt: Optional[dict] = None) -> dict:
@@ -1125,15 +1152,20 @@ def create_app(
                     stream_be = magic_backend
                     if os.environ.get("MAGIC_HYDRA", "0") == "1":
                         try:
-                            from .magic.hydra import Hydra, _free_ram_mb
+                            from .magic.hydra import Hydra, _free_ram_mb, default_heads
                             from .magic import vram
                             from .persona import PersonaBackend
                             from .backends.base import ModelInfo
-                            _budget, _res = vram.swappable_budget_mb(registry)
+                            _raw_free = vram.free_mb()
+                            _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
+                            _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
+                            _swap_mb = max(0.0, float(_budget) - _raw_vram)
                             _ram = _free_ram_mb()
-                            _, _head = Hydra().select(
-                                message, free_vram_mb=_budget, free_ram_mb=_ram,
-                                resident=_res or registry.primary_model_name(),
+                            _, _head = Hydra(
+                                heads=default_heads(free_ram_mb=_ram, registry=registry),
+                            ).select(
+                                message, free_vram_mb=_raw_vram, free_ram_mb=_ram,
+                                resident=_res, swappable_vram_mb=_swap_mb,
                             )
                             if _head is not None:
                                 _sel_be = registry.get(_head.name)
@@ -1364,7 +1396,7 @@ def create_app(
         auth_error = _check_auth()
         if auth_error:
             return auth_error
-        from .magic.hydra import Hydra
+        from .magic.hydra import Hydra, default_heads
         from .magic import vram
         free_ram = None
         try:
@@ -1376,8 +1408,12 @@ def create_app(
         except Exception:
             pass
         vram_free = vram.free_mb()
-        _, res = vram.swappable_budget_mb(registry, free_vram_mb=vram_free)
-        heads = Hydra().report(free_vram_mb=vram_free, free_ram_mb=free_ram, resident=res)
+        _raw_vram = None if vram_free is None else float(vram_free)
+        _budget, res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
+        _swap_mb = (max(0.0, float(_budget) - _raw_vram) if _raw_vram is not None else 0.0)
+        heads = Hydra(heads=default_heads(free_ram_mb=free_ram, registry=registry)).report(
+            free_vram_mb=_raw_vram, free_ram_mb=free_ram, resident=res, swappable_vram_mb=_swap_mb,
+        )
         return jsonify({"heads": heads, "free_ram_mb": free_ram})
 
     @app.route("/update-check", methods=["GET"])

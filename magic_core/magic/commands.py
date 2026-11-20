@@ -564,12 +564,19 @@ async def _override(args: str, ctx: CommandContext) -> dict:
                  "answers through the uncensored model directly, no filtering, no detours."}
 
     from . import vram
-    backend = ctx.registry.get(_OVERRIDE_MODEL)
+    raw_cfg = getattr(ctx.registry, "raw_config", None) or {}
+    persona_cfg = raw_cfg.get("persona") if isinstance(raw_cfg, dict) else None
+    override_model = (
+        str(persona_cfg.get("override_model")).strip()
+        if isinstance(persona_cfg, dict) and persona_cfg.get("override_model")
+        else _OVERRIDE_MODEL
+    )
+    backend = ctx.registry.get(override_model)
     if backend is None:
-        return {"ok": False, "answer": f"'{_OVERRIDE_MODEL}' isn't registered in config/models.yaml"}
+        return {"ok": False, "answer": f"'{override_model}' isn't registered in config/models.yaml"}
 
     if ctx.loop is not None:
-        await vram.ensure_only(ctx.registry, keep=_OVERRIDE_MODEL)
+        await vram.ensure_only(ctx.registry, keep=override_model)
     system_prompt = _OVERRIDE_SYSTEM   # the no-gate override channel, not the gated persona
 
     from . import reply as reply_mod
@@ -581,7 +588,7 @@ async def _override(args: str, ctx: CommandContext) -> dict:
     text = _scrub_str(reply_mod._strip_think(raw_text)).strip()
     if not text:
         return {"ok": False, "action": "override",
-                "answer": f"'{_OVERRIDE_MODEL}' errored: {getattr(r, 'error', None) or 'no output'}"}
+                "answer": f"'{override_model}' errored: {getattr(r, 'error', None) or 'no output'}"}
     try:
         _hh = action_honesty.claims_execution(text) + action_honesty.claims_web_search(text)
         if _hh:

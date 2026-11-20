@@ -12,7 +12,7 @@ models:
     n_ctx: 8192          # tested ceiling with q4_0 KV on this 8GB card; f16 KV OOMs
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q4_0  # NOT optional for the 14B -- f16 KV at 8k is a CUDA OOM
+    kv_cache_type: q4_0  # keep q4_0 on 8GB VRAM / 7.5GB RAM box (q8_0/f16 risks OOM); revisit after hardware upgrade
     chat_format: chatml
     footprint_mb: 7600
 
@@ -27,7 +27,7 @@ models:
     n_ctx: 8192
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q4_0
+    kv_cache_type: q4_0  # keep q4_0 on 8GB VRAM / 7.5GB RAM box (q8_0 risks OOM); revisit after hardware upgrade
     chat_format: chatml
     footprint_mb: 7600
 
@@ -37,10 +37,11 @@ models:
     type: local_gguf
     display_name: "Llama-3.1-8B (abliterated)"
     model_path: "/home/mickey/Downloads/gremlin/models/meta-llama-3.1-8b-instruct-abliterated.Q4_K_M.gguf"
+    footprint_mb: 6400   # 4.6 GiB weights + q8_0 KV at 16k (~1.1 GiB) + CUDA overhead
     n_ctx: 16384
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q4_0
+    kv_cache_type: q8_0
     chat_format: llama-3
 
   # Qwen3.5-9B (Feb 2026), benched 2026-11-07: thinking is switched off by
@@ -72,11 +73,11 @@ models:
     type: local_gguf
     display_name: "L3-8B-Stheno-v3.2 (Q4_K_M)"
     model_path: "/home/mickey/Downloads/gremlin/models/L3-8B-Stheno-v3.2-Q4_K_M.gguf"
-    footprint_mb: 6100
+    footprint_mb: 6350   # 4.6 GiB weights + q8_0 KV at 8k (~0.5 GiB) + CUDA overhead
     n_ctx: 8192
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q4_0
+    kv_cache_type: q8_0
     chat_format: llama-3
 
   - name: mn-violet-lotus-12b
@@ -87,7 +88,7 @@ models:
     n_ctx: 8192
     n_gpu_layers: -1
     flash_attn: true
-    kv_cache_type: q4_0
+    kv_cache_type: q4_0  # keep q4_0 on 8GB VRAM / 7.5GB RAM box (q8_0 pushes ~7.5GB near OOM); revisit after hardware upgrade
     chat_format: mistral-instruct
 
   # MoE "deep" brain -- the Hydra's summon-on-demand head (Magic 3.0). 30B total
@@ -193,7 +194,7 @@ persona:
   # Qwen2.5-Coder is a strong generalist (code + math + reasoning), not
   # narrow -- it passed the long-context sum and the duration parser the
   # plain 7B botched. Chat + /build + /fix now all share one warm model.
-  primary_model: qwen3.5-9b
+  primary_model: qwen2.5-14b
   fallback_models: [gemini]
   system_prompt: |
     Your name is Magic. You're a personal AI assistant running locally

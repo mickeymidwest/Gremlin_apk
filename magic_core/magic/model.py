@@ -76,7 +76,8 @@ class BackendModel:
         self.temperature = temperature
         self._loop = loop
 
-    def complete(self, messages, system=None, max_tokens=4096, grammar=None):
+    def complete(self, messages, system=None, max_tokens=4096, grammar=None,
+                 timeout: float | None = None):
         msgs = list(messages)
         # Prefer real multi-turn: the last user message is the prompt, the
         # rest is history the backend can render as ChatML turns. Falls
@@ -86,18 +87,30 @@ class BackendModel:
             history = msgs[:-1]
         else:
             prompt, history = _flatten(msgs), None
-        try:
-            coro = self._backend.generate(
-                prompt, system=system, max_tokens=max_tokens,
-                temperature=self.temperature, history=history, grammar=grammar,
-            )
-        except TypeError:
-            coro = self._backend.generate(
-                _flatten(msgs), system=system, max_tokens=max_tokens,
-                temperature=self.temperature,
-            )
+        gen_kw = dict(system=system, max_tokens=max_tokens,
+                      temperature=self.temperature, history=history, grammar=grammar)
+        if timeout is not None:
+            try:
+                coro = self._backend.generate(prompt, timeout=timeout, **gen_kw)
+            except TypeError:
+                try:
+                    coro = self._backend.generate(prompt, **gen_kw)
+                except TypeError:
+                    coro = self._backend.generate(
+                        _flatten(msgs), system=system, max_tokens=max_tokens,
+                        temperature=self.temperature,
+                    )
+        else:
+            try:
+                coro = self._backend.generate(prompt, **gen_kw)
+            except TypeError:
+                coro = self._backend.generate(
+                    _flatten(msgs), system=system, max_tokens=max_tokens,
+                    temperature=self.temperature,
+                )
         if self._loop is not None:
-            result = asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=600)
+            wait_s = (float(timeout) + 5.0) if timeout is not None else 600
+            result = asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=wait_s)
         else:
             result = _run_coro(coro)
         if getattr(result, "error", None):

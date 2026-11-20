@@ -28,10 +28,15 @@ def _require_key(mapping: dict[str, Any], key: str, dotted: str, expected_type: 
     if key not in mapping:
         raise GuardrailsConfigError(f"Missing required guardrails key '{dotted}'")
     val = mapping[key]
-    if expected_type is (int, float) and isinstance(val, bool):
-        raise GuardrailsConfigError(f"Guardrails key '{dotted}' must be a number, got bool")
-    if expected_type is int and isinstance(val, bool):
-        raise GuardrailsConfigError(f"Guardrails key '{dotted}' must be an int, got bool")
+    if isinstance(val, bool) and expected_type is not bool:
+        if expected_type == (int, float) or (
+            isinstance(expected_type, tuple)
+            and (int in expected_type or float in expected_type)
+            and bool not in expected_type
+        ):
+            raise GuardrailsConfigError(f"Guardrails key '{dotted}' must be a number, got bool")
+        if expected_type is int:
+            raise GuardrailsConfigError(f"Guardrails key '{dotted}' must be an int, got bool")
     if not isinstance(val, expected_type):
         raise GuardrailsConfigError(
             f"Guardrails key '{dotted}' has wrong type {type(val).__name__}"

@@ -40,26 +40,36 @@ class Router:
         self, model_name: str, prompt: str, system: Optional[str] = None, **kw
     ) -> GenerationResult:
         backend = self.registry.get(model_name)
+        if backend is None:
+            return GenerationResult(model=model_name, text="", error=f"unknown model: {model_name}")
         return await backend.generate(prompt, system=system, **kw)
 
     async def broadcast(
         self, model_names: list[str], prompt: str, system: Optional[str] = None, **kw
     ) -> dict[str, GenerationResult]:
         """API backends (claude, gemini, ...) don't compete for local
-        VRAM, so they still run together for speed. Local GGUF backends
-        DO share the same limited GPU memory -- nothing here shares VRAM
-        between concurrently-loading models, so running two at once on a
+        VRAM, so they still run together for speed. Local GGUF/VLM/persona
+        backends DO share the same limited GPU memory -- nothing here shares
+        VRAM between concurrently-loading models, so running two at once on a
         constrained card (e.g. 8GB) risks an out-of-memory error that has
         nothing to do with which quant was picked. Those run one at a
         time instead: slower, but the thing that's actually supposed to
         work reliably. See magic_core.eviction for the other half of
         this -- unloading a local model once it's been idle a while, so
         VRAM doesn't just accumulate across many separate consults."""
-        named = [(name, self.registry.get(name)) for name in model_names]
-        local = [(n, b) for n, b in named if b.info.kind == "local_gguf"]
-        remote = [(n, b) for n, b in named if b.info.kind != "local_gguf"]
-
+        _gpu_kinds = ("local_gguf", "local_vlm", "persona")
         results: dict[str, GenerationResult] = {}
+        local = []
+        remote = []
+        for name in model_names:
+            b = self.registry.get(name)
+            if b is None:
+                results[name] = GenerationResult(model=name, text="", error=f"unknown model: {name}")
+                continue
+            if b.info.kind in _gpu_kinds:
+                local.append((name, b))
+            else:
+                remote.append((name, b))
 
         if remote:
             remote_results = await asyncio.gather(

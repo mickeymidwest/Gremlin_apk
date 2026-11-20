@@ -78,7 +78,8 @@ def _local_gguf_backends(registry):
         be = getattr(be, "primary", be)
         if be is None or be in seen.values():
             continue
-        if type(be).__name__ in ("LlamaCppBackend", "VisionBackend"):
+        kind = getattr(getattr(be, "info", None), "kind", None)
+        if type(be).__name__ in ("LlamaCppBackend", "VisionBackend") or kind in ("local_gguf", "local_vlm"):
             seen[name] = be
     return seen
 
@@ -110,13 +111,24 @@ async def ensure_only(registry, keep: str | None) -> None:
     this is not optional politeness: a second resident model is a
     guaranteed OOM, so the unload is awaited fully and we don't return
     until the card actually has room."""
-    set_active(keep)
-    keep_be = registry.get(keep) if (keep and hasattr(registry, "get")) else None
+    backends = _local_gguf_backends(registry)
+    keep_raw = registry.get(keep) if (keep and hasattr(registry, "get")) else None
+    keep_be = getattr(keep_raw, "primary", keep_raw)
+    active_name: str | None = None
+    if keep:
+        active_name = getattr(getattr(keep_be, "info", None), "name", None)
+        if not active_name and keep_be is not None:
+            for _n, _b in backends.items():
+                if _b is keep_be:
+                    active_name = _n
+                    break
+        active_name = active_name or keep
+    set_active(active_name)
     cfg_fp = getattr(getattr(keep_be, "info", None), "footprint_mb", 0) or 0
     big = max(footprint_mb(_model_path(registry, keep)), int(cfg_fp)) if keep else 0
     unloaded = False
-    for name, be in _local_gguf_backends(registry).items():
-        if name == keep:
+    for name, be in backends.items():
+        if name == keep or name == active_name or (keep_be is not None and be is keep_be):
             continue
         is_loading = bool(getattr(be, "_loading", False)) or (
             hasattr(be, "_lock") and getattr(be._lock, "locked", lambda: False)()
@@ -146,9 +158,10 @@ async def ensure_only(registry, keep: str | None) -> None:
 
 
 def _model_path(registry, name: str | None) -> str:
-    if not name:
-        return ""
-    be = getattr(registry.get(name), "primary", registry.get(name))
+    if not name or not hasattr(registry, "get"):
+        return str(name or "")
+    raw = registry.get(name)
+    be = getattr(raw, "primary", raw)
     return str(getattr(be, "model_path", name) or name)
 
 
@@ -156,7 +169,12 @@ def ensure_only_sync(registry, keep: str | None, loop=None) -> None:
     """Sync entry point for code not already on the event loop."""
     coro = ensure_only(registry, keep)
     if loop is not None:
-        asyncio.run_coroutine_threadsafe(coro, loop).result(timeout=30)
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+        try:
+            fut.result(timeout=30)
+        except BaseException:
+            fut.cancel()
+            raise
     else:
         try:
             asyncio.get_running_loop()
@@ -165,7 +183,12 @@ def ensure_only_sync(registry, keep: str | None, loop=None) -> None:
             return
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            ex.submit(lambda: asyncio.run(coro)).result(timeout=30)
+            fut = ex.submit(lambda: asyncio.run(coro))
+            try:
+                fut.result(timeout=30)
+            except BaseException:
+                fut.cancel()
+                raise
 
 
 def can_load(headroom_mb: int = MODEL_FOOTPRINT_MB) -> tuple[bool, str]:

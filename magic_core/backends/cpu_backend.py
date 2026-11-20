@@ -144,7 +144,7 @@ class CpuChatBackend(ModelBackend):
     def is_cpu(self) -> bool:
         return True
 
-    def _ensure(self) -> bool:
+    def _ensure(self, ready_timeout: float = _READY_TIMEOUT) -> bool:
         if self._proc is not None and self._proc.poll() is None:
             self._last_used = time.monotonic()
             return True
@@ -169,7 +169,7 @@ class CpuChatBackend(ModelBackend):
         except Exception:
             self._proc = None
             return False
-        ready = _readline(self._proc.stdout, _READY_TIMEOUT)
+        ready = _readline(self._proc.stdout, ready_timeout)
         if (ready or "").strip() != "READY":
             self._stop()
             return False
@@ -195,18 +195,38 @@ class CpuChatBackend(ModelBackend):
             except Exception:
                 pass
 
-    def _request(self, req: dict) -> dict:
-        with self._lock:
+    def _request(self, req: dict, timeout: Optional[float] = None) -> dict:
+        deadline = (time.monotonic() + float(timeout)) if timeout is not None else None
+        if deadline is not None:
+            wait_s = max(0.0, deadline - time.monotonic())
+            if not self._lock.acquire(timeout=wait_s):
+                return {"error": "cpu worker timed out (busy)"}
+        else:
+            self._lock.acquire()
+        try:
             self._last_used = time.monotonic()
-            if not self._ensure():
+            if deadline is not None:
+                rem = deadline - time.monotonic()
+                if rem <= 0:
+                    return {"error": "cpu worker timed out"}
+                ready_timeout = min(_READY_TIMEOUT, rem)
+            else:
+                ready_timeout = _READY_TIMEOUT
+            if not self._ensure(ready_timeout=ready_timeout):
                 return {"error": "cpu worker unavailable"}
+            if deadline is not None:
+                gen_timeout = deadline - time.monotonic()
+                if gen_timeout <= 0:
+                    return {"error": "cpu worker timed out"}
+            else:
+                gen_timeout = _GEN_TIMEOUT
             try:
                 self._proc.stdin.write(json.dumps(req) + "\n")
                 self._proc.stdin.flush()
             except Exception as e:
                 self._stop()
                 return {"error": str(e)}
-            line = _readline(self._proc.stdout, _GEN_TIMEOUT)
+            line = _readline(self._proc.stdout, gen_timeout)
             if line is None:
                 self._stop()
                 return {"error": "cpu worker timed out"}
@@ -214,9 +234,12 @@ class CpuChatBackend(ModelBackend):
                 return json.loads(line)
             except Exception:
                 return {"error": "bad worker response"}
+        finally:
+            self._lock.release()
 
     async def generate(self, prompt, system=None, max_tokens=1536,
-                       temperature=0.7, grammar=None, history=None) -> GenerationResult:
+                       temperature=0.7, grammar=None, history=None,
+                       timeout: Optional[float] = None) -> GenerationResult:
         import asyncio
         req = {"prompt": prompt, "system": system, "max_tokens": max_tokens,
                "temperature": temperature, "history": history or []}
@@ -228,17 +251,25 @@ class CpuChatBackend(ModelBackend):
         elif isinstance(grammar, str):
             req["grammar_gbnf"] = grammar
         t0 = time.monotonic()
-        res = await asyncio.to_thread(self._request, req)
+        res = await asyncio.to_thread(self._request, req, timeout)
         if "error" in res:
             return GenerationResult(model=self.info.name, text="", error=res["error"])
         return GenerationResult(model=self.info.name, text=res.get("text", ""),
                                 meta={"device": "cpu", "secs": round(time.monotonic() - t0, 1)})
 
+    def _warmup_locked(self) -> None:
+        with self._lock:
+            self._ensure()
+
+    def _unload_locked(self) -> None:
+        with self._lock:
+            self._stop()
+
     async def warmup(self) -> None:
         import asyncio
-        await asyncio.to_thread(self._ensure)
+        await asyncio.to_thread(self._warmup_locked)
 
     async def unload(self) -> None:
         import asyncio
-        await asyncio.to_thread(self._stop)
+        await asyncio.to_thread(self._unload_locked)
         self._forget_resident()

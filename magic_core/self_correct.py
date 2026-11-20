@@ -18,7 +18,7 @@ _RULES: "list[tuple[re.Pattern, str, list[str]]]" = [
     (re.compile(r"not on the allow-list|not allowed|isn't on the|refuses anything", re.I),
      "that service/container isn't on Magic's can-do list",
      ["turn on Override (sudo) in Settings and ask again, or",
-      "add it in Settings -> Magic's can-do list (e.g. magic-zoid.timer)"]),
+      "add it in Settings -> Magic's can-do list (e.g. magic-update.timer)"]),
     (re.compile(r"permission denied|operation not permitted|must be root|not permitted", re.I),
      "permission was denied",
      ["turn on Override (sudo) and retry, or run it yourself with the right rights"]),

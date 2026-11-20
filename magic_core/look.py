@@ -229,7 +229,9 @@ def gather(keys: list[str]) -> str:
     return "\n\n".join(blocks)
 
 
-LIVE_MARK = "LIVE CHECK --"
+from .guardrails_config import get_guardrails
+
+LIVE_MARK = str(get_guardrails()["hard_gates"]["grounding"]["live_mark"])
 
 
 def context_block(evidence: str) -> str:

@@ -243,9 +243,14 @@ class Hive:
         sysp = spec.system + (("\n\n" + extra_system) if extra_system else "")
 
         def _run():
-            reply = model.complete([{"role": "user", "content": prompt}],
-                                   system=sysp, max_tokens=spec.max_tokens,
-                                   grammar=spec.grammar)
+            try:
+                reply = model.complete([{"role": "user", "content": prompt}],
+                                       system=sysp, max_tokens=spec.max_tokens,
+                                       grammar=spec.grammar, timeout=spec.budget_s)
+            except TypeError:
+                reply = model.complete([{"role": "user", "content": prompt}],
+                                       system=sysp, max_tokens=spec.max_tokens,
+                                       grammar=spec.grammar)
             return (getattr(reply, "text", "") or "").strip()
 
         t0 = time.monotonic()
@@ -264,14 +269,14 @@ class Hive:
                 return HiveResult(name=name, text=text, ok=ok,
                                   secs=round(time.monotonic() - t0, 1), model=used)
             except _cf.TimeoutError:
-                try:
-                    getattr(getattr(model, "_backend", None), "_stop", lambda: None)()
-                except Exception:
-                    pass
+                # Never call backend._stop() unlocked from the caller thread:
+                # CpuChatBackend._request enforces `timeout=spec.budget_s` and
+                # tears down its own timed-out subprocess inside self._lock.
                 return HiveResult(name=name, ok=False, dropped=True,
                                   secs=round(time.monotonic() - t0, 1), model=used)
-            except Exception:
-                return HiveResult(name=name, ok=False,
+            except Exception as e:
+                is_timeout = "timed out" in str(e).lower()
+                return HiveResult(name=name, ok=False, dropped=is_timeout,
                                   secs=round(time.monotonic() - t0, 1), model=used)
         finally:
             ex.shutdown(wait=False, cancel_futures=True)

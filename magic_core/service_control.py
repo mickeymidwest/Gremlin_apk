@@ -99,6 +99,17 @@ def _load_yaml_allowlist(project_root: str) -> dict:
     root_path = Path(project_root)
     gr_path = root_path / "config" / "guardrails.yaml"
     models_path = root_path / "config" / "models.yaml"
+    if models_path.exists():
+        try:
+            data = yaml.safe_load(models_path.read_text()) or {}
+        except Exception:
+            data = {}
+        if isinstance(data.get("service_control"), dict):
+            sc_m = data["service_control"]
+            return {
+                "docker": list(dict.fromkeys(str(n) for n in (sc_m.get("docker") or []))),
+                "systemd": list(dict.fromkeys(str(n) for n in (sc_m.get("systemd") or []))),
+            }
     docker_list: list[str] = []
     systemd_list: list[str] = []
     if gr_path.exists():
@@ -108,14 +119,6 @@ def _load_yaml_allowlist(project_root: str) -> dict:
             sc = {}
         docker_list.extend(str(n) for n in (sc.get("allowed_docker") or []))
         systemd_list.extend(str(n) for n in (sc.get("allowed_systemd") or []))
-    if models_path.exists():
-        try:
-            data = yaml.safe_load(models_path.read_text()) or {}
-        except Exception:
-            data = {}
-        sc_m = data.get("service_control") or {}
-        docker_list.extend(str(n) for n in (sc_m.get("docker") or []))
-        systemd_list.extend(str(n) for n in (sc_m.get("systemd") or []))
     return {
         "docker": list(dict.fromkeys(docker_list)),
         "systemd": list(dict.fromkeys(systemd_list)),
@@ -155,7 +158,7 @@ def resolve_unit(project_root: str, name: str, *, allow_any: bool = False) -> Op
     name = (name or "").strip()
     if not name:
         return None
-    name = _FRIENDLY.get(name.lower(), name)   # "the battles" -> magic-zoid.timer
+    name = _FRIENDLY.get(name.lower(), name)   # "updates" -> magic-update.timer
     allow = _load_allowlist(project_root)
     if name in allow["docker"]:
         return "docker", name

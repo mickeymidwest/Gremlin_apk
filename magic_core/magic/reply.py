@@ -37,16 +37,8 @@ _REVISE = os.environ.get("MAGIC_REVISE", "1" if _RCFG["revise_default"] else "0"
 _PLAN = os.environ.get("MAGIC_PLAN", "1" if _RCFG["plan_default"] else "0") != "0"
 # Bounded read-only workspace escalation when planner/probe lack live context.
 _CHAT_AGENT = os.environ.get("MAGIC_CHAT_AGENT", "1" if _RCFG["chat_agent_default"] else "0") != "0"
-_HARD_RE = re.compile(
-    r"(?i)(```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|"
-    r"regex|algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|"
-    r"sql|query|command|bash|shell|python|javascript|typescript|kotlin|rust|golang|"
-    r"docker|systemd|kubernetes|yaml|json|api|endpoint|schema|"
-    r"explain|how\s+(do|would|can|should)\s+i|how\s+to|why\s+(does|is|are|do|doesn)|"
-    r"step[-\s]by[-\s]step|calculate|prove|design|architect|compare|trade-?off|"
-    r"difference\s+between|what(?:'s| is)\s+the\s+best)\b)|" + _RCFG["hard_keywords_regex"],
-    re.I,
-)
+_HARD_RE = re.compile(_RCFG["hard_keywords_regex"], re.I)
+_RETRY_CAPS = {k: max(0, int(v)) for k, v in (_RCFG.get("retry_caps") or {}).items()}
 _HARD_MIN_WORDS = int(_RCFG["hard_prompt_min_words"])
 _WORTH_REVIEW_MIN_WORDS = int(_RCFG["worth_reviewing_min_words"])
 _MAX_TOKENS_THINK = int(_RCFG["max_tokens_think"])
@@ -617,7 +609,7 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
                               evidence: str, text: str, *, for_stream: bool = False):
     """Fallback web lookup when an unsearched draft admits ignorance, claims an
     unrun search, or states verifiable external facts (years, counts, breakdowns)."""
-    if not text:
+    if not text or _CASUAL_RE.match((message or "").strip()):
         return None, "", ""
     try:
         from .. import action_honesty as _ah
@@ -1037,21 +1029,27 @@ async def answer(primary, message: str, root: str,
         except Exception:
             bad = []
         if bad:
-            retry_prompt = prompt + "\n\n" + _SOFT["grounding_retry_prompt"].format(issues="; ".join(bad))
-            r2 = await _gen(primary, retry_prompt, hist, think=_think)
-            # only use the retry if it actually succeeded -- a failed r2
-            # ("error" text, ok=False) must not overwrite the real draft below.
-            t2 = _strip_think(r2.text or "") if getattr(r2, "ok", True) else ""
-            for k, v in ((getattr(r2, "meta", None) or {}).get("usage") or {}).items():
-                if isinstance(v, (int, float)) and isinstance(usage.get(k, 0), (int, float)):
-                    usage[k] = usage.get(k, 0) + v
-            try:
-                still = grounding.check(t2, root, ctx) if t2 else bad
-            except Exception:
-                still = bad
-            if t2 and len(still) < len(bad):
-                text = t2 + (grounding.caveat(still) if still else "")
-            else:
+            _g_cap = _RETRY_CAPS.get("grounding", 1)
+            for _ in range(_g_cap):
+                retry_prompt = prompt + "\n\n" + _SOFT["grounding_retry_prompt"].format(issues="; ".join(bad))
+                r2 = await _gen(primary, retry_prompt, hist, think=_think)
+                # only use the retry if it actually succeeded -- a failed r2
+                # ("error" text, ok=False) must not overwrite the real draft below.
+                t2 = _strip_think(r2.text or "") if getattr(r2, "ok", True) else ""
+                for k, v in ((getattr(r2, "meta", None) or {}).get("usage") or {}).items():
+                    if isinstance(v, (int, float)) and isinstance(usage.get(k, 0), (int, float)):
+                        usage[k] = usage.get(k, 0) + v
+                try:
+                    still = grounding.check(t2, root, ctx) if t2 else bad
+                except Exception:
+                    still = bad
+                if t2 and len(still) < len(bad):
+                    text, bad = t2, still
+                    if not bad:
+                        break
+                else:
+                    break
+            if bad:
                 text = text + grounding.caveat(bad)
 
     if _GROUNDING_CHECK and used_fallback and text and not web_sources:
@@ -1083,18 +1081,21 @@ async def answer(primary, message: str, root: str,
             # Honesty HARD-GATE (Hydra P3): don't just footnote a fabricated
             # "I ran/checked/searched X" -- reject it and regenerate honestly,
             # with the offending claim quoted back.
+            _ah_cap = _RETRY_CAPS.get("action_honesty", 1)
             _hprompt = prompt + "\n\n" + _SOFT["no_web_or_tools_guard_prompt"]
-            try:
-                _rh = await _gen(primary, _hprompt, hist, think=_think)
-                _th = _strip_think(_rh.text or "") if getattr(_rh, "ok", True) else ""
-                _still = (([] if looked else _ah.claims_execution(_th))
-                          + ([] if web_sources else _ah.claims_web_search(_th))) if _th else _hh
-                if _th and not _still:
-                    text = _th                      # clean rewrite -- use it
-                else:
-                    text = text + _ah.caveat(_hh)   # still fabricating -> fall back to the footer
-            except Exception:
-                text = text + _ah.caveat(_hh)
+            for _ in range(_ah_cap):
+                try:
+                    _rh = await _gen(primary, _hprompt, hist, think=_think)
+                    _th = _strip_think(_rh.text or "") if getattr(_rh, "ok", True) else ""
+                    _still = (([] if looked else _ah.claims_execution(_th))
+                              + ([] if web_sources else _ah.claims_web_search(_th))) if _th else _hh
+                    if _th and not _still:
+                        text, _hh = _th, []              # clean rewrite -- use it
+                        break
+                except Exception:
+                    break
+            if _hh:
+                text = text + _ah.caveat(_hh)   # still fabricating -> fall back to the footer
     # Code check: SYNTAX-check any script/code Magic wrote (bash -n, python
     # compile, node --check) and, if it won't parse, regenerate once with the
     # error fed back -- don't hand over a broken script (the battle loop checks
@@ -1105,16 +1106,22 @@ async def answer(primary, message: str, root: str,
     except Exception:
         _ci = []
     if _ci:
-        _cprompt = prompt + "\n\n" + _SOFT["code_check_retry_prompt"].format(issues="; ".join(_ci))
-        try:
-            _r3 = await _gen(primary, _cprompt, hist, think=_think)
-            _t3 = _strip_think(_r3.text or "") if getattr(_r3, "ok", True) else ""
-            _still = (_cc.check_code_blocks(_t3) + _cc.check_code_completeness(_t3)) if _t3 else _ci
-            if _t3 and len(_still) < len(_ci):
-                text = _t3 + (_cc.caveat(_still) if _still else "")
-            else:
-                text = text + _cc.caveat(_ci)
-        except Exception:
+        _cc_cap = _RETRY_CAPS.get("code_check", 1)
+        for _ in range(_cc_cap):
+            _cprompt = prompt + "\n\n" + _SOFT["code_check_retry_prompt"].format(issues="; ".join(_ci))
+            try:
+                _r3 = await _gen(primary, _cprompt, hist, think=_think)
+                _t3 = _strip_think(_r3.text or "") if getattr(_r3, "ok", True) else ""
+                _still = (_cc.check_code_blocks(_t3) + _cc.check_code_completeness(_t3)) if _t3 else _ci
+                if _t3 and len(_still) < len(_ci):
+                    text, _ci = _t3, _still
+                    if not _ci:
+                        break
+                else:
+                    break
+            except Exception:
+                break
+        if _ci:
             text = text + _cc.caveat(_ci)
 
     # Reviewer-reviser head (Hydra P1.3): a 2nd pass of the SAME 9B critiques the
@@ -1152,17 +1159,20 @@ async def answer(primary, message: str, root: str,
         except Exception:
             _hh2 = []
         if _hh2:
+            _ah2_cap = _RETRY_CAPS.get("action_honesty", 1)
             _hprompt2 = prompt + "\n\n" + _SOFT["no_web_or_tools_guard_prompt"]
-            try:
-                _rh2 = await _gen(primary, _hprompt2, hist, think=_think)
-                _th2 = _strip_think(_rh2.text or "") if getattr(_rh2, "ok", True) else ""
-                _still2 = (([] if looked else _ah2.claims_execution(_th2))
-                           + ([] if web_sources else _ah2.claims_web_search(_th2))) if _th2 else _hh2
-                if _th2 and not _still2:
-                    text = _th2
-                else:
-                    text = text + _ah2.caveat(_hh2)
-            except Exception:
+            for _ in range(_ah2_cap):
+                try:
+                    _rh2 = await _gen(primary, _hprompt2, hist, think=_think)
+                    _th2 = _strip_think(_rh2.text or "") if getattr(_rh2, "ok", True) else ""
+                    _still2 = (([] if looked else _ah2.claims_execution(_th2))
+                               + ([] if web_sources else _ah2.claims_web_search(_th2))) if _th2 else _hh2
+                    if _th2 and not _still2:
+                        text, _hh2 = _th2, []
+                        break
+                except Exception:
+                    break
+            if _hh2:
                 text = text + _ah2.caveat(_hh2)
 
     if _no_source and not web_sources and (not _admits_unverified(text) or autoresearch.needs_fact_check(message, text)):
@@ -1171,34 +1181,40 @@ async def answer(primary, message: str, root: str,
     if web_sources and web_ev and text:
         _unsup = await _web_fact_check(text, web_ev, message)
         if _unsup and not used_fallback:
-            _wprompt = (prompt + "\n\n[Web fact check: these claims in your draft were NOT found "
-                        "in the retrieved search results: " + "; ".join(_unsup)
-                        + ". Rewrite your answer using ONLY details directly supported by the "
-                        "search results, or say plainly what wasn't verified.]")
-            try:
-                _rw = await _gen(primary, _wprompt, hist, think=_think)
-                _tw = _strip_think(_rw.text or "") if getattr(_rw, "ok", True) else ""
-                _still_unsup = await _web_fact_check(_tw, web_ev, message) if _tw else _unsup
-                if _tw and len(_still_unsup) < len(_unsup):
-                    # Re-check honesty and code syntax on the post-web-fact-check rewrite.
-                    try:
-                        from .. import action_honesty as _ah3
-                        _hh3 = [] if looked else _ah3.claims_execution(_tw)
-                        if _hh3:
-                            _tw = _tw + _ah3.caveat(_hh3)
-                    except Exception:
-                        pass
-                    try:
-                        from . import code_check as _cc3
-                        _ci3 = _cc3.check_code_blocks(_tw) + _cc3.check_code_completeness(_tw)
-                        if _ci3:
-                            _tw = _tw + _cc3.caveat(_ci3)
-                    except Exception:
-                        pass
-                    text = _tw + grounding.web_caveat(_still_unsup)
-                else:
-                    text = text + grounding.web_caveat(_unsup)
-            except Exception:
+            _wfc_cap = _RETRY_CAPS.get("web_fact_check", 1)
+            for _ in range(_wfc_cap):
+                _wprompt = (prompt + "\n\n[Web fact check: these claims in your draft were NOT found "
+                            "in the retrieved search results: " + "; ".join(_unsup)
+                            + ". Rewrite your answer using ONLY details directly supported by the "
+                            "search results, or say plainly what wasn't verified.]")
+                try:
+                    _rw = await _gen(primary, _wprompt, hist, think=_think)
+                    _tw = _strip_think(_rw.text or "") if getattr(_rw, "ok", True) else ""
+                    _still_unsup = await _web_fact_check(_tw, web_ev, message) if _tw else _unsup
+                    if _tw and len(_still_unsup) < len(_unsup):
+                        # Re-check honesty and code syntax on the post-web-fact-check rewrite.
+                        try:
+                            from .. import action_honesty as _ah3
+                            _hh3 = [] if looked else _ah3.claims_execution(_tw)
+                            if _hh3:
+                                _tw = _tw + _ah3.caveat(_hh3)
+                        except Exception:
+                            pass
+                        try:
+                            from . import code_check as _cc3
+                            _ci3 = _cc3.check_code_blocks(_tw) + _cc3.check_code_completeness(_tw)
+                            if _ci3:
+                                _tw = _tw + _cc3.caveat(_ci3)
+                        except Exception:
+                            pass
+                        text, _unsup = _tw, _still_unsup
+                        if not _unsup:
+                            break
+                    else:
+                        break
+                except Exception:
+                    break
+            if _unsup:
                 text = text + grounding.web_caveat(_unsup)
         elif _unsup:
             text = text + grounding.web_caveat(_unsup)

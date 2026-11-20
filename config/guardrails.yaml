@@ -314,7 +314,7 @@ hard_gates:
     chat_agent_default: true
     hard_prompt_min_words: 30
     worth_reviewing_min_words: 40
-    hard_keywords_regex: '\b(why|how|compare|explain|debug|trace|tradeoff|architecture|implement|refactor|prove)\b'
+    hard_keywords_regex: '```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|regex|algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|sql|query|command|bash|shell|python|javascript|typescript|kotlin|rust|golang|docker|systemd|kubernetes|yaml|json|api|endpoint|schema|explain|why|how|how\s+(do|would|can|should)\s+i|how\s+to|why\s+(does|is|are|do|doesn)|step[-\s]by[-\s]step|calculate|prove|design|architect|compare|trace|trade-?off|difference\s+between|what(?:''s| is)\s+the\s+best)\b'
     max_tokens_think: 3072
     max_tokens_default: 2048
     temperature: 0.6

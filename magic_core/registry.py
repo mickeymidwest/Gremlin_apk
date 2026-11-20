@@ -116,7 +116,16 @@ class ModelRegistry:
             last_resort_name = persona_cfg.get("last_resort_model")
 
             primary = reg.get(primary_name)
-            fallbacks = [reg.get(n) for n in fallback_names]
+            if primary is None:
+                raise KeyError(
+                    f"primary_model {primary_name!r} is not in config/models.yaml")
+            fallbacks = []
+            for n in fallback_names:
+                fb = reg.get(n)
+                if fb is None:
+                    raise KeyError(
+                        f"fallback_model {n!r} is not in config/models.yaml")
+                fallbacks.append(fb)
             if last_resort_name and reg.get(last_resort_name) is None:
                 raise KeyError(
                     f"last_resort_model {last_resort_name!r} is not in config/models.yaml")
