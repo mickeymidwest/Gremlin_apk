@@ -593,10 +593,19 @@ def _is_casual_chat(message: str) -> bool:
         return True
     if not _CASUAL_ALLOW_QMARK and "?" in m:
         return False
+    words = m.split()
+    # Non-sentence-initial capitalized words (e.g. "Batman Beyond", "Black Panther")
+    # signal a named entity / factual premise rather than casual banter.
+    has_named_entity = any(
+        re.match(r"^[A-Z][a-zA-Z0-9'-]*$", w.strip(".,!?:;\"'()")) and w.strip(".,!?:;\"'()") != "I"
+        for w in words[1:]
+    )
     return (
-        len(m.split()) <= _CASUAL_MAX_WORDS
+        len(words) <= _CASUAL_MAX_WORDS
+        and not has_named_entity
         and not _HARD_RE.search(m)
         and not _FACT_CUE_RE.search(m)
+        and not look.wants(m)
         and not autoresearch.should_search(m)
     )
 
@@ -623,6 +632,8 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
         ws, wev = await autoresearch.gather(message, history=history, force=True)
     except Exception:
         return None, "", ""
+    if autoresearch.is_no_source(wev):
+        return None, wev, ""
     if not ws or not wev:
         return None, "", ""
     if _claims_facts and not _admits and not _fake_web and _REVISE:
@@ -650,7 +661,14 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
                 wev = "\n\n".join([wev, *_extra_ev])
             if _changed and _rtext.strip():
                 return ws, wev, _strip_think(_rtext)
-            return (ws, wev, "") if for_stream else (ws, wev, text)
+            # Critic left the unsearched draft unchanged: verify it against `wev`.
+            # If figures or claims aren't supported, fall through to regenerate
+            # from `wev`; otherwise keep the draft WITHOUT stamping a web footer
+            # onto a reply that was never generated from those sources.
+            _bad_figs = autoresearch.unverified_figures(text, wev)
+            _bad_claims = await _web_fact_check(text, wev, message)
+            if not _bad_figs and not _bad_claims:
+                return None, "", ""
         except Exception:
             pass
     sprompt, shist, _ = _build_prompt(message, root, history, evidence, web_evidence=wev)
@@ -690,7 +708,12 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
         try:
             web_sources, web_ev = await autoresearch.gather(message, history=history)
         except Exception:
-            web_sources, web_ev = None, ""
+            web_sources = None
+            web_ev = (
+                autoresearch.NO_USABLE_SOURCE
+                if autoresearch.should_search(message)
+                else ""
+            )
     prompt, hist, ctx = _build_prompt(message, root, history, evidence,
                                       web_evidence=web_ev, inline_context=inline_ctx)
     if _PLAN and _looks_hard(message):
@@ -712,7 +735,7 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
                     _sub = await _aio.to_thread(
                         subagent.delegate,
                         message,
-                        BackendModel(primary),
+                        BackendModel(primary, loop=_aio.get_running_loop()),
                         root,
                         max_steps=_SUBAGENT_MAX_STEPS,
                         time_budget_s=_SUBAGENT_TIME_BUDGET_S,
@@ -754,22 +777,6 @@ async def answer_stream(primary, message: str, root: str,
         yield "done", _reply(msg, action="remember")
         return
 
-    # Hydra P1.3: substantive turns go through the full review pipeline (answer()
-    # runs look-first, loops, web, grounding, code-check AND the reviewer-reviser
-    # head), then we typewriter-stream the reviewed result. Casual turns keep the
-    # live token stream below.
-    if _REVISE and _looks_hard(message):
-        try:
-            _done = await answer(primary, message, root, history=history, fallback=fallback)
-        except Exception:
-            _done = None
-        if _done is not None:
-            _full = _done.get("answer") or ""
-            for _chunk in (re.findall(r"\S+\s+|\S+$", _full) or [_full]):
-                yield "delta", _chunk
-            yield "done", _done
-            return
-
     prep = await _prepare_turn(primary, message, root, history, fallback)
     if prep["looped"]:
         text, solved, used_fb = prep["looped"]
@@ -789,6 +796,24 @@ async def answer_stream(primary, message: str, root: str,
         await _post_answer_bookkeeping(primary, message, root, _NO_SOURCE_REPLY, False, "magic", history=history)
         yield "done", _reply(_NO_SOURCE_REPLY, source="magic")
         return
+
+    # Hydra P1.3: substantive and web-researched/factual turns go through the
+    # full review pipeline (answer() runs grounding, action-honesty hard-gate,
+    # code-check, reviewer-reviser, and web-fact-check rewrite) reusing `prep`
+    # so research never runs twice, then typewriter-stream the reviewed result.
+    if _REVISE and (_looks_hard(message) or bool(web_sources)):
+        try:
+            _done = await answer(
+                primary, message, root, history=history, fallback=fallback, _prep=prep
+            )
+        except Exception:
+            _done = None
+        if _done is not None:
+            _full = _done.get("answer") or ""
+            for _chunk in (re.findall(r"\S+\s+|\S+$", _full) or [_full]):
+                yield "delta", _chunk
+            yield "done", _done
+            return
 
     _think = not _is_casual_chat(message)
     acc = ""
@@ -830,7 +855,12 @@ async def answer_stream(primary, message: str, root: str,
         if not web_sources and not autoresearch.is_no_source(web_ev) and text and not stream_broke:
             _ws2, _wev2, _t2 = await _maybe_search_retry(
                 primary, message, root, history, evidence, text, for_stream=True)
-            if _ws2:
+            if autoresearch.is_no_source(_wev2):
+                web_ev = _wev2
+                _ns_add = "\n\n" + _NO_SOURCE_REPLY
+                yield "delta", _ns_add
+                text = _NO_SOURCE_REPLY
+            elif _ws2:
                 web_sources, web_ev = _ws2, _wev2
                 _t2 = _strip_think(_t2)
                 if _t2:
@@ -854,12 +884,12 @@ async def answer_stream(primary, message: str, root: str,
                 yield "delta", _cav
         # Action-honesty rail (chat path): flag fabricated tool/search claims
         # when nothing of that kind actually executed this turn.
-        if text:
+        if text and text != _NO_SOURCE_REPLY:
             try:
                 from .. import action_honesty as _ah
                 _hh = (
                     ([] if looked else _ah.claims_execution(text))
-                    + ([] if web_sources else _ah.claims_web_search(text))
+                    + ([] if (web_sources or autoresearch.is_no_source(web_ev)) else _ah.claims_web_search(text))
                 )
                 if _hh:
                     _hc = _ah.caveat(_hh)
@@ -896,25 +926,51 @@ async def answer_stream(primary, message: str, root: str,
 
     if fallback is not None:
         r = await _gen(fallback, prompt, hist)
-        text = _strip_think(r.text or "") or "I couldn't get an answer just now — try again."
+        raw_fb = _strip_think(r.text or "") if getattr(r, "ok", True) else ""
+        text = raw_fb or "I couldn't get an answer just now — try again."
         used = getattr(r, "model", "fallback")
-        if _GROUNDING_CHECK and text and not web_sources:
+        if _GROUNDING_CHECK and raw_fb and not web_sources:
             try:
                 bad = grounding.check(text, root, ctx)
             except Exception:
                 bad = []
             if bad:
                 text = text + grounding.caveat(bad)
-        if web_sources and text:
+        if raw_fb:
+            try:
+                from .. import action_honesty as _ah
+                _hh = (
+                    ([] if looked else _ah.claims_execution(text))
+                    + ([] if web_sources else _ah.claims_web_search(text))
+                )
+                if _hh:
+                    text += _ah.caveat(_hh)
+            except Exception:
+                pass
+            try:
+                from . import code_check as _cc
+                _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
+            except Exception:
+                _ci = []
+            if _ci:
+                text += _cc.caveat(_ci)
+        if web_sources and web_ev and raw_fb:
+            _unsup = await _web_fact_check(text, web_ev, message)
+            if _unsup:
+                text += grounding.web_caveat(_unsup)
+        if web_sources and raw_fb:
             _figs = autoresearch.unverified_figures(text, web_ev)
             if _figs:
                 text += autoresearch.figures_caveat(_figs)
+        if looked and raw_fb:
+            text += look.footer(looked)
+        if web_sources and raw_fb:
             wnote = autoresearch.footer(web_sources)
             if wnote:
                 text += wnote
         yield "delta", text
         await _post_answer_bookkeeping(primary, message, root, text, True, used, history=history)
-        done = _reply(text, source=used)
+        done = _reply(text, source=used, ok=bool(raw_fb))
         if looked:
             done["looked"], done["evidence"] = looked, evidence
         if web_sources:
@@ -928,7 +984,7 @@ async def answer_stream(primary, message: str, root: str,
 
 
 async def answer(primary, message: str, root: str,
-                 history: str = "", fallback=None) -> dict:
+                 history: str = "", fallback=None, *, _prep: Optional[dict] = None) -> dict:
     """primary / fallback: backends with async generate(prompt, system=,
     max_tokens=, temperature=). history: rendered recent turns, or ''."""
     # "remember that X" -> straight to the notes file, no model call.
@@ -937,7 +993,7 @@ async def answer(primary, message: str, root: str,
         notes.remember_fact(root, f"[user] {fact}")
         return _reply(f"Got it — I'll remember that: {fact}", action="remember")
 
-    prep = await _prepare_turn(primary, message, root, history, fallback)
+    prep = _prep if _prep is not None else await _prepare_turn(primary, message, root, history, fallback)
     if prep["looped"]:
         text, solved, used_fb = prep["looped"]
         await _post_answer_bookkeeping(primary, message, root, text, used_fb,
@@ -949,6 +1005,9 @@ async def answer(primary, message: str, root: str,
     web_sources, web_ev = prep["web_sources"], prep["web_ev"]
     prompt, hist, ctx = prep["prompt"], prep["hist"], prep["ctx"]
     _no_source = autoresearch.is_no_source(web_ev)
+    if _no_source:
+        await _post_answer_bookkeeping(primary, message, root, _NO_SOURCE_REPLY, False, "magic", history=history)
+        return _reply(_NO_SOURCE_REPLY, source="magic")
 
     _think = not _is_casual_chat(message)
     r = await _gen(primary, prompt, hist, think=_think)
@@ -966,7 +1025,10 @@ async def answer(primary, message: str, root: str,
     if not web_sources and not _no_source and not used_fallback and text:
         _ws2, _wev2, _t2 = await _maybe_search_retry(
             primary, message, root, history, evidence, text)
-        if _ws2 and _t2:
+        if autoresearch.is_no_source(_wev2):
+            _no_source = True
+            web_ev = _wev2
+        elif _ws2 and _t2:
             web_sources, web_ev, text = _ws2, _wev2, _t2
 
     if _GROUNDING_CHECK and not used_fallback and text and not web_sources:
@@ -1059,7 +1121,7 @@ async def answer(primary, message: str, root: str,
     # draft and rewrites it once on a real flaw, using live web lookup whenever
     # external facts need verifying. Fail-open (keeps draft on error). Before footers.
     _rev_changed = False
-    if _REVISE and text and not used_fallback and _worth_reviewing(text):
+    if _REVISE and text and not used_fallback and (_worth_reviewing(text) or bool(web_sources)):
         try:
             from . import revise as _revmod
             _ev = (evidence or "") + (("\n" + web_ev) if web_ev else "")
@@ -1103,7 +1165,7 @@ async def answer(primary, message: str, root: str,
             except Exception:
                 text = text + _ah2.caveat(_hh2)
 
-    if _no_source and not web_sources and not _admits_unverified(text):
+    if _no_source and not web_sources and (not _admits_unverified(text) or autoresearch.needs_fact_check(message, text)):
         text = _NO_SOURCE_REPLY
 
     if web_sources and web_ev and text:
@@ -1118,6 +1180,21 @@ async def answer(primary, message: str, root: str,
                 _tw = _strip_think(_rw.text or "") if getattr(_rw, "ok", True) else ""
                 _still_unsup = await _web_fact_check(_tw, web_ev, message) if _tw else _unsup
                 if _tw and len(_still_unsup) < len(_unsup):
+                    # Re-check honesty and code syntax on the post-web-fact-check rewrite.
+                    try:
+                        from .. import action_honesty as _ah3
+                        _hh3 = [] if looked else _ah3.claims_execution(_tw)
+                        if _hh3:
+                            _tw = _tw + _ah3.caveat(_hh3)
+                    except Exception:
+                        pass
+                    try:
+                        from . import code_check as _cc3
+                        _ci3 = _cc3.check_code_blocks(_tw) + _cc3.check_code_completeness(_tw)
+                        if _ci3:
+                            _tw = _tw + _cc3.caveat(_ci3)
+                    except Exception:
+                        pass
                     text = _tw + grounding.web_caveat(_still_unsup)
                 else:
                     text = text + grounding.web_caveat(_unsup)
@@ -1171,17 +1248,23 @@ async def answer_private(backend, message: str, *, system: str,
     async def _one(be):
         return await be.generate(message, system=system, max_tokens=_PRIVATE_MAX_TOKENS,
                                  temperature=_PRIVATE_TEMPERATURE, history=history_msgs)
+    r = None
+    used_fallback = False
     try:
         r = await _one(backend)
     except Exception as e:  # noqa
         if fallback is None:
             return {"answer": "", "ok": False, "error": f"{type(e).__name__}", "model": ""}
-        r = await _one(fallback)
-    text = (getattr(r, "text", "") or "").strip()
-    if (not text or not getattr(r, "ok", True)) and fallback is not None:
+        used_fallback = True
         try:
             r = await _one(fallback)
-            text = (getattr(r, "text", "") or "").strip()
+        except Exception as e2:  # noqa
+            return {"answer": "", "ok": False, "error": f"{type(e2).__name__}", "model": ""}
+    text = _strip_think(getattr(r, "text", "") or "")
+    if (not text or not getattr(r, "ok", True)) and fallback is not None and not used_fallback:
+        try:
+            r = await _one(fallback)
+            text = _strip_think(getattr(r, "text", "") or "")
         except Exception as e:  # noqa
             return {"answer": "", "ok": False, "error": f"{type(e).__name__}", "model": ""}
     from ..mutation_log import _scrub_str

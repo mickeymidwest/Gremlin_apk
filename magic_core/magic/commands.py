@@ -108,13 +108,31 @@ async def _chat(args: str, ctx: CommandContext) -> dict:
     if backend is None:
         return {"ok": False, "answer": "no chat backend configured"}
 
+    from . import reply as reply_mod
+    from ..mutation_log import _scrub_str
+
     history = recall()
-    prompt = f"{history}\n\nUser: {args}" if history else f"User: {args}"
-    r = await backend.generate(prompt, max_tokens=1024, temperature=0.6)
-    answer = r.text or (r.error or "")
-    if r.ok:
+    fallback = (
+        next(iter(getattr(backend, "fallbacks", []) or []), None)
+        or ctx.registry.get("gemini")
+    )
+    res = await reply_mod.answer(
+        backend, args, ctx.project_root, history=history, fallback=fallback,
+    )
+    answer = _scrub_str(reply_mod._strip_think(res.get("answer") or ""))
+    ok = bool(res.get("action_ok", True)) and bool(answer)
+    if ok:
         record(args, answer)
-    return {"ok": r.ok, "answer": answer, "source": getattr(r, "model", ""), "action": "chat", **extra}
+    out = {
+        "ok": ok,
+        "answer": answer,
+        "source": res.get("source", ""),
+        "action": "chat",
+        **extra,
+    }
+    if res.get("web"):
+        out["web"] = res["web"]
+    return out
 
 
 async def _build(args: str, ctx: CommandContext) -> dict:
@@ -554,11 +572,22 @@ async def _override(args: str, ctx: CommandContext) -> dict:
         await vram.ensure_only(ctx.registry, keep=_OVERRIDE_MODEL)
     system_prompt = _OVERRIDE_SYSTEM   # the no-gate override channel, not the gated persona
 
+    from . import reply as reply_mod
+    from .. import action_honesty
+    from ..mutation_log import _scrub_str
+
     r = await backend.generate(args, system=system_prompt, max_tokens=1024, temperature=0.75)
-    text = (r.text or "").strip() if getattr(r, "ok", True) else ""
+    raw_text = (r.text or "") if getattr(r, "ok", True) else ""
+    text = _scrub_str(reply_mod._strip_think(raw_text)).strip()
     if not text:
         return {"ok": False, "action": "override",
                 "answer": f"'{_OVERRIDE_MODEL}' errored: {getattr(r, 'error', None) or 'no output'}"}
+    try:
+        _hh = action_honesty.claims_execution(text) + action_honesty.claims_web_search(text)
+        if _hh:
+            text += action_honesty.caveat(_hh)
+    except Exception:
+        pass
     return {"ok": True, "action": "override", "answer": text}
 
 

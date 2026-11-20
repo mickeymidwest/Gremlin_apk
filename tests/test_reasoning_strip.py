@@ -25,9 +25,9 @@ def test_unclosed_think_keeps_preamble_as_answer():
     assert "wait, should I add more detail" in r
 
 
-def test_unclosed_think_with_no_preamble_falls_back_to_tail():
+def test_unclosed_think_with_no_preamble_does_not_leak_tail():
     v, r = split_reasoning("<think>the user wants exactly: hello world")
-    assert v == "the user wants exactly: hello world"
+    assert v == ""
     assert r.startswith("<think>")
 
 

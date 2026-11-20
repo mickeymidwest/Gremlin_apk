@@ -244,12 +244,20 @@ def context_block(evidence: str) -> str:
 
 
 _REPO_EXT_RE = re.compile(r"\b[\w./-]+\.(?:py|kt|kts|ts|tsx|js|jsx|yaml|yml|toml|json|md|sh)\b", re.I)
+_REPO_SCOPE_RE = re.compile(
+    r"\b(in\s+this\s+(?:repo|codebase|project|app|harness)|"
+    r"(?:the|this|our|my)\s+(?:repo|codebase|harness)|"
+    r"magic_core|local_plugins|which\s+file|defined\s+in|implemented\s+in)\b"
+    r"|(?:^|\s)(?:config|tests|scripts|magic_core)/",
+    re.I,
+)
 _REPO_ASK_RE = re.compile(
-    r"\b(in\s+this\s+(?:repo|codebase|project|app)|magic_core|local_plugins|"
+    r"\b(in\s+this\s+(?:repo|codebase|project|app|harness)|magic_core|local_plugins|"
     r"where\s+(?:is|are)|which\s+file|how\s+does|how\s+is|defined\s+in|implemented\s+in)\b"
     r"|`[A-Za-z_]\w{2,}`",
     re.I,
 )
+_SNAKE_SYM_RE = re.compile(r"\b[a-z][a-z0-9]*_[a-z0-9_]+\b")
 _REPO_SKIP_PARTS = frozenset({
     ".git", "venv", ".venv", "__pycache__", ".pytest_cache", "node_modules",
     "build", ".gradle", "private_saved", ".magic", ".finetune-venv",
@@ -275,10 +283,12 @@ def workspace_probe(message: str, root: Optional[str], max_chars: int = 2600) ->
         return [], ""
     explicit_paths = _REPO_EXT_RE.findall(msg)
     has_backtick = bool(re.search(r"`[A-Za-z_]\w{2,}`", msg))
-    if not explicit_paths and not has_backtick and not _REPO_ASK_RE.search(msg):
+    has_repo_scope = bool(_REPO_SCOPE_RE.search(msg))
+    has_snake_ask = bool(_SNAKE_SYM_RE.search(msg) and _REPO_ASK_RE.search(msg))
+    if not explicit_paths and not has_backtick and not has_repo_scope and not has_snake_ask:
         return [], ""
     # Do not intercept general how-tos unless a repo file/dir is explicitly named
-    if _HOWTO.search(msg) and not explicit_paths and not re.search(r"\b(this\s+repo|magic_core|local_plugins)\b", msg, re.I):
+    if _HOWTO.search(msg) and not explicit_paths and not has_backtick and not has_repo_scope:
         return [], ""
 
     snippets: list[str] = []
@@ -312,7 +322,7 @@ def workspace_probe(message: str, root: Optional[str], max_chars: int = 2600) ->
     # 2) Symbol/identifier search across repo source files (<= 3 hits)
     raw_syms = re.findall(r"`([A-Za-z_]\w{2,})`|\b([A-Za-z_]+_[A-Za-z0-9_]+)\b|\b([A-Z][a-z]+[A-Z]\w+)\b", msg)
     syms = [next(x for x in tup if x) for tup in raw_syms]
-    if not syms and _REPO_ASK_RE.search(msg):
+    if not syms and has_repo_scope:
         syms = [w for w in re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b", msg)
                 if w.lower() not in _REPO_STOP][:4]
     sym_pats = [re.compile(rf"\b{re.escape(s)}\b") for s in syms[:3]]

@@ -79,6 +79,13 @@ class GeminiBackend(ModelBackend):
                 )
 
             resp = await loop.run_in_executor(None, _call)
-            return GenerationResult(model=self.info.name, text=resp.text)
+            text = resp.text or ""
+            if not text.strip():
+                return GenerationResult(
+                    model=self.info.name,
+                    text="",
+                    error="empty or blocked response from gemini",
+                )
+            return GenerationResult(model=self.info.name, text=text)
         except Exception as e:
             return GenerationResult(model=self.info.name, text="", error=str(e))

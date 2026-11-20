@@ -396,7 +396,7 @@ _SUBJECTLESS = {
     "look", "looked", "search", "searched", "google", "fact", "check", "try",
     "tried", "didnt", "also", "asked", "missed", "forgot", "meant", "talking",
     "lmao", "lol", "haha", "wrong", "nah", "bruh", "shown", "real", "actually",
-}
+} | {str(w).lower() for w in _SCFG["reaction_stopwords"]}
 
 
 def _content_tokens(text: str) -> list[str]:
@@ -819,7 +819,16 @@ def needs_fact_check(message: str, draft: str) -> bool:
     (years, stats, named breakdowns) on a non-local/non-creative/non-coding prompt."""
     m = (message or "").strip()
     d = (draft or "").strip()
-    if len(d) < _MIN_DRAFT_FACT_CHECK_CHARS or _SELF_LOCAL.search(m) or _CREATIVE.search(m) or _SMALLTALK.search(m) or _CODING_VETO_SAFE(m):
+    if len(d) < _MIN_DRAFT_FACT_CHECK_CHARS:
+        return False
+    multi = _split_multi_items(m)
+    if multi:
+        if not any(
+            not (_SELF_LOCAL.search(it) or _CREATIVE.search(it) or _SMALLTALK.search(it) or _CODING_VETO_SAFE(it))
+            for it in multi
+        ):
+            return False
+    elif _SELF_LOCAL.search(m) or _CREATIVE.search(m) or _SMALLTALK.search(m) or _CODING_VETO_SAFE(m):
         return False
     return bool(_DRAFT_FACT_CLAIMS.search(d))
 
@@ -1022,6 +1031,7 @@ async def gather(message: str, *, limit: int | None = None, history: str = "", f
                 ev_sections.append(f'--- Sources for "{it}" ---\n{ev}')
             elif is_no_source(ev):
                 any_no_source = True
+                ev_sections.append(f'--- Sources for "{it}" ---\n{NO_USABLE_SOURCE}')
         if all_sources and ev_sections:
             return all_sources, "\n\n".join(ev_sections)
         if any_no_source:

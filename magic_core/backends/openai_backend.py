@@ -66,7 +66,13 @@ class OpenAIBackend(ModelBackend):
                 max_tokens=max_tokens,
                 temperature=temperature,
             )
-            text = resp.choices[0].message.content
+            text = (resp.choices[0].message.content or "") if getattr(resp, "choices", None) else ""
+            if not text.strip():
+                return GenerationResult(
+                    model=self.info.name,
+                    text="",
+                    error="empty response from openai backend",
+                )
             return GenerationResult(model=self.info.name, text=text)
         except Exception as e:
             return GenerationResult(model=self.info.name, text="", error=str(e))

@@ -266,40 +266,53 @@ async def _tool_reboot(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]
 
 
 async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, Any]:
-    from . import web_search, autoresearch
+    from . import autoresearch
+    from .magic import grounding, reply as reply_mod
+
     query = str(args.get("query") or "").strip()
     if not query:
         return {"answer": "What do you want me to search for?", "action": "web_search", "ok": False}
-    # resolve a follow-up's dropped subject from conversation history, and use
-    # that resolved query for the search AND the evidence label so the model
-    # summarising the snippets knows what the search was actually about.
-    cq = autoresearch.contextual_query(query, getattr(ctx, "history", ""))
-    results = await asyncio.to_thread(web_search.search, cq, 5)
-    if not results:
-        return {"answer": f'No results for "{query}" -- either nothing came back or the '
-                 f"desktop's internet is down.", "action": "web_search", "ok": False}
-    sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
-    evidence = autoresearch._evidence_block(cq, results)
-    # search -> read: pull the top page when the snippets won't carry the answer
-    if autoresearch._should_fetch(query, results):
-        evidence += await autoresearch._fetch_top_page(results)
+    # Run through autoresearch.gather() so explicit search/look-up/latest tool
+    # calls enforce the exact same anti-bot, Tier-3 spam, snippet/evidence length,
+    # query-aware page fetch, and entity-overlap gates as auto-researched chat.
+    sources, evidence = await autoresearch.gather(
+        query, limit=5, history=getattr(ctx, "history", ""), force=True,
+    )
+    if not sources or not evidence or autoresearch.is_no_source(evidence):
+        return {
+            "answer": (
+                f'No results for "{query}" -- I couldn\'t find a usable source to verify that '
+                "(either nothing reliable came back or the desktop's internet is down)."
+            ),
+            "action": "web_search",
+            "ok": False,
+        }
 
-    # Synthesize a spoken answer grounded in the results, then run the same
-    # figure honesty check as the auto-research path. If the model can't
-    # answer, fall back to the plain list so this is never worse than before.
+    # Synthesize a spoken answer grounded in the vetted results, strip any
+    # leaked <think> tags, and run web fact-check + figure honesty checks.
     answer = ""
-    prompt = (autoresearch.date_note() + "\n" + evidence + "\n\nUsing ONLY those results, answer this clearly and "
-              "conversationally: " + query)
+    prompt = (
+        autoresearch.date_note()
+        + "\n"
+        + evidence
+        + "\n\nUsing ONLY those results, answer this clearly and conversationally: "
+        + query
+    )
     try:
         res = await ctx.router.route("magic", prompt)
-        answer = ((getattr(res, "text", "") or "").strip()
-                  if getattr(res, "ok", True) else "")
+        raw_ans = (getattr(res, "text", "") or "") if getattr(res, "ok", True) else ""
+        answer = reply_mod._strip_think(raw_ans)
     except Exception:
         answer = ""
     if not answer:
-        lines = [f"{i + 1}. {r['title']}\n   {r['url']}\n   {r['snippet']}"
-                 for i, r in enumerate(results)]
+        lines = [
+            f"{i + 1}. {s.get('title', '')}\n   {s.get('url', '')}"
+            for i, s in enumerate(sources)
+        ]
         return {"answer": "\n\n".join(lines), "action": "web_search", "ok": True, "web": sources}
+    unsup = await reply_mod._web_fact_check(answer, evidence, query, registry=getattr(ctx, "registry", None))
+    if unsup:
+        answer += grounding.web_caveat(unsup)
     figs = autoresearch.unverified_figures(answer, evidence)
     if figs:
         answer += autoresearch.figures_caveat(figs)

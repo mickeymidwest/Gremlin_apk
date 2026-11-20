@@ -36,14 +36,22 @@ def _ctx(router):
 
 
 _RESULTS = [
-    {"title": "Mount Everest", "url": "https://en.wikipedia.org/wiki/Mount_Everest",
-     "snippet": "8,848 m above sea level"},
+    {
+        "title": "Mount Everest - Wikipedia",
+        "url": "https://en.wikipedia.org/wiki/Mount_Everest",
+        "snippet": (
+            "Mount Everest is Earth's highest mountain above sea level, located in the Mahalangur Himal "
+            "sub-range of the Himalayas. Its elevation (snow height) of 8,848 m above sea level was "
+            "established by Chinese and Nepali authorities on the border between Nepal and Tibet."
+        ),
+    },
     {"title": "Everest facts", "url": "https://example.com/everest", "snippet": ""},
 ]
 
 
 def test_synthesizes_answer_not_link_dump(monkeypatch):
     monkeypatch.setattr(web_search, "search", lambda *a, **k: _RESULTS)
+    monkeypatch.setattr(web_search, "fetch_text", lambda *a, **k: "")
     router = _Router("Mount Everest is 8,848 m tall, the highest on Earth.")
     out = asyncio.run(tools._tool_web_search({"query": "how tall is everest"}, _ctx(router)))
     assert out["action"] == "web_search" and out["ok"]
@@ -55,6 +63,7 @@ def test_synthesizes_answer_not_link_dump(monkeypatch):
 
 def test_fabricated_figure_gets_caveat(monkeypatch):
     monkeypatch.setattr(web_search, "search", lambda *a, **k: _RESULTS)
+    monkeypatch.setattr(web_search, "fetch_text", lambda *a, **k: "")
     # model invents "29,999 feet" -- digits not in the evidence (8848)
     router = _Router("Everest is about 29,999 feet, or 8,848 m.")
     out = asyncio.run(tools._tool_web_search({"query": "how tall is everest"}, _ctx(router)))
@@ -64,7 +73,8 @@ def test_fabricated_figure_gets_caveat(monkeypatch):
 
 def test_falls_back_to_list_when_model_fails(monkeypatch):
     monkeypatch.setattr(web_search, "search", lambda *a, **k: _RESULTS)
-    out = asyncio.run(tools._tool_web_search({"query": "x"}, _ctx(_Router(boom=True))))
+    monkeypatch.setattr(web_search, "fetch_text", lambda *a, **k: "")
+    out = asyncio.run(tools._tool_web_search({"query": "Mount Everest"}, _ctx(_Router(boom=True))))
     assert out["ok"]
     assert "en.wikipedia.org/wiki/Mount_Everest" in out["answer"]   # raw list preserved
     assert out["answer"].startswith("1. ")

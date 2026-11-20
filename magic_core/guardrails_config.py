@@ -96,7 +96,7 @@ def validate_guardrails(data: Any) -> dict[str, Any]:
         if v < 0:
             raise GuardrailsConfigError(f"Guardrails key 'hard_gates.search.{k}' must be >= 0")
     _require_key(sr, "require_entity_overlap", "hard_gates.search.require_entity_overlap", bool)
-    for k in ("trusted_hosts", "academic_hosts", "clickbait_hosts", "social_hosts", "spam_ai_hosts"):
+    for k in ("trusted_hosts", "academic_hosts", "clickbait_hosts", "social_hosts", "spam_ai_hosts", "reaction_stopwords"):
         _require_key(sr, k, f"hard_gates.search.{k}", list)
     for k in ("forum_host_regex", "forum_path_regex", "ai_dir_host_regex", "blocked_evidence_regex"):
         _validate_regex(_require_key(sr, k, f"hard_gates.search.{k}", str), f"hard_gates.search.{k}")

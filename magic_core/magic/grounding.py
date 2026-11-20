@@ -261,14 +261,14 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
     if not ctx.strip() and _BACKREF_RE.search(text):
         out.append("refers to earlier work, but there is no prior context in this exchange")
 
-    claim = _ACTION_CLAIM_RE.search(text)
-    if claim and LIVE_MARK in ctx and _LOOK_VERBS_RE.search(claim.group(0)):
-        claim = None
-    if claim:
+    for claim in _ACTION_CLAIM_RE.finditer(text):
+        if LIVE_MARK in ctx and _LOOK_VERBS_RE.search(claim.group(0)):
+            continue
         out.append(
             f"claims to have {claim.group(0).split(None, 1)[-1]} "
             "something, but this is plain chat -- no tool ran this turn to back that up"
         )
+        break
 
     out.extend(result_claims(text, ctx))
 

@@ -251,6 +251,37 @@ hard_gates:
     ai_dir_host_regex: '(?:^|\.)(?:best|top|free|find)ai(?:tools?|apps?)\.|\baitools(?:directory|list|hub|fyi)\.'
     blocked_evidence_regex: >-
       (?:just a moment\.{0,3}|checking your browser|enable javascript(?: and cookies)?|please enable cookies|javascript must be enabled|this site requires javascript|unsupported browser|pardon our interruption|incapsula incident|access to this page has been denied|javascript is required|please verify you are human|verify you are human|are you a robot|complete the security check|ddos-?guard|cloudflare ray id|ray id:\s*[a-f0-9]+|attention required!\s*\|\s*cloudflare|access denied|403 forbidden|429 too many requests|unusual traffic from your computer|anomalous traffic|bot protection|sorry, you have been blocked|you have been blocked)
+    reaction_stopwords:
+      - "cool"
+      - "nice"
+      - "thanks"
+      - "thank"
+      - "okay"
+      - "yeah"
+      - "yep"
+      - "yup"
+      - "sure"
+      - "clear"
+      - "alright"
+      - "great"
+      - "awesome"
+      - "sweet"
+      - "damn"
+      - "wild"
+      - "crazy"
+      - "wow"
+      - "word"
+      - "bet"
+      - "gotcha"
+      - "true"
+      - "fair"
+      - "good"
+      - "haha"
+      - "hahaha"
+      - "hehe"
+      - "bro"
+      - "dude"
+      - "man"
 
     veto_patterns:
       self_local: '\byourself\b|\bmagic\b|\byour\s+(name|code|source|repo|config|settings|self|version|model|maker|creator|prompt|training|memory|skills?|hardware|specs?)\b|\b(who|what)\s+(are|r)\s+(you|u)\b|\bare\s+you\s+(an?\s+)?(ai|robot|real|alive|conscious|sentient|human|a\s+bot)\b|\b(this|my)\s+(?:docker\s+|podman\s+|systemd\s+|local\s+)?(desktop|box|machine|computer|pc|laptop|server|setup|system|cpu|gpu|ram|memory|disk|drive|ssd|config|service|services|container|containers|repo|code|network|firewall|phone)\b|\bthis\s+(thing|conversation|chat)\b|\bdid\s+(?:the|that)\s+(?:restart|reboot|service|deploy|backup|script|cron|update)\s+work\b'
@@ -274,7 +305,7 @@ hard_gates:
     allow_question_mark: false
     greetings_and_reactions_regex: >-
       ^(?:hi+|hey+|hello|yo|sup|morning|evening|night|thanks?|thank you|thx|ok|okay|cool|nice|got it|sounds good|lol|lmao|haha|how are you|what'?s up)[.!?\s]*$
-    fact_cue_regex: '\b(?:who|what|when|where|which|whose|19\d\d|20[0-3]\d)\b'
+    fact_cue_regex: '\b(?:who|what|when|where|which|whose|19\d\d|20[0-3]\d|was|were|could|did|had|made|wrote|created|directed|played|voiced|born|died|killed|aired|released|won|beat|invented|founded|starred|featured|sang|rapped)\b'
 
   reply:
     grounding_check: true
@@ -353,7 +384,7 @@ hard_gates:
       \b(sometimes|often|frequently|occasionally|tend to|tends to|might|may|could|can|would|will)\b[^.\n]{0,45}\b(claim|say|pretend|imply|act like|make it (?:sound|look)|sound like)\b|\bclaim(?:ing|ed|s)?\s+to\s+have\b|\b(?:fake|faking|fabricat\w*|hallucinat\w*|made[-\s]?up|pretend\w*|bluff\w*)\b|\bwithout\s+(?:actually|really|ever)\s+(?:running|executing|checking|verifying|looking)\b|\beven\s+(?:when|though)\s+i\s+(?:haven'?t|hadn'?t|didn'?t|did\s+not|have\s+not)\b|\bwhen\s+i\s+say\s+i\s+(?:checked|ran|looked|verified)\b|\bharness\s+fix\b|\bthis\s+is\s+dangerous\b
     scan_narration_regex: '(scanning|running the scan|executing|compiling)\s*\.\.\.'
     results_report_regex: 'results? (are|is) in|open ports|running services|vulnerab|\bports?\b.{0,20}\bopen\b'
-    web_search_claim_regex: '\b(?:based\s+on|from|after|with|in|per)\s+(?:a|an|my|the)\s+(?:quick|brief|web|online|google|recent)?\s*search(?:\s+results?)?\b|\bfrom\s+a\s+quick\s+search\b|\bi\s+(?:just\s+|already\s+)?(?:searched|googled|looked\s+(?:that|it|this)\s+up)\b|\b(?:my|the)\s+(?:web\s+)?search\s+(?:results?\s+(?:show|confirm|didn''?t|do\s+not|don''?t)|didn''?t\s+(?:find|return|turn\s+up)|returned|found)\b|\(looked\s+it\s+up\s+just\s+now:'
+    web_search_claim_regex: '\b(?:based\s+on|from|after|with|in|per)\s+(?:a|an|my|the)\s+(?:quick|brief|web|online|google|recent)?\s*search(?:\s+results?)?\b|\b(?:from|based\s+on)\s+what\s+i\s+(?:just\s+)?(?:pulled\s+up|found|saw\s+online)\b|\bwhat\s+came\s+up\s+(?:online|in\s+(?:my|the)\s+search|when\s+i\s+(?:searched|looked))\b|\bfrom\s+a\s+quick\s+search\b|\bi\s+(?:just\s+|already\s+)?(?:searched|googled|looked\s+(?:that|it|this)\s+up)\b|\b(?:(?:my|the)\s+)?(?:web\s+)?search\s+(?:results?\s+(?:show|confirm|mention|say|indicate|didn''?t|do\s+not|don''?t)|didn''?t\s+(?:find|return|turn\s+up|show)|returned|found)\b|\(looked\s+it\s+up\s+just\s+now:'
 
   service_control:
     allowed_docker:

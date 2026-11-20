@@ -426,6 +426,7 @@ def test_answer_flags_or_rewrites_fake_quick_search_when_offline(monkeypatch, tm
     monkeypatch.setattr(reply, "_GROUNDING_CHECK", False)
     monkeypatch.setattr(reply.look, "wants", lambda *a, **k: [])
     monkeypatch.setattr(reply.look, "workspace_probe", lambda *a, **k: ([], ""))
+    monkeypatch.setattr(ar, "should_search", lambda *a, **k: False)
     monkeypatch.setattr(ar.web_search, "search", lambda *a, **k: [])
 
     class _HonestRetryBackend:

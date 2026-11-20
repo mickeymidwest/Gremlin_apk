@@ -1031,7 +1031,15 @@ def create_app(
         auth_error = _check_auth()
         if auth_error:
             return auth_error
+        from . import override_session
+        override_session.touch()
+
         body = request.get_json(silent=True) or {}
+        pending_sync = body.get("pending_sync")
+        synced_count = 0
+        if pending_sync:
+            synced_count = away_sync.append_away_session(str(project_root), pending_sync)
+
         conv_key = request.headers.get("Authorization", "") or "default"
         is_continue = bool(body.get("continue"))
         is_reroll = bool(body.get("reroll")) and not is_continue
@@ -1045,20 +1053,34 @@ def create_app(
                 "already said.)"
             )
         elif is_reroll:
-            # re-roll: drop the previous exchange so this one replaces it;
-            # an optional `message` overrides the dropped turn's user text.
+            # re-roll: keep the previous turn intact until the new reply succeeds;
+            # exclude it from prompt history below so the model regenerates fresh.
             prev_user = conversation_history.last_user(conv_key)
-            conversation_history.drop_last(conv_key)
             if not message and prev_user:
                 message = prev_user
         if not message:
             return jsonify({"error": "empty message"}), 400
         magic_backend = registry.get("magic")
 
+        def _render_stream_history() -> str:
+            h = conversation_history.render(conv_key)
+            if not is_reroll or not h:
+                return h
+            prefix, blocks = magic_reply._split_history_blocks(h)
+            if not blocks:
+                return h
+            blocks = blocks[:-1]
+            if blocks:
+                return prefix + "\n\n".join(blocks)
+            marker = "Earlier in THIS ongoing conversation"
+            idx = prefix.find(marker)
+            return prefix[:idx].strip() if idx != -1 else ""
+
         if not is_continue:
             if history_mod.is_clear_command(message):
                 conversation_history.clear(conv_key)
                 done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
+                done["synced_count"] = synced_count
                 return Response(_sse({"type": "done", **done}),
                                 mimetype="text/event-stream", headers=_SSE_HEADERS)
 
@@ -1070,17 +1092,21 @@ def create_app(
                 else:
                     notes_mod.remember_fact(str(project_root), last)
                     done = _chat_reply(f"Got it — I'll remember that: {last}")
+                done["synced_count"] = synced_count
                 return Response(_sse({"type": "done", **done}),
                                 mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-            action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
+            action_result = _handle_possible_action(message, history=_render_stream_history())
             if action_result is not None:
+                if is_reroll and action_result.get("ok", True):
+                    conversation_history.drop_last(conv_key)
                 conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                action_result["synced_count"] = synced_count
                 action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
                 return Response(_sse({"type": "done", **action_result}),
                                 mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        history = conversation_history.render(conv_key)
+        history = _render_stream_history()
         fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
             or registry.get("gemini")
 
@@ -1142,28 +1168,48 @@ def create_app(
                             # ever runs after it's already been sent).
                             _note_answer(final)
                             turn_usage = final.get("usage") or {}
+                            ans_text = (final.get("answer") or "").strip()
+                            ans_ok = bool(final.get("action_ok", True)) and bool(ans_text)
                             with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
                                 if is_continue:
                                     conversation_history.append_to_last(
-                                        conv_key, final.get("answer", ""),
+                                        conv_key, ans_text,
                                         prompt_tokens=turn_usage.get("prompt_tokens", 0),
                                         completion_tokens=turn_usage.get("completion_tokens", 0))
+                                elif is_reroll:
+                                    if ans_ok:
+                                        conversation_history.drop_last(conv_key)
+                                        conversation_history.record(
+                                            conv_key, message, ans_text,
+                                            prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                            completion_tokens=turn_usage.get("completion_tokens", 0))
                                 else:
                                     conversation_history.record(
-                                        conv_key, message, final.get("answer", ""),
+                                        conv_key, message, ans_text,
                                         prompt_tokens=turn_usage.get("prompt_tokens", 0),
                                         completion_tokens=turn_usage.get("completion_tokens", 0))
                             _maybe_compact(conv_key)
+                            final["synced_count"] = synced_count
                             final["conversation_usage"] = conversation_history.usage_totals(conv_key)
-                            _spawn_watchdog(message, final.get("answer", ""))
+                            _spawn_watchdog(message, ans_text)
                         try:
                             bridge.put_nowait((kind, payload))
                         except _queue.Full:
                             return  # consumer gone/stalled -- abandon the stream
-            except Exception as e:  # noqa
+            except asyncio.CancelledError:
                 try:
-                    bridge.put_nowait(("done", _chat_reply(
-                        "That hit an error -- try again in a moment.", ok=False)))
+                    err_done = _chat_reply("Stopped.", ok=False)
+                    err_done["synced_count"] = synced_count
+                    bridge.put_nowait(("done", err_done))
+                except _queue.Full:
+                    pass
+            except Exception as e:  # noqa
+                health["consec_fail"] += 1
+                try:
+                    err_done = _chat_reply(
+                        "That hit an error -- try again in a moment.", ok=False)
+                    err_done["synced_count"] = synced_count
+                    bridge.put_nowait(("done", err_done))
                 except _queue.Full:
                     pass
             finally:
@@ -1178,7 +1224,8 @@ def create_app(
                         except _queue.Empty:
                             break
 
-        asyncio.run_coroutine_threadsafe(_pump(), loop)
+        pump_fut = job_control.submit(_pump(), loop, label="chat_stream")
+        pump_fut.add_done_callback(job_control.untrack)
 
         def _emit():
             idle_windows = 0
@@ -1259,6 +1306,20 @@ def create_app(
         async def _go():
             from .magic import vram, ensemble
             from .mutation_log import _scrub_str
+            from . import action_honesty as _ah
+
+            def _clean_deep(raw: str) -> str:
+                cleaned = _scrub_str(magic_reply._strip_think(raw or "")).strip()
+                if not cleaned:
+                    return ""
+                try:
+                    _hh = _ah.claims_execution(cleaned) + _ah.claims_web_search(cleaned)
+                    if _hh:
+                        cleaned += _ah.caveat(_hh)
+                except Exception:
+                    pass
+                return cleaned
+
             if ensemble.is_enabled():
                 prim_name = registry.primary_model_name() or "qwen3.5-9b"
                 prim_be = registry.get(prim_name)
@@ -1271,9 +1332,9 @@ def create_app(
                     system=_DEEP_SYS, history_msgs=hist, max_tokens=2048,
                     registry=registry,
                 )
-                text = (text or "").strip()
+                text = _clean_deep(text)
                 if text:
-                    return {"answer": _scrub_str(text), "ok": True,
+                    return {"answer": text, "ok": True,
                             "error": None, "ensemble": trace, "winner": winner}
             await vram.ensure_only(registry, keep="qwen3-30b-a3b")
             try:
@@ -1281,8 +1342,8 @@ def create_app(
                                            temperature=0.4, history=hist)
             except TypeError:
                 r = await deep_be.generate(message, max_tokens=2048, temperature=0.4)
-            text = (getattr(r, "text", "") or "").strip()
-            return {"answer": _scrub_str(text), "ok": bool(text),
+            text = _clean_deep(getattr(r, "text", "") or "")
+            return {"answer": text, "ok": bool(text),
                     "error": getattr(r, "error", None)}
 
         try:

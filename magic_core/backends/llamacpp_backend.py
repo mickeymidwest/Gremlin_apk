@@ -74,12 +74,18 @@ def split_reasoning(text: str, *, streaming: bool = False) -> tuple[str, str]:
         visible = visible[cm.end():].lstrip()
     m = _OPEN_THINK_RE.search(visible)
     if m:  # an unclosed <think> (in-progress stream or hit token limit mid-thought)
-        tail = visible[m.end():]
         reasoning_parts.append(visible[m.start():])
-        visible = visible[:m.start()].strip() if streaming else (visible[:m.start()].strip() or tail)
+        # Never leak raw internal reasoning as the user-visible answer on max_tokens.
+        visible = visible[:m.start()].strip()
     if streaming:
-        # Hold back a trailing partial `<think` / `</think` token prefix until complete
-        visible = re.sub(r"(?:<t|</)(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$", "", visible)
+        # Hold back any trailing partial `<think` / `</think` / `<thinking` / `</thinking`
+        # (including a lone trailing `<`) until complete so chunk boundaries never leak tags.
+        visible = re.sub(
+            r"<(?:/?(?:t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?)?)?$",
+            "",
+            visible,
+            flags=re.IGNORECASE,
+        )
     visible = visible.strip()
     return visible, "\n".join(reasoning_parts).strip()
 
@@ -435,6 +441,7 @@ class LlamaCppBackend(ModelBackend):
             fut = loop.run_in_executor(self._executor, _run)
             full = ""
             emitted = 0
+            close_seen = 0
             completion_tokens = 0
             while True:
                 item = await q.get()
@@ -461,12 +468,29 @@ class LlamaCppBackend(ModelBackend):
                         if (_thinking_open and not full.lstrip().lower().startswith("<think"))
                         else full
                     )
+                    # If an unmatched closing </think> newly arrived on a non-chatml-nothink
+                    # stream, split_reasoning retroactively strips the prefix before it;
+                    # reset emitted so the real post-</think> answer is not truncated.
+                    _unmatched_closes = len(_CLOSE_THINK_RE.findall(_THINK_RE.sub("", eff)))
+                    if _unmatched_closes > close_seen:
+                        close_seen = _unmatched_closes
+                        emitted = 0
                     visible, _ = split_reasoning(eff, streaming=True)
                 else:
                     visible = full
                 if len(visible) > emitted:
                     yield visible[emitted:]
                     emitted = len(visible)
+            # Flush any final held-back literal `<` (not an unclosed `<think>`) once done.
+            if self.strip_reasoning and full and not self._last_stream_degeneration:
+                eff = (
+                    "<think>\n" + full
+                    if (_thinking_open and not full.lstrip().lower().startswith("<think"))
+                    else full
+                )
+                final_visible, _ = split_reasoning(eff, streaming=False)
+                if len(final_visible) > emitted:
+                    yield final_visible[emitted:]
             # The health check can break out while the worker is still generating.
             # tokenize() below must not touch the model until it has stopped.
             stop.set()
