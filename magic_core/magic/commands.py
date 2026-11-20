@@ -14,6 +14,7 @@ A bare or unknown command returns help_text().
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -120,6 +121,8 @@ async def _build(args: str, ctx: CommandContext) -> dict:
     from .. import build_loop
 
     use_loop, clean_args = build_loop.strip_loop_flag(args)
+    no_battle = bool(re.search(r"(?:^|\s)--no-battle(?=\s|$)", clean_args))
+    clean_args = re.sub(r"(?:^|\s)--no-battle(?=\s|$)", " ", clean_args).strip()
     if not clean_args.strip():
         return {"ok": False, "answer": "Usage: /build [--loop] <what to build>  ·  "
                 "/build android <project-dir> [as <name>]"}
@@ -169,6 +172,7 @@ async def _build(args: str, ctx: CommandContext) -> dict:
             router, str(ctx.project_root), target, goal,
             model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
             run_tests=True, teacher_model=reviewer, skip_review=False,
+            use_battle=(not no_battle),
         )
         return {
             "ok": bool(result.get("applied") or result.get("ok")),
@@ -1097,6 +1101,15 @@ async def _inspect_cmd(args: str, ctx: CommandContext) -> dict:
     return await tools_mod._tool_inspect({"target": t}, exec_ctx)
 
 
+async def _doctor(args: str, ctx: CommandContext) -> dict:
+    from .. import resource, snapshots
+    pruned = snapshots.prune_workdirs(ctx.project_root) if "--prune" in (args or "") else 0
+    ok, summary, checks = resource.doctor_report(ctx.project_root)
+    if pruned:
+        summary += f"\nOK   prune: removed {pruned} stale temp workdir(s)"
+    return {"ok": ok, "answer": summary, "checks": checks, "action": "doctor"}
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Magic. No tools, no routing.", _chat),
     "inspect": Command("inspect", "Reverse-engineer / inspect a binary, APK, JS/Electron/.NET/WASM app, or URL via REA MCP (`rea.tools`). Usage: `/inspect [rea_tool] <target>`.", _inspect_cmd),
@@ -1122,6 +1135,7 @@ COMMANDS: dict[str, Command] = {
     "act": Command("act", "Act mode: when ON I RUN your check/run/show requests on the box (real output) instead of just talking. `on | off`.", _act_cmd),
     "forge": Command("forge", "The Tool Forge -- Magic builds its own tools: list | new <name>: <what it should do> | test <name> [json] | remove <name>. Forged tools are security-scanned and run sandboxed.", _forge),
     "hive": Command("hive", "The CPU specialist hive: `list` shows the team (watchdog, summarizer, critic, ...); `<name> <text>` runs one on the CPU helper, bounded + best-effort so it never blocks the top-dog.", _hive_cmd),
+    "doctor": Command("doctor", "Fast box & repo health check (RAM, disk, VRAM, git locks, config, pitfalls; add `--prune` to clean stale workdirs).", _doctor),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }

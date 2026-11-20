@@ -142,8 +142,35 @@ def test_domain_prefix_strip_only_removes_www():
 
 
 def test_declarative_lookup_searches(monkeypatch):
-    monkeypatch.setattr(autoresearch.web_search, "search",
-                        lambda *a, **k: [{"title": "BTC", "url": "https://x.com", "snippet": "$"}])
+    def _fake_search(q, limit=5, timeout=12):
+        ql = q.lower()
+        if "bitcoin" in ql:
+            return [{
+                "title": "Bitcoin Price Live",
+                "url": "https://x.com/bitcoin",
+                "snippet": "Bitcoin (BTC) is trading at $95,000 USD across major cryptocurrency exchanges today with steady trading volume and institutional demand.",
+            }]
+        if "chicago" in ql:
+            return [{
+                "title": "Chicago Weather Forecast",
+                "url": "https://x.com/weather-chicago",
+                "snippet": "Chicago weather today brings cool lakefront winds, partly cloudy skies, and afternoon temperatures around 48 degrees Fahrenheit.",
+            }]
+        return [{
+            "title": "Tesla Model 3 Pricing and Specs",
+            "url": "https://x.com/tesla-model-3",
+            "snippet": "The Tesla Model 3 Rear-Wheel Drive sedan starts around $42,490 USD MSRP before tax credits, destination fees, and regional incentives.",
+        }]
+
+    monkeypatch.setattr(autoresearch.web_search, "search", _fake_search)
+    monkeypatch.setattr(
+        autoresearch.web_search,
+        "fetch_text",
+        lambda url, *a, **k: (
+            "Detailed verified report covering Bitcoin price at $95,000 USD on major exchanges, "
+            "Chicago weather forecast with 48 degree temperatures, and Tesla Model 3 starting cost of $42,490 USD."
+        ),
+    )
     for m in ["current price of bitcoin", "weather in chicago today",
               "how much is a tesla model 3"]:
         assert autoresearch.should_search(m) is True, m
@@ -165,9 +192,23 @@ def test_gather_skips_when_not_a_question(monkeypatch):
 
 def test_gather_searches_and_builds_evidence(monkeypatch):
     def _fake(q, limit=5, timeout=12):
-        return [{"title": "Fuji", "url": "https://en.wikipedia.org/wiki/Mount_Fuji",
-                 "snippet": "3,776 m tall"}]
+        return [{
+            "title": "Mount Fuji - Wikipedia",
+            "url": "https://en.wikipedia.org/wiki/Mount_Fuji",
+            "snippet": (
+                "Mount Fuji is an active stratovolcano located on the Japanese island of Honshu and is 3,776 m tall in Japan, "
+                "making it the highest peak in the country, one of Japan's Three Holy Mountains, and a famous cultural landmark southwest of Tokyo."
+            ),
+        }]
     monkeypatch.setattr(autoresearch.web_search, "search", _fake)
+    monkeypatch.setattr(
+        autoresearch.web_search,
+        "fetch_text",
+        lambda *a, **k: (
+            "Mount Fuji is 3,776 m (12,389 ft) tall on the island of Honshu, Japan. "
+            "The symmetrical snow-capped volcanic cone sits southwest of Tokyo and draws hundreds of thousands of hikers every summer climbing season."
+        ),
+    )
     srcs, ev = asyncio.run(autoresearch.gather("how tall is mount fuji?"))
     assert srcs and srcs[0]["url"].endswith("Mount_Fuji")
     assert "3,776 m tall" in ev
@@ -176,7 +217,7 @@ def test_gather_searches_and_builds_evidence(monkeypatch):
 def test_gather_empty_results_is_not_an_error(monkeypatch):
     monkeypatch.setattr(autoresearch.web_search, "search", lambda *a, **k: [])
     srcs, ev = asyncio.run(autoresearch.gather("who won the 2024 world series"))
-    assert srcs is None and ev == ""
+    assert srcs is None and autoresearch.is_no_source(ev)
 
 
 def test_unverified_figures_flags_fabrications():
@@ -216,4 +257,4 @@ def test_gather_survives_search_raising(monkeypatch):
         raise RuntimeError("network down")
     monkeypatch.setattr(autoresearch.web_search, "search", _boom)
     srcs, ev = asyncio.run(autoresearch.gather("what is the capital of australia"))
-    assert srcs is None and ev == ""
+    assert srcs is None and autoresearch.is_no_source(ev)

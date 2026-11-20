@@ -67,6 +67,7 @@ def _git_begin(repo: str) -> bool:
                 return False
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "--allow-empty", "-m", "magic: battle start")
+        _git(repo, "tag", "-f", "magic-start")
         return True
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -159,10 +160,15 @@ def _assemble_system(task: Task, facts: Sequence[Fact], skills: Sequence[Skill],
         if len(matched) >= skill_budget:
             break
     if matched:
+        full_cards = [s.render() for s in matched[:4]]
+        index_cards = [
+            f"- {s.name}: {s.purpose} (call skill_view(name='{s.name}') for full steps)"
+            for s in matched[4:]
+        ]
         parts.append(
             "SKILLS (procedures compiled from past runs -- follow the ones that fit; "
             "name the skill in your reasoning when you use it):\n"
-            + "\n".join(s.render() for s in matched)
+            + "\n".join(full_cards + index_cards)
         )
 
     if facts:
@@ -519,9 +525,14 @@ def _condense_messages(messages: list[dict], *, budget: int = _CONDENSE_CTX_CHAR
             lines.append(f"- did: {_action_gist(c)}")
         else:
             lines.append(f"    -> {_result_gist(c)}")
+    touched = sorted({
+        ln.split()[-1] for ln in lines
+        if any(op in ln for op in ("edit_file", "multi_edit", "write_file")) and ln.split()
+    })
+    touched_hdr = (f"files touched so far: {', '.join(touched)}\n" if touched else "")
     note = ("[earlier steps folded to save context -- you ALREADY did the "
             "following this battle; build on it, do not start over]\n"
-            + "\n".join(lines))
+            + touched_hdr + "\n".join(lines))
     return [head, {"role": "user", "content": note}, *tail], len(middle)
 
 
@@ -563,6 +574,58 @@ def clear_checkpoint(repo: str, task_id: str) -> None:
         pass
 
 
+def _parse_pytest_pass_count(output: str) -> int:
+    """Extract pass count from pytest output (returns 0 on N-failed-with-0-passed, -1 unknown)."""
+    _pc = re.search(r"(\d+) passed", output or "")
+    if _pc:
+        return int(_pc.group(1))
+    if re.search(r"\b\d+ failed\b", output or ""):
+        return 0
+    return -1
+
+
+def _initial_scout(task: Task, repo_path: str, toolhost: ShellToolHost) -> str:
+    """Gemini-style locate-before-reading scout: run cheap deterministic repo_map
+    + targeted symbol grep from task anchors before Step 1 so the pilot doesn't
+    burn 2-3 turns guessing paths (zero LLM calls; phase_gate stays intact)."""
+    try:
+        rm = toolhost.run(ToolCall(name="repo_map", args={"query": task.prompt[:240]}))
+        parts: list[str] = []
+        if rm.ok and rm.output.strip() and "(empty)" not in rm.output[:40].lower():
+            parts.append("REPO MAP:\n" + rm.output.strip()[:1000])
+        syms = re.findall(r"`([A-Za-z_]\w{2,})`|\b([A-Za-z_]+_[A-Za-z0-9_]+)\b", task.prompt or "")
+        seen: list[str] = []
+        for a, b in syms:
+            tok = a or b
+            if tok and tok not in seen and len(tok) >= 4:
+                seen.append(tok)
+            if len(seen) >= 2:
+                break
+        if seen:
+            gr = toolhost.run(ToolCall(name="grep", args={"pattern": "|".join(re.escape(s) for s in seen), "path": "."}))
+            if gr.ok and gr.output.strip() and "no matches" not in gr.output[:30].lower():
+                parts.append("SYMBOL HITS:\n" + gr.output.strip()[:700])
+        # Extract explicit file:line traceback hits directly from the prompt (#203)
+        tb_hits: list[str] = []
+        seen_fl: set[tuple[str, int]] = set()
+        for m in re.finditer(r'(?:File\s+"([^"]+\.py)",\s*line\s*(\d+)|([\w./-]+\.(?:py|kt|js|ts)):(\d+))', task.prompt or ""):
+            fpath = m.group(1) or m.group(3)
+            lno = int(m.group(2) or m.group(4) or 0)
+            p = toolhost._resolve(fpath)
+            if p is not None and p.is_file() and lno > 0 and (fpath, lno) not in seen_fl:
+                seen_fl.add((fpath, lno))
+                vw = toolhost.run(ToolCall(name="view_file", args={"path": fpath, "start": max(1, lno - 5), "count": 14}))
+                if vw.ok:
+                    tb_hits.append(f"{fpath}:{lno}:\n{vw.output.strip()[:500]}")
+            if len(tb_hits) >= 2:
+                break
+        if tb_hits:
+            parts.append("TRACEBACK SLICES:\n" + "\n".join(tb_hits))
+        return "\n\n".join(parts)
+    except Exception:
+        return ""
+
+
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
@@ -573,7 +636,9 @@ def run_battle(task: Task, repo_path: str, model: Model,
                grammar_constrained: bool = True,
                checkpoint: bool = False,
                forged_root: str | None = None,
-               plan_helper=None) -> Transcript:
+               plan_helper=None,
+               on_step=None,
+               allow_web: bool = True) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
@@ -591,6 +656,7 @@ def run_battle(task: Task, repo_path: str, model: Model,
         repo_path, readonly=readonly,
         allowed=(ShellToolHost.EXPLORE_TOOLS if (phase_gate and not readonly) else None),
         protect_glob=protect_glob, forged=_forged, forged_root=forged_root,
+        allow_web=allow_web, delegate_model=model,
     )
     if readonly:
         phase_gate = False
@@ -614,10 +680,40 @@ def run_battle(task: Task, repo_path: str, model: Model,
                 kind="note", content=f"harness: starting under low resources -- {_rwhy}"))
     except Exception:
         pass
+    _step_n = 0
+    _edits_made = 0
+    _best_pass = -1
+
+    def _emit(kind: str, detail: str = "", ok: bool = True) -> None:
+        if on_step is None:
+            return
+        try:
+            on_step({"step": _step_n, "kind": kind, "detail": detail[:240], "ok": ok, "edits": _edits_made, "best_pass": _best_pass})
+        except Exception:
+            pass
+
     opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
+    _scout = _initial_scout(task, repo_path, toolhost)
+    if _scout:
+        opening += f"\n\nINITIAL LOCATE SCOUT (read exact target lines before editing):\n{_scout}"
+        _emit("scout", "initial repo_map + symbol hits ready")
     if lessons:
         opening += ("\n\nLESSONS from past attempts at tasks like this "
                     "(avoid repeating these):\n" + "\n".join(f"- {x}" for x in lessons[:4]))
+    try:
+        from .. import error_ledger as _el
+        _pf = _el.preflight_note(repo_path, task.prompt or "")
+        _rec = _el.top_recurring(repo_path, limit=3)
+        _pit_lines = []
+        if _pf.strip():
+            _pit_lines.append(_pf.strip())
+        for _e in _rec:
+            _st = (_e.get("steps") or [""])[0]
+            _pit_lines.append(f"- {_e.get('what', '')}" + (f" -> {_st}" if _st else ""))
+        if _pit_lines:
+            opening += "\n\nKNOWN PITFALLS ON THIS REPO (avoid repeating):\n" + "\n".join(_pit_lines[:4])
+    except Exception:
+        pass
     if plan:
         p = _plan(task, model, skills, helper=plan_helper)
         if p:
@@ -629,11 +725,14 @@ def run_battle(task: Task, repo_path: str, model: Model,
     unclear_strikes = 0
     _step_n = 0
     _recent: list[str] = []   # fingerprints of the last few actions -- loop guard
+    _failed_fps: dict[str, int] = {}  # exact identical failing calls across whole battle
     _edits_made = 0           # write_file / edit_file that landed ok
+    _edits_at_last_check = 0  # _edits_made snapshot when check last ran
     _checks_since_edit = 0    # check-command runs with no edit in between
     _file_edits: dict[str, int] = {}   # path -> consecutive edits with no pass-count gain
     _best_pass = -1                    # highest pytest pass count seen so far
     _start = time.monotonic()
+    resumed_ckpt = False
     if checkpoint:
         _ck = load_checkpoint(repo_path, task.id)
         if _ck and _ck.get("messages"):
@@ -641,8 +740,21 @@ def run_battle(task: Task, repo_path: str, model: Model,
             _step_n = _ck.get("step_n", _step_n)
             _best_pass = _ck.get("best_pass", _best_pass)
             _edits_made = _ck.get("edits_made", _edits_made)
+            resumed_ckpt = True
             transcript.steps.append(StepRecord(
                 kind="note", content="resumed from a saved checkpoint (O4)"))
+    # Baseline test preflight on targeted pytest checks (seeds _best_pass so
+    # regression detection works on edit #1 and saves Step 1).
+    if (not resumed_ckpt and _auto_check
+            and re.search(r"(?:^|\s)(?:-k\s|\S*test_\S+\.py)", _check_cmd)):
+        base_vc = toolhost.run(ToolCall(name="run_shell", args={"cmd": _check_cmd}))
+        base_pc = _parse_pytest_pass_count(base_vc.output)
+        if base_pc > _best_pass:
+            _best_pass = base_pc
+            if snapshotting and _best_pass > 0:
+                _git(repo_path, "tag", "-f", "magic-best")
+        messages[0]["content"] += f"\n\nBASELINE CHECK (`{_check_cmd}`):\n{base_vc.output[:1200]}"
+        _emit("baseline", f"passed={base_pc}" if base_pc >= 0 else ("ok" if base_vc.ok else "red"), ok=base_vc.ok)
     for _ in range(step_budget):
         if time.monotonic() - _start > time_budget_s:
             transcript.final_message = "(gave up: time budget exhausted)"
@@ -705,6 +817,22 @@ def run_battle(task: Task, repo_path: str, model: Model,
                         f"in that output and {_fix}. Then re-run the check."})
                     unclear_strikes = 0
                     continue
+            elif (not readonly and _edits_made > _edits_at_last_check and _check_cmd
+                  and (bool(task.verify_cmd) or (Path(repo_path) / "tests").is_dir())):
+                vc = toolhost.run(ToolCall(name="run_shell", args={"cmd": _check_cmd}))
+                _edits_at_last_check = _edits_made
+                _checks_since_edit = 1
+                transcript.steps.append(StepRecord(
+                    kind="tool", tool_name="run_shell", tool_args={"cmd": _check_cmd},
+                    tool_result=vc.output, content=("ok" if vc.ok else "error")))
+                if not vc.ok:
+                    messages.append({"role": "user", "content":
+                        "REJECTED -- you edited files after your last check, and verification fails:\n\n"
+                        + vc.output + "\n\nFix this failure and verify before saying DONE."})
+                    _emit("done_rejected", vc.output[:200], ok=False)
+                    unclear_strikes = 0
+                    continue
+            _emit("done", final or "complete", ok=True)
             transcript.final_message = final
             break
 
@@ -725,22 +853,38 @@ def run_battle(task: Task, repo_path: str, model: Model,
         _recent.append(fp)
         _recent[:] = _recent[-8:]
         reps = _recent.count(fp)
-        if reps >= 5:
+        fail_reps = _failed_fps.get(fp, 0)
+        if reps >= 5 or fail_reps >= 4:
             transcript.final_message = "(gave up: stuck repeating one action)"
             break
-        if reps >= 3:
+        if reps >= 3 or fail_reps >= 2:
+            if fail_reps >= 2:
+                _failed_fps[fp] = fail_reps + 1
             transcript.steps.append(StepRecord(
-                kind="note", content=f"harness: refused a 3rd identical {call.name}"))
+                kind="note", content=f"harness: refused a repeated {call.name}"))
             messages.append({"role": "user", "content":
                 f"REFUSED: you have already run `{call.name}` with these exact arguments "
-                f"{reps - 1} times -- a repeat will not do anything new. Do something "
-                "different: a different tool, a different path (list_dir with \".\" to see "
+                f"({max(reps - 1, fail_reps)} prior attempts) -- a repeat will not do anything new. "
+                "Do something different: a different tool, a different path (list_dir with \".\" to see "
                 "what exists), or read the last error text more carefully and act on it."})
+            unclear_strikes = 0
+            continue
+        if (len(_recent) >= 4 and _recent[-1] == _recent[-3]
+                and _recent[-2] == _recent[-4] and _recent[-1] != _recent[-2]):
+            transcript.steps.append(StepRecord(
+                kind="note", content=f"harness: warned on ping-pong oscillation ({call.name})"))
+            messages.append({"role": "user", "content":
+                f"OSCILLATING between two actions involving `{call.name}` -- stop flipping "
+                "back and forth. Inspect callers with `find_callers`, read a wider range with "
+                "`view_file`, or reset via `revert_to_best` before choosing a different fix."})
             unclear_strikes = 0
             continue
 
         result = toolhost.run(call)
+        if not result.ok:
+            _failed_fps[fp] = _failed_fps.get(fp, 0) + 1
         _step_n += 1
+        _emit("tool", f"{call.name}({list((call.args or {}).keys())})", ok=result.ok)
         transcript.steps.append(StepRecord(
             kind="tool", tool_name=call.name, tool_args=call.args,
             tool_result=result.output, content=("ok" if result.ok else "error"),
@@ -764,14 +908,20 @@ def run_battle(task: Task, repo_path: str, model: Model,
             if _c and len(_c) < len(result.output):
                 _fed = _c + "\n(trimmed to the core error; full output is in the record)"
         result_msg = f"RESULT ({label}):\n{_fed}"
+        if (not result.ok and allow_web and "web_docs" in toolhost.allowed
+                and call.name == "run_shell"
+                and _failed_fps.get(fp, 0) >= 2
+                and re.search(r"ModuleNotFoundError|ImportError|Unresolved reference|No module named|AttributeError|fatal error:", result.output)):
+            result_msg += "\n\n[tip] Hit an unfamiliar API/import error twice -- you can call `web_docs(query)` to look up live docs."
 
-        if snapshotting and result.ok and call.name in ("write_file", "edit_file"):
+        _EDIT_TOOLS = ("write_file", "edit_file", "multi_edit")
+        if snapshotting and result.ok and call.name in _EDIT_TOOLS:
             _git_snapshot(repo_path, f"step {_step_n}: {call.name} {call.args.get('path', '')}")
         # LSP-lite (OpenCode-style diagnostics): the moment the model edits
         # a file, run a deterministic syntax check and surface any problem
         # right now -- don't let it build three more steps on code that does
         # not even parse. No LLM, no test run needed.
-        if result.ok and call.name in ("write_file", "edit_file"):
+        if result.ok and call.name in _EDIT_TOOLS:
             _ep = call.args.get("path", "")
             if _ep:
                 try:
@@ -787,12 +937,13 @@ def run_battle(task: Task, repo_path: str, model: Model,
         # spinning. Report the observation back to the pilot; don't decide
         # for it.
         _is_check = call.name == "run_shell" and re.search(
-            r"\bpytest\b|gradlew|npm (test|run)|cargo test|go test|ctest|make test", str(call.args))
-        if result.ok and call.name in ("write_file", "edit_file"):
+            r"\bpytest\b|gradlew|clang\b|npm (test|run)|cargo test|go test|ctest|make test", str(call.args))
+        if result.ok and call.name in _EDIT_TOOLS:
             _edits_made += 1
             _checks_since_edit = 0
         elif _is_check:
             _checks_since_edit += 1
+            _edits_at_last_check = _edits_made
         _editable = "write_file" in toolhost.allowed
         if _is_check and _checks_since_edit >= 2 and _editable:
             if _checks_since_edit == 2 or _edits_made > 0:
@@ -823,10 +974,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
         # Phase gate (#2): the editing tools open once the agent has
         # actually looked at the code.
         if (phase_gate and result.ok and "write_file" not in toolhost.allowed
-                and call.name in ("repo_map", "read_file", "view_file", "grep")):
+                and call.name in ("repo_map", "read_file", "read_files", "view_file", "find_symbol", "grep", "find_callers", "git_diff")):
             toolhost.unlock_all()
             system, _ = _assemble_system(task, facts, skills, toolhost)
-            result_msg += "\n\n(editing tools are now available: write_file, edit_file)"
+            result_msg += "\n\n(editing tools are now available: write_file, edit_file, multi_edit, revert_to_best)"
 
         # Reflection nudge (#7): after a failing test run, make the model
         # diagnose before its next edit instead of flailing. Cheap -- a
@@ -842,10 +993,11 @@ def run_battle(task: Task, repo_path: str, model: Model,
         # Auto-run the check right after a successful edit (Aider's pattern):
         # the next turn starts from the fresh, real failure instead of the
         # model burning a step to re-run pytest itself. pytest tasks only.
-        if _auto_check and result.ok and call.name in ("write_file", "edit_file"):
+        if _auto_check and result.ok and call.name in _EDIT_TOOLS:
             ac = toolhost.run(ToolCall(name="run_shell", args={"cmd": _check_cmd}))
             _step_n += 1
             _checks_since_edit = 1
+            _edits_at_last_check = _edits_made
             transcript.steps.append(StepRecord(
                 kind="tool", tool_name="run_shell", tool_args={"cmd": _check_cmd},
                 tool_result=ac.output, content=("ok" if ac.ok else "error")))
@@ -856,16 +1008,20 @@ def run_battle(task: Task, repo_path: str, model: Model,
             messages.append({"role": "user", "content":
                 f"AUTO-CHECK after your edit ({_lbl}):\n{ac.output}"})
 
-            # Tunnel-vision guard: the 7B re-edits ONE function 4+ times with
-            # slightly different search strings and never touches the other
-            # planted bugs. If the pass count hasn't moved, push it off that
-            # function onto a different failing test.
-            _pc = re.search(r"(\d+) passed", ac.output)
-            pc = int(_pc.group(1)) if _pc else -1
+            # Tunnel-vision & regression guard: warn immediately if an edit broke
+            # previously passing tests (offer undo_last), or looped on one file.
+            pc = _parse_pytest_pass_count(ac.output)
             _path = str(call.args.get("path", "")) if isinstance(call.args, dict) else ""
+            if pc >= 0 and _best_pass > 0 and pc < _best_pass:
+                messages.append({"role": "user", "content":
+                    f"REGRESSION: passing tests dropped from {_best_pass} down to {pc} "
+                    "after your last edit. Fix the regression or run revert_to_best / undo_last to revert cleanly."})
+            _emit("auto_check", f"passed={pc}" if pc >= 0 else _lbl, ok=ac.ok)
             if pc > _best_pass:
                 _best_pass = pc
                 _file_edits.clear()
+                if snapshotting:
+                    _git(repo_path, "tag", "-f", "magic-best")
             elif _path:
                 _file_edits[_path] = _file_edits.get(_path, 0) + 1
                 if _file_edits[_path] >= 3:

@@ -70,6 +70,10 @@ class Tool:
     #                      service (run_command, script_fix, build_project,
     #                      reboot, rollback, apply_updates)
     capability: str = "read_only"
+    # Optional startup/call availability check & uniform pre/post hooks.
+    check_fn: Optional[Callable[[], bool]] = None
+    pre_hook: Optional[Callable[[dict[str, Any], "ExecContext"], Optional[str]]] = None
+    post_hook: Optional[Callable[[dict[str, Any], "ExecContext", dict[str, Any]], dict[str, Any]]] = None
 
 
 class ToolRegistry:
@@ -84,6 +88,20 @@ class ToolRegistry:
 
     def all(self) -> list[Tool]:
         return list(self._tools.values())
+
+    def is_available(self, name: str) -> bool:
+        t = self._tools.get(name)
+        if t is None:
+            return False
+        if t.check_fn is None:
+            return True
+        try:
+            return bool(t.check_fn())
+        except Exception:
+            return False
+
+    def available(self) -> list[Tool]:
+        return [t for t in self._tools.values() if self.is_available(t.name)]
 
     def list_schemas(self) -> list[dict[str, Any]]:
         """OpenAI-function-calling-shaped tool definitions, for anything
@@ -365,11 +383,24 @@ async def _tool_service_restart(args: dict[str, Any], ctx: ExecContext) -> dict[
             status_ok, status_out = status.exit_code in (0, 3), status.stdout
         except Exception:
             status_ok = False
+        if status_ok and canonical == "magic.service":
+            import urllib.request
+            def _probe():
+                with urllib.request.urlopen("http://127.0.0.1:8765/status", timeout=4.0) as resp:
+                    return resp.status
+            try:
+                code = await asyncio.to_thread(_probe)
+                if code < 200 or code >= 300:
+                    status_ok = False
+                    status_out = f"{status_out}\nhealth check failed: HTTP {code}".strip()
+            except Exception as e:
+                status_ok = False
+                status_out = f"{status_out}\nhealth check unreachable: {type(e).__name__}".strip()
     command = (f"docker restart {canonical}" if kind == "docker"
                else f"systemctl --user restart {canonical}")
     receipt = receipt_mod.for_service_restart(canonical, kind, command, result.exit_code,
                                               result.timed_out, result.stderr, status_ok, status_out)
-    ok = result.ok and receipt.status != receipt_mod.FAILED
+    ok = bool(result.ok and (status_ok is not False) and receipt.status != receipt_mod.FAILED)
     return receipt_mod.attach({"answer": _fmt_exec(result), "action": "service_restart", "ok": ok},
                               receipt)
 
@@ -1037,6 +1068,39 @@ REGISTRY.register(Tool(
                 "properties": {"path": {"type": "string", "description": "file to check"}},
                 "required": ["path"]},
     handler=_tool_check_file,
+    destructive=False,
+    capability="read_only",
+))
+
+
+async def _tool_session_search(args, ctx):
+    from . import history as history_mod
+    q = str(args.get("query") or args.get("q") or "").strip()
+    if not q:
+        return {"answer": "What keyword should I search past conversations for?",
+                "action": "session_search", "ok": False}
+    hits = history_mod.search_sessions(ctx.project_root, q, limit=5)
+    if not hits:
+        return {"answer": f"No past conversation turns matched {q!r}.",
+                "action": "session_search", "ok": True}
+    lines = [f"Past conversation matches for {q!r}:"]
+    for h in hits:
+        tag = "[archived] " if h.get("archived") else ""
+        lines.append(f"- {tag}User: {h['user'][:140]}\n  Magic: {h['assistant'][:220]}")
+    return {"answer": "\n".join(lines), "action": "session_search", "ok": True}
+
+
+REGISTRY.register(Tool(
+    name="session_search",
+    description=(
+        "search past/archived conversation turns in SQLite FTS5 by keyword "
+        "(\"what did we decide earlier about X\", \"search earlier chat for Y\"). "
+        'Read-only. args: {"query": "<keywords>"}'
+    ),
+    parameters={"type": "object",
+                "properties": {"query": {"type": "string", "description": "keywords to search"}},
+                "required": ["query"]},
+    handler=_tool_session_search,
     destructive=False,
     capability="read_only",
 ))

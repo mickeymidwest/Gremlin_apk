@@ -26,10 +26,23 @@ import subprocess
 import sys
 import tempfile
 
+from .guardrails_config import get_guardrails
+
+_PG_CFG = get_guardrails()["hard_gates"]["pregate"]
+
+# Hardcoded immutable self-edit lock so no harness /fix or /build pass can
+# ever weaken config/guardrails.yaml or its loader/gate.
+_IMMUTABLE_PROTECTED_PATHS = (
+    "config/guardrails.yaml",
+    "magic_core/guardrails_config.py",
+    "magic_core/pregate.py",
+)
+
 # A NET removal of a line containing one of these counts as weakening a safety
 # rail -> automatic reject. Net (removed minus added) so a pure move/rename
 # that re-adds the line is fine; only a real reduction trips it.
-_MIN_TEST_RAM_MB = int(os.environ.get("MAGIC_PREGATE_MIN_RAM_MB", "3000"))
+_MIN_TEST_RAM_MB = int(os.environ.get("MAGIC_PREGATE_MIN_RAM_MB", str(_PG_CFG["min_test_ram_mb"])))
+_DEFAULT_TEST_TIMEOUT_S = int(_PG_CFG["test_timeout_s"])
 
 
 def _avail_ram_mb():
@@ -42,12 +55,7 @@ def _avail_ram_mb():
     return None
 
 
-PROTECTED_TOKENS = [
-    "ensure_only", "security_scan", "SecureExecutionSandbox",
-    "claims_execution", "action_honesty", "injection_guard",
-    "_scrub_str", "_scrub(", "MAGIC_ALLOW_SECRETS", "AGY_READONLY",
-    "git apply --check", "check_file", "NOPASSWD", "run_pregate",
-]
+PROTECTED_TOKENS = list(_PG_CFG["protected_tokens"])
 
 
 def _distill(text: str) -> str:
@@ -84,18 +92,8 @@ def _touched_files(patch: str) -> list[str]:
 
 # The self-edit may NEVER modify its own gate, the reviewers, the sandbox, or
 # the stored safety state -- editing these could disable every other check.
-_PROTECTED_PATHS = (
-    "magic_core/pregate.py",
-    "magic_core/review.py",
-    "magic_core/self_improve.py",
-    "magic_core/build_loop.py",
-    "magic_core/sandbox.py",
-    "magic_core/root_exec.py",
-    "magic_core/injection_guard.py",
-    "magic_core/action_honesty.py",
-    "magic_core/service_control.py",
-    "scripts/heavy.sh",
-)
+_PROTECTED_PATHS = tuple(dict.fromkeys([*_PG_CFG["protected_paths"], *_IMMUTABLE_PROTECTED_PATHS]))
+_PROTECTED_PREFIXES = tuple(_PG_CFG["protected_prefixes"])
 
 
 def _all_touched_paths(patch: str) -> set:
@@ -115,7 +113,7 @@ def _protected_path_edits(patch: str) -> list[str]:
     or submodule in. These run before the worktree -- cheapest, strictest."""
     fails = []
     for p in sorted(_all_touched_paths(patch)):
-        if p in _PROTECTED_PATHS or p.startswith(".magic/") or p.startswith(".git/"):
+        if p in _PROTECTED_PATHS or any(p.startswith(pref) for pref in _PROTECTED_PREFIXES):
             fails.append(f"a self-edit may not modify the safety machinery itself ({p}) -- "
                          "the gate, reviewers, sandbox, service allow-list, and .magic state "
                          "are off-limits to self-editing")
@@ -169,20 +167,7 @@ def _safety_regressions(patch: str) -> list[str]:
     return out
 
 
-PROTECTED_CALL_NAMES = (
-    "ensure_only",
-    "ensure_only_sync",
-    "security_scan",
-    "SecureExecutionSandbox",
-    "claims_execution",
-    "action_honesty",
-    "injection_guard",
-    "_scrub",
-    "_scrub_str",
-    "run_python_tool",
-    "run_pregate",
-    "run_pregate_sync",
-)
+PROTECTED_CALL_NAMES = tuple(_PG_CFG["protected_call_names"])
 
 
 def _const_truthiness(expr: ast.AST) -> bool | None:
@@ -367,17 +352,100 @@ def _ast_safety_regressions(root: str, wt: str, patch: str) -> list[str]:
     return out
 
 
+_BANNED_MOD_ALT = "|".join(re.escape(m) for m in _PG_CFG["banned_decision_modules"])
+_BANNED_DECISION_MODULES = re.compile(
+    rf"^\+\s*(?:from\s+[\w.]+\s+import\s+[^\n]*\b(?:{_BANNED_MOD_ALT})\b"
+    rf"|from\s+(?:[\w.]*\.)?(?:{_BANNED_MOD_ALT})\b\s+import"
+    rf"|import\s+[^\n]*\b(?:{_BANNED_MOD_ALT})\b)"
+)
+_BANNED_MOD_FILE_RE = re.compile(rf"(?:^|/)(?:{_BANNED_MOD_ALT})\.py$")
+_BANNED_FT_PKG_ALT = "|".join(re.escape(p) for p in _PG_CFG["banned_finetune_packages"])
+_BANNED_FT_SYM_ALT = "|".join(re.escape(s) for s in _PG_CFG["banned_finetune_symbols"])
+_BANNED_FINETUNE_RE = re.compile(
+    rf"^\+\s*(?:from\s+(?:{_BANNED_FT_PKG_ALT})\b|import\s+(?:{_BANNED_FT_PKG_ALT})\b|.*\b(?:{_BANNED_FT_SYM_ALT})\b)"
+)
+
+
+def decision_violations(patch: str) -> list[str]:
+    """Deterministic checks enforcing .magic/decisions.md architectural bounds:
+    no deleted tracked files, no reviving banned legacy modules,
+    and no local fine-tuning trainer imports."""
+    fails: list[str] = []
+    seen_msgs: set[str] = set()
+
+    def _add(msg: str) -> None:
+        if msg not in seen_msgs:
+            seen_msgs.add(msg)
+            fails.append(msg)
+
+    for p in sorted(_all_touched_paths(patch)):
+        if _BANNED_MOD_FILE_RE.search(p):
+            _add(f".magic/decisions.md violation: banned legacy module ({p})")
+
+    prev_a: Optional[str] = None
+    cur_file = ""
+    for line in patch.splitlines():
+        if line.startswith("--- a/"):
+            prev_a = line[6:].strip()
+        elif line.startswith("+++ "):
+            tgt = line[4:].strip()
+            if tgt == "/dev/null" and prev_a and not prev_a.startswith(".magic/trash/"):
+                _add(f".magic/decisions.md violation: deletes tracked file ({prev_a}); move unwanted files to .magic/trash/ instead")
+            cur_file = tgt[2:] if tgt.startswith("b/") else tgt
+            prev_a = None
+            continue
+        if line.startswith("+") and not line.startswith("+++") and not cur_file.startswith("tests/"):
+            if _BANNED_DECISION_MODULES.match(line):
+                _add(".magic/decisions.md violation: imports banned consult/council/specialists/bench/distill module")
+            if _BANNED_FINETUNE_RE.match(line):
+                _add(".magic/decisions.md violation: introduces fine-tuning/LoRA training dependencies")
+    return fails
+
+
+def import_smoke_check(py: str, wt: str, patch: str) -> list[str]:
+    """Catch broken cross-module imports / top-level NameErrors in modified
+    magic_core/**/*.py files before review runs, even under --no-tests."""
+    fails: list[str] = []
+    seen: set[str] = set()
+    wt_abs = os.path.abspath(wt)
+    for rel in _touched_py_files(patch):
+        if rel in seen or not rel.startswith("magic_core/") or rel.endswith("__init__.py"):
+            continue
+        seen.add(rel)
+        tgt = os.path.join(wt, rel)
+        if os.path.commonpath([wt_abs, os.path.abspath(tgt)]) != wt_abs or not os.path.exists(tgt):
+            continue
+        mod = rel[:-3].replace("/", ".")
+        try:
+            proc = subprocess.run(
+                [py, "-B", "-c", f"import importlib; importlib.import_module({mod!r})"],
+                cwd=wt, capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                err = ((proc.stderr or "") + "\n" + (proc.stdout or "")).strip()
+                # Sandboxes without host CUDA fail loading libllama.so/libcudart -- ignore that only.
+                if "libcudart" in err or "libllama.so" in err:
+                    continue
+                if re.search(r"\b(?:ImportError|ModuleNotFoundError|AttributeError|NameError|SyntaxError|IndentationError)\b", err):
+                    last_ln = next((l.strip() for l in reversed(err.splitlines()) if l.strip()), err[:200])
+                    fails.append(f"{rel} fails import smoke check ({mod}): {last_ln[:220]}")
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return fails
+
+
 def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
-                     test_timeout: int = 1200, test_filter: str = "") -> tuple[bool, list[str]]:
+                     test_timeout: int = _DEFAULT_TEST_TIMEOUT_S, test_filter: str = "") -> tuple[bool, list[str]]:
     """(ok, failures). ok is True only when all enabled checks pass."""
     root = os.path.abspath(root)
     fails: list[str] = []
 
-    # (4) safety-rail check -- pure text, cheapest, run first.
+    # (4) safety-rail + .magic/decisions.md checks -- pure text, cheapest, run first.
     fails += _safety_regressions(patch)
     # (5) structural hard-rejects: self-editing the gate, weakening tests,
     #     symlinks/submodules. Also cheapest-first, before any worktree.
     fails += _protected_path_edits(patch)
+    fails += decision_violations(patch)
 
     # (1) does it apply at all?
     try:
@@ -442,6 +510,7 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
                 fails.append(f"{rel} has a syntax error: {err[:300]}")
 
         fails += _ast_safety_regressions(root, wt, patch)
+        fails += import_smoke_check(py, wt, patch)
 
         # (6) a self-edit may not ADD elided/placeholder code ("# ... rest of
         #     the code", "# TODO: implement", a bare ...). Check only ADDED lines.

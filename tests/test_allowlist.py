@@ -34,3 +34,19 @@ def test_models_yaml_is_not_rewritten(tmp_path):
 def test_add_defaults_bad_kind_to_systemd(tmp_path):
     sc.add_allow(str(tmp_path), "nonsense", "foo.service")
     assert sc.resolve_unit(str(tmp_path), "foo.service") == ("systemd", "foo.service")
+
+
+def test_remove_yaml_default_persists_without_modifying_models_yaml(tmp_path):
+    (tmp_path / "config").mkdir()
+    cfg = tmp_path / "config" / "models.yaml"
+    cfg.write_text("# keep comment\nservice_control:\n  docker: [jellyfin, bridge]\n  systemd: []\n")
+    root = str(tmp_path)
+    assert "bridge" in sc.allowed_names(root)
+    merged = sc.remove_allow(root, "bridge")
+    assert "bridge" not in merged["docker"]
+    assert "bridge" not in sc.allowed_names(root)
+    assert sc.resolve_unit(root, "bridge") is None
+    assert "# keep comment" in cfg.read_text() and "bridge" in cfg.read_text()
+    # Re-adding restores it cleanly
+    sc.add_allow(root, "docker", "bridge")
+    assert "bridge" in sc.allowed_names(root)

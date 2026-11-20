@@ -6,9 +6,9 @@ or a command that does not exist ("run ./fix.sh", "see config/foo.yaml:88")
 and states it with full confidence. Those are checkable against the repo.
 
   check(text, repo_root, context) -> list[str]   # specific problems, [] = clean
-  ground(gen, repo_root, context) -> (text, findings)
-        # gen(hint|None)->str ; regenerate ONCE if the first draft invents
-        # things, keep whichever draft is cleaner.
+  caveat(findings) -> str
+  check_web(text, web_evidence, question, hive=None) -> list[str]
+  web_caveat(unsupported) -> str
 
 Not a truth oracle -- it only flags references reality contradicts. A
 confident wrong *explanation* with no bogus path sails through; that
@@ -18,6 +18,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
+from ..guardrails_config import get_guardrails
+
+_GR = get_guardrails()
+_GR_CFG = _GR["hard_gates"]["grounding"]
+_SOFT = _GR["soft_prompt_rules"]
 
 # `path/like/this.ext` or `dir/file` in backticks, or bare with a slash +
 # extension. Deliberately narrow: needs a slash and (ext or a second slash).
@@ -119,7 +125,7 @@ def _sentence_around(text: str, start: int, end: int) -> tuple[str, str]:
 
 
 # set by look.context_block: a real read-only check ran this turn
-LIVE_MARK = "LIVE CHECK --"
+LIVE_MARK = _GR_CFG["live_mark"]
 # claiming to have LOOKED is true when a check ran; claiming to have
 # restarted/installed/fixed something still isn't
 _LOOK_VERBS_RE = re.compile(r"\b(?:checked|verified|confirmed|looked|examined|inspected|ran|run|executed)\b", re.I)
@@ -198,14 +204,15 @@ _ACTION_PROGRESS_RE = re.compile(
 
 # repo-relative only: a leading / or a system prefix means "not claiming a
 # file in this project", so skip it.
-_SKIP_PREFIX = ("/", "~", "http:", "https:", "etc/", "usr/", "var/", "opt/",
-                "tmp/", "proc/", "sys/", "dev/", "bin/", "home/")
-_SKIP_EXACT = {"and/or", "n/a", "a/b", "km/h", "w/e", "i/o"}
+_SKIP_PREFIX = tuple(_GR_CFG["skip_prefixes"])
+_SKIP_EXACT = set(_GR_CFG["skip_exact"])
+_MAX_PATH_SLASHES = int(_GR_CFG["max_path_slashes"])
+_MAX_UNSUPPORTED_WEB = int(_GR_CFG["max_unsupported_web"])
 
 
 def _looks_repo_relative(p: str) -> bool:
     return not (p.lower() in _SKIP_EXACT or p.lower().startswith(_SKIP_PREFIX)
-               or "*" in p or " " in p or p.count("/") > 8)
+               or "*" in p or " " in p or p.count("/") > _MAX_PATH_SLASHES)
 
 
 def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
@@ -275,31 +282,35 @@ def check(text: str, repo_root: str | Path, context: str = "") -> list[str]:
     return out
 
 
-def ground(gen, repo_root: str | Path, context: str = "", *, retries: int = 1):
-    """gen(hint) -> str. Call once with hint=None; if the draft invents
-    files/commands, call again with a corrective hint. Return (text,
-    findings_still_present)."""
-    text = gen(None) or ""
-    findings = check(text, repo_root, context)
-    for _ in range(max(0, retries)):
-        if not findings:
-            return text, []
-        hint = ("Your draft has problems -- fix them, keep everything else:\n"
-                + "\n".join(f"- {f}" for f in findings)
-                + "\nReference only files, paths and commands present in the context "
-                "above. If you are not certain something exists, say so instead of "
-                "naming it.")
-        alt = gen(hint) or ""
-        alt_findings = check(alt, repo_root, context)
-        if len(alt_findings) < len(findings):
-            text, findings = alt, alt_findings
-        else:
-            break
-    return text, findings
-
-
 def caveat(findings: list[str]) -> str:
     """A one-line note to append when a regen isn't possible (streaming)."""
     if not findings:
         return ""
-    return "\n\n_Heads up — I may have this wrong: " + "; ".join(findings) + "._"
+    return _SOFT["grounding_caveat_prefix"].format(items="; ".join(findings))
+
+
+def check_web(text: str, web_evidence: str, question: str = "", *, hive=None) -> list[str]:
+    """Compare a draft reply against raw web search snippets/text via the CPU Hive
+    `web_fact_checker` specialist when available. Best-effort; returns [] on
+    missing Hive/evidence or fail-closed NO_USABLE_SOURCE."""
+    if not (text or "").strip() or not (web_evidence or "").strip():
+        return []
+    try:
+        from .. import autoresearch as _ar
+        if _ar.is_no_source(web_evidence):
+            return []
+    except Exception:
+        pass
+    if hive is None:
+        return []
+    try:
+        return list(hive.check_web_facts(text, web_evidence, question=question) or [])
+    except Exception:
+        return []
+
+
+def web_caveat(unsupported: list[str]) -> str:
+    """One-line heads-up when web_fact_checker finds claims absent from sources."""
+    if not unsupported:
+        return ""
+    return _SOFT["web_caveat_template"].format(items="; ".join(unsupported[:_MAX_UNSUPPORTED_WEB]))

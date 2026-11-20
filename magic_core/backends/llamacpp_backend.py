@@ -6,6 +6,7 @@ via llama-cpp-python. Runs fully offline, no network calls.
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import re
 import threading
 import time
@@ -32,35 +33,53 @@ try:
 except ImportError:  # library not installed yet
     Llama = None
 
+try:
+    from llama_cpp import LlamaRAMCache
+except ImportError:
+    LlamaRAMCache = None
+
 # Reasoning models (Qwen3, DeepSeek-R1 distills) wrap their scratch work
 # in <think>...</think>. Under a plain chat_format that block is handed
 # back verbatim as part of the answer. Strip it so Magic's own voice
 # isn't polluted with the model thinking out loud.
 _THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
 _OPEN_THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>", re.IGNORECASE)
+_CLOSE_THINK_RE = re.compile(r"</(think|thinking)\s*>", re.IGNORECASE)
 
 # How long to wait on the instance lock when nothing is loaded yet -- a
 # cold GGUF read off a spinning disk is ~90s on this box, occasionally
-# ~150s right after other disk churn. Past that, treat it as stuck.
-_COLD_LOAD_WAIT = 200.0
+# ~200s+ for a 12B model right after other disk churn. Past that, treat it as stuck.
+_COLD_LOAD_WAIT = 360.0
 
 
-def split_reasoning(text: str) -> tuple[str, str]:
-    """-> (visible_answer, reasoning). Handles a think block that never
-    closed (model hit the token limit mid-thought): everything from the
-    open tag on is reasoning; if that leaves no answer, fall back to the
-    post-tag text so the caller still gets something."""
+def split_reasoning(text: str, *, streaming: bool = False) -> tuple[str, str]:
+    """-> (visible_answer, reasoning). Handles matched <think>...</think>,
+    an unmatched closing </think> (when the chat template pre-opened <think>),
+    and an unclosed <think>. During streaming, never leaks an unclosed <think>
+    tail before the closing tag arrives."""
     if not text:
         return text, ""
     # keep only think blocks with real content (Qwen3 emits an empty
     # <think></think> even under /no_think)
     reasoning_parts = [m.group(0) for m in _THINK_RE.finditer(text) if m.group(2).strip()]
     visible = _THINK_RE.sub("", text)
+    # Prompt templates like Qwen3/3.5 open <think>\n before generation, so the
+    # completion begins inside thinking and only emits </think> at the end.
+    closes = list(_CLOSE_THINK_RE.finditer(visible))
+    if closes:
+        cm = closes[-1]
+        pre = visible[:cm.end()].strip()
+        if pre:
+            reasoning_parts.append(pre)
+        visible = visible[cm.end():].lstrip()
     m = _OPEN_THINK_RE.search(visible)
-    if m:  # an unclosed <think> (model hit the token limit mid-thought)
+    if m:  # an unclosed <think> (in-progress stream or hit token limit mid-thought)
         tail = visible[m.end():]
         reasoning_parts.append(visible[m.start():])
-        visible = visible[:m.start()].strip() or tail
+        visible = visible[:m.start()].strip() if streaming else (visible[:m.start()].strip() or tail)
+    if streaming:
+        # Hold back a trailing partial `<think` / `</think` token prefix until complete
+        visible = re.sub(r"(?:<t|</)(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?$", "", visible)
     visible = visible.strip()
     return visible, "\n".join(reasoning_parts).strip()
 
@@ -134,6 +153,7 @@ class LlamaCppBackend(ModelBackend):
         # for one implies the other rather than erroring at load time.
         self.flash_attn = flash_attn or kv_cache_type != "f16"
         self._llm: Optional["Llama"] = None
+        self._loading: bool = False
         self._last_used: float = 0.0
         self._last_stream_degeneration: Optional[str] = None
         self._last_stream_usage: dict = {}  # see generate_stream's usage note
@@ -185,14 +205,32 @@ class LlamaCppBackend(ModelBackend):
                 t = self._KV_GGML_TYPE[self.kv_cache_type]
                 kwargs["type_k"] = t
                 kwargs["type_v"] = t
+            if os.environ.get("MAGIC_PROMPT_LOOKUP") == "1":
+                try:
+                    from llama_cpp.llama_speculative import LlamaPromptLookupDecoding
+                    kwargs["draft_model"] = LlamaPromptLookupDecoding(num_pred_tokens=10)
+                except Exception:
+                    pass
             try:
-                return Llama(**kwargs)
+                llm = Llama(**kwargs)
             except TypeError:
+                if "draft_model" in kwargs:
+                    kwargs.pop("draft_model", None)
                 if "override_tensor" in kwargs:
                     kwargs.pop("override_tensor", None)
-                    return Llama(**kwargs)
-                raise
+                llm = Llama(**kwargs)
+            try:
+                cache_mb = int(os.environ.get("MAGIC_KV_RAM_MB", "256"))
+            except ValueError:
+                cache_mb = 256
+            if cache_mb > 0 and LlamaRAMCache is not None and hasattr(llm, "set_cache"):
+                try:
+                    llm.set_cache(LlamaRAMCache(capacity_bytes=cache_mb * 1024 * 1024))
+                except Exception as e:
+                    _log.debug("LlamaRAMCache attach skipped: %s", e)
+            return llm
 
+        self._loading = True
         fut = loop.run_in_executor(self._executor, _load)
         try:
             await _wait_for_worker(fut)
@@ -200,6 +238,8 @@ class LlamaCppBackend(ModelBackend):
             if fut.exception() is None:
                 self._llm = fut.result()  # it's loaded either way, so keep the handle
             raise
+        finally:
+            self._loading = False
         self._llm = fut.result()
         self._last_used = time.monotonic()
 
@@ -259,7 +299,7 @@ class LlamaCppBackend(ModelBackend):
             try:
                 await asyncio.wait_for(
                     self._lock.acquire(),
-                    timeout=(_COLD_LOAD_WAIT if self._llm is None else 5.0),
+                    timeout=(_COLD_LOAD_WAIT if (self._llm is None or self._loading) else 5.0),
                 )
             except asyncio.TimeoutError:
                 return GenerationResult(
@@ -309,6 +349,9 @@ class LlamaCppBackend(ModelBackend):
             usage = result.get("usage") or {}
             meta = {"usage": usage} if usage else {}
             if self.strip_reasoning:
+                if self.chat_format == "chatml-nothink" and chatfmt.format_messages(messages)[1]:
+                    if text and not text.lstrip().lower().startswith("<think"):
+                        text = "<think>\n" + text
                 text, reasoning = split_reasoning(text)
                 if reasoning:
                     meta["reasoning"] = reasoning
@@ -347,16 +390,17 @@ class LlamaCppBackend(ModelBackend):
         if self.no_think:
             messages[-1]["content"] += " /no_think"
 
+        _thinking_open = (self.chat_format == "chatml-nothink" and chatfmt.format_messages(messages)[1])
         _grammar = self._build_grammar(grammar)
         loop = asyncio.get_event_loop()
         try:
             await asyncio.wait_for(
                 self._lock.acquire(),
-                timeout=(_COLD_LOAD_WAIT if self._llm is None else 5.0),
+                timeout=(_COLD_LOAD_WAIT if (self._llm is None or self._loading) else 5.0),
             )
         except asyncio.TimeoutError:
             raise RuntimeError(
-                f"{self.info.name} is still busy with a previous request -- try again shortly")
+                f"{self.info.name} is still busy loading or generating -- try again shortly")
 
         q: asyncio.Queue = asyncio.Queue()
         stop = threading.Event()
@@ -412,7 +456,12 @@ class LlamaCppBackend(ModelBackend):
                               f"{completion_tokens} tokens ({reason})", flush=True)
                         break
                 if self.strip_reasoning:
-                    visible, _ = split_reasoning(full)
+                    eff = (
+                        "<think>\n" + full
+                        if (_thinking_open and not full.lstrip().lower().startswith("<think"))
+                        else full
+                    )
+                    visible, _ = split_reasoning(eff, streaming=True)
                 else:
                     visible = full
                 if len(visible) > emitted:

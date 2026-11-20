@@ -14,25 +14,38 @@ import re
 _CRITIC_SYSTEM = (
     "You are a strict reviewer of another assistant's DRAFT answer. Judge only "
     "whether the draft actually answers the user's request correctly, completely, "
-    "and without contradicting itself, ignoring a stated constraint, or inventing a "
-    "fact, file path or command. Do NOT nitpick style or tone, and do NOT rewrite it "
-    "yourself. Reply with ONE JSON object and nothing else: {\"pass\": true} if it is "
+    "handles important edge cases, and stays strictly honest: NEVER approve if it "
+    "contradicts itself, contradicts retrieved evidence, ignores a stated constraint, "
+    "skips code/uses placeholders, or invents a file path, symbol name, command output, "
+    "character/killer name, episode/song title, collaboration/rivalry, cause, or figure absent from the provided context. "
+    "If Retrieved Evidence is present and the draft asserts specific names, episodes, "
+    "collaborations, roles, killers, or dates NOT confirmed in that evidence, you MUST set \"pass\": false "
+    "and instruct the rewrite to state ONLY what the evidence supports. "
+    "Do NOT nitpick style or tone, and do NOT rewrite it yourself. "
+    "Reply with ONE JSON object and nothing else: {\"pass\": true} if it is "
     "good enough to send as-is, or {\"pass\": false, \"flaw\": \"<the single biggest "
-    "concrete problem>\", \"fix\": \"<one short instruction to fix it>\"} if it needs "
-    "work. When in doubt, pass it."
+    "concrete problem>\", \"fix\": \"<one short instruction to fix it>\"}"
+    " (optionally add \"verify\": \"<concise web query>\" when live facts/sources are "
+    "needed to verify or fix a claim). When in doubt on style, pass it."
 )
 
 _REVISE_SYSTEM = (
     "You are the assistant improving your OWN draft. You get the user's request, your "
-    "draft, and one reviewer note. Output the FULL corrected answer only -- fix the "
-    "noted problem, keep everything that was already right, and write any code out in "
-    "full with no placeholders or elisions. No preamble, no sign-off, just the answer."
+    "draft, and one reviewer note (plus any retrieved evidence). Output the FULL "
+    "corrected answer only -- fix the noted problem, drop ANY draft claims/names/"
+    "episodes/dates that contradict or are absent from the verified evidence, keep only "
+    "what is supported (or state plainly what wasn't in the results), and write any "
+    "code out in full with no placeholders or elisions. If the retrieved results are "
+    "about a different person, show, or fictional character that shares a name with the "
+    "user's subject, NEVER accuse the user of confusing them -- just state plainly "
+    "that the search results didn't cover the actual subject. Be direct, natural, and "
+    "concise; no robotic lectures, no preamble, no filler sign-off."
 )
 
 # GBNF so a grammar-capable backend emits exactly the verdict shape.
 _VERDICT_GRAMMAR = (
     'root   ::= "{" ws "\\"pass\\"" ws ":" ws ("true" | "false" rest) ws "}"\n'
-    'rest   ::= "," ws "\\"flaw\\"" ws ":" ws string ws "," ws "\\"fix\\"" ws ":" ws string\n'
+    'rest   ::= "," ws "\\"flaw\\"" ws ":" ws string ws "," ws "\\"fix\\"" ws ":" ws string ( ws "," ws "\\"verify\\"" ws ":" ws string )?\n'
     'string ::= "\\"" ( [^"\\\\] | "\\\\" . )* "\\""\n'
     'ws     ::= [ \\t\\n]*\n'
 )
@@ -69,14 +82,34 @@ async def _gen(backend, prompt, system, history_msgs, grammar=None,
 
 
 async def review_and_revise(backend, question: str, draft: str, *,
-                            evidence: str = "", history_msgs=None):
+                            evidence: str = "", history_msgs=None,
+                            lookup_web: bool = False, source_sink: list | None = None,
+                            ev_sink: list[str] | None = None,
+                            drop_draft_on_fail: bool = False):
     """(final_text, changed). Critic pass -> on a real flaw, one rewrite pass.
-    Keeps the draft unchanged on pass, empty input, or any error."""
+    When `lookup_web=True`, looks up live sources to ground review/fact-checking
+    if context is missing or the reviewer flags `"verify"`. Fail-open everywhere."""
     draft = (draft or "").strip()
     if not draft or len((question or "").strip()) == 0:
         return draft, False
 
-    ev = f"\n\nContext the draft could rely on:\n{evidence[:2000]}" if evidence else ""
+    web_ev = ""
+    if lookup_web and not (evidence or "").strip():
+        try:
+            from .. import autoresearch as _ar
+            if _ar.needs_fact_check(question, draft) or _ar.should_search(question):
+                ws, wev = await _ar.gather(question, force=True)
+                if ws and wev:
+                    web_ev = wev
+                    if source_sink is not None:
+                        source_sink.extend(ws)
+                    if ev_sink is not None:
+                        ev_sink.append(wev)
+        except Exception:
+            pass
+
+    combined_ev = "\n\n".join(x for x in (evidence, web_ev) if x and x.strip())
+    ev = f"\n\nContext the draft could rely on:\n{combined_ev[:4500]}" if combined_ev else ""
     critic_prompt = (f"User's request:\n{question}\n\nThe draft answer:\n{draft}{ev}\n\n"
                      "Does this draft need work? Reply with the JSON object only.")
     try:
@@ -95,15 +128,54 @@ async def review_and_revise(backend, question: str, draft: str, *,
     if not flaw:
         return draft, False
 
-    revise_prompt = (f"User's request:\n{question}\n\nYour draft:\n{draft}\n\n"
-                     f"Reviewer note -- problem: {flaw}\n"
-                     f"how to fix: {fix}\n\nNow write the full corrected answer.")
+    verify_q = str(verdict.get("verify") or "").strip()[:200]
+    if lookup_web and verify_q and verify_q.lower() != question.strip().lower():
+        try:
+            from .. import autoresearch as _ar
+            ws2, wev2 = await _ar.gather(verify_q, force=True)
+            if ws2 and wev2:
+                web_ev = "\n\n".join(x for x in (web_ev, wev2) if x)
+                combined_ev = "\n\n".join(x for x in (evidence, web_ev) if x and x.strip())
+                if source_sink is not None:
+                    seen_u = {s.get("url") for s in source_sink}
+                    source_sink.extend(s for s in ws2 if s.get("url") not in seen_u)
+                if ev_sink is not None:
+                    ev_sink.append(wev2)
+        except Exception:
+            pass
+
+    rev_ev = f"\n\nVerified context / web evidence:\n{combined_ev[:4500]}" if combined_ev else ""
+    if drop_draft_on_fail and combined_ev:
+        # Unsearched hallucinated drafts can anchor the 9B on fake details --
+        # rewrite cleanly from the user's question + verified evidence alone.
+        revise_prompt = (f"User's request:\n{question}{rev_ev}\n\n"
+                         f"Note on earlier wrong draft: {flaw}. {fix}\n\n"
+                         "Ignore any earlier guesses and answer directly from the verified evidence. "
+                         "If those results are about a different entity sharing a keyword, say plainly "
+                         "that the search didn't find sources on the subject instead of lecturing the user.")
+    else:
+        revise_prompt = (f"User's request:\n{question}\n\nYour draft:\n{draft}{rev_ev}\n\n"
+                         f"Reviewer note -- problem: {flaw}\n"
+                         f"how to fix: {fix}\n\nNow write the full corrected answer.")
+    revise_max_tokens = 2048
+    real_backend = getattr(backend, "primary", backend)
+    if (
+        getattr(real_backend, "chat_format", None) == "chatml-nothink"
+        and not getattr(real_backend, "no_think", False)
+        and not (" " + revise_prompt.rstrip()).endswith((" /think", " /no_think"))
+    ):
+        revise_prompt = revise_prompt.rstrip() + " /think"
+        revise_max_tokens = 3072
     try:
-        r2 = await _gen(backend, revise_prompt, _REVISE_SYSTEM, history_msgs, max_tokens=2048)
+        r2 = await _gen(backend, revise_prompt, _REVISE_SYSTEM,
+                        ([] if (drop_draft_on_fail and combined_ev) else history_msgs),
+                        max_tokens=revise_max_tokens)
         t2 = (getattr(r2, "text", "") or "").strip() if getattr(r2, "ok", True) else ""
     except Exception:
         return draft, False
-    # reject a truncated/empty rewrite -- never ship less than the draft had
-    if not t2 or len(t2) < 0.35 * len(draft):
+    # For fresh web rewrites, don't reject a concise true answer just because the
+    # hallucinated draft was longer; otherwise keep existing length floor.
+    min_len = 20 if (drop_draft_on_fail and combined_ev) else 0.35 * len(draft)
+    if not t2 or len(t2) < min_len:
         return draft, False
     return t2, True

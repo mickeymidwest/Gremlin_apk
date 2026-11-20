@@ -33,3 +33,20 @@ def test_unclosed_think_with_no_preamble_falls_back_to_tail():
 
 def test_empty():
     assert split_reasoning("") == ("", "")
+
+
+def test_unmatched_closing_think_and_streaming_buffer():
+    # Prompt opened <think>\n (Qwen3.5): completion starts with reasoning and only emits </think>
+    v, r = split_reasoning("The user asks about CatDog.\n</think>\n\nCatDog aired in 1998.")
+    assert v == "CatDog aired in 1998."
+    assert "CatDog." in r and "</think>" in r
+
+    # During streaming, unclosed <think> must NOT leak reasoning tokens to the UI
+    v_mid, _ = split_reasoning("<think>\nThinking step 1...", streaming=True)
+    assert v_mid == ""
+    v_done, _ = split_reasoning("<think>\nThinking step 1...\n</think>\n\nReal reply", streaming=True)
+    assert v_done == "Real reply"
+    v_part, _ = split_reasoning("Hello<thi", streaming=True)
+    assert v_part == "Hello"
+    v_lt, _ = split_reasoning("2 < 3", streaming=True)
+    assert v_lt == "2 < 3"

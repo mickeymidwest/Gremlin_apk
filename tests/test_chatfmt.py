@@ -12,7 +12,7 @@ def test_prefills_an_empty_think_block():
 
 def test_think_marker_opts_in_and_is_removed():
     prompt, think = chatfmt.format_messages([{"role": "user", "content": "17 * 23? /think"}])
-    assert think and prompt.endswith("<|im_start|>assistant\n") and "/think" not in prompt
+    assert think and prompt.endswith("<|im_start|>assistant\n<think>\n") and "/think" not in prompt
 
 
 def test_no_think_marker_is_removed_and_only_last_user_turn_counts():

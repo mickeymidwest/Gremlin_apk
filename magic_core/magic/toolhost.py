@@ -141,12 +141,16 @@ def _edit_locate(original: str, search: str, replace: str):
                             "give a multi-line search unique to the one you mean.")
                 if len(decl) == 1:
                     anchor = (decl[0], decl[0] + 1)
-        if anchor is None and len(one) >= 12:    # fuzzy single line
+        if anchor is None and len(one) >= 12:    # strict fuzzy single line (no identifier swaps)
+            want_ids = set(re.findall(r"[A-Za-z_]\w+", one))
             scored = sorted(
                 ((difflib.SequenceMatcher(None, one, ln.strip()).ratio(), k)
                  for k, ln in enumerate(lines)),
                 reverse=True)
-            near = [k for r, k in scored if r >= 0.8]
+            near = [
+                k for r, k in scored
+                if r >= 0.88 and want_ids.issubset(set(re.findall(r"[A-Za-z_]\w+", lines[k])))
+            ]
             if len(near) == 1:
                 anchor = (near[0], near[0] + 1)
             elif len(near) > 1:
@@ -162,9 +166,10 @@ def _edit_locate(original: str, search: str, replace: str):
             if r > best_r:
                 best_r, best_k = r, k
         lo, hi = max(0, best_k - 1), min(len(lines), best_k + 3)
-        near = "".join(lines[lo:hi]).rstrip()
-        return ("search text not found -- copy an exact snippet from read_file, "
-                f"or use write_file for a whole-file change.\nclosest lines:\n{near}")
+        near = "".join(f"{idx + 1}: {lines[idx]}" for idx in range(lo, hi)).rstrip()
+        return ("search text not found -- copy an exact snippet from read_file/view_file, "
+                f"or use view_file(start={lo + 1}, count=40) to inspect lines {lo + 1}-{hi} first "
+                f"(or write_file for a whole-file change).\nclosest lines:\n{near}")
 
     i, j = anchor
     # header-only search + multi-line replace -> replace the whole block
@@ -218,20 +223,31 @@ class ShellToolHost:
                       "(path defaults to '.'); use this to find where something is defined/used",
         "run_shell":  "run_shell(cmd)                  -- run a shell command in the repo root",
         "read_file":  "read_file(path)                 -- print a file's contents",
+        "read_files": "read_files(paths)               -- batch-read up to 4 files in one step (list of paths)",
         "view_file":  "view_file(path, start, count)   -- print `count` lines of a file from line "
                       "`start`, with line numbers (for navigating a big file)",
+        "find_symbol": "find_symbol(symbol, path)      -- locate exact line range & body of a function/class",
+        "find_callers": "find_callers(symbol, path)    -- find definition + call/import references of `symbol` across files",
+        "git_diff":   "git_diff(path)                  -- inspect your working tree diff before DONE",
+        "mcp_read":   "mcp_read(tool, args)            -- run an allowed read-only MCP tool if configured",
+        "web_docs":   "web_docs(query)                 -- search live online docs/APIs when stuck on an unfamiliar library, flag, or compile error",
         "edit_file":  "edit_file(path, search, replace) -- replace the first exact match of `search` "
                       "(prefer this over write_file for an existing file)",
+        "multi_edit": "multi_edit(path, edits)         -- apply multiple non-overlapping {search, replace} hunks atomically",
         "write_file": "write_file(path, text)          -- overwrite a whole file with text",
         "undo_last":  "undo_last()                     -- revert your most recent edit "
                       "(rolls back the last per-step snapshot)",
+        "revert_to_best": "revert_to_best()            -- reset working copy back to the highest-passing git snapshot",
         "list_dir":   "list_dir(path)                  -- list a directory (defaults to '.')",
         "read_ref":   "read_ref(ref, start, count)     -- read more of a large output that was stored as a ref (you will see 'stored as ref N'); pages `count` lines from line `start`",
+        "skill_view": "skill_view(name)                -- load full steps of a skill card on demand",
+        "delegate_task": "delegate_task(goal, file_slice, constraints) -- run an isolated read-only child worker returning {status, diff, short_summary}",
+        "run_script_tools": "run_script_tools(script)     -- execute a Python snippet calling call_tool(name, args) across allowed read/edit tools in one turn",
     }
 
     # Phase-gated tool space (MAGIC.md section 8, #2): a small model does
     # much better when it can't edit before it has looked.
-    EXPLORE_TOOLS = ("repo_map", "grep", "read_file", "view_file", "list_dir", "run_shell", "read_ref")
+    EXPLORE_TOOLS = ("repo_map", "grep", "read_file", "read_files", "view_file", "find_symbol", "find_callers", "git_diff", "list_dir", "run_shell", "read_ref", "mcp_read", "web_docs", "skill_view", "delegate_task", "run_script_tools")
 
     # Shell verbs that can change state -- blocked in read-only mode so
     # /do can answer "what's using my disk" by actually checking, without
@@ -267,10 +283,13 @@ class ShellToolHost:
 
     def __init__(self, root: str | Path, shell_timeout: int = 60, max_output: int = 8000,
                  allowed: "tuple[str, ...] | None" = None, readonly: bool = False,
-                 protect_glob: str | None = None, forged=None, forged_root=None):
+                 protect_glob: str | None = None, forged=None, forged_root=None,
+                 allow_web: bool = True, delegate_model=None):
         self.root = Path(root).resolve()
         self.shell_timeout = shell_timeout
         self.max_output = max_output
+        self._allow_web = allow_web and os.environ.get("MAGIC_OFFLINE") != "1"
+        self._delegate_model = delegate_model
         # Forged tools (data/forged_tools) joined into THIS instance's tool
         # space so a battle can call them as `forged_<name>`. In a readonly
         # battle only read_only forged tools are offered. The class TOOLS is
@@ -307,8 +326,13 @@ class ShellToolHost:
         # `pytest` / `python` resolve to the env that actually has the test
         # deps -- otherwise a bare shell has neither and the agent can't
         # check its own work (seen on the first real run).
-        self._env = dict(os.environ)
+        # Strip secret env vars before running child commands cleanly (#768)
+        _secret_env = re.compile(r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH)$", re.I)
+        self._env = {k: v for k, v in os.environ.items() if not _secret_env.search(k)}
         self._env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + self._env.get("PATH", "")
+        self._env["PYTHONDONTWRITEBYTECODE"] = "1"
+        self._env["PIP_NO_INPUT"] = "1"
+        self._env["GIT_TERMINAL_PROMPT"] = "0"
         # NOOA pass-by-reference: large outputs are stored here and shown as a
         # short preview + ref handle instead of dumped into context.
         self._refs: list = []
@@ -418,8 +442,15 @@ class ShellToolHost:
             if hit:
                 return ToolResult(False, f"read-only mode: `{hit}` can change state and is blocked. "
                                          "Use a command that only reads (df, du, ls, ps, cat, ...).")
+        run_cmd = cmd
+        if re.search(r"\b(?:pytest|gradlew|cargo test|go test|npm test)\b", cmd):
+            try:
+                from .. import resource
+                run_cmd = resource.cgroup_shell_cmd(cmd)
+            except Exception:
+                run_cmd = cmd
         proc = subprocess.run(
-            cmd, shell=True, cwd=self.root, capture_output=True, text=True,
+            run_cmd, shell=True, cwd=self.root, capture_output=True, text=True,
             timeout=self.shell_timeout, env=self._env,
         )
         body = (proc.stdout or "") + (proc.stderr or "")
@@ -434,6 +465,293 @@ class ShellToolHost:
             return ToolResult(False, f"no such file: {rel or '(empty path)'} -- "
                               "list_dir to see what's there; give read_file a 'path'")
         return ToolResult(True, self._clip(p.read_text()))
+
+    def _t_read_files(self, args: dict) -> ToolResult:
+        """Batch-read up to 4 paths (strings or {path, start, end} dicts), path-jailed."""
+        raw = args.get("paths") or args.get("files") or args.get("path") or []
+        if isinstance(raw, str):
+            raw = [x.strip() for x in re.split(r"[,;\n]+", raw) if x.strip()]
+        if not isinstance(raw, list) or not raw:
+            return ToolResult(False, "read_files needs 'paths' as a non-empty list of repo paths")
+        chunks: list[str] = []
+        per_budget = max(500, 3200 // min(4, len(raw)))
+        for item in raw[:4]:
+            start_ln, end_ln = 0, 0
+            if isinstance(item, dict):
+                rel = str(item.get("path") or item.get("file") or "").strip()
+                try:
+                    start_ln = int(item.get("start") or item.get("start_line") or 0)
+                    end_ln = int(item.get("end") or item.get("end_line") or 0)
+                except (TypeError, ValueError):
+                    start_ln, end_ln = 0, 0
+            else:
+                rel = str(item or "").strip()
+            p = self._resolve(rel)
+            if p is None:
+                chunks.append(f"=== {rel}: path escapes repo root ===")
+                continue
+            if not p.is_file():
+                chunks.append(f"=== {rel}: (not found) ===")
+                continue
+            try:
+                txt = p.read_text(errors="replace")
+            except OSError as e:
+                chunks.append(f"=== {rel}: (read error: {e}) ===")
+                continue
+            hdr = rel
+            if start_ln >= 1:
+                all_lines = txt.splitlines()
+                s_idx = max(1, start_ln)
+                e_idx = min(len(all_lines), end_ln if end_ln >= s_idx else s_idx + 120)
+                txt = "\n".join(all_lines[s_idx - 1:e_idx])
+                hdr = f"{rel} [{s_idx}-{e_idx}/{len(all_lines)}]"
+            if len(txt) > per_budget:
+                txt = txt[:per_budget].rstrip() + "\n... (use view_file for later lines)"
+            chunks.append(f"=== {hdr} ===\n{txt}")
+        return ToolResult(True, self._clip("\n\n".join(chunks)))
+
+    def _t_find_callers(self, args: dict) -> ToolResult:
+        """Locate definition and call/import sites for a symbol across source files."""
+        sym = self._val(args, "symbol", "name", "query", "pattern")
+        if not sym:
+            return ToolResult(False, "find_callers needs a 'symbol' name")
+        rel = str(args.get("path") or args.get("dir") or ".").strip()
+        target = self._resolve(rel)
+        if target is None or not target.exists():
+            return ToolResult(False, f"invalid path: {rel}")
+        pat = re.compile(rf"\b{re.escape(sym)}\b")
+        defs: list[str] = []
+        uses: list[str] = []
+        root_walk = [target] if target.is_file() else sorted(target.rglob("*"))
+        for fp in root_walk:
+            if not fp.is_file() or fp.suffix not in (".py", ".kt", ".kts", ".java", ".js", ".ts", ".tsx", ".go", ".rs"):
+                continue
+            rpath = fp.relative_to(self.root)
+            if any(part in self._SKIP_MAP_DIRS for part in rpath.parts):
+                continue
+            try:
+                lines = fp.read_text(errors="replace").splitlines()
+            except OSError:
+                continue
+            for idx, ln in enumerate(lines, 1):
+                if not pat.search(ln):
+                    continue
+                row = f"{rpath}:{idx}: {ln.strip()[:120]}"
+                if _DECL_RE.search(ln) and sym in ln:
+                    defs.append(row)
+                else:
+                    uses.append(row)
+                if len(defs) + len(uses) >= 40:
+                    break
+            if len(defs) + len(uses) >= 40:
+                break
+        if not defs and not uses:
+            return ToolResult(True, f"no references to {sym!r} found")
+        out = []
+        if defs:
+            out.append("DEFINITIONS:\n" + "\n".join(defs[:10]))
+        if uses:
+            out.append("REFERENCES:\n" + "\n".join(uses[:25]))
+        return ToolResult(True, self._clip("\n\n".join(out)))
+
+    def _t_find_symbol(self, args: dict) -> ToolResult:
+        """Locate exact [start-end] lines and source slice for a class/function."""
+        sym = self._val(args, "symbol", "name", "query")
+        if not sym:
+            return ToolResult(False, "find_symbol needs a 'symbol' name")
+        rel = str(args.get("path") or args.get("dir") or ".").strip()
+        target = self._resolve(rel)
+        if target is None or not target.exists():
+            return ToolResult(False, f"invalid path: {rel}")
+        files = [target] if target.is_file() else sorted(target.rglob("*.py"))
+        hits: list[str] = []
+        for fp in files:
+            if not fp.is_file() or fp.suffix not in (".py", ".kt", ".java", ".js", ".ts", ".go", ".rs"):
+                continue
+            rpath = fp.relative_to(self.root)
+            if any(part in self._SKIP_MAP_DIRS for part in rpath.parts):
+                continue
+            try:
+                text = fp.read_text(errors="replace")
+            except OSError:
+                continue
+            if fp.suffix == ".py":
+                try:
+                    tree = ast.parse(text)
+                    lines = text.splitlines()
+                    for node in ast.walk(tree):
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == sym:
+                            s_ln = node.lineno
+                            e_ln = min(getattr(node, "end_lineno", None) or (s_ln + 35), s_ln + 60)
+                            body = "\n".join(f"{ln}: {lines[ln - 1]}" for ln in range(s_ln, min(e_ln, len(lines)) + 1))
+                            hits.append(f"=== {rpath} [{s_ln}-{e_ln}] ===\n{body}")
+                except SyntaxError:
+                    pass
+            if not hits and sym in text:
+                lines = text.splitlines()
+                for idx, ln in enumerate(lines):
+                    if _DECL_RE.search(ln) and re.search(rf"\b{re.escape(sym)}\b", ln):
+                        e_ln = _block_end([l + "\n" for l in lines], idx)
+                        body = "\n".join(f"{k + 1}: {lines[k]}" for k in range(idx, min(e_ln, idx + 45)))
+                        hits.append(f"=== {rpath} [{idx + 1}-{e_ln}] ===\n{body}")
+            if len(hits) >= 3:
+                break
+        if not hits:
+            return ToolResult(True, f"(symbol {sym!r} not found under {rel})")
+        return ToolResult(True, self._clip("\n\n".join(hits)))
+
+    def _t_git_diff(self, args: dict) -> ToolResult:
+        """Show working tree diff against HEAD cleanly inside the repo."""
+        rel = str(args.get("path") or "").strip()
+        cmd = ["git", "-C", str(self.root), "diff"]
+        if rel:
+            p = self._resolve(rel)
+            if p is None:
+                return ToolResult(False, "path escapes repo root")
+            cmd += ["--", str(p.relative_to(self.root))]
+        stat = subprocess.run(["git", "-C", str(self.root), "diff", "--stat"],
+                              capture_output=True, text=True, timeout=10)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        out = ((stat.stdout or "").strip() + "\n\n" + (res.stdout or "").strip()).strip()
+        return ToolResult(res.returncode == 0, self._clip(out or "(working tree clean)"))
+
+    def _t_multi_edit(self, args: dict) -> ToolResult:
+        """Atomically apply non-overlapping {search/old, replace/new} hunks on one file."""
+        rel = self._val(args, "path", "file", "filename")
+        p = self._resolve(rel)
+        if p is None:
+            return ToolResult(False, "path escapes the repo root")
+        if self._protected(rel):
+            return ToolResult(False, f"{rel} is READ-ONLY for this task -- do not change it.")
+        if not p.is_file():
+            return ToolResult(False, f"no such file: {rel}")
+        edits = args.get("edits")
+        if not isinstance(edits, list) or not edits:
+            return ToolResult(False, "multi_edit needs non-empty 'edits' list of {search, replace}")
+        orig = p.read_text()
+        lines = orig.splitlines(keepends=True)
+        spans: list[tuple[int, int, str]] = []
+        for idx, item in enumerate(edits[:12]):
+            if not isinstance(item, dict):
+                return ToolResult(False, f"edits[{idx}] must be an object with search/replace")
+            search = item.get("search", item.get("old", item.get("find", "")))
+            replace = item.get("replace", item.get("new", item.get("with", "")))
+            if not search:
+                return ToolResult(False, f"edits[{idx}] missing non-empty 'search'")
+            loc = _edit_locate(orig, str(search), str(replace))
+            if isinstance(loc, str):
+                return ToolResult(False, f"edits[{idx}]: {loc}")
+            i, j = loc
+            spans.append((i, j, str(replace)))
+        spans.sort(key=lambda t: t[0])
+        for k in range(len(spans) - 1):
+            if spans[k][1] > spans[k + 1][0]:
+                return ToolResult(False, f"overlapping hunks in multi_edit near line {spans[k + 1][0] + 1}")
+        def _build_text(realign: bool) -> str:
+            out_lines = list(lines)
+            for i, j, rep in reversed(spans):
+                rtxt = (_reindent(rep, _leading_ws(lines[i]), _leading_ws(rep))
+                        if (realign and i < len(lines) and _leading_ws(lines[i]) and not _leading_ws(rep))
+                        else rep)
+                r_lines = (rtxt + "\n").splitlines(keepends=True) if rtxt and not rtxt.endswith("\n") else rtxt.splitlines(keepends=True)
+                out_lines[i:j] = r_lines
+            return "".join(out_lines)
+
+        new_text = _build_text(realign=False)
+        rej = _precheck(str(p), new_text)
+        if rej:
+            alt = _build_text(realign=True)
+            if not _precheck(str(p), alt):
+                new_text, rej = alt, ""
+        if rej:
+            return ToolResult(False, rej)
+        p.write_text(new_text)
+        return ToolResult(True, f"applied {len(spans)} edits to {rel}")
+
+    def _t_revert_to_best(self, _args: dict) -> ToolResult:
+        """Reset working tree back to 'magic-best' (highest observed pass count)
+        or fall back to the battle baseline 'magic-start' snapshot."""
+        target = None
+        for tag in ("magic-best", "magic-start"):
+            chk = subprocess.run(["git", "-C", str(self.root), "rev-parse", "--verify", tag],
+                                 capture_output=True, text=True, timeout=10)
+            if chk.returncode == 0:
+                target = tag
+                break
+        if target is None:
+            return ToolResult(False, "no 'magic-best' or 'magic-start' snapshot exists yet -- use undo_last instead")
+        res = subprocess.run(["git", "-C", str(self.root), "reset", "--hard", target],
+                             capture_output=True, text=True, timeout=15)
+        if res.returncode != 0:
+            return ToolResult(False, f"revert_to_best failed: {(res.stderr or '').strip()}")
+        label = "highest-passing 'magic-best'" if target == "magic-best" else "baseline 'magic-start'"
+        return ToolResult(True, f"reverted working tree cleanly to {label} snapshot")
+
+    def _t_mcp_read(self, args: dict) -> ToolResult:
+        """Run an allowed read-only MCP tool registered in tools.REGISTRY."""
+        tname = self._val(args, "tool", "name")
+        if not tname:
+            return ToolResult(False, "mcp_read needs 'tool' (registered mcp_<server>_<tool> name)")
+        import asyncio
+        import concurrent.futures
+        import inspect
+        from .. import tools as tools_mod
+        entry = tools_mod.REGISTRY.get(tname)
+        if not entry or not tname.startswith("mcp_"):
+            avail = sorted(t.name for t in tools_mod.REGISTRY.all() if t.name.startswith("mcp_"))
+            return ToolResult(False, f"unknown MCP tool {tname!r}. Available: {avail or 'none'}")
+        if getattr(entry, "capability", "") != "read_only":
+            return ToolResult(False, f"{tname!r} is not marked read_only and is blocked inside battles")
+        targs = args.get("args") if isinstance(args.get("args"), dict) else {}
+        try:
+            out = entry.handler(targs, {"root": str(self.root)})
+            if inspect.isawaitable(out):
+                try:
+                    asyncio.get_running_loop()
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        out = pool.submit(asyncio.run, out).result(timeout=self.shell_timeout)
+                except RuntimeError:
+                    out = asyncio.run(out)
+            if isinstance(out, dict):
+                ok = bool(out.get("ok", True))
+                txt = str(out.get("answer") if "answer" in out else out)
+                return ToolResult(ok, self._clip(txt))
+            return ToolResult(True, self._clip(str(out)))
+        except Exception as e:
+            return ToolResult(False, f"mcp_read {tname} failed: {e}")
+
+    def _t_web_docs(self, args: dict) -> ToolResult:
+        """Read-only online documentation/API lookup for battles (safe alternative
+        to curl/wget which run_shell blocks)."""
+        if not getattr(self, "_allow_web", True):
+            return ToolResult(False, "web_docs is disabled in offline mode")
+        query = self._val(args, "query", "q", "topic", "term")
+        if not query:
+            return ToolResult(False, "web_docs needs a non-empty 'query'")
+        try:
+            from .. import autoresearch as _ar, injection_guard as _ig, longctx as _lc, web_search as _ws
+            results = _ws.search(query, limit=4)
+            if not results:
+                return ToolResult(False, f"no web docs found for {query!r}")
+            ranked = _ar._rank_results(results, keep=3, query=query)
+            lines = [f"Docs results for {query!r}:"]
+            for i, r in enumerate(ranked, 1):
+                lines.append(f"{i}. {(r.get('title') or '').strip()} -- {(r.get('url') or '').strip()}")
+                snip = (r.get("snippet") or "").strip()
+                if snip:
+                    lines.append(f"   {snip}")
+            top_url = (ranked[0].get("url") or "").strip()
+            if top_url:
+                raw = _ws.fetch_text(top_url, max_chars=8000)
+                if raw and not raw.startswith(_ar._FETCH_FAIL):
+                    lines.append(f"\nExtract ({top_url}):\n" + _lc.retrieve(raw, query, max_chars=1600).strip())
+            out = "\n".join(lines)
+            guard = _ig.guard_note(out, "web")
+            if guard:
+                out = guard + "\n" + out
+            return ToolResult(True, self._clip(out))
+        except Exception as e:
+            return ToolResult(False, f"web_docs lookup failed: {e}")
 
     def _t_view_file(self, args: dict) -> ToolResult:
         rel = self._val(args, "path", "file", "filename", "name")
@@ -488,14 +806,15 @@ class ShellToolHost:
         if self._protected(rel):
             return ToolResult(False, f"{rel} is READ-ONLY for this task -- you can read it but "
                                      "not change it. Put your changes in a different (new) file.")
+        has_text = any(k in args for k in ("text", "content", "body"))
         text = args.get("text", args.get("content", args.get("body", "")))
+        if not rel or not has_text or not str(text).strip():
+            return ToolResult(False, "write_file needs non-empty 'path' and 'text' (pass the complete file contents in 'text')")
         # Parse-before-apply (MAGIC.md section 8, from SWE-agent's ACI): a
         # Python file that won't compile never lands -- the model gets the
         # SyntaxError back and fixes it instead of wasting the next few
         # turns discovering the break by running the tests.
         rej = _precheck(str(p), text)
-        if not rel:
-            return ToolResult(False, "write_file needs a 'path' and 'text'")
         if rej:
             return ToolResult(False, f"NOT WRITTEN -- {rej}\nFix the syntax and send write_file again.")
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -526,7 +845,14 @@ class ShellToolHost:
             return ToolResult(False, f"no such file: {rel or '(empty path)'} (use write_file to create it)")
         original = p.read_text()
         if not search:
-            if replace:   # empty search + real replace = prepend
+            if replace:   # empty search + real replace = prepend header/import only
+                if (original.strip() and "\n" in replace.strip()
+                        and (_DECL_RE.search(replace) or "{" in replace or "LLVMFuzzerTestOneInput" in replace)):
+                    return ToolResult(
+                        False,
+                        f"refused to prepend a whole function/block onto non-empty {rel} with empty 'search' -- "
+                        "pass an exact 'search' snippet to replace, or use write_file(path, text) to rewrite the file.",
+                    )
                 updated = replace + ("" if replace.endswith("\n") else "\n") + original
                 rej = _precheck(str(p), updated)
                 if rej:
@@ -820,3 +1146,78 @@ class ShellToolHost:
             (c.name + ("/" if c.is_dir() else "")) for c in p.iterdir()
         )
         return ToolResult(True, "\n".join(entries) or "(empty)")
+
+    def _t_skill_view(self, args: dict) -> ToolResult:
+        """Progressive disclosure: load full procedure for a skill card on demand."""
+        name = self._val(args, "name", "skill", "id", "query")
+        if not name:
+            return ToolResult(False, "skill_view needs a 'name'")
+        try:
+            from .store import Store
+            skills = Store(str(self.root)).read_skills()
+        except Exception as e:
+            return ToolResult(False, f"couldn't load skills: {e}")
+        low = name.strip().lower()
+        exact = [s for s in skills if s.name.lower() == low or s.id.lower() == low]
+        if not exact:
+            exact = [s for s in skills if low in s.name.lower() or low in s.purpose.lower()]
+        if not exact:
+            avail = ", ".join(s.name for s in skills[:15])
+            return ToolResult(False, f"no skill matching {name!r}. Examples: {avail}")
+        return ToolResult(True, self._clip("\n\n".join(s.render() for s in exact[:3])))
+
+    def _t_delegate_task(self, args: dict) -> ToolResult:
+        """Run an isolated read-only child worker with structured handoff."""
+        goal = self._val(args, "goal", "task", "prompt", "question")
+        if not goal:
+            return ToolResult(False, "delegate_task needs a 'goal'")
+        if self._delegate_model is None:
+            return ToolResult(False, "delegate_task has no model configured in this session")
+        file_slice = str(args.get("file_slice") or args.get("files") or "").strip()
+        constraints = str(args.get("constraints") or "").strip()
+        from . import subagent
+        import json as _json
+        res = subagent.delegate_structured(
+            goal, self._delegate_model, str(self.root),
+            file_slice=file_slice, constraints=constraints,
+        )
+        return ToolResult(res.get("status") == "ok", self._clip(_json.dumps(res)))
+
+    def _t_run_script_tools(self, args: dict) -> ToolResult:
+        """Single-turn programmatic tool execution via safe `call_tool(name, args)` RPC."""
+        script = str(args.get("script") or args.get("code") or "").strip()
+        if not script:
+            return ToolResult(False, "run_script_tools needs 'script'")
+        if len(script) > 6000:
+            return ToolResult(False, "script too long (>6000 chars)")
+        import json as _json
+        calls_made = 0
+        outputs: list[str] = []
+
+        def call_tool(tname: str, targs: dict | None = None) -> dict:
+            nonlocal calls_made
+            if calls_made >= 10:
+                raise RuntimeError("call_tool budget exceeded (max 10)")
+            if tname in ("run_script_tools", "delegate_task"):
+                raise RuntimeError(f"recursive/nested tool {tname!r} is disallowed inside run_script_tools")
+            calls_made += 1
+            res = self.run(ToolCall(name=tname, args=targs or {}))
+            return {"ok": res.ok, "output": res.output}
+
+        safe_builtins = {
+            "len": len, "range": range, "enumerate": enumerate, "min": min, "max": max,
+            "sum": sum, "sorted": sorted, "any": any, "all": all, "str": str,
+            "int": int, "float": float, "bool": bool, "list": list, "dict": dict,
+            "set": set, "tuple": tuple, "zip": zip,
+            "print": lambda *a: outputs.append(" ".join(str(x) for x in a)),
+        }
+        ns = {"__builtins__": safe_builtins, "call_tool": call_tool, "json": _json, "re": re}
+        try:
+            exec(compile(script, "<run_script_tools>", "exec"), ns, ns)
+        except Exception as e:
+            return ToolResult(False, f"{type(e).__name__}: {e}")
+        ret = ns.get("result")
+        body = "\n".join(outputs)
+        if ret is not None:
+            body = (body + "\n" + str(ret)).strip()
+        return ToolResult(True, self._clip(body or f"completed {calls_made} tool call(s)"))

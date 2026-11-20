@@ -22,14 +22,14 @@ from .base import ModelBackend, ModelInfo, GenerationResult
 # specialist's model on demand and evicts the least-recently-used NON-pinned
 # worker past the cap; a pinned model (the tiny classifier) stays hot.
 def _default_max_resident() -> int:
-    # Keep ~3 small CPU models warm once there is RAM for it (Hive has 3
-    # distinct CPU models); stay at 2 on today's ~8GB box to avoid OOM.
+    # On >=24GB RAM, keep up to 3 CPU workers (e.g. pinned 1.5B + 4B); stay at 2
+    # on today's ~8GB box to avoid OOM.
     try:
         with open("/proc/meminfo") as _f:
             for _line in _f:
                 if _line.startswith("MemTotal:"):
                     _gb = int(_line.split()[1]) / (1024 * 1024)
-                    return 4 if _gb >= 24 else 2
+                    return 3 if _gb >= 24 else 2
     except Exception:
         pass
     return 2

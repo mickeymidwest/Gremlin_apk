@@ -151,7 +151,7 @@ ws     ::= [ \t\n]*
 # the toolhost's full tool vocabulary -- the alternation is narrowed per
 # battle to whatever is actually allowed (phase-gating unlocks edits later)
 REACT_TOOLS = ("repo_map", "grep", "run_shell", "read_file", "view_file",
-               "edit_file", "write_file", "undo_last", "list_dir")
+               "edit_file", "write_file", "undo_last", "list_dir", "web_docs")
 
 
 def react_turn_grammar(tools=REACT_TOOLS) -> str:

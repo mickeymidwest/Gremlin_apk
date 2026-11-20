@@ -23,51 +23,43 @@ from __future__ import annotations
 
 import re
 
+from .guardrails_config import get_guardrails
+
+_GR = get_guardrails()
+_AH_CFG = _GR["hard_gates"]["action_honesty"]
+_SOFT = _GR["soft_prompt_rules"]
+
 # Raw output only a real tool produces -- if the model emits this with nothing
 # executed, it wove fake results.
 _TOOL_OUTPUT = [
-    (re.compile(r"Nmap scan report for|PORT\s+STATE\s+SERVICE|\b\d{1,5}/tcp\s+(open|closed|filtered)\b", re.I),
-     "raw nmap output"),
-    (re.compile(r"\bBUILD (SUCCESSFUL|FAILED)\b|={3,}\s*\d+ (passed|failed)", re.I),
-     "raw build/test output"),
-    # docker ps / container runtime output
-    (re.compile(r"CONTAINER ID\s+IMAGE|\bUp \d+ (second|minute|hour|day|week|month)s?\b|"
-                r"\bExited \(\d+\)|\bRestarting \(\d+\)", re.I),
-     "raw docker/container output"),
-    # systemctl status output
-    (re.compile(r"\bActive:\s+(active|inactive|failed|deactivating)\s*\(|"
-                r"Loaded:\s+loaded\s*\(|●\s+\S+\.service\b", re.I),
-     "raw systemctl output"),
+    (re.compile(rule["pattern"], re.I), rule["name"])
+    for rule in _AH_CFG["tool_output_rules"]
 ]
-_BACKTICK_CMD = re.compile(r"`[^`\n]{2,}`")
-_RAN_CLAIM = re.compile(
-    r"\b(ran|executed|launched|checked|queried|pulled|fetched|grabbed)\b|"
-    r"results? (are|is) in|the scan (found|shows|returned|report)|"
-    r"based on (that|the|your)[^.\n]{0,30}\b(output|result|scan|report|listing|logs?)\b|"
-    r"(looking at|from)\s+(that|the|your)[^.\n]{0,30}\b(output|result|listing|logs?)\b|"
-    r"here'?s (the|what)[^.\n]{0,25}(output|result|the scan|it returned)", re.I)
+_BACKTICK_CMD = re.compile(_AH_CFG["backtick_cmd_regex"])
+_RAN_CLAIM = re.compile(_AH_CFG["ran_claim_regex"], re.I)
 # A fabricated command-receipt tag the model likes to append, e.g.
 # "(Checked just now: docker ps)", "(just ran: systemctl status)". The colon +
 # text inside is what separates it from roleplay like "(checked her watch)".
-_RECEIPT_TAG = re.compile(
-    r"\((?:just\s+)?(?:checked|ran|executed|pulled|fetched|queried|verified)\b[^)\n]*:[^)\n]+\)", re.I)
+_RECEIPT_TAG = re.compile(_AH_CFG["receipt_tag_regex"], re.I)
 # When the answer attributes the output to the USER (they pasted/shared/ran it),
 # "based on that `docker ps` output" is legit reasoning, not a fabricated run.
-_USER_SOURCED = re.compile(
-    r"\byou\b[^.\n]{0,30}\b(pasted|shared|provided|posted|sent|gave|showed|ran|typed|attached)\b"
-    r"|\b(from|in)\s+(your|the)\s+(paste|message)\b"
-    r"|that you (pasted|shared|ran|sent|gave|posted)", re.I)
-_META_FRAME = re.compile(
-    r"(?i)\b(sometimes|often|frequently|occasionally|tend to|tends to|might|may|could|can|would|will)\b"
-    r"[^.\n]{0,45}\b(claim|say|pretend|imply|act like|make it (?:sound|look)|sound like)\b"
-    r"|\bclaim(?:ing|ed|s)?\s+to\s+have\b"
-    r"|\b(?:fake|faking|fabricat\w*|hallucinat\w*|made[-\s]?up|pretend\w*|bluff\w*)\b"
-    r"|\bwithout\s+(?:actually|really|ever)\s+(?:running|executing|checking|verifying|looking)\b"
-    r"|\beven\s+(?:when|though)\s+i\s+(?:haven'?t|hadn'?t|didn'?t|did\s+not|have\s+not)\b"
-    r"|\bwhen\s+i\s+say\s+i\s+(?:checked|ran|looked|verified)\b"
-    r"|\bharness\s+fix\b|\bthis\s+is\s+dangerous\b")
-_SCAN_NARRATION = re.compile(r"(?i)(scanning|running the scan|executing|compiling)\s*\.\.\.")
-_RESULTS_REPORT = re.compile(r"(?i)results? (are|is) in|open ports|running services|vulnerab|\bports?\b.{0,20}\bopen\b")
+_USER_SOURCED = re.compile(_AH_CFG["user_sourced_regex"], re.I)
+_META_FRAME = re.compile("(?i)" + _AH_CFG["meta_frame_regex"])
+_SCAN_NARRATION = re.compile("(?i)" + _AH_CFG["scan_narration_regex"])
+_RESULTS_REPORT = re.compile("(?i)" + _AH_CFG["results_report_regex"])
+_WEB_SEARCH_CLAIM = re.compile(_AH_CFG["web_search_claim_regex"], re.I)
+
+
+def claims_web_search(text: str) -> list:
+    """Catch replies claiming a live web search ran ('from a quick search',
+    'I looked it up') when no web search actually ran this turn."""
+    t = text or ""
+    try:
+        if _WEB_SEARCH_CLAIM.search(t) and not _META_FRAME.search(t) and not _USER_SOURCED.search(t):
+            return ["claims it ran a web search without evidence"]
+    except Exception:
+        return []
+    return []
 
 
 def claims_execution(text: str) -> list:
@@ -97,7 +89,4 @@ def caveat(hits: list) -> str:
     above it -- just marks it as not-a-real-result."""
     if not hits:
         return ""
-    return ("\n\n(Honesty check: I did not actually run a command or tool here -- "
-            "this reply didn't execute anything, so any command output above is "
-            "made up, not a real result. Ask me to run it for real and I'll "
-            "execute it and report the true output.)")
+    return "\n\n" + _SOFT["action_honesty_caveat"].strip()

@@ -176,7 +176,9 @@ def targets() -> list[dict]:
     def _cfuzz(path, tid):
         return dict(name=tid, repo=path, verifier=FuzzVerifier(run_seconds=40),
             step_budget=18, max_tokens=2560, time_budget=1000, protect_glob="src/*",
-            task=Task(id=tid, prompt=_readme_goal(path, "Write a libFuzzer harness for src/.") + (
+            task=Task(id=tid,
+                verify_cmd="clang -fsanitize=fuzzer,address harness_fuzz.c src/*.c -I . -o /tmp/h",
+                prompt=_readme_goal(path, "Write a libFuzzer harness for src/.") + (
                 "\n\n*** RULES ***\n"
                 "- src/ IS READ-ONLY. Do NOT edit src/*.c or src/*.h. The planted bug stays.\n"
                 "- Your ONLY job: add ONE new harness file in the repo root (e.g. harness_fuzz.c).\n"

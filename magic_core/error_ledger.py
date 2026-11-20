@@ -154,6 +154,66 @@ def top_recurring(root: str, *, min_count: int = 2, limit: int = 3) -> list:
                   reverse=True)[:limit]
 
 
+def record_watchdog(root: str, question: str, concerns: list[str]) -> Optional[dict]:
+    """Fold recurring Hive watchdog catches into the error ledger so `top_recurring`
+    surfaces them to the primary model via `_pitfalls_block` on future turns."""
+    try:
+        items = [str(c).strip() for c in (concerns or []) if str(c).strip()]
+        if not items:
+            return None
+        joined = " ".join(items).lower()
+        if any(w in joined for w in ("claim", "fabricat", "never ran", "didn't run", "could not have")):
+            kind = "watchdog_fabricated_execution"
+            what = "Watchdog caught unverified execution/file-check claim"
+            steps = ["Only cite commands, outputs, and file lines actually observed this turn"]
+        elif any(w in joined for w in ("wrong question", "didn't answer", "different question", "off-topic")):
+            kind = "watchdog_wrong_question"
+            what = "Watchdog flagged answer drifting from user's question"
+            steps = ["Re-read the user's exact request before answering"]
+        elif any(w in joined for w in ("command", "flag", "path", "syntax")):
+            kind = "watchdog_bad_command_or_path"
+            what = "Watchdog caught dubious command, flag, or file path"
+            steps = ["Verify file paths with workspace_probe/read_file and state unknowns plainly"]
+        else:
+            kind = "watchdog_concern"
+            what = _scrub_str(items[0][:140])
+            steps = ["Stay strictly grounded in verified context and tools"]
+        sig = f"watchdog::{kind}"
+        now = time.time()
+        data = _load(root)
+        e = data.get(sig)
+        if e:
+            e["count"] = int(e.get("count", 1)) + 1
+            e["last_seen"] = now
+            e["error"] = _scrub_str("; ".join(items)[:300])
+        else:
+            e = {"sig": sig, "what": what, "steps": steps,
+                 "context": _scrub_str((question or "")[:200]),
+                 "error": _scrub_str("; ".join(items)[:300]),
+                 "count": 1, "first_seen": now, "last_seen": now}
+            data[sig] = e
+        if len(data) > _MAX_ENTRIES:
+            victim = min(data.values(), key=lambda x: x.get("last_seen", 0))
+            data.pop(victim["sig"], None)
+        _save(root, data)
+        return e
+    except Exception:
+        return None
+
+
+def resolve(root: str, sig: str) -> bool:
+    """Remove a fixed failure signature from the active ledger cleanly."""
+    try:
+        data = _load(root)
+        if sig in data:
+            data.pop(sig, None)
+            _save(root, data)
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def summary(root: str, limit: int = 20) -> str:
     """Human-readable 'what keeps biting me' list, worst first -- for a CLI."""
     data = _load(root)

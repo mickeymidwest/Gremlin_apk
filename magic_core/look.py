@@ -138,7 +138,8 @@ PROBES = [
     Probe("disk", re.compile(r"\b(?:disk|storage|drive|ssd|hdd|nvme|space)\b", re.I),
           lambda: _cmd(["df", "-h", "-x", "tmpfs", "-x", "devtmpfs", "-x", "efivarfs",
                         "--output=target,size,used,avail,pcent"])),
-    Probe("memory", re.compile(r"\b(?:ram|memory|swap)\b", re.I), lambda: _cmd(["free", "-h"])),
+    Probe("memory", re.compile(r"\b(?:ram|memory|swap|zram)\b", re.I),
+          lambda: _cmd(["free", "-h"]) + "\n\n" + _cmd(["zramctl"]) + "\n\n" + _cmd(["swapon", "--show"])),
     Probe("gpu", re.compile(r"\b(?:gpu|vram|graphics card|nvidia)\b", re.I),
           lambda: _cmd(["nvidia-smi", "--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total",
                         "--format=csv"])),
@@ -157,6 +158,9 @@ PROBES = [
     Probe("units", re.compile(r"\b(?:failed|failing|crash(?:ed|ing)?|services?|units?|daemons?)\b", re.I),
           lambda: _cmd(["systemctl", "--user", "--failed", "--no-legend", "--plain"])
           + "\n\n" + _cmd(["systemctl", "--failed", "--no-legend", "--plain"])),
+    Probe("journal", re.compile(r"\b(?:journal|journalctl|logs?|syslog|dmesg)\b", re.I),
+          lambda: _cmd(["journalctl", "--user", "-u", "magic.service", "-n", "20", "--no-pager"])
+          + "\n\n" + _cmd(["journalctl", "-p", "err", "-b", "--no-pager", "-n", "15"])),
     Probe("schedule", re.compile(r"\b(?:cron|crontab|cron ?jobs?|scheduled|timers?)\b", re.I),
           lambda: _cmd(["crontab", "-l"]) + "\n\n" + _cmd(["systemctl", "--user", "list-timers", "--no-pager"])),
     Probe("load", re.compile(r"\b(?:cpu|load|busy|slow|processes|what'?s running|hogging)\b", re.I),
@@ -239,9 +243,121 @@ def context_block(evidence: str) -> str:
             "instead of guessing. Don't claim to have run anything else.")
 
 
+_REPO_EXT_RE = re.compile(r"\b[\w./-]+\.(?:py|kt|kts|ts|tsx|js|jsx|yaml|yml|toml|json|md|sh)\b", re.I)
+_REPO_ASK_RE = re.compile(
+    r"\b(in\s+this\s+(?:repo|codebase|project|app)|magic_core|local_plugins|"
+    r"where\s+(?:is|are)|which\s+file|how\s+does|how\s+is|defined\s+in|implemented\s+in)\b"
+    r"|`[A-Za-z_]\w{2,}`",
+    re.I,
+)
+_REPO_SKIP_PARTS = frozenset({
+    ".git", "venv", ".venv", "__pycache__", ".pytest_cache", "node_modules",
+    "build", ".gradle", "private_saved", ".magic", ".finetune-venv",
+})
+_REPO_STOP = frozenset({
+    "this", "repo", "code", "file", "files", "work", "does", "what", "where",
+    "which", "when", "with", "from", "that", "have", "about", "magic", "there",
+    "show", "find", "read", "check", "tell", "look", "inside", "line", "lines",
+})
+
+
+def workspace_probe(message: str, root: Optional[str], max_chars: int = 2600) -> tuple[list[str], str]:
+    """Read-only locate-and-slice codebase research (Gemini pattern) before
+    answering workspace/code questions in chat. Never modifies files and skips
+    vault/secret/gitignored user data dirs. Returns ([], '') when not warranted."""
+    if not root or not message:
+        return [], ""
+    root_real = os.path.realpath(root)
+    if not os.path.isdir(root_real):
+        return [], ""
+    msg = re.sub(r"```.*?```", " ", message, flags=re.S).strip()
+    if not msg:
+        return [], ""
+    explicit_paths = _REPO_EXT_RE.findall(msg)
+    has_backtick = bool(re.search(r"`[A-Za-z_]\w{2,}`", msg))
+    if not explicit_paths and not has_backtick and not _REPO_ASK_RE.search(msg):
+        return [], ""
+    # Do not intercept general how-tos unless a repo file/dir is explicitly named
+    if _HOWTO.search(msg) and not explicit_paths and not re.search(r"\b(this\s+repo|magic_core|local_plugins)\b", msg, re.I):
+        return [], ""
+
+    snippets: list[str] = []
+    seen_files: set[str] = set()
+
+    def _safe_rel(cand: str) -> Optional[str]:
+        p = os.path.realpath(os.path.join(root_real, cand.lstrip("/")))
+        if not (p == root_real or p.startswith(root_real + os.sep)):
+            return None
+        rel = os.path.relpath(p, root_real)
+        parts = rel.split(os.sep)
+        if any(pt in _REPO_SKIP_PARTS or pt.startswith(".env") for pt in parts):
+            return None
+        return p if os.path.isfile(p) else None
+
+    # 1) Direct file mentions -> read concise head/relevant block
+    for ep in explicit_paths[:3]:
+        fp = _safe_rel(ep)
+        if not fp or fp in seen_files:
+            continue
+        seen_files.add(fp)
+        try:
+            with open(fp, "r", encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+            rel = os.path.relpath(fp, root_real)
+            head = "\n".join(f"{i + 1}: {ln}" for i, ln in enumerate(lines[:60]))
+            snippets.append(f"=== {rel} (lines 1-{min(60, len(lines))} of {len(lines)}) ===\n{head}")
+        except OSError:
+            continue
+
+    # 2) Symbol/identifier search across repo source files (<= 3 hits)
+    raw_syms = re.findall(r"`([A-Za-z_]\w{2,})`|\b([A-Za-z_]+_[A-Za-z0-9_]+)\b|\b([A-Z][a-z]+[A-Z]\w+)\b", msg)
+    syms = [next(x for x in tup if x) for tup in raw_syms]
+    if not syms and _REPO_ASK_RE.search(msg):
+        syms = [w for w in re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b", msg)
+                if w.lower() not in _REPO_STOP][:4]
+    sym_pats = [re.compile(rf"\b{re.escape(s)}\b") for s in syms[:3]]
+
+    if sym_pats and len(snippets) < 3:
+        for dirpath, dirnames, filenames in os.walk(root_real):
+            dirnames[:] = [d for d in sorted(dirnames) if d not in _REPO_SKIP_PARTS and not d.startswith(".")]
+            for fn in sorted(filenames):
+                if not fn.endswith((".py", ".kt", ".kts", ".yaml", ".yml", ".md")):
+                    continue
+                fp = os.path.join(dirpath, fn)
+                if fp in seen_files:
+                    continue
+                try:
+                    if os.path.getsize(fp) > 250_000:
+                        continue
+                    with open(fp, "r", encoding="utf-8", errors="replace") as fh:
+                        lines = fh.read().splitlines()
+                except OSError:
+                    continue
+                for ln_no, ln in enumerate(lines):
+                    if any(pat.search(ln) for pat in sym_pats):
+                        lo = max(0, ln_no - 3)
+                        hi = min(len(lines), ln_no + 12)
+                        rel = os.path.relpath(fp, root_real)
+                        block = "\n".join(f"{k + 1}: {lines[k]}" for k in range(lo, hi))
+                        snippets.append(f"=== {rel} (lines {lo + 1}-{hi}) ===\n{block}")
+                        seen_files.add(fp)
+                        break
+                if len(snippets) >= 3:
+                    break
+            if len(snippets) >= 3:
+                break
+
+    if not snippets:
+        return [], ""
+    joined = "\n\n".join(snippets)
+    if len(joined) > max_chars:
+        joined = joined[:max_chars].rstrip() + "\n... (truncated)"
+    return ["repo"], joined
+
+
 def footer(keys: list[str]) -> str:
     names = {"disk": "df", "memory": "free", "gpu": "nvidia-smi", "temps": "sensors", "kernel": "uname",
              "bios": "the BIOS info in /sys", "uptime": "uptime", "updates": "checkupdates",
              "network": "ip addr", "units": "systemctl --failed", "schedule": "crontab and timers",
-             "load": "ps", "docker": "docker ps"}
+             "load": "ps", "docker": "docker ps", "repo": "repo files"}
     return "\n\n(Checked just now: " + ", ".join(names.get(k, k) for k in keys) + ")"

@@ -73,33 +73,6 @@ def test_path_present_in_context_is_ok(tmp_path):
     assert out == []
 
 
-# ---- ground(): regenerate once -----------------------------------
-
-def test_ground_retries_and_keeps_cleaner(tmp_path):
-    r = _repo(tmp_path)
-    drafts = iter([
-        "Run `./ghost.sh` to fix it.",                 # 1 finding
-        "Run `bash deploy/zoid-nightly.sh` instead.",   # clean
-    ])
-    seen_hints = []
-
-    def gen(hint):
-        seen_hints.append(hint)
-        return next(drafts)
-
-    text, findings = grounding.ground(gen, r)
-    assert findings == []
-    assert "zoid-nightly.sh" in text
-    assert seen_hints[0] is None and seen_hints[1] is not None
-
-
-def test_ground_keeps_first_if_retry_no_better(tmp_path):
-    r = _repo(tmp_path)
-    drafts = iter(["mentions `./a.sh`", "mentions `./b.sh` and `./c.sh`"])
-    text, findings = grounding.ground(lambda h: next(drafts), r)
-    assert "a.sh" in text and 0 < len(findings) < 3
-
-
 def test_caveat_string():
     assert grounding.caveat([]) == ""
     assert "Heads up" in grounding.caveat(["refers to `x.py`"])

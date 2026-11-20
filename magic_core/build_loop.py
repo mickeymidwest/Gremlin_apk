@@ -39,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence
@@ -838,7 +839,44 @@ def files_to_unified_diff(files: dict[str, str], root: str) -> str:
         shutil.rmtree(wt, ignore_errors=True)
 
 
-def _step_goal_prompt(goal: str, step: BuildStep, total_steps: int, completed: Sequence[StepOutcome]) -> str:
+def _step_discovery_digest(root: str, completed: Sequence[StepOutcome]) -> str:
+    """Compact cross-step summary of files & symbols added/changed in earlier steps."""
+    if not root or not completed:
+        return ""
+    lines: list[str] = []
+    seen_files: set[str] = set()
+    for o in reversed(completed):
+        if o.status != "committed":
+            continue
+        for rel in o.files_changed:
+            if rel in seen_files or not rel.endswith(".py"):
+                continue
+            seen_files.add(rel)
+            fp = Path(root) / rel
+            if not fp.is_file():
+                continue
+            try:
+                tree = ast.parse(fp.read_text(encoding="utf-8", errors="replace"))
+            except (SyntaxError, OSError):
+                continue
+            syms = [
+                f"{'class' if isinstance(n, ast.ClassDef) else 'def'} {n.name}"
+                for n in tree.body
+                if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            ][:6]
+            if syms:
+                lines.append(f"  - {rel}: {', '.join(syms)}")
+            if len(lines) >= 4:
+                break
+        if len(lines) >= 4:
+            break
+    if not lines:
+        return ""
+    return "\nKey symbols from earlier committed steps (reuse, do not re-create):\n" + "\n".join(lines) + "\n"
+
+
+def _step_goal_prompt(goal: str, step: BuildStep, total_steps: int, completed: Sequence[StepOutcome],
+                      root: str = "") -> str:
     done_note = ""
     if completed:
         done_lines = [
@@ -848,11 +886,12 @@ def _step_goal_prompt(goal: str, step: BuildStep, total_steps: int, completed: S
         ]
         if done_lines:
             done_note = "\nAlready completed and committed steps:\n" + "\n".join(done_lines) + "\n"
+    digest = _step_discovery_digest(root, completed)
     files_hint = f"\nTarget file(s) for this step: {', '.join(step.files)}" if step.files else ""
     verify_hint = f"\nThis step will be functionally verified with: `{step.verify_cmd}`" if step.verify_cmd else ""
     return (
         f"Overall goal: {goal}\n"
-        f"{done_note}"
+        f"{done_note}{digest}"
         f"CURRENT STEP ONLY (Step {step.index} of {total_steps}): {step.title}\n"
         f"Step details: {step.description or step.title}"
         f"{files_hint}{verify_hint}\n"
@@ -907,8 +946,16 @@ async def _revise_step_proposal(
         if bootstrap
         else review_mod.REVISE_SYSTEM_PROMPT
     )
+    docs = ""
+    try:
+        docs = await build_project._gather_docs_context(step_goal, err=failure_feedback, max_chars=1400)
+    except Exception:
+        docs = ""
+    fb = failure_feedback
+    if docs:
+        fb = f"{failure_feedback}\n\nLive API / docs reference:\n{docs}"
     return await review_mod._revise(
-        router, fixer, current_patch, step_goal, failure_feedback, revise_system=revise_sys,
+        router, fixer, current_patch, step_goal, fb, revise_system=revise_sys,
     )
 
 
@@ -1107,6 +1154,90 @@ async def self_review(
 StepProposer = Callable[[BuildStep, int, list[StepOutcome]], "asyncio.Future | str | tuple[str, bool]"]
 
 
+async def run_step_with_battle(
+    router: Optional[Router],
+    model_names: list[str],
+    root: str,
+    step_goal: str,
+    *,
+    verify_cmd: str = "",
+    step_budget: int = 8,
+    on_event: Optional[Callable[[str], None]] = None,
+    store_root: Optional[str] = None,
+) -> tuple[bool, str]:
+    """Run a single build_loop step interactively via battle.run_battle (with real
+    skills, facts, reflexion lessons, AutoVerifier on_done gate, and failure feedback)."""
+    if router is None or not model_names:
+        return False, "no router/model configured"
+    from .magic.battle import run_battle
+    from .magic.model import BackendModel
+    from .magic.store import Store
+    from .magic.types import Task
+    from .magic.verifier import AutoVerifier
+    from .magic import reflect, reflexion
+
+    be = router.registry.get(model_names[0])
+    if be is None:
+        return False, f"unknown model {model_names[0]}"
+    log = on_event or (lambda _m: None)
+    mem_root = store_root or root
+    task = Task(id=f"bl_{int(time.time())}", prompt=step_goal, verify_cmd=verify_cmd)
+
+    skills, facts, lessons = [], [], []
+    try:
+        st = Store(mem_root)
+        skills = [s for s in st.read_skills() if s.status != "deprecated"]
+        facts = st.read_facts()
+        lessons = reflect.load_lessons(mem_root, task)
+    except Exception:
+        pass
+
+    _loop = asyncio.get_running_loop()
+    plan_helper = None
+    try:
+        _cpu = router.registry.get("qwen2.5-coder-3b-cpu") or router.registry.get("qwen3.5-4b-cpu")
+        if _cpu is not None:
+            plan_helper = BackendModel(_cpu, loop=_loop)
+    except Exception:
+        plan_helper = None
+
+    on_done = None
+    if verify_cmd and ("pytest" in verify_cmd or verify_cmd.strip().lower().startswith("qa")):
+        av = AutoVerifier()
+        def _on_done():
+            sc = av.score(task, root)
+            return sc.value >= 0.999, (sc.failure_signal or sc.detail or "verification failed")[:1200]
+        on_done = _on_done
+
+    model = BackendModel(be, loop=_loop)
+    tr = await asyncio.to_thread(
+        run_battle,
+        task, root, model, skills, facts,
+        step_budget=step_budget, plan=False, autocommit=True,
+        on_done=on_done, lessons=lessons, plan_helper=plan_helper,
+        on_step=lambda ev: log(f"  [battle step {ev.get('step')}] {ev.get('kind')}: {ev.get('detail')}"),
+    )
+    ok = not (tr.final_message or "").startswith("(gave up")
+    try:
+        if tr.skills_invoked:
+            Store(mem_root).record_skill_outcome(tr.skills_invoked, ok, task.id)
+    except Exception:
+        pass
+    if not ok:
+        try:
+            from . import error_ledger
+            error_ledger.record(mem_root, step_goal[:200], tr.final_message or "battle gave up")
+        except Exception:
+            pass
+        try:
+            _l = await asyncio.to_thread(reflexion.distil_lesson, plan_helper or model, task, tr)
+            if _l:
+                reflexion.save_lesson(mem_root, task, _l)
+        except Exception:
+            pass
+    return ok, tr.final_message
+
+
 async def run_build_loop(
     router: Optional[Router],
     root: str,
@@ -1128,6 +1259,7 @@ async def run_build_loop(
     max_step_retries: int = 3,
     verify_timeout: int = 60,
     on_event: Optional[Callable[[str], None]] = None,
+    use_battle: bool = False,
 ) -> BuildLoopResult:
     """Execute the full 7-stage disciplined build loop on `root`:
       1. PLAN
@@ -1181,8 +1313,72 @@ async def run_build_loop(
             continue
 
         log(f"\n[Step {step.index}/{total_steps}] {step.title}")
-        step_goal = _step_goal_prompt(goal, step, total_steps, outcomes)
+        step_goal = _step_goal_prompt(goal, step, total_steps, outcomes, root=root_abs)
         outcome = StepOutcome(step=step, status="failed")
+
+        if use_battle and step_proposer is None and router is not None:
+            pre_sha = _git_head_sha(root_abs)
+            v_cmd = f"pytest -q -k {step.test_filter}" if step.test_filter else ("pytest -q" if run_tests else "")
+            b_ok, b_msg = await run_step_with_battle(
+                router, model_names, root_abs, step_goal,
+                verify_cmd=v_cmd, step_budget=max(8, max_step_retries * 4), on_event=log,
+                store_root=(magic_root or root_abs),
+            )
+            post_sha = _git_head_sha(root_abs)
+            v_res = VerifyResult(ok=b_ok, command=(v_cmd or "run_battle"), output=b_msg[:500])
+            outcome.attempts.append(StepAttempt(
+                attempt=1, patch="", test_ok=b_ok, test_detail=b_msg[:500],
+                verify_ok=b_ok, verify_result=v_res,
+                error="" if b_ok else (b_msg or "battle step failed"),
+            ))
+            outcome.test_ok = b_ok
+            outcome.verify_result = v_res
+            if not b_ok:
+                if pre_sha:
+                    self_improve._run(["git", "reset", "--hard", pre_sha], root_abs)
+                outcome.status = "failed"
+                outcome.error = b_msg or "battle step failed"
+                outcomes.append(outcome)
+                stopped_on_red = True
+                halted_at_step = step.index
+                log(f"  [Step {step.index} HALTED] {outcome.error[:240]}")
+                continue
+            changed: list[str] = []
+            if pre_sha and post_sha and pre_sha != post_sha:
+                if mode == "self_improve":
+                    cp_patch = self_improve._run(["git", "diff", pre_sha, post_sha], root_abs)
+                    step_diff = (cp_patch.stdout or "") if cp_patch.returncode == 0 else ""
+                    gate_fails = (
+                        pregate._protected_path_edits(step_diff)
+                        + pregate._safety_regressions(step_diff)
+                        + pregate.decision_violations(step_diff)
+                    )
+                    if gate_fails:
+                        self_improve._run(["git", "reset", "--hard", pre_sha], root_abs)
+                        outcome.status = "failed"
+                        outcome.error = "self_improve safety gate blocked battle commit: " + "; ".join(gate_fails[:3])
+                        outcome.test_ok = False
+                        outcome.verify_result = VerifyResult(ok=False, command=(v_cmd or "run_battle"), output=outcome.error[:500])
+                        outcomes.append(outcome)
+                        stopped_on_red = True
+                        halted_at_step = step.index
+                        log(f"  [Step {step.index} BLOCKED] {outcome.error[:240]}")
+                        continue
+                cp_d = self_improve._run(["git", "diff", "--name-only", pre_sha, post_sha], root_abs)
+                if cp_d.returncode == 0:
+                    changed = [ln.strip() for ln in (cp_d.stdout or "").splitlines() if ln.strip()]
+            outcome.status = "committed"
+            outcome.commit_sha = post_sha
+            outcome.commit_message = f"step {step.index}/{total_steps}: {step.title}"
+            outcome.files_changed = changed
+            outcomes.append(outcome)
+            if post_sha and post_sha != pre_sha:
+                commits.append(post_sha)
+            for f in changed:
+                if f not in all_files_changed:
+                    all_files_changed.append(f)
+            log(f"  [Step {step.index} COMMITTED {post_sha}] {outcome.commit_message}")
+            continue
 
         bootstrap = (mode == "build" and build_project._is_bootstrap(root_abs))
         current_proposal = ""
@@ -1463,6 +1659,7 @@ async def run_self_improve_loop(
     step_fixer: Optional[Callable] = None,
     max_step_retries: int = 3,
     on_event: Optional[Callable[[str], None]] = None,
+    use_battle: bool = False,
 ) -> dict:
     """Drop-in disciplined loop for `self_improve.run_self_edit`."""
     try:
@@ -1484,6 +1681,7 @@ async def run_self_improve_loop(
                 skip_review=False,
                 max_step_retries=max_step_retries,
                 on_event=on_event,
+                use_battle=use_battle,
             )
             return res.to_dict()
     except AlreadyRunning as e:
@@ -1507,6 +1705,7 @@ async def run_project_build_loop(
     step_fixer: Optional[Callable] = None,
     max_step_retries: int = 3,
     on_event: Optional[Callable[[str], None]] = None,
+    use_battle: bool = False,
 ) -> dict:
     """Drop-in disciplined loop for `build_project.run_build`."""
     res = await run_build_loop(
@@ -1526,6 +1725,7 @@ async def run_project_build_loop(
         skip_review=skip_review,
         max_step_retries=max_step_retries,
         on_event=on_event,
+        use_battle=use_battle,
     )
     return res.to_dict()
 
@@ -1539,7 +1739,8 @@ async def run_fix_loop(args: str, ctx) -> dict:
     _, clean_args = strip_loop_flag(args)
     do_apply = bool(re.search(r"(?:^|\s)--apply(?=\s|$)", clean_args))
     no_tests = bool(re.search(r"(?:^|\s)--no-tests(?=\s|$)", clean_args))
-    goal = re.sub(r"(?:^|\s)--(?:apply|no-tests)(?=\s|$)", " ", clean_args).strip()
+    no_battle = bool(re.search(r"(?:^|\s)--no-battle(?=\s|$)", clean_args))
+    goal = re.sub(r"(?:^|\s)--(?:apply|no-tests|no-battle)(?=\s|$)", " ", clean_args).strip()
     if not goal:
         return {"ok": False, "answer": "Usage: /fix [--loop] [--apply] <what to improve in the harness>"}
 
@@ -1560,6 +1761,7 @@ async def run_fix_loop(args: str, ctx) -> dict:
         res_dict = await run_self_improve_loop(
             router, str(root), goal, [coder],
             reviewer_a=rev_a, reviewer_b=rev_b, run_tests=should_run_tests, teacher_model=rev_a,
+            use_battle=(not no_battle),
         )
         return {
             "ok": bool(res_dict.get("ok")),
@@ -1591,6 +1793,7 @@ async def run_fix_loop(args: str, ctx) -> dict:
             mode="self_improve",
             reviewer_a=rev_a, reviewer_b=rev_b, teacher_model=rev_a,
             run_tests=should_run_tests, skip_review=True,
+            use_battle=(not no_battle),
         )
         d = res.to_dict()
         note = "\n\n(preview in isolated worktree — rerun with `--apply` to commit to this branch)"

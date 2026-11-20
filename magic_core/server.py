@@ -233,6 +233,15 @@ def _status_extras() -> dict:
         out["vram_free_mb"], out["vram_used_mb"] = int(free), int(used)
     except Exception:  # noqa
         pass
+    try:
+        from . import resource as _res
+        hr = _res.headroom()
+        if hr.get("ram_gb") is not None:
+            out["ram_free_gb"] = round(hr["ram_gb"], 2)
+        if hr.get("disk_gb") is not None:
+            out["disk_free_gb"] = round(hr["disk_gb"], 1)
+    except Exception:  # noqa
+        pass
     _STATUS_CACHE.update(at=_t.time(), data=out)
     return out
 
@@ -286,6 +295,9 @@ def create_app(
 ) -> Flask:
     app = Flask(__name__)
     config_path = project_root / "config" / "models.yaml"
+    from .guardrails_config import get_guardrails
+    get_guardrails(project_root)
+    magic_reply.set_registry(registry)
     # Bridge any configured MCP servers' tools into the registry so they
     # sit alongside the native ones (no-op when none are configured).
     try:
@@ -394,6 +406,15 @@ def create_app(
         data["consec_answer_failures"] = health["consec_fail"]
         data["busy"] = state_machine.state.value != "idle"
         return jsonify(data)
+
+    @app.route("/doctor", methods=["GET"])
+    def doctor():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import resource as _res
+        ok, summary, checks = _res.doctor_report(str(project_root))
+        return jsonify({"ok": ok, "summary": summary, "checks": checks})
 
     @app.route("/conversations", methods=["GET", "POST"])
     def conversations():
@@ -520,6 +541,20 @@ def create_app(
         else:
             merged = service_control.add_allow(str(project_root), str(b.get("kind") or "systemd"), name)
         return jsonify({"allowed": sorted(set(merged["docker"]) | set(merged["systemd"]))})
+
+    @app.route("/tools/registry", methods=["GET"])
+    def tools_registry_get():
+        e = _check_auth()
+        if e:
+            return e
+        from . import service_control, tools as tools_mod
+        return jsonify({
+            "tools": [
+                {"name": t.name, "capability": t.capability, "destructive": t.destructive}
+                for t in tools_mod.REGISTRY.available()
+            ],
+            "services": service_control.available_service_tools(str(project_root)),
+        })
 
     @app.route("/chat", methods=["POST"])
     def chat():
@@ -661,6 +696,9 @@ def create_app(
                     if _head is not None:
                         _sel_be = registry.get(_head.name)
                         if _sel_be is not None:
+                            if _head.name == "qwen3-30b-a3b":
+                                from .backends import cpu_backend as _cb
+                                _cb._evict_all_nonpinned()
                             if _head.gpu:
                                 await vram.ensure_only(registry, keep=_head.name)
                             _prim = getattr(magic_backend, "primary", None)
@@ -716,10 +754,17 @@ def create_app(
 
     async def _summarize(_prompt: str) -> str:
         # Prefer the CPU Hive summarizer (zero VRAM, keeps the GPU free for the
-        # answer); the 9B is the fallback. Gated OFF until there is RAM to keep
-        # the CPU model warm (MAGIC_SUMMARIZE_ON_CPU=1 flips it on). This is a
-        # background path (history compaction) so it never blocks a reply.
-        if os.environ.get("MAGIC_SUMMARIZE_ON_CPU", "0") == "1":
+        # answer); the 9B is the fallback. Auto-enabled on >=24GB RAM or when
+        # MAGIC_SUMMARIZE_ON_CPU=1.
+        _cpu_sum = os.environ.get("MAGIC_SUMMARIZE_ON_CPU")
+        _auto_cpu = False
+        if _cpu_sum is None:
+            try:
+                from .magic.hydra import _free_ram_mb
+                _auto_cpu = _free_ram_mb() >= 12000
+            except Exception:
+                _auto_cpu = False
+        if _cpu_sum == "1" or _auto_cpu:
             try:
                 from .magic import hive as _hive
                 _h = _hive.build_hive(registry, loop=loop)
@@ -735,10 +780,22 @@ def create_app(
             return ""
 
     def _maybe_compact(ck: str) -> None:
-        # long thread -> fold older turns into a running summary in the
-        # background (never blocks the reply; runs when the model is free).
+        # Fold older turns into a running summary in the background. On roomy
+        # RAM (or MAGIC_SUMMARIZE_ON_CPU=1), run incremental micro-compaction;
+        # on 7.5GB, compact once the window reaches _max_turns.
         try:
-            if len(conversation_history._load(ck)) >= conversation_history._max_turns:
+            n_turns = len(conversation_history._load(ck))
+            use_micro = os.environ.get("MAGIC_SUMMARIZE_ON_CPU") == "1"
+            if not use_micro:
+                try:
+                    from .magic.hydra import _free_ram_mb
+                    use_micro = _free_ram_mb() >= 12000
+                except Exception:
+                    use_micro = False
+            if use_micro and n_turns > 10:
+                asyncio.run_coroutine_threadsafe(
+                    conversation_history.micro_compact(ck, _summarize, keep_recent=10), loop)
+            elif n_turns >= conversation_history._max_turns:
                 asyncio.run_coroutine_threadsafe(
                     conversation_history.compact(ck, _summarize), loop)
         except Exception:
@@ -773,6 +830,11 @@ def create_app(
                 _c = _h.watchdog_review(_msg, _ans)
                 if _c:
                     _log_watchdog(_msg, _ans, _c)
+                    try:
+                        from . import error_ledger as _el
+                        _el.record_watchdog(str(project_root), _msg, _c)
+                    except Exception:
+                        pass
             except Exception:
                 pass
             finally:
@@ -856,7 +918,7 @@ def create_app(
         # in it, and plain chat then invents a docker ps row (2026-11-07).
         try:
             from . import service_control
-            names = service_control.status_question(str(project_root), message)
+            names = service_control.status_question(str(project_root), message, check_live=True)
             if names:
                 all_up, answer = run_coro(loop, service_control.check_many(str(project_root), names),
                                           timeout=60.0)
@@ -1050,6 +1112,9 @@ def create_app(
                             if _head is not None:
                                 _sel_be = registry.get(_head.name)
                                 if _sel_be is not None:
+                                    if _head.name == "qwen3-30b-a3b":
+                                        from .backends import cpu_backend as _cb
+                                        _cb._evict_all_nonpinned()
                                     if _head.gpu:
                                         await vram.ensure_only(registry, keep=_head.name)
                                     _prim = getattr(magic_backend, "primary", None)
@@ -1116,11 +1181,17 @@ def create_app(
         asyncio.run_coroutine_threadsafe(_pump(), loop)
 
         def _emit():
+            idle_windows = 0
             while True:
                 try:
-                    item = bridge.get(timeout=180)
+                    item = bridge.get(timeout=12)
+                    idle_windows = 0
                 except _queue.Empty:
-                    break  # backstop: nothing for 3 min, treat as done
+                    idle_windows += 1
+                    if idle_windows >= 15:
+                        break  # 180s max idle backstop
+                    yield ": ping\n\n"
+                    continue
                 if item is _STOP:
                     break
                 kind, payload = item
@@ -1159,6 +1230,14 @@ def create_app(
             except Exception:
                 return None
             return None
+        # Soft Hive pause: evict non-pinned CPU Hive workers (leaving tiny 1.5B
+        # pinned) before checking MemAvailable and loading the 30B MoE so /deep
+        # doesn't push past 32GB into swap.
+        try:
+            from .backends import cpu_backend as _cb
+            _cb._evict_all_nonpinned()
+        except Exception:
+            pass
         import os as _os
         _free = _mem_avail_mb()
         _need = int(_os.environ.get("MAGIC_DEEP_MIN_RAM_MB", "6500"))
@@ -1860,6 +1939,46 @@ def create_app(
         else:
             flagged = "**Flagged" in latest.read_text()
         return jsonify({"date": latest.stem, "flagged": flagged, "report": latest.read_text()})
+
+    @app.route("/jobs", methods=["GET", "POST"])
+    def jobs_route():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import scheduler as _sched
+        if request.method == "GET":
+            return jsonify({"jobs": _sched.list_jobs(str(project_root))})
+        b = request.get_json(silent=True) or {}
+        prompt = str(b.get("prompt") or "").strip()
+        if not prompt:
+            return jsonify({"error": "prompt required"}), 400
+        job = _sched.add_job(
+            str(project_root),
+            str(b.get("name") or prompt[:40]),
+            prompt,
+            cron=str(b.get("cron") or ""),
+            interval_minutes=int(b.get("interval_minutes") or 0),
+            skill=str(b.get("skill") or ""),
+            enabled=bool(b.get("enabled", True)),
+        )
+        return jsonify({"ok": True, "job": job, "jobs": _sched.list_jobs(str(project_root))})
+
+    @app.route("/jobs/<job_id>", methods=["DELETE"])
+    def jobs_delete_route(job_id):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import scheduler as _sched
+        removed = _sched.remove_job(str(project_root), job_id)
+        return jsonify({"ok": removed, "jobs": _sched.list_jobs(str(project_root))}), (200 if removed else 404)
+
+    @app.route("/jobs/reports", methods=["GET"])
+    def jobs_reports_route():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import scheduler as _sched
+        return jsonify({"reports": _sched.recent_reports(str(project_root))})
 
     _load_local_plugins(app, {"registry": registry, "project_root": project_root, "loop": loop,
                               "check_auth": _check_auth, "check_admin_auth": _check_admin_auth,

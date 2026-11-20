@@ -13,6 +13,7 @@ sits between propose_patch and apply_patch in main.py's improve command.
 from __future__ import annotations
 import asyncio
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -25,9 +26,12 @@ REVIEW_SYSTEM_PROMPT = (
     "own source code, before it is allowed to be applied. You will be given "
     "the goal the patch is meant to achieve and the diff itself. Check "
     "whether it: (1) actually achieves the stated goal, (2) is syntactically "
-    "and logically sound, (3) does not remove or weaken any existing "
-    "sandboxing, safety checks, git-revert safety, or error handling, and "
-    "(4) does not introduce anything unrelated to the goal. "
+    "and logically sound with no cross-module breakage, (3) does not remove or "
+    "weaken any existing sandboxing, safety checks, hive/watchdog rails, tests, "
+    "git-revert safety, or error handling, (4) obeys project constraints (never "
+    "re-introduce consult/council/specialists/bench/distill, never add fine-tuning, "
+    "never load two local GGUFs simultaneously in 8GB VRAM, never delete tracked files), "
+    "and (5) does not introduce anything unrelated to the goal. "
     "Respond with ONLY valid JSON in this exact shape, nothing else:\n"
     '{"verdict": "APPROVE", "feedback": ""}\n'
     "or\n"
@@ -35,6 +39,15 @@ REVIEW_SYSTEM_PROMPT = (
     "Be a real reviewer, not a rubber stamp -- if you're not sure it's "
     "correct, request changes rather than approve."
 )
+
+_VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string", "enum": ["APPROVE", "REQUEST_CHANGES"]},
+        "feedback": {"type": "string"},
+    },
+    "required": ["verdict", "feedback"],
+}
 
 REVISE_SYSTEM_PROMPT = (
     "You previously proposed a unified diff patch to an AI orchestrator's "
@@ -126,7 +139,10 @@ async def _review_once(
     router: Router, reviewer: str, patch: str, goal: str, review_system: str = REVIEW_SYSTEM_PROMPT,
 ) -> ReviewRound:
     prompt = f"Goal: {goal}\n\nProposed diff:\n{patch}"
-    result = await router.route(reviewer, prompt, system=review_system)
+    try:
+        result = await router.route(reviewer, prompt, system=review_system, grammar=_VERDICT_SCHEMA)
+    except TypeError:
+        result = await router.route(reviewer, prompt, system=review_system)
 
     if not result.ok:
         # A reviewer that's unreachable is not the same as a reviewer that
@@ -226,6 +242,23 @@ async def review_and_revise(
                 current_patch = await _revise(router, fixer, current_patch, goal, fb, revise_system)
                 await _unload_if_local(router, fixer)
                 continue
+        if root and hasattr(router, "registry"):
+            try:
+                from .magic import hive as _hv
+                _dec_path = os.path.join(root, ".magic", "decisions.md")
+                _dec_txt = open(_dec_path, encoding="utf-8", errors="replace").read() if os.path.exists(_dec_path) else ""
+                _aud_ok, _aud_issues, _ = await asyncio.to_thread(
+                    lambda: _hv.build_hive(router.registry, loop=asyncio.get_running_loop()).audit_patch(
+                        goal, current_patch, decisions_text=_dec_txt)
+                )
+                if not _aud_ok:
+                    fb = "Hive patch_auditor blocked (fail-closed):\n- " + "\n- ".join(_aud_issues)
+                    history.append(ReviewRound(reviewer="hive:patch_auditor", approved=False, feedback=fb))
+                    current_patch = await _revise(router, fixer, current_patch, goal, fb, revise_system)
+                    await _unload_if_local(router, fixer)
+                    continue
+            except Exception:
+                pass
         review_a = await _review_once(router, reviewer_a, current_patch, goal, review_system)
         history.append(review_a)
         await _unload_if_local(router, reviewer_a)

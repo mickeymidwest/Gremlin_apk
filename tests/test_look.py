@@ -59,7 +59,7 @@ def test_gather_runs_fixed_commands_only(monkeypatch):
     monkeypatch.setattr(look.subprocess, "run", fake_run)
     monkeypatch.setattr(look.shutil, "which", lambda n: "/usr/bin/" + n)
     out = look.gather(["memory"])
-    assert seen == [["free", "-h"]] and "$ free -h" in out and "5.0Gi" in out
+    assert seen == [["free", "-h"], ["zramctl"], ["swapon", "--show"]] and "$ free -h" in out and "5.0Gi" in out
 
 
 def test_missing_tool_is_reported_not_raised(monkeypatch):

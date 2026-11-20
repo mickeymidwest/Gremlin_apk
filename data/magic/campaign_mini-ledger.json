@@ -1,6 +1,14 @@
 {
-  "battle_count": 35,
+  "battle_count": 43,
   "accepted_history": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
     0,
     0,
     0,
@@ -44,6 +52,6 @@
     }
   ],
   "best_by_task": {
-    "ledger": 0.0
+    "ledger": 0.16666666666666666
   }
 }

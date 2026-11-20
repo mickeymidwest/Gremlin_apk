@@ -30,7 +30,7 @@ _RESULT_RE = re.compile(
     r'<a rel="nofollow" class="result__a" href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
 _SNIPPET_RE = re.compile(
     r'<a class="result__snippet"[^>]*>(.*?)</a>', re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
+_TAG_RE = re.compile(r"""<(?:"[^"]*"|'[^']*'|[^>"'])*>""")
 
 
 def _clean(s: str) -> str:
@@ -94,3 +94,30 @@ def fetch_text(url: str, max_chars: int = 4000, timeout: int = 12) -> str:
     if len(text) > max_chars:
         text = text[:max_chars] + " [truncated]"
     return text or "[no readable text on that page]"
+
+
+def fetch_text_rendered(url: str, max_chars: int = 8000, timeout: int = 15) -> str:
+    """Headless Chromium fallback for JS-walled pages when a local Chromium/Chrome
+    binary is available. Returns '' cleanly if no browser is installed or it fails."""
+    import shutil
+    import subprocess
+
+    if not url or not url.startswith(("http://", "https://")):
+        return ""
+    browser = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+    if not browser:
+        return ""
+    try:
+        proc = subprocess.run(
+            [browser, "--headless", "--disable-gpu", "--no-sandbox", "--dump-dom", url],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if proc.returncode != 0 or not proc.stdout:
+            return ""
+        body = re.sub(r"(?is)<(script|style|nav|header|footer)\b.*?</\1>", "", proc.stdout)
+        text = _clean(body)
+        if len(text) > max_chars:
+            text = text[:max_chars] + " [truncated]"
+        return text
+    except Exception:
+        return ""

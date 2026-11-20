@@ -229,3 +229,52 @@ def test_chat_and_stream_wire_hydra_select_behind_flag(tmp_path, monkeypatch):
         assert "qwen2.5-coder-14b" in kept
     finally:
         loop.call_soon_threadsafe(loop.stop)
+
+
+def test_deep_route_soft_pauses_nonpinned_cpu_hive(tmp_path, monkeypatch):
+    from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+    from magic_core.backends import cpu_backend
+    from magic_core.persona import PersonaBackend
+    from magic_core.registry import ModelRegistry
+    from magic_core.router import Router
+    from magic_core import server
+    from magic_core.magic import vram
+
+    class _FakeDeep(ModelBackend):
+        def __init__(self):
+            super().__init__(ModelInfo(name="qwen3-30b-a3b", kind="local_gguf", footprint_mb=7800))
+            self._llm = object()
+            self.model_path = "/fake/30b.gguf"
+
+        async def generate(self, prompt, system=None, max_tokens=512, temperature=0.4,
+                           history=None, grammar=None):
+            return GenerationResult(model="qwen3-30b-a3b", text="deep answer")
+
+    reg = ModelRegistry()
+    deep_be = _FakeDeep()
+    reg.backends["qwen3-30b-a3b"] = deep_be
+    reg.backends["magic"] = PersonaBackend(
+        ModelInfo(name="magic", kind="persona", display_name="Magic"),
+        primary=deep_be, fallbacks=[], system_prompt="sys",
+    )
+
+    evicted = []
+    monkeypatch.setattr(cpu_backend, "_evict_all_nonpinned", lambda exclude=None: evicted.append(True))
+
+    async def _fake_ensure_only(_reg, keep=None):
+        return None
+    monkeypatch.setattr(vram, "ensure_only", _fake_ensure_only)
+    monkeypatch.setenv("MAGIC_DEEP_MIN_RAM_MB", "0")
+
+    loop = server.start_background_loop()
+    try:
+        app = server.create_app(reg, Router(reg), tmp_path, loop, token="tok", admin_token="adm")
+        client = app.test_client()
+        r = client.post("/deep", json={"message": "derive something hard"},
+                        headers={"Authorization": "Bearer tok"})
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["ok"] is True and data["answer"] == "deep answer"
+        assert evicted == [True]
+    finally:
+        loop.call_soon_threadsafe(loop.stop)

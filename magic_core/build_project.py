@@ -33,6 +33,7 @@ repeated requests can surface as skill candidates, not just one-off tricks.
 """
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -223,12 +224,52 @@ def parse_file_blocks(text: str) -> dict[str, str]:
     return files
 
 
+_BUILD_DOCS_RE = re.compile(
+    r"\b(api|sdk|library|framework|fastapi|flask|django|pydantic|sqlalchemy|pytest|"
+    r"pygame|sqlite|retrofit|compose|jetpack|okhttp|mlkit|torch|pytorch|opencv|cuda|"
+    r"ffmpeg|gradle|android|systemd|docker|kubectl|asyncio|click|typer|tkinter|qt|pyqt|pyside)\b",
+    re.I,
+)
+_ERR_DOCS_RE = re.compile(
+    r"ImportError|ModuleNotFoundError|AttributeError|TypeError|Unresolved reference|"
+    r"cannot find symbol|No module named|deprecated|unknown (?:flag|option|attribute)",
+    re.I,
+)
+
+
+async def _gather_docs_context(goal: str, err: str = "", max_chars: int = 1800) -> str:
+    """Best-effort live doc lookup for library/API goals or API compile failures."""
+    if os.environ.get("MAGIC_OFFLINE") == "1":
+        return ""
+    g = (goal or "").strip()
+    e = (err or "").strip()
+    if not g:
+        return ""
+    try:
+        from . import autoresearch as _ar
+        wants = bool(
+            (e and _ERR_DOCS_RE.search(e))
+            or _BUILD_DOCS_RE.search(g)
+            or _ar.should_search(g)
+        )
+        if not wants:
+            return ""
+        q = f"{g[:140]} {e[:120]}".strip() if e else g
+        ws, wev = await _ar.gather(q, limit=3, force=True)
+        if not ws or not wev:
+            return ""
+        return wev[:max_chars]
+    except Exception:
+        return ""
+
+
 async def propose_project_patch(
     router: Router,
     model_names: list[str],
     goal: str,
     root: str,
     synthesizer: Optional[str] = None,
+    docs_context: str = "",
 ) -> str:
     """Returns either a unified diff or a file-blocks text, depending on
     _is_bootstrap(root) -- root's contents don't change until a build
@@ -238,7 +279,12 @@ async def propose_project_patch(
     system = BOOTSTRAP_SYSTEM_PROMPT if bootstrap else BUILD_SYSTEM_PROMPT
     merge_system = BOOTSTRAP_MERGE_SYSTEM_PROMPT if bootstrap else MERGE_SYSTEM_PROMPT
     source_dump = _format_source_dump(gather_project_source(root))
-    prompt = f"Goal: {goal}\n\nCurrent contents of the project folder:\n\n{source_dump}"
+    docs_note = (
+        f"\n\nLive documentation / API reference (prefer verified APIs/flags here):\n{docs_context}"
+        if docs_context
+        else ""
+    )
+    prompt = f"Goal: {goal}{docs_note}\n\nCurrent contents of the project folder:\n\n{source_dump}"
 
     if len(model_names) == 1:
         result = await router.route(model_names[0], prompt, system=system, max_tokens=DIFF_MAX_TOKENS)
@@ -284,15 +330,25 @@ async def propose_with_retry_and_teacher(
     `teacher_model` to actually solve it. Returns (result, used_teacher)
     -- used_teacher tells the caller to log this in the learning log."""
     bootstrap = _is_bootstrap(root)
+    docs_context = await _gather_docs_context(goal)
     patch = ""
+    last_err = ""
     for _ in range(max_local_attempts):
-        patch = await propose_project_patch(router, model_names, goal, root)
-        if _proposal_is_valid(patch, root, bootstrap)[0]:
+        patch = await propose_project_patch(router, model_names, goal, root, docs_context=docs_context)
+        ok, last_err = _proposal_is_valid(patch, root, bootstrap)
+        if ok:
             return patch, False
+        if not docs_context and last_err:
+            docs_context = await _gather_docs_context(goal, err=last_err)
 
     teacher_system = BOOTSTRAP_TEACHER_SYSTEM_PROMPT if bootstrap else TEACHER_PROPOSE_SYSTEM_PROMPT
     source_dump = _format_source_dump(gather_project_source(root))
-    prompt = f"Goal: {goal}\n\nCurrent contents of the project folder:\n\n{source_dump}"
+    docs_note = (
+        f"\n\nLive documentation / API reference:\n{docs_context}"
+        if docs_context
+        else ""
+    )
+    prompt = f"Goal: {goal}{docs_note}\n\nCurrent contents of the project folder:\n\n{source_dump}"
     result = await router.route(teacher_model, prompt, system=teacher_system, max_tokens=DIFF_MAX_TOKENS)
     teacher_patch = result.text if result.ok else ""
 

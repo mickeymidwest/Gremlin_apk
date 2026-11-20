@@ -111,12 +111,17 @@ async def ensure_only(registry, keep: str | None) -> None:
     guaranteed OOM, so the unload is awaited fully and we don't return
     until the card actually has room."""
     set_active(keep)
-    big = footprint_mb(_model_path(registry, keep)) if keep else 0
+    keep_be = registry.get(keep) if (keep and hasattr(registry, "get")) else None
+    cfg_fp = getattr(getattr(keep_be, "info", None), "footprint_mb", 0) or 0
+    big = max(footprint_mb(_model_path(registry, keep)), int(cfg_fp)) if keep else 0
     unloaded = False
     for name, be in _local_gguf_backends(registry).items():
         if name == keep:
             continue
-        if getattr(be, "_llm", None) is not None:
+        is_loading = bool(getattr(be, "_loading", False)) or (
+            hasattr(be, "_lock") and getattr(be._lock, "locked", lambda: False)()
+        )
+        if getattr(be, "_llm", None) is not None or is_loading:
             try:
                 await be.unload()
                 unloaded = True

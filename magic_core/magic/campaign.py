@@ -20,12 +20,13 @@ from . import lifecycle, reckoning, reflect, reflexion, regression
 from .model import Model, QuotaExhausted
 from .store import Store
 from .types import BattleResult, CampaignState, Task, Transcript
-from .verifier import PytestVerifier
+from .verifier import AutoVerifier, PytestVerifier
 from .battle import run_battle
 from .. import resource
 
 _IGNORE = shutil.ignore_patterns(
     ".git", "__pycache__", ".pytest_cache", ".venv", "venv", "*.pyc", ".magic-work",
+    "build", ".gradle", "hf_cache", ".finetune-venv", "node_modules",
 )
 
 
@@ -63,7 +64,7 @@ class Campaign:
         self._lesson_threads: list = []
         self.target_repo = str(Path(target_repo).resolve())
         self.tasks = {t.id: t for t in tasks}
-        self.verifier = verifier or PytestVerifier()
+        self.verifier = verifier or AutoVerifier()
         self.budget = budget
         self.trial_every = trial_every
         self.converge_run = converge_run

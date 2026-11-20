@@ -34,8 +34,7 @@ def format_messages(messages: list[dict]) -> tuple[str, bool]:
                 content = content.rstrip()[: -len(NOTHINK_MARK.strip())].rstrip()
         parts.append(f"<|im_start|>{m.get('role', 'user')}\n{content}<|im_end|>\n")
     prompt = "".join(parts) + "<|im_start|>assistant\n"
-    if not think:
-        prompt += "<think>\n\n</think>\n\n"
+    prompt += "<think>\n" if think else "<think>\n\n</think>\n\n"
     return prompt, think
 
 

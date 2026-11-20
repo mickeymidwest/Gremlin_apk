@@ -132,6 +132,29 @@ class Store:
                 if p.name not in dep_keep:
                     p.unlink()
 
+    def record_skill_outcome(self, skill_ids: list[str] | tuple[str, ...], won: bool,
+                             battle_id: str = "") -> int:
+        """Record live battle/fix outcomes back onto invoked Skill cards so
+        live usage builds track record alongside offline campaigns."""
+        wanted = {str(s) for s in (skill_ids or ()) if s}
+        if not wanted:
+            return 0
+        updated = 0
+        for s in self.read_skills():
+            if s.id not in wanted or s.status == "deprecated":
+                continue
+            s.record.uses += 1
+            if won:
+                s.record.wins += 1
+            else:
+                s.record.losses += 1
+            if battle_id:
+                s.record.last_used_battle = battle_id
+            path = self._skill_path(s.name)
+            self._write_skill_file(path, s)
+            updated += 1
+        return updated
+
     def _write_skill_file(self, path: Path, s: Skill) -> None:
         d = to_dict(s)
         # order the mapping so the card reads well when opened by hand
@@ -201,6 +224,25 @@ class Store:
             if f.text not in have:
                 remember_fact(str(self.root), f"[learned] {f.text}  <!--{f.id}-->")
                 have.add(f.text)
+
+    def add_fact_safe(self, text: str, *, tag: str = "learned") -> tuple[bool, str]:
+        """Insert a fact while deduplicating >=0.85 word-overlap duplicates (#619)."""
+        clean = " ".join((text or "").split()).strip()[:320]
+        if len(clean) < 8:
+            return False, "fact too short"
+        words = lambda s: set(re.findall(r"[a-z0-9_]+", s.lower()))
+        w_new = words(clean)
+        for existing in self.read_facts():
+            w_old = words(existing.text)
+            if not w_old or not w_new:
+                continue
+            jacc = len(w_new & w_old) / len(w_new | w_old)
+            if jacc >= 0.85 or clean.lower() == existing.text.lower():
+                return False, f"duplicate of existing fact ({existing.id})"
+        from ..notes import remember_fact
+        fid = "fact_" + _hashid(clean)
+        remember_fact(str(self.root), f"[{tag}] {clean}  <!--{fid}-->")
+        return True, fid
 
     # -- episodes (episodic memory) --------------------------------
 

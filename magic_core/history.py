@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -147,9 +148,101 @@ class ConversationHistory:
         # default otherwise.
         self._max_render_chars = _render_budget(primary_n_ctx)
         self._dir = Path(root) / "data" / "conversations"
+        self._db_path = self._dir / "history.db"
         # In-memory cache of the loaded tail, so a busy conversation
         # doesn't re-read its file every turn.
         self._cache: dict[str, deque[Turn]] = {}
+
+    def _connect_db(self) -> Optional[sqlite3.Connection]:
+        try:
+            self._dir.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(self._db_path), timeout=5.0)
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS turns ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "conv_id TEXT NOT NULL, "
+                "seq INTEGER NOT NULL, "
+                "user_text TEXT NOT NULL, "
+                "assistant_text TEXT NOT NULL, "
+                "at REAL NOT NULL, "
+                "archived INTEGER NOT NULL DEFAULT 0)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_turns_conv_seq ON turns(conv_id, seq)"
+            )
+            conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5("
+                "conv_id UNINDEXED, user_text, assistant_text, content='turns', content_rowid='id')"
+            )
+            return conn
+        except Exception:
+            return None
+
+    def _db_insert_turn(self, key: str, seq: int, turn: Turn, archived: int = 0) -> None:
+        conn = self._connect_db()
+        if conn is None:
+            return
+        try:
+            cid = _key_id(key)
+            with conn:
+                cur = conn.execute(
+                    "INSERT INTO turns (conv_id, seq, user_text, assistant_text, at, archived) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (cid, seq, turn.user, turn.assistant, turn.at, archived),
+                )
+                conn.execute(
+                    "INSERT INTO turns_fts (rowid, conv_id, user_text, assistant_text) VALUES (?, ?, ?, ?)",
+                    (cur.lastrowid, cid, turn.user, turn.assistant),
+                )
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    def _db_sync_from_jsonl(self, key: str) -> None:
+        """Backfill SQLite/FTS5 if JSONL predates history.db."""
+        conn = self._connect_db()
+        if conn is None:
+            return
+        try:
+            cid = _key_id(key)
+            row = conn.execute("SELECT COUNT(*) FROM turns WHERE conv_id = ?", (cid,)).fetchone()
+            if row and row[0] > 0:
+                return
+            turns = self._all_turns(key)
+            if not turns:
+                return
+            with conn:
+                for idx, t in enumerate(turns, 1):
+                    cur = conn.execute(
+                        "INSERT INTO turns (conv_id, seq, user_text, assistant_text, at, archived) "
+                        "VALUES (?, ?, ?, ?, ?, 0)",
+                        (cid, idx, t.user, t.assistant, t.at),
+                    )
+                    conn.execute(
+                        "INSERT INTO turns_fts (rowid, conv_id, user_text, assistant_text) VALUES (?, ?, ?, ?)",
+                        (cur.lastrowid, cid, t.user, t.assistant),
+                    )
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    def _db_mark_archived(self, key: str, up_to_seq: int) -> None:
+        self._db_sync_from_jsonl(key)
+        conn = self._connect_db()
+        if conn is None:
+            return
+        try:
+            with conn:
+                conn.execute(
+                    "UPDATE turns SET archived = 1 WHERE conv_id = ? AND seq <= ?",
+                    (_key_id(key), up_to_seq),
+                )
+        except Exception:
+            pass
+        finally:
+            conn.close()
 
     def _path(self, key: str) -> Path:
         return self._dir / f"{_key_id(key)}.jsonl"
@@ -212,6 +305,8 @@ class ConversationHistory:
             # In-memory copy still works for this session even if the disk
             # write fails; losing durability is better than dropping the turn.
             pass
+        self._db_sync_from_jsonl(key)
+        self._db_insert_turn(key, len(self._all_turns(key)), turn)
 
     def drop_last(self, key: str) -> bool:
         """Remove the most recent exchange so it can be re-generated (re-roll).
@@ -230,6 +325,26 @@ class ConversationHistory:
                 path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
         except OSError:
             pass
+        conn = self._connect_db()
+        if conn is not None:
+            try:
+                cid = _key_id(key)
+                with conn:
+                    row = conn.execute(
+                        "SELECT id, user_text, assistant_text FROM turns WHERE conv_id = ? ORDER BY id DESC LIMIT 1",
+                        (cid,),
+                    ).fetchone()
+                    if row:
+                        conn.execute(
+                            "INSERT INTO turns_fts(turns_fts, rowid, conv_id, user_text, assistant_text) "
+                            "VALUES('delete', ?, ?, ?, ?)",
+                            (row[0], cid, row[1], row[2]),
+                        )
+                        conn.execute("DELETE FROM turns WHERE id = ?", (row[0],))
+            except Exception:
+                pass
+            finally:
+                conn.close()
         return True
 
     def append_to_last(self, key: str, extra: str,
@@ -263,6 +378,30 @@ class ConversationHistory:
                     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         except OSError:
             pass
+        conn = self._connect_db()
+        if conn is not None:
+            try:
+                cid = _key_id(key)
+                with conn:
+                    row = conn.execute(
+                        "SELECT id, user_text, assistant_text FROM turns WHERE conv_id = ? ORDER BY id DESC LIMIT 1",
+                        (cid,),
+                    ).fetchone()
+                    if row:
+                        conn.execute(
+                            "INSERT INTO turns_fts(turns_fts, rowid, conv_id, user_text, assistant_text) "
+                            "VALUES('delete', ?, ?, ?, ?)",
+                            (row[0], cid, row[1], row[2]),
+                        )
+                        conn.execute("UPDATE turns SET assistant_text = ? WHERE id = ?", (last.assistant, row[0]))
+                        conn.execute(
+                            "INSERT INTO turns_fts (rowid, conv_id, user_text, assistant_text) VALUES (?, ?, ?, ?)",
+                            (row[0], cid, row[1], last.assistant),
+                        )
+            except Exception:
+                pass
+            finally:
+                conn.close()
         return True
 
     def last_user(self, key: str) -> Optional[str]:
@@ -344,6 +483,25 @@ class ConversationHistory:
                 p.unlink()
             except OSError:
                 pass
+        conn = self._connect_db()
+        if conn is not None:
+            try:
+                cid = _key_id(key)
+                with conn:
+                    rows = conn.execute(
+                        "SELECT id, user_text, assistant_text FROM turns WHERE conv_id = ?", (cid,)
+                    ).fetchall()
+                    for rid, u, a in rows:
+                        conn.execute(
+                            "INSERT INTO turns_fts(turns_fts, rowid, conv_id, user_text, assistant_text) "
+                            "VALUES('delete', ?, ?, ?, ?)",
+                            (rid, cid, u, a),
+                        )
+                    conn.execute("DELETE FROM turns WHERE conv_id = ?", (cid,))
+            except Exception:
+                pass
+            finally:
+                conn.close()
 
     # ---- long-thread compaction (summarise the aged-out older turns) -------
 
@@ -437,5 +595,79 @@ class ConversationHistory:
         # don't resurrect a summary onto a wiped thread.
         if len(self._all_turns(key)) < step:
             return False
+        text = _scrub_summary(text)
         self._save_summary(key, text[:1500], step)
+        self._db_mark_archived(key, step)
         return True
+
+    async def micro_compact(self, key: str, summarize, *, keep_recent: int = 10,
+                            defrag_tokens: int = 2000) -> bool:
+        """Incremental micro-compaction: fold oldest unsummarized exchange(s)
+        one batch at a time into the rolling summary, scrub credentials,
+        soft-archive compacted turns in SQLite/FTS5, and defrag when the
+        summary grows past ~`defrag_tokens`."""
+        updated = await self.compact(key, summarize, keep_recent=keep_recent, min_new=1)
+        summary, done = self._load_summary(key)
+        if summary and (len(summary) // 4) > defrag_tokens:
+            defrag_prompt = (
+                f"Condense and deduplicate this rolling conversation summary into one tight paragraph "
+                f"under 1200 characters, keeping people, facts, decisions, and open threads:\n\n{summary}"
+            )
+            try:
+                defragged = _scrub_summary((await summarize(defrag_prompt) or "").strip())
+                if defragged and len(defragged) < len(summary):
+                    self._save_summary(key, defragged[:1500], done)
+                    return True
+            except Exception:
+                pass
+        return updated
+
+    def search(self, key: Optional[str], query: str, limit: int = 5) -> list[dict]:
+        """Full-text FTS5 search across active + soft-archived turns."""
+        tokens = re.findall(r"[A-Za-z0-9_]+", query or "")
+        if not tokens:
+            return []
+        fts_q = " OR ".join(f'"{t}"' for t in tokens[:8])
+        if key is not None:
+            self._db_sync_from_jsonl(key)
+        conn = self._connect_db()
+        if conn is None:
+            return []
+        try:
+            if key is not None:
+                rows = conn.execute(
+                    "SELECT t.user_text, t.assistant_text, t.at, t.archived "
+                    "FROM turns_fts f JOIN turns t ON t.id = f.rowid "
+                    "WHERE turns_fts MATCH ? AND t.conv_id = ? "
+                    "ORDER BY bm25(turns_fts), t.id DESC LIMIT ?",
+                    (fts_q, _key_id(key), max(1, int(limit))),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT t.user_text, t.assistant_text, t.at, t.archived "
+                    "FROM turns_fts f JOIN turns t ON t.id = f.rowid "
+                    "WHERE turns_fts MATCH ? "
+                    "ORDER BY bm25(turns_fts), t.id DESC LIMIT ?",
+                    (fts_q, max(1, int(limit))),
+                ).fetchall()
+            return [
+                {"user": r[0], "assistant": r[1], "at": r[2], "archived": bool(r[3])}
+                for r in rows
+            ]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+
+def _scrub_summary(text: str) -> str:
+    try:
+        from . import mutation_log
+        return mutation_log._scrub_str(text or "")
+    except Exception:
+        return text or ""
+
+
+def search_sessions(root: str, query: str, limit: int = 5, key: Optional[str] = None) -> list[dict]:
+    """Convenience search over a project's SQLite FTS5 conversation archive."""
+    return ConversationHistory(root).search(key, query, limit=limit)

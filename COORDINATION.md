@@ -43,7 +43,8 @@ full-capability fallback — it is not limited to small items when it's the only
 _(update this live)_
 - **Claude:** DONE Batch 1 (crash bugs) + Batch 2 (CPU-Hive infra + summarize wiring) on main;
   PAUSED on main while agy runs. Vision fixed + privacy hardened + 18+ floor regression fixed earlier.
-- **agy:** DONE on `gemini-buildloop` (worktree `gremlin-wt-bl`, ready for review/merge) — Magic's 7-stage disciplined build/self-edit loop (`magic_core/build_loop.py`: PLAN -> ONE STEP AT A TIME -> pregate TEST -> functional VERIFY -> STOP-AND-FIX -> COMMIT per step -> SELF-REVIEW / VERDICT), `pregate.py` (`build_loop.py` added to `_PROTECTED_PATHS`, `test_filter` support, venv python resolution), wired into `self_improve.run_self_edit`, `build_project.run_build`, `/build`, `/fix`, `/do` (`commands.py`), `main.py` (`cmd_improve`/`cmd_build` `--loop`), and `tools.py` behind `--loop` / `MAGIC_BUILD_LOOP=1`, with 15 tests in `tests/test_build_loop.py` and end-to-end verified. Previously DONE: `gemini-rea` (REA MCP integration), Batch 3 + Batch 4. (2026-11-16)
+- **agy:** DONE on `gemini-search-deep-fixes` — Phases 1–3 + centralized guardrails ([`config/guardrails.yaml`](config/guardrails.yaml) + [`guardrails_config.py`](magic_core/guardrails_config.py)) + Android can-do delete fix: wired YAML-validated `hard_gates`/`soft_prompt_rules` across [`pregate.py`](magic_core/pregate.py) (immutable lock on `guardrails.yaml`/`guardrails_config.py`/`pregate.py`), [`grounding.py`](magic_core/magic/grounding.py), [`action_honesty.py`](magic_core/action_honesty.py), [`autoresearch.py`](magic_core/autoresearch.py) (two-tier `50`/`200` length gates + 0% entity-overlap hard abort), [`reply.py`](magic_core/magic/reply.py), [`service_control.py`](magic_core/service_control.py) (dropped stale `magic-zoid.timer` aliases + `SERVICE_REGISTRY`/`available_service_tools`), and [`server.py`](magic_core/server.py) (startup YAML check + `/tools/registry`), plus `Hive.check_web_facts`, `_strip_think`, fail-closed `is_no_source`, live Docker `check_live=True`, SQLite FTS5 `history.py`, `context_expand.py`, `scheduler.py`, `toolhost.py`, `subagent.py`, `web_search.py`, and Settings can-do Delete UI (`SettingsActivity.kt`). (2026-11-20)
+  _(Previously DONE: Slices 1–3 `1000_harness_upgrades.md` batch, `327 passed` across 33 test files via `scripts/heavy.sh`, plus `magic-4.53`–`magic-4.30`.)_
 
 ---
 
@@ -74,10 +75,10 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
 - REA (`rea.tools` / `rea-agents@6.9.0`) MCP integration (`gemini-rea`): Node `v26.13.1` + `rea-agents@6.9.0` + JADX headless MCP `0.7.1` + WABT `1.0.42` user-level, `data/mcp_servers.json` (`read_only: false`, 255 tools registered), dynamic target execution isolated in `bwrap_sandbox.py`, `inspect.py`/`tools.py`/`intent.py`/`commands.py` (`/inspect`) routed to REA MCP with offline fallback, `reverse-engineer-anything` skill card (`data/skills/reverse-engineer-anything.yaml`). Needs `sudo pacman -S --needed ghidra android-apktool binwalk wireshark-cli android-tools rizin` (and `GHIDRA_INSTALL_DIR=/opt/ghidra`) for deep native decompilation / firmware / PCAP.
 - Disciplined build/self-edit loop (`gemini-buildloop`): `magic_core/build_loop.py` orchestrating PLAN -> ONE STEP AT A TIME -> `pregate.py` TEST -> functional `verify_step_sync` VERIFY -> STOP-AND-FIX -> per-step git COMMIT -> SELF-REVIEW / VERDICT; wired behind `--loop` / `MAGIC_BUILD_LOOP=1` across `self_improve.run_self_edit`, `build_project.run_build`, `/build`/`/fix`/`/do` (`commands.py`), `main.py` (`cmd_improve`/`cmd_build`), and `tools.py`; `pregate.py` protects `build_loop.py`, supports `test_filter`, and resolves the venv python cleanly in worktrees. Tests: `tests/test_build_loop.py`.
 
+- Vision (`qwen2.5-vl-7b`): fixed in commit `32667911` (`handler: mtmd`, `clip_use_gpu=False`, `llama-cpp-python 0.3.34` outside sandbox).
+
 ### KNOWN-BROKEN
-- Vision (Qwen2.5-VL-7B): loads + routes but image embedding comes back empty
-  (llama-cpp-python 0.3.34 Qwen2.5-VL incompatibility). Needs a lib bump or a different
-  VL model. Committed as known-issue with a graceful 503.
+- _(none currently open)_
 
 ### PENDING — Thursday (32GB RAM: 3×8GB ordered)
 - Flip auto-router live; MoE deep head (Qwen3-30B-A3B) at Q4 with expert offload
@@ -91,4 +92,4 @@ once RAM lands). CPU side = Hive (small zero-VRAM specialists, concurrent).
 
 ---
 
-_Last updated: 2026-11-16 by agy._
+_Last updated: 2026-11-20 by agy._

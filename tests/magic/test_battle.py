@@ -29,9 +29,9 @@ def test_run_battle_drives_tools_to_done(tmp_path):
     assert tr.final_message == "implemented greet()"
     assert "hi" in (tmp_path / "greet.py").read_text()
     kinds = [s.kind for s in tr.steps]
-    assert kinds.count("tool") == 2
+    assert kinds.count("tool") == 3
     tool_names = [s.tool_name for s in tr.steps if s.kind == "tool"]
-    assert tool_names == ["read_file", "write_file"]
+    assert tool_names == ["read_file", "write_file", "run_shell"]
 
 
 def test_run_battle_auto_checks_after_an_edit_on_pytest_tasks(tmp_path):

@@ -59,7 +59,7 @@ async def _triage(backend, question, evidence=""):
     ev = f"\n\nContext already available:\n{evidence[:1500]}" if evidence else ""
     prompt = f"User's request:\n{question}{ev}\n\nPlan it. JSON only."
     try:
-        r = await _gen(backend, prompt, _SYSTEM, grammar=_GRAMMAR, max_tokens=256)
+        r = await _gen(backend, prompt, _SYSTEM, grammar=_GRAMMAR, max_tokens=140)
     except Exception:
         return None
     if not getattr(r, "ok", True):

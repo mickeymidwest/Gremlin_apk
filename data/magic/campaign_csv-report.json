@@ -1,6 +1,13 @@
 {
-  "battle_count": 34,
+  "battle_count": 41,
   "accepted_history": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
     0,
     0,
     0,
@@ -43,6 +50,6 @@
     }
   ],
   "best_by_task": {
-    "csvreport": 0.0
+    "csvreport": 0.5714285714285714
   }
 }

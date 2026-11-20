@@ -53,6 +53,23 @@ async def execute(
     if tool is None:
         return {"answer": "", "action": "chat", "ok": True}
     ctx = tools.ExecContext(router=router, registry=registry, project_root=project_root, history=history)
+    _check_fn = getattr(tool, "check_fn", None)
+    if _check_fn is not None:
+        try:
+            avail = bool(_check_fn())
+        except Exception:
+            avail = False
+        if not avail:
+            return {"answer": f"{tool.name} isn't available on this machine right now.",
+                    "action": tool.name, "ok": False}
+    _pre_hook = getattr(tool, "pre_hook", None)
+    if _pre_hook is not None:
+        try:
+            block_reason = _pre_hook(intent.args or {}, ctx)
+        except Exception as e:
+            block_reason = f"pre-check failed: {e}"
+        if block_reason:
+            return {"answer": block_reason, "action": tool.name, "ok": False}
     _ctx = _action_context(tool, intent)
     try:
         from . import error_ledger
@@ -60,6 +77,12 @@ async def execute(
     except Exception:
         _pre = ""
     result = await tool.handler(intent.args or {}, ctx)
+    _post_hook = getattr(tool, "post_hook", None)
+    if _post_hook is not None and isinstance(result, dict):
+        try:
+            result = _post_hook(intent.args or {}, ctx, result)
+        except Exception:
+            pass
     # Roadmap #105: this is the one place every classified/confirmed
     # action actually runs, chat-triggered or otherwise -- self_edit and
     # script_fix already logged themselves (self_improve.py,

@@ -27,130 +27,29 @@ import re
 
 from . import web_search
 from . import longctx
+from .guardrails_config import get_guardrails
+
+_GR = get_guardrails()
+_SCFG = _GR["hard_gates"]["search"]
+_SOFT = _GR["soft_prompt_rules"]
+
+_VETO_PATS = _SCFG["veto_patterns"]
+_TRIG_PATS = _SCFG["trigger_patterns"]
 
 # --- what makes something NOT a web question (checked first, any match wins)
 
-# About Magic himself, or the local machine -- never the open web. The
-# local-system path (_look_first) and plain chat handle these.
-_SELF_LOCAL = re.compile(
-    # Magic's own identity -- but NOT a bare "you"/"your", which also shows
-    # up in ordinary factual questions addressed to him ("do you know who won",
-    # "can you look up the price of X"). Only self-REFERENTIAL uses veto.
-    r"\byourself\b|\bmagic\b"
-    r"|\byour\s+(name|code|source|repo|config|settings|self|version|model|"
-    r"maker|creator|prompt|training|memory|skills?|hardware|specs?)\b"
-    r"|\b(who|what)\s+(are|r)\s+(you|u)\b"
-    r"|\bare\s+you\s+(an?\s+)?(ai|robot|real|alive|conscious|sentient|human|a\s+bot)\b"
-    # possessive only -- "my/this desktop" is his machine; "THE box office" /
-    # "THE computer" are generic external topics and must stay searchable.
-    r"|\b(this|my)\s+(desktop|box|machine|computer|pc|laptop|server|setup|"
-    r"system|cpu|gpu|ram|memory|disk|drive|ssd|config|service|services|"
-    r"container|containers|repo|code|network|firewall|phone)\b"
-    r"|\bthis\s+(thing|conversation|chat)\b",
-    re.I,
-)
-
-# Creative / writing asks -- a web lookup is never right, even if a factual
-# phrase ("...who invented the time machine") is embedded. This is a HARD
-# veto: a strong lookup signal does NOT override it.
-_CREATIVE = re.compile(
-    r"\b(write|draft|compose|rewrite|make\s+up|imagine|pretend|roleplay|\brp\b|"
-    r"story|poem|poetry|song|lyrics?|joke|rap|essay|haiku|limerick|screenplay|"
-    r"script\s+for|dream\s+up|suppose|fiction)\b",
-    re.I,
-)
-
-# Opinion / personal check-in -- a lookup would be pointless. This is a SOFT
-# veto: a real embedded factual lookup ("how many people liked X, I thought
-# it was awesome") overrides it.
-_OPINION = re.compile(
-    r"\b(think|thoughts?|feel|feeling|opinion|favou?rite|prefer|better\s+or|"
-    r"should\s+i|would\s+you)\b"
-    r"|\bhow\s+(are|was|is|'?s)\s+(you|your)\b"       # how are you / how was your day
-    r"|\bhow'?s?\s+it\s+going\b|\bwhat'?s?\s+up\b"
-    r"|\bwho\s+are\s+you\b|\bwhat\s+can\s+you\s+do\b"
-    r"|\bare\s+you\s+(busy|free|ok|okay|good|tired|there|around|up)\b"
-    r"|\byour\s+(day|night|weekend|morning|evening|week)\b",
-    re.I,
-)
-
-# Greetings / acknowledgements -- not questions worth a round trip.
-_SMALLTALK = re.compile(
-    r"^\s*(hi|hey+|hello+|yo+|sup|hiya|howdy|thanks?|thank\s+you|ty|thx|"
-    r"lol|lmao|ok|okay|k|cool|nice|gotcha|word|bet|nvm|never\s*mind)\b",
-    re.I,
-)
+_SELF_LOCAL = re.compile(_VETO_PATS["self_local"], re.I)
+_CREATIVE = re.compile(_VETO_PATS["creative"], re.I)
+_OPINION = re.compile(_VETO_PATS["opinion"], re.I)
+_SMALLTALK = re.compile(_VETO_PATS["smalltalk"], re.I)
 
 # --- what makes something worth a lookup (need at least one) ----------------
 
-# Time-sensitive / changing facts: always verify these fresh. This is the
-# proactive half -- these never rely on stale model memory.
-_TIME_SENSITIVE = re.compile(
-    r"\b(latest|current(ly)?|newest|right\s+now|today|tonight|tomorrow|"
-    r"yesterday|this\s+(year|week|month|season)|these\s+days|nowadays|"
-    r"recent(ly)?|news|headline|update[ds]?|released?|release\s+date|"
-    r"come\s+out|came\s+out|version|price[sd]?|cost[s]?|worth|stock|"
-    r"score|won|winner|beat|standings|weather|forecast|"
-    r"\b20(2[3-9]|[3-9]\d))\b",
-    re.I,
-)
-
-# Stable factual lookups: "how tall / who invented / what is the capital".
-# A question word paired with a fact-shaped object.
-_FACTUAL_LOOKUP = re.compile(
-    r"\bhow\s+(tall|big|large|old|far|many|much|long|deep|fast|hot|cold|"
-    r"heavy|high|wide)\b"
-    r"|\bwho\s+(is|was|are|were|won|invented|created|discovered|wrote|"
-    r"founded|built|plays?|played|directed|owns?)\b"
-    r"|\bwhat\s+(is|are|was|were|year)\s+the\b"
-    r"|\bwhen\s+(is|was|did|does|were|do)\b"
-    r"|\bwhere\s+(is|are|was|were)\b"
-    r"|\b(capital|population|height|length|distance|diameter|temperature|"
-    r"gdp|currency|language|timezone)\s+of\b"
-    r"|\bhow\s+do\s+you\s+say\b",
-    re.I,
-)
-
-# Tight declarative lookups: unambiguous enough to count as "asking" even
-# without a question mark, so "current price of bitcoin" / "weather in
-# chicago" search, while "I had a rough day today" (bare time word, no
-# lookup shape) does not.
-_DECLARATIVE_LOOKUP = re.compile(
-    r"\b(price|cost)\s+of\b"
-    r"|\b(stock|share|ticket|gas)\s+price\b"
-    r"|\bweather\s+(in|for|near|at|today|tomorrow|this)\b"
-    r"|\bexchange\s+rate\b"
-    r"|\bhow\s+much\s+(is|are|does|do|would)\b",
-    re.I,
-)
-
-# A named system/CLI tool whose exact flags and syntax matter -- these are
-# where the pilot's memory is least reliable, so a how-to about one is worth
-# looking up real docs for. Deliberately NOT bare 'bash'/'python' (generic
-# coding), only concrete tooling: package managers, git, containers, systemd,
-# networking, archiving, etc.
-_CLI_TOOL = re.compile(
-    r"\b(apt|apt-get|aptitude|pacman|yay|paru|pkg|dpkg|rpm|dnf|yum|zypper|apk|"
-    r"brew|pip|pipx|npm|pnpm|yarn|cargo|gem|composer|"
-    r"git|docker|docker-compose|podman|kubectl|helm|systemctl|systemd|journalctl|"
-    r"crontab|cron|ssh|scp|rsync|ssh-keygen|openssl|gpg|"
-    r"ufw|iptables|nftables|firewalld|nmcli|ifconfig|"
-    r"ffmpeg|imagemagick|tar|unzip|gzip|chmod|chown|mount|umount|lsblk|fdisk|"
-    r"cryptsetup|nmap|tcpdump|curl|wget|termux(?:-\w+)?)\b",
-    re.I,
-)
-
-# ...paired with a how-to / verify shape. Either half alone is too loose.
-_TECH_ASK = re.compile(
-    r"\bhow\s+(do|would|can|to|should)\b"
-    r"|\bwhat\s+(does|flag|option|arg|argument|command|would|should)\b"
-    r"|\bwhich\s+(flag|option|command|package)\b"
-    r"|\b(correct|right|proper|safe)\s+(way|flag|command|syntax|usage|option)\b"
-    r"|\bwriting\s+a\b|\bwrite\s+(a|me\s+a)\b|\bput\s+in\s+(the|my|a)\b"
-    r"|\bis\s+(it|this|that)\s+(correct|right|safe|ok|okay|valid)\b"
-    r"|\bwhat\s+would\s+i\s+put\b",
-    re.I,
-)
+_TIME_SENSITIVE = re.compile(_TRIG_PATS["time_sensitive"], re.I)
+_FACTUAL_LOOKUP = re.compile(_TRIG_PATS["factual_lookup"], re.I)
+_DECLARATIVE_LOOKUP = re.compile(_TRIG_PATS["declarative_lookup"], re.I)
+_CLI_TOOL = re.compile(_TRIG_PATS["cli_tool"], re.I)
+_TECH_ASK = re.compile(_TRIG_PATS["tech_ask"], re.I)
 
 
 def _tech_lookup(text: str) -> bool:
@@ -186,8 +85,10 @@ def _tech_query(message: str) -> str:
 
 _QWORDS = {
     "who", "whos", "what", "whats", "when", "where", "which", "whose", "why",
-    "how", "hows", "is", "are", "was", "were", "does", "do", "did", "can",
-    "could", "will", "would", "has", "have",
+    "how", "hows", "is", "isnt", "are", "arent", "was", "wasnt", "were", "werent",
+    "does", "doesnt", "do", "dont", "did", "didnt", "can", "cant",
+    "could", "couldnt", "will", "wont", "would", "wouldnt", "has", "hasnt",
+    "have", "havent",
 }
 
 
@@ -219,7 +120,7 @@ _STRONG_RELEASE = re.compile(
     r"latest|newest|just\s+released|release[sd]?)\b",
     re.I,
 )
-_YEAR = re.compile(r"\b20[2-3]\d\b")
+_YEAR = re.compile(r"\b(?:19\d\d|20[0-3]\d)\b")
 
 
 def _terse_lookup(text: str) -> bool:
@@ -240,6 +141,48 @@ def is_time_sensitive(message: str) -> bool:
     return bool(_TIME_SENSITIVE.search(message or ""))
 
 
+_GENERIC_CODING = re.compile(
+    r"\b(python|javascript|typescript|java|kotlin|rust|golang|c\+\+|html|css|sql|"
+    r"json|yaml|bash|regex|for\s+loop|while\s+loop|function|method|class|array|"
+    r"list|dict|tuple|div|flexbox|loop\s+over)\b",
+    re.I,
+)
+_ASSISTANT_OR_SELF_ASK = re.compile(
+    r"\b(?:can|could|will|would|do|did|have|should|might)\s+(?:you|i|we)\b"
+    r"|\b(?:am\s+i|are\s+you|were\s+you)\b",
+    re.I,
+)
+_EXT_AUX_Q = re.compile(
+    r"(?:^|\b(?:in|on|for|during|about)\s+[^?,.]{2,40}?\s+)"
+    r"(who|what|when|where|why|which|whose|how|"
+    r"does(?:n'?t)?|did(?:n'?t)?|do(?:n'?t)?|"
+    r"is(?:n'?t)?|are(?:n'?t)?|was(?:n'?t)?|were(?:n'?t)?|"
+    r"can(?:'?t)?|could(?:n'?t)?|has(?:n'?t)?|have(?:n'?t)?|had(?:n'?t)?)\b",
+    re.I,
+)
+_TAG_ASSERT_Q = re.compile(r"\bright\s*\??$|\b(?:true\s+or\s+false|or\s+not)\s*\??$", re.I)
+
+
+def _general_factual_question(text: str) -> bool:
+    """Any multi-word external-world question (e.g. 'does melinda see ghosts in
+    ghost whisperer', 'doesn't batman beyond fly') not about coding,
+    this box, or Magic/the user personally."""
+    words = text.split()
+    if len(words) < 4:
+        return False
+    if _CODING_VETO_SAFE(text):
+        return False
+    if _ASSISTANT_OR_SELF_ASK.search(text):
+        return False
+    return bool(text.rstrip().endswith("?") or _EXT_AUX_Q.search(text) or _TAG_ASSERT_Q.search(text.strip()))
+
+
+def _CODING_VETO_SAFE(text: str) -> bool:
+    # Keep "latest version of python" / CLI tool questions searchable; keep pure
+    # syntax/coding help offline ("how do i center a div in css").
+    return bool(_GENERIC_CODING.search(text) and not _TIME_SENSITIVE.search(text) and not _CLI_TOOL.search(text))
+
+
 def should_search(message: str) -> bool:
     """True only for a genuine factual / current-info request about the
     outside world. Deterministic and side-effect free -- this is the whole
@@ -254,9 +197,9 @@ def should_search(message: str) -> bool:
          and crucially OVERRIDES a greeting or an opinion word in the same
          message. That is what lets "how many people liked the new RE, I
          thought it was awesome" search despite the word "thought".
-      3. With no strong lookup, a bare greeting or opinion/creative ask is
-         left offline, and a plain time word in a casual statement ("I had
-         a rough day today") does not qualify on its own."""
+      3. General multi-word external questions (yes/no, 'why did', 'does X')
+         also qualify once local, creative, opinion, smalltalk, self-addressed,
+         and generic coding questions are excluded."""
     text = (message or "").strip()
     if len(text) < 6 or ("\n" in text and len(text) > 600):
         # too short to be a real request, or a big pasted blob (not a query)
@@ -274,16 +217,20 @@ def should_search(message: str) -> bool:
     # tech = a named CLI tool + how-to/verify shape -> look up real docs so
     # Magic double-checks flags/commands rather than trusting stale memory.
     strong = fl or decl or terse or tech  # an explicit lookup phrase/shape, anywhere
+    if strong and _CODING_VETO_SAFE(text):
+        # Coding-syntax questions ('what is a python dict', 'tell me about loops')
+        # stay offline unless time-sensitive or CLI-specific.
+        strong = False
     # A greeting or an opinion/personal check-in only vetoes when there is NO
     # real lookup in the message (the screenshot bug: "thought" blocked a
     # genuine "how many people liked X" question).
     if (_SMALLTALK.search(text) or _OPINION.search(text)) and not strong:
         return False
-    # asking form: a question, OR any explicit lookup phrase -- including one
-    # embedded mid-sentence like "...I wonder how many people liked X".
-    if not (strong or _looks_like_question(text)):
-        return False
-    return bool(strong or _TIME_SENSITIVE.search(text))
+    if strong:
+        return True
+    if _looks_like_question(text) and _TIME_SENSITIVE.search(text):
+        return True
+    return _general_factual_question(text)
 
 
 def _evidence_block(query: str, results: list[dict]) -> str:
@@ -291,13 +238,7 @@ def _evidence_block(query: str, results: list[dict]) -> str:
     _blob = " ".join(((r.get("title") or "") + " " + (r.get("snippet") or "")) for r in results)
     _guard = injection_guard.guard_note(_blob, "web")
     lines = ([_guard] if _guard else []) + [
-        f'Live web search results for "{query.strip()}". Use them to answer '
-        "accurately and up to date; weave the facts in naturally and don't "
-        "just paste the list. If they don't actually answer the question, say "
-        "so plainly instead of guessing. Do NOT state any number, date, "
-        "price, score, or statistic that does not appear in these results -- "
-        "if a specific isn't here, say you're not certain instead of giving a "
-        "figure."
+        f'Live web search results for "{query.strip()}". ' + _SOFT["web_evidence_instructions"]
     ]
     for i, r in enumerate(results, 1):
         title = (r.get("title") or "").strip()
@@ -309,7 +250,8 @@ def _evidence_block(query: str, results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _domains(results: list[dict], limit: int = 3) -> list[str]:
+def _domains(results: list[dict], limit: int | None = None) -> list[str]:
+    cap = _FOOTER_DOMAIN_LIMIT if limit is None else limit
     seen: list[str] = []
     for r in results:
         m = re.search(r"https?://([^/]+)", r.get("url") or "")
@@ -318,7 +260,7 @@ def _domains(results: list[dict], limit: int = 3) -> list[str]:
         host = m.group(1).lower().removeprefix("www.")
         if host and host not in seen:
             seen.append(host)
-        if len(seen) >= limit:
+        if len(seen) >= cap:
             break
     return seen
 
@@ -354,7 +296,7 @@ def search_query(message: str) -> str:
     # snippets are real docs that actually double-check the command.
     if _tech_lookup(message or ""):
         return _tech_query(message)
-    q = (message or "").strip()
+    q = re.sub(r"\s+/(?:no_)?think\s*$", "", (message or "").strip())
     # only stamp TODAY's date onto present-tense relative queries; "yesterday"
     # / "tomorrow" would get a contradictory date, and a query already naming a
     # year carries its own anchor.
@@ -370,7 +312,7 @@ def search_query(message: str) -> str:
 # rails (the "who are the playing" -> movie theatres screenshot).
 # A pronoun anywhere means the message leans on the prior turn.
 _ANAPHORIC = re.compile(
-    r"\b(it|its|they|them|their|that|those|these|he|she|him|her|one|ones)\b"
+    r"\b(it|its|they|them|their|that(?!'?s\b)|those|these|he|she|him|her|one|ones)\b"
     r"|\bthe\s+(movie|film|game|show|team|player|book|song|album|episode|"
     r"season|match|fight|company|stock)\b",
     re.I,
@@ -387,10 +329,13 @@ _SUBJECTLESS = {
     "at", "by", "so", "you", "your", "i", "me", "my", "we", "us", "there", "here",
     "get", "got", "make", "made", "making", "go", "going", "play", "playing",
     "played", "win", "won", "winning", "cost", "costs", "much", "many", "yet",
-    # generic context-dependent nouns
+    # generic context-dependent nouns & lookup meta-verbs
     "score", "scores", "price", "prices", "rating", "ratings", "result", "results",
     "time", "winner", "game", "games", "matchup", "lineup", "odds", "deal", "deals",
     "one", "ones", "thing", "things", "now", "today", "tonight", "still",
+    "look", "looked", "search", "searched", "google", "fact", "check", "try",
+    "tried", "didnt", "also", "asked", "missed", "forgot", "meant", "talking",
+    "lmao", "lol", "haha", "wrong", "nah", "bruh", "shown", "real", "actually",
 }
 
 
@@ -401,8 +346,11 @@ def _content_tokens(text: str) -> list[str]:
 
 def _needs_context(message: str) -> bool:
     """The message has no subject of its own (nothing but question words /
-    verbs / generic nouns), or leans on the prior turn via a pronoun."""
-    return not _content_tokens(message) or bool(_ANAPHORIC.search(message))
+    verbs / generic nouns), or leans on the prior turn via a pronoun while
+    lacking a multi-word subject of its own."""
+    if not _content_tokens(message):
+        return True
+    return bool(_ANAPHORIC.search(message)) and len(_subject_terms(message)) <= 1
 
 
 def _last_user_topic(history: str) -> str:
@@ -412,7 +360,7 @@ def _last_user_topic(history: str) -> str:
     for line in reversed(users):
         toks = _content_tokens(line)
         if toks:
-            return " ".join(toks[:8])
+            return " ".join(toks[:_MAX_QUERY_TOKENS])
     return ""
 
 
@@ -432,44 +380,322 @@ def contextual_query(message: str, history: str = "") -> str:
 # are unlikely to carry the specific answer, actually fetch and read the top
 # result's page. This is what stops Magic giving up after a search when the
 # snippets only point at a general page (the Leafs-schedule / box-office case).
-_WANTS_PAGE = re.compile(
-    r"\bhow\s+(much|many|long|far)\b|\bwhat\s+time\b|\bbox\s*office\b"
-    r"|\bopening\s+(day|weekend|night)\b|\brating\b|\bscores?\b|\bfinal\b"
-    r"|\bresults?\b|\bstandings?\b|\bwho\s+won\b|\bwho\s+(is|are|'?s)\s+playing\b"
-    r"|\bmatchup\b|\bschedule\b|\blineup\b|\bodds\b|\bprice\b|\bcost\b",
-    re.I,
-)
+_WANTS_PAGE = re.compile(_TRIG_PATS["wants_page"], re.I)
 
 _FETCH_FAIL = ("[not a valid URL]", "[couldn't fetch", "[no readable text")
+
+_EVENT_LOOKUP = re.compile(_TRIG_PATS["event_lookup"], re.I)
+
+
+_SHORT_GLUE = {
+    "a", "an", "am", "as", "at", "be", "by", "do", "go", "he", "if", "in",
+    "is", "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us",
+    "we", "and", "are", "but", "can", "did", "for", "get", "got", "had",
+    "has", "her", "him", "his", "how", "its", "let", "may", "not", "now",
+    "off", "one", "our", "out", "put", "run", "say", "see", "she", "the",
+    "too", "try", "use", "was", "way", "who", "why", "won", "yes", "yet",
+    "you", "all", "any", "new", "man", "men", "guy", "hey", "bro", "lol",
+    "tell", "apart", "which", "their", "them", "these", "those", "wearing",
+}
+_SUBJECT_IGNORE = _SUBJECTLESS | _SHORT_GLUE | {
+    "tall", "big", "large", "old", "far", "long", "deep", "fast", "hot", "cold",
+    "heavy", "high", "wide", "show", "shows", "movie", "movies", "series",
+    "anime", "cartoon", "book", "song", "game", "episode", "episodes",
+    "times", "time", "start", "started", "end", "ended", "had", "mean",
+    "called", "name", "named", "character", "characters", "plays",
+}
+
+
+def _subject_terms(text: str) -> list[str]:
+    return [
+        w for w in re.findall(r"[a-zA-Z0-9]+", (text or "").lower())
+        if len(w) >= 2 and w not in _SUBJECT_IGNORE
+    ]
+
+
+def _missing_subject_terms(message: str, results: list[dict]) -> list[str]:
+    terms = _subject_terms(message)
+    if not terms or not results:
+        return []
+    blob = " ".join(
+        ((r.get("title") or "") + " " + (r.get("snippet") or ""))
+        for r in results
+    ).lower()
+    return [
+        t for t in terms
+        if t not in blob and not (len(t) >= 5 and t.endswith("s") and t[:-1] in blob)
+    ]
 
 
 def _should_fetch(message: str, results: list[dict]) -> bool:
     """Read a page when the question wants a concrete current detail the
-    snippets usually don't carry, or when the snippets are too thin to
-    answer. Stable trivia ('how tall is Everest') stays snippet-only."""
+    snippets usually don't carry, asks about a multi-step event/plot, when
+    snippets miss a subject keyword, are truncated with '...', or are too thin."""
     snippet_chars = sum(len((r.get("snippet") or "")) for r in results)
+    truncated = any(
+        "..." in (r.get("snippet") or "") or "\u2026" in (r.get("snippet") or "")
+        for r in results[:3]
+    )
     return (is_time_sensitive(message) or bool(_WANTS_PAGE.search(message))
-            or snippet_chars < 120)
+            or bool(_EVENT_LOOKUP.search(message or "")) or bool(_missing_subject_terms(message, results))
+            or truncated or snippet_chars < _FETCH_SNIPPET_THRESHOLD)
 
 
-async def _fetch_top_page(results: list[dict], *, max_chars: int = 2500, query: str = "") -> str:
-    """Read the first readable page among the top results (never raises; ''
-    if none readable). Falls through to the 2nd if the 1st 403s/times out so
-    a single paywalled top link doesn't kill the read step."""
-    for r in results[:2]:
+def _condense_keywords(query: str) -> str:
+    """Distill a verbose natural-language query into crisp search keywords for a
+    retry pass if the literal phrasing returned zero hits."""
+    toks = [w for w in re.findall(r"[a-zA-Z0-9.-]+", query or "")
+            if len(w) >= 3 and w.lower() not in _SUBJECTLESS]
+    return " ".join(toks[:_MAX_CONDENSE_TOKENS])
+
+
+def _is_multi_source_query(message: str) -> bool:
+    return bool(re.search(
+        r"\b(vs\.?|versus|compare|comparison|difference\s+between|pros\s+and\s+cons|better\s+than)\b",
+        message or "", re.I,
+    ))
+
+
+def _page_retrieve_query(query: str) -> str:
+    """Add event/outcome synonyms for longctx page chunk ranking only."""
+    q = query or ""
+    if re.search(r"\b(hit|kill\w*|murder\w*|dead|die|died|deaths?|chok\w*|suicid\w*)\b", q, re.I):
+        q += " killed died death sacrifice murder strangle contract killer suicide episode timeline"
+    if re.search(r"\b(when\s+did|start\s+and\s+end|aired|ended|premiere|finale|broadcast)\b", q, re.I):
+        q += " series aired ran episodes seasons broadcast original release finale ended"
+    if re.search(r"\bnames?\b", q, re.I):
+        q += " named called synopsis main leader"
+    if re.search(r"\b(wear\w*|clothes|clothing|outfit\w*|hair\w*|hat|cap|appearance)\b", q, re.I):
+        q += " appearance clothing outfit hair wears hat shirt"
+    if re.search(r"\b(fly|flies|flying|flight|glide|wings?|jetpack|thrusters?)\b", q, re.I):
+        q += " fly flight glide wings thrusters boots suit powers abilities"
+    return q
+
+
+_TRUSTED_HOSTS = tuple(_SCFG["trusted_hosts"])
+_ACADEMIC_RE = re.compile(
+    r"\b(papers?|stud(?:y|ies)|research|journal|arxiv|\.edu|edu\b|peer[- ]reviewed|university)\b",
+    re.I,
+)
+_SPACE_RE = re.compile(
+    r"\b(space|nasa|esa|planet\w*|black\s*hole\w*|galax\w*|mars|moon|jwst|"
+    r"hubble|telescope\w*|rocket\w*|orbit\w*|exoplanet\w*|astronomy|cosmos|supernova|universe)\b",
+    re.I,
+)
+_TECH_TOPIC_RE = re.compile(
+    r"\b(tech|technology|gpu|cpu|vram|linux|kernel|android|protocol|rfc|cve|"
+    r"encryption|cuda|llama|transformer\w*|compiler\w*|chip\w*|semiconductor\w*|"
+    r"transistor\w*|quantum|neural\s+network\w*|hardware|architecture)\b",
+    re.I,
+)
+_ACADEMIC_HOSTS = tuple(_SCFG["academic_hosts"])
+
+
+def _has_academic_source(results: list[dict]) -> bool:
+    for r in results:
+        m = re.search(r"https?://([^/]+)", r.get("url") or "")
+        host = m.group(1).lower().removeprefix("www.") if m else ""
+        if host.endswith(".edu") or any(host == a or host.endswith("." + a) for a in _ACADEMIC_HOSTS):
+            return True
+    return False
+
+
+def _backup_site_filter(message: str) -> str:
+    m = message or ""
+    if _ACADEMIC_RE.search(m):
+        return "(site:.edu OR site:arxiv.org OR site:ncbi.nlm.nih.gov OR site:nature.com)"
+    if _SPACE_RE.search(m):
+        return "(site:nasa.gov OR site:esa.int OR site:webbtelescope.org OR site:space.com OR site:wikipedia.org)"
+    if _TECH_TOPIC_RE.search(m):
+        return "(site:wikipedia.org OR site:.edu OR site:arxiv.org OR site:ieee.org OR site:arstechnica.com)"
+    return "(site:wikipedia.org OR site:fandom.com OR site:britannica.com)"
+_CLICKBAIT_HOSTS = tuple(_SCFG["clickbait_hosts"])
+_SOCIAL_HOSTS = tuple(_SCFG["social_hosts"])
+_SPAM_AI_HOSTS = tuple(_SCFG["spam_ai_hosts"])
+_FORUM_HOST_RE = re.compile(_SCFG["forum_host_regex"])
+_FORUM_PATH_RE = re.compile(_SCFG["forum_path_regex"])
+_AI_DIR_HOST_RE = re.compile(_SCFG["ai_dir_host_regex"])
+
+
+def _host_matches(host: str, domains: tuple[str, ...]) -> bool:
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def _source_tier(url: str, snippet: str = "") -> int:
+    """0=authoritative wiki/official/gov/edu, 1=general web, 2=blog/forum, 3=social/shop/spam."""
+    m = re.search(r"https?://([^/?#]+)([^#]*)", url or "")
+    host = m.group(1).lower().removeprefix("www.") if m else ""
+    path = (m.group(2) or "").lower() if m else ""
+    if not host:
+        return 2
+    snip = (snippet or "").lower()
+    if "automoderator" in snip or "moderator announcement" in snip:
+        return 3
+    if _host_matches(host, _SOCIAL_HOSTS) or _host_matches(host, _SPAM_AI_HOSTS) or _AI_DIR_HOST_RE.search(host):
+        return 3
+    if (
+        _host_matches(host, _CLICKBAIT_HOSTS)
+        or _FORUM_HOST_RE.search(host)
+        or _FORUM_PATH_RE.search(path)
+        or (host.endswith("fandom.com") and re.match(r"^/f(?:/|$)", path))
+    ):
+        return 2
+    if host.endswith((".gov", ".edu")) or _host_matches(host, _TRUSTED_HOSTS):
+        return 0
+    return 1
+
+
+def _rank_results(results: list[dict], keep: int = 3, query: str = "") -> list[dict]:
+    """Keep top `keep` results, prioritizing authoritative/general sources that
+    match the query's terms and dropping Tier 3 spam/social when better exist."""
+    seen_urls: set[str] = set()
+    deduped: list[dict] = []
+    for r in results:
+        u = (r.get("url") or "").strip()
+        canon = re.sub(r"[?&]page=\d+", "", u.split("#", 1)[0])
+        if canon and canon in seen_urls:
+            continue
+        if canon:
+            seen_urls.add(canon)
+        deduped.append(r)
+
+    scored = [
+        (idx, r, _source_tier(r.get("url") or "", r.get("snippet") or ""))
+        for idx, r in enumerate(deduped)
+    ]
+    if any(tier < 3 for _, _, tier in scored):
+        scored = [item for item in scored if item[2] < 3]
+
+    def _key(item: tuple[int, dict, int]) -> tuple[int, int, int, int, int]:
+        idx, r, tier = item
+        miss = len(_missing_subject_terms(query, [r])) if query else 0
+        return (1 if tier >= 3 else 0, 1 if tier == 2 else 0, miss, tier, idx)
+
+    indexed = sorted(scored, key=_key)
+    return [r for _, r, _ in indexed[:keep]]
+
+
+NO_USABLE_SOURCE = _SOFT["no_usable_source_instruction"]
+
+_BLOCKED_EVIDENCE_RE = re.compile(_SCFG["blocked_evidence_regex"], re.I)
+_MIN_SNIPPET_CHARS = int(_SCFG["min_snippet_chars"])
+_MIN_TOTAL_EVIDENCE_CHARS = int(_SCFG["min_total_evidence_chars"])
+_FETCH_SNIPPET_THRESHOLD = int(_SCFG["fetch_snippet_threshold"])
+_MAX_FETCH_PAGES = int(_SCFG["max_fetch_pages"])
+_MAX_PAGE_CHARS = int(_SCFG["max_page_chars"])
+_MIN_FETCHED_PAGE_CHARS = int(_SCFG["min_fetched_page_chars"])
+_MIN_CLEAN_PAGE_CHARS = int(_SCFG["min_clean_page_chars"])
+_GATHER_LIMIT = int(_SCFG["gather_limit"])
+_GATHER_KEEP = int(_SCFG["gather_keep"])
+_FOOTER_DOMAIN_LIMIT = int(_SCFG["footer_domain_limit"])
+_MAX_CITED_FIGS = int(_SCFG["max_cited_figs"])
+_MAX_QUERY_TOKENS = int(_SCFG["max_query_tokens"])
+_MAX_CONDENSE_TOKENS = int(_SCFG["max_condense_tokens"])
+_MIN_DRAFT_FACT_CHECK_CHARS = int(_SCFG["min_draft_fact_check_chars"])
+_MIN_FALLBACK_SEARCH_CHARS = int(_SCFG["min_fallback_search_chars"])
+_REQUIRE_ENTITY_OVERLAP = bool(_SCFG["require_entity_overlap"])
+_BLOCKED_SCAN_CHARS = int(_SCFG["blocked_evidence_scan_chars"])
+_BLOCKED_MAX_DOC_CHARS = int(_SCFG["blocked_evidence_max_doc_chars"])
+
+
+def is_no_source(evidence: str) -> bool:
+    """True when `gather()` ran and failed closed with no usable source."""
+    return (evidence or "").strip().startswith(NO_USABLE_SOURCE[:30])
+
+
+def _is_blocked_text(text: str) -> bool:
+    """Detect anti-bot / Cloudflare / CAPTCHA / HTTP-block boilerplate."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    # Short pages or lead-in boilerplate matching block signals are unusable.
+    return bool(_BLOCKED_EVIDENCE_RE.search(t[:_BLOCKED_SCAN_CHARS])) and len(t) < _BLOCKED_MAX_DOC_CHARS
+
+
+def _snippet_char_count(r: dict) -> int:
+    return len(re.sub(r"[.\u2026\s]+", "", r.get("snippet") or ""))
+
+
+def _usable_snippet_chars(results: list[dict]) -> int:
+    """Only count individual snippets that clear `_MIN_SNIPPET_CHARS`."""
+    total = 0
+    for r in results:
+        n = _snippet_char_count(r)
+        if n >= _MIN_SNIPPET_CHARS:
+            total += n
+    return total
+
+
+def _usable_fetched_chars(fetched_txt: str) -> int:
+    if not fetched_txt:
+        return 0
+    # Strip the "Full text read from (url):" headers before measuring body length.
+    body = re.sub(r"Full text read from \([^)]+\):\s*", "", fetched_txt)
+    return len(re.sub(r"\s+", "", body))
+
+
+async def _fetch_top_page(results: list[dict], *, max_chars: int | None = None, query: str = "",
+                          max_pages: int = 1) -> str:
+    """Read up to `max_pages` readable pages from distinct domains/URLs (never
+    raises; '' if none readable) so single paywalled/thin pages don't stall research."""
+    if max_chars is None:
+        max_chars = _MAX_PAGE_CHARS
+    blocks: list[str] = []
+    seen_domains: set[str] = set()
+    per_page = max_chars if max_pages <= 1 else max(1200, max_chars // max_pages)
+    rquery = _page_retrieve_query(query)
+    for r in results[:min(len(results), max_pages + 3)]:
         url = (r.get("url") or "").strip()
         if not url:
+            continue
+        dom_m = re.search(r"https?://([^/]+)", url)
+        dom = dom_m.group(1).lower().removeprefix("www.") if dom_m else url
+        if blocks and dom in seen_domains:
             continue
         try:
             # fetch more than we'll keep, then retrieve the parts relevant to
             # the question (U7); longctx falls back to the head, never worse.
-            raw = await asyncio.to_thread(web_search.fetch_text, url, max(max_chars, 9000))
+            raw = await asyncio.to_thread(web_search.fetch_text, url, max(per_page, 30000))
         except Exception:
             raw = ""
-        if raw and not raw.startswith(_FETCH_FAIL):
-            page = longctx.retrieve(raw, query, max_chars=max_chars)
-            return f"\n\nFull text read from the top result ({url}):\n{page.strip()}"
-    return ""
+        if (not raw or raw.startswith(_FETCH_FAIL) or _is_blocked_text(raw)
+                or len(re.sub(r"\s+", "", raw)) < _MIN_FETCHED_PAGE_CHARS):
+            try:
+                rendered = await asyncio.to_thread(web_search.fetch_text_rendered, url, max(per_page, 30000))
+                if rendered and not _is_blocked_text(rendered):
+                    raw = rendered
+            except Exception:
+                pass
+        if raw and not raw.startswith(_FETCH_FAIL) and not _is_blocked_text(raw):
+            page = longctx.retrieve(raw, rquery, max_chars=per_page).strip()
+            if len(re.sub(r"\s+", "", page)) < _MIN_CLEAN_PAGE_CHARS or _is_blocked_text(page):
+                continue
+            seen_domains.add(dom)
+            blocks.append(f"Full text read from ({url}):\n{page}")
+            if len(blocks) >= max_pages:
+                break
+    return ("\n\n" + "\n\n".join(blocks)) if blocks else ""
+
+
+_CORRECTION_CUES = re.compile(_TRIG_PATS["correction_cues"], re.I)
+
+
+def _correction_followup(message: str, history: str = "") -> bool:
+    """Re-search when a user pushes back or clarifies what show/fact they meant
+    in an ongoing web/factual thread (even without a '?' or 'who' opener)."""
+    m = (message or "").strip()
+    if not history or len(m) < 8 or _SELF_LOCAL.search(m) or _CREATIVE.search(m) or _SMALLTALK.search(m):
+        return False
+    if not _CORRECTION_CUES.search(m) or not _content_tokens(m):
+        return False
+    return (
+        "Looked it up just now:" in history
+        or bool(_DRAFT_FACT_CLAIMS.search(history))
+        or any(
+            (not _SELF_LOCAL.search(u) and not _CODING_VETO_SAFE(u) and not _CREATIVE.search(u) and _content_tokens(u))
+            for u in (ln[len("User:"):].strip() for ln in history.splitlines() if ln.startswith("User:"))
+        )
+    )
 
 
 def _tech_followup(message: str, history: str = "") -> bool:
@@ -485,30 +711,173 @@ def _tech_followup(message: str, history: str = "") -> bool:
     return bool(_CLI_TOOL.search(" ".join(users[-3:])))
 
 
-async def gather(message: str, *, limit: int = 3, history: str = ""):
-    """If `message` warrants it, run a live web search and return
-    (sources, evidence_text); otherwise (None, ""). Never raises --
-    web_search already degrades to [] on any failure, and we treat an
-    empty result set as 'just answer normally' rather than an error. The
-    blocking HTTP call is pushed to a thread so it never stalls the
-    server's event loop (same as the explicit web_search tool).
+_DRAFT_FACT_CLAIMS = re.compile(_TRIG_PATS["draft_fact_claims"], re.I)
 
-    Two-step tool chain: search, then (when the snippets won't carry the
-    answer) read the top result's page -- so a schedule / box-office / score
-    question gets answered instead of giving up at the snippets."""
-    if not should_search(message) and not _tech_followup(message, history):
+
+def needs_fact_check(message: str, draft: str) -> bool:
+    """True when an unsearched draft makes concrete external factual claims
+    (years, stats, named breakdowns) on a non-local/non-creative/non-coding prompt."""
+    m = (message or "").strip()
+    d = (draft or "").strip()
+    if len(d) < _MIN_DRAFT_FACT_CHECK_CHARS or _SELF_LOCAL.search(m) or _CREATIVE.search(m) or _SMALLTALK.search(m) or _CODING_VETO_SAFE(m):
+        return False
+    return bool(_DRAFT_FACT_CLAIMS.search(d))
+
+
+def can_fallback_search(message: str) -> bool:
+    """True when a question-shaped prompt can safely trigger a fallback web search
+    if the model admitted it doesn't know or claimed to search without evidence."""
+    t = (message or "").strip()
+    if len(t) < _MIN_FALLBACK_SEARCH_CHARS or _SELF_LOCAL.search(t) or _CREATIVE.search(t) or _SMALLTALK.search(t):
+        return False
+    return bool(_looks_like_question(t) or _FACTUAL_LOOKUP.search(t) or _DECLARATIVE_LOOKUP.search(t))
+
+
+async def gather(message: str, *, limit: int | None = None, history: str = "", force: bool = False):
+    """If `message` warrants it, run a live web search and return
+    (sources, evidence_text); otherwise (None, ''). Never raises --
+    if a search runs and returns empty, tiny, or blocked evidence, fails
+    closed by returning `(None, NO_USABLE_SOURCE)` so the model refuses
+    to improvise instead of guessing from stale weights.
+
+    Gemini-style multi-step tool chain: contextual query -> search (with condensed
+    keyword retry if empty) -> fetch 1-2 distinct source pages when snippets won't
+    carry the whole answer or the question compares multiple options."""
+    if limit is None:
+        limit = _GATHER_LIMIT
+    if not force and not should_search(message) and not _tech_followup(message, history) and not _correction_followup(message, history):
         return None, ""
     cq = contextual_query(message, history)
+    # Attach prior topic for short/clued corrections (e.g. 'choked in season 2'),
+    # but NOT when the user explicitly redirects to a full standalone subject
+    # ('but i asked about the ghost tv on permount plus').
+    if _correction_followup(message, history) and not _needs_context(message) and len(_content_tokens(message)) <= 2:
+        topic = _last_user_topic(history)
+        if topic and topic.lower() not in cq.lower():
+            cq = f"{topic} {cq}"
     try:
         results = await asyncio.to_thread(web_search.search, cq, limit)
     except Exception:
         results = []
+    did_condense = False
     if not results:
-        return None, ""
+        alt_q = _condense_keywords(cq)
+        if alt_q and alt_q.lower() != cq.lower():
+            did_condense = True
+            try:
+                results = await asyncio.to_thread(web_search.search, alt_q, limit)
+            except Exception:
+                results = []
+    if not results:
+        return None, NO_USABLE_SOURCE
+    kw_q = ""
+    if not did_condense and _missing_subject_terms(message, results):
+        kw_terms = _subject_terms(cq)
+        kw_q = " ".join(dict.fromkeys(kw_terms[:6])) if kw_terms else _condense_keywords(cq)
+        if kw_q and kw_q.lower() != cq.lower():
+            try:
+                kw_hits = await asyncio.to_thread(web_search.search, kw_q, limit)
+            except Exception:
+                kw_hits = []
+            if kw_hits:
+                results = list(results) + list(kw_hits)
+        # If key entities from the user's own message are still missing (e.g.
+        # ambiguous shared name or noisy initial hits), retry cleanly with the
+        # longest missing entity terms first and no prior-history words.
+        still_missing = sorted(_missing_subject_terms(message, results), key=len, reverse=True)
+        if still_missing:
+            clean_terms = list(dict.fromkeys(still_missing[:2] + _subject_terms(message)[:5]))
+            clean_q = " ".join(clean_terms[:6])
+            if clean_q and clean_q.lower() not in (cq.lower(), kw_q.lower()):
+                try:
+                    clean_hits = await asyncio.to_thread(web_search.search, clean_q, limit)
+                except Exception:
+                    clean_hits = []
+                if clean_hits:
+                    results = list(results) + list(clean_hits)
+    _need_academic = bool(_ACADEMIC_RE.search(message or "")) and not _has_academic_source(results)
+    _need_trusted = (not is_time_sensitive(message) and not _tech_lookup(message)
+                     and not any(_source_tier(r.get("url") or "", r.get("snippet") or "") == 0 for r in results))
+    if _need_academic or _need_trusted:
+        wiki_base = _condense_keywords(cq) or cq
+        try:
+            extra = await asyncio.to_thread(
+                web_search.search, f"{wiki_base} {_backup_site_filter(message)}", 4
+            )
+        except Exception:
+            extra = []
+        if not extra and _need_trusted:
+            try:
+                extra = await asyncio.to_thread(
+                    web_search.search, f"{wiki_base} site:wikipedia.org", 4
+                )
+            except Exception:
+                extra = []
+        if extra:
+            results = list(results) + list(extra)
+    results = [
+        r for r in results
+        if not _is_blocked_text((r.get("title") or "") + " " + (r.get("snippet") or ""))
+    ]
+    if not results:
+        return None, NO_USABLE_SOURCE
+    results = _rank_results(results, keep=min(_GATHER_KEEP, max(1, limit)), query=message)
     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
     evidence = _evidence_block(message, results)
-    if _should_fetch(message, results):
-        evidence += await _fetch_top_page(results, query=cq)
+    fetched_txt = ""
+    if _should_fetch(message, results) or _is_multi_source_query(message) or _usable_snippet_chars(results) < _MIN_TOTAL_EVIDENCE_CHARS:
+        pages = min(_MAX_FETCH_PAGES, len(results)) if len(results) >= 2 else 1
+        fetched_txt = await _fetch_top_page(results, query=cq, max_pages=pages)
+        if (
+            not fetched_txt
+            and not is_time_sensitive(message)
+            and not _tech_lookup(message)
+            and not any("wikipedia.org" in (r.get("url") or "").lower() for r in results)
+        ):
+            wiki_base = _condense_keywords(cq) or cq
+            try:
+                w_hits = await asyncio.to_thread(web_search.search, f"{wiki_base} site:wikipedia.org", 3)
+            except Exception:
+                w_hits = []
+            w_hits = [
+                r for r in (w_hits or [])
+                if not _is_blocked_text((r.get("title") or "") + " " + (r.get("snippet") or ""))
+            ]
+            if w_hits:
+                w_fetched = await _fetch_top_page(w_hits, query=cq, max_pages=1)
+                if w_fetched:
+                    fetched_txt = w_fetched
+                    results = _rank_results(list(results) + list(w_hits), keep=min(_GATHER_KEEP, max(1, limit)), query=message)
+                    sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
+                    evidence = _evidence_block(message, results)
+        evidence += fetched_txt
+    # Drop junk results whose individual snippet is empty/below min_snippet_chars
+    # AND whose full page text was not retrieved.
+    fetched_urls = set(re.findall(r"Full text read from \(([^)]+)\):", fetched_txt))
+    kept_results = [
+        r for r in results
+        if _snippet_char_count(r) >= _MIN_SNIPPET_CHARS or (r.get("url") or "").strip() in fetched_urls
+    ]
+    if not kept_results:
+        return None, NO_USABLE_SOURCE
+    if len(kept_results) != len(results):
+        results = kept_results
+        sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
+        evidence = _evidence_block(message, results) + fetched_txt
+    usable_chars = _usable_snippet_chars(results) + _usable_fetched_chars(fetched_txt)
+    if usable_chars < _MIN_TOTAL_EVIDENCE_CHARS:
+        return None, NO_USABLE_SOURCE
+    # Deterministic entity-overlap gate: if core subject terms from the user's
+    # prompt NEVER appeared in ANY title, snippet, or fetched page text,
+    # hard-abort instead of forcing an unrelated source onto the model/verifier.
+    fetched_low = fetched_txt.lower()
+    missing_after_fetch = [
+        t for t in _missing_subject_terms(message, results)
+        if t not in fetched_low and not (len(t) >= 5 and t.endswith("s") and t[:-1] in fetched_low)
+    ]
+    subj_terms = _subject_terms(message)
+    if _REQUIRE_ENTITY_OVERLAP and subj_terms and len(missing_after_fetch) == len(subj_terms):
+        return None, NO_USABLE_SOURCE
     return sources, evidence
 
 
@@ -573,6 +942,6 @@ def unverified_figures(answer: str, evidence: str) -> list[str]:
 def figures_caveat(figs: list[str]) -> str:
     if not figs:
         return ""
-    shown = ", ".join(figs[:4])
+    shown = ", ".join(figs[:_MAX_CITED_FIGS])
     return ("\n\n(Heads up: I couldn't confirm these specifics from what I "
             f"found just now, so double-check them: {shown}.)")

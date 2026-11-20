@@ -1,0 +1,398 @@
+# Centralized guardrails configuration for Magic.
+# Split into two sections:
+#   1. hard_gates: deterministic rules, allow-lists, domains, limits, and regexes
+#      enforced strictly in Python.
+#   2. soft_prompt_rules: exact honesty, grounding, and refusal/caveat instructions
+#      injected into prompts or surfaced when verification fails.
+
+hard_gates:
+  pregate:
+    # Minimum available RAM (MB) required before running full test suite (override: MAGIC_PREGATE_MIN_RAM_MB)
+    min_test_ram_mb: 3000
+    test_timeout_s: 1200
+    # Self-edits, /fix, and /build passes are blocked from modifying any path here.
+    protected_paths:
+      - "config/guardrails.yaml"
+      - "magic_core/guardrails_config.py"
+      - "magic_core/pregate.py"
+      - "magic_core/review.py"
+      - "magic_core/self_improve.py"
+      - "magic_core/build_loop.py"
+      - "magic_core/sandbox.py"
+      - "magic_core/root_exec.py"
+      - "magic_core/injection_guard.py"
+      - "magic_core/action_honesty.py"
+      - "magic_core/service_control.py"
+      - "magic_core/magic/hive.py"
+      - "magic_core/magic/verifier.py"
+      - "magic_core/magic/grounding.py"
+      - "magic_core/magic/toolhost.py"
+      - "magic_core/magic/battle.py"
+      - "scripts/heavy.sh"
+    protected_prefixes:
+      - ".magic/"
+      - ".git/"
+    protected_tokens:
+      - "ensure_only"
+      - "security_scan"
+      - "SecureExecutionSandbox"
+      - "claims_execution"
+      - "action_honesty"
+      - "injection_guard"
+      - "_scrub_str"
+      - "_scrub("
+      - "MAGIC_ALLOW_SECRETS"
+      - "AGY_READONLY"
+      - "git apply --check"
+      - "check_file"
+      - "NOPASSWD"
+      - "run_pregate"
+      - "watchdog_review"
+      - "build_hive"
+      - "audit_patch"
+      - "_spawn_watchdog"
+      - "decision_violations"
+    protected_call_names:
+      - "ensure_only"
+      - "ensure_only_sync"
+      - "security_scan"
+      - "SecureExecutionSandbox"
+      - "claims_execution"
+      - "action_honesty"
+      - "injection_guard"
+      - "_scrub"
+      - "_scrub_str"
+      - "run_python_tool"
+      - "run_pregate"
+      - "run_pregate_sync"
+      - "watchdog_review"
+      - "audit_patch"
+      - "_spawn_watchdog"
+      - "decision_violations"
+    banned_decision_modules:
+      - "consult"
+      - "council"
+      - "specialists"
+      - "bench"
+      - "distill"
+    banned_finetune_packages:
+      - "trl"
+      - "peft"
+      - "bitsandbytes"
+    banned_finetune_symbols:
+      - "SFTTrainer"
+
+  search:
+    # Length gating:
+    #   min_snippet_chars: per-snippet floor (drops empty/junk lines below this)
+    #   min_total_evidence_chars: total combined evidence across snippets + fetched pages (fails closed below this)
+    min_snippet_chars: 50
+    min_total_evidence_chars: 200
+    fetch_snippet_threshold: 120
+    max_fetch_pages: 2
+    max_page_chars: 3400
+    min_fetched_page_chars: 120
+    min_clean_page_chars: 20
+    gather_limit: 5
+    gather_keep: 3
+    footer_domain_limit: 3
+    max_cited_figs: 4
+    max_query_tokens: 8
+    max_condense_tokens: 7
+    min_draft_fact_check_chars: 30
+    min_fallback_search_chars: 6
+    # Deterministic entity-overlap gate: hard-abort search when 0% of core prompt entities appear.
+    require_entity_overlap: true
+    blocked_evidence_scan_chars: 1200
+    blocked_evidence_max_doc_chars: 4000
+
+    trusted_hosts:
+      - "wikipedia.org"
+      - "fandom.com"
+      - "britannica.com"
+      - "wiki.gg"
+      - "arxiv.org"
+      - "scholar.google.com"
+      - "ncbi.nlm.nih.gov"
+      - "nature.com"
+      - "science.org"
+      - "sciencedirect.com"
+      - "ieee.org"
+      - "acm.org"
+      - "springer.com"
+      - "plos.org"
+      - "semanticscholar.org"
+      - "jstor.org"
+      - "nasa.gov"
+      - "esa.int"
+      - "hubblesite.org"
+      - "webbtelescope.org"
+      - "planetary.org"
+      - "space.com"
+      - "skyandtelescope.org"
+      - "arstechnica.com"
+      - "rfc-editor.org"
+      - "w3.org"
+      - "nist.gov"
+      - "docs.python.org"
+      - "developer.android.com"
+      - "kernel.org"
+      - "archlinux.org"
+      - "man7.org"
+      - "learn.microsoft.com"
+      - "developer.mozilla.org"
+      - "mozilla.org"
+      - "github.com"
+      - "pytorch.org"
+      - "huggingface.co"
+      - "pypi.org"
+      - "npmjs.com"
+      - "nvidia.com"
+      - "amd.com"
+      - "intel.com"
+      - "rust-lang.org"
+      - "go.dev"
+      - "imdb.com"
+      - "reuters.com"
+      - "apnews.com"
+      - "bbc.com"
+      - "bbc.co.uk"
+      - "espn.com"
+      - "nba.com"
+      - "nhl.com"
+      - "mlb.com"
+      - "nfl.com"
+    academic_hosts:
+      - "arxiv.org"
+      - "scholar.google.com"
+      - "ncbi.nlm.nih.gov"
+      - "nature.com"
+      - "science.org"
+      - "sciencedirect.com"
+      - "ieee.org"
+      - "acm.org"
+      - "springer.com"
+      - "plos.org"
+      - "semanticscholar.org"
+      - "jstor.org"
+    clickbait_hosts:
+      - "cbr.com"
+      - "screenrant.com"
+      - "gamerant.com"
+      - "collider.com"
+      - "fictionhorizon.com"
+      - "looper.com"
+      - "whatculture.com"
+      - "watchmojo.com"
+      - "cheatsheet.com"
+      - "thethings.com"
+      - "distractify.com"
+      - "dexerto.com"
+      - "movieweb.com"
+      - "comicbook.com"
+      - "wegotthiscovered.com"
+      - "thegamer.com"
+      - "dualshockers.com"
+      - "sportskeeda.com"
+      - "epicstream.com"
+      - "fandomwire.com"
+      - "giantfreakinrobot.com"
+      - "thedigitalfix.com"
+      - "comingsoon.net"
+      - "wikihow.com"
+      - "gamefaqs.gamespot.com"
+      - "resetera.com"
+      - "neogaf.com"
+      - "reddit.com"
+    social_hosts:
+      - "facebook.com"
+      - "instagram.com"
+      - "tiktok.com"
+      - "pinterest.com"
+      - "quora.com"
+      - "youtube.com"
+      - "youtu.be"
+      - "x.com"
+      - "twitter.com"
+      - "etsy.com"
+      - "ebay.com"
+      - "amazon.com"
+      - "redbubble.com"
+      - "teepublic.com"
+      - "walmart.com"
+      - "target.com"
+      - "poshmark.com"
+      - "wordplays.com"
+      - "getyarn.io"
+      - "yarn.co"
+    spam_ai_hosts:
+      - "bestaitools.com"
+      - "theresanaiforthat.com"
+      - "futurepedia.io"
+      - "toolify.ai"
+      - "topai.tools"
+      - "aitools.fyi"
+      - "futuretools.io"
+      - "insidr.ai"
+      - "aitoolsdirectory.com"
+      - "aixploria.com"
+      - "dang.ai"
+      - "findmyaitool.com"
+      - "saasaitools.com"
+      - "allthingsai.com"
+      - "answers.com"
+      - "ask.com"
+      - "chacha.com"
+      - "brainyquote.com"
+      - "quotefancy.com"
+      - "azquotes.com"
+    forum_host_regex: '(?:^|\.)(?:forums?|boards?|bbs|discussions?|community)\.'
+    forum_path_regex: '/(?:forums?|threads?|topics?|showthread|viewtopic)(?:/|$|\.)'
+    ai_dir_host_regex: '(?:^|\.)(?:best|top|free|find)ai(?:tools?|apps?)\.|\baitools(?:directory|list|hub|fyi)\.'
+    blocked_evidence_regex: >-
+      (?:just a moment\.{0,3}|checking your browser|enable javascript(?: and cookies)?|please enable cookies|javascript must be enabled|this site requires javascript|unsupported browser|pardon our interruption|incapsula incident|access to this page has been denied|javascript is required|please verify you are human|verify you are human|are you a robot|complete the security check|ddos-?guard|cloudflare ray id|ray id:\s*[a-f0-9]+|attention required!\s*\|\s*cloudflare|access denied|403 forbidden|429 too many requests|unusual traffic from your computer|anomalous traffic|bot protection|sorry, you have been blocked|you have been blocked)
+
+    veto_patterns:
+      self_local: '\byourself\b|\bmagic\b|\byour\s+(name|code|source|repo|config|settings|self|version|model|maker|creator|prompt|training|memory|skills?|hardware|specs?)\b|\b(who|what)\s+(are|r)\s+(you|u)\b|\bare\s+you\s+(an?\s+)?(ai|robot|real|alive|conscious|sentient|human|a\s+bot)\b|\b(this|my)\s+(?:docker\s+|podman\s+|systemd\s+|local\s+)?(desktop|box|machine|computer|pc|laptop|server|setup|system|cpu|gpu|ram|memory|disk|drive|ssd|config|service|services|container|containers|repo|code|network|firewall|phone)\b|\bthis\s+(thing|conversation|chat)\b|\bdid\s+(?:the|that)\s+(?:restart|reboot|service|deploy|backup|script|cron|update)\s+work\b'
+      creative: '\b(write|draft|compose|rewrite|make\s+up|imagine|pretend|roleplay|\brp\b|story|poem|poetry|song|lyrics?|joke|rap|essay|haiku|limerick|screenplay|script\s+for|dream\s+up|suppose|fiction)\b'
+      opinion: '\b(think|thoughts?|feel|feeling|opinion|favou?rite|prefer|better\s+or|should\s+i|would\s+you)\b|\bhow\s+(are|was|is|''?s)\s+(you|your)\b|\bhow''?s?\s+it\s+going\b|\bwhat''?s?\s+up\b|\bwho\s+are\s+you\b|\bwhat\s+can\s+you\s+do\b|\bare\s+you\s+(busy|free|ok|okay|good|tired|there|around|up)\b|\byour\s+(day|night|weekend|morning|evening|week)\b'
+      smalltalk: '^\s*(?:hi|hey+|hello+|yo+|sup|hiya|howdy|thanks?|thank\s+you|ty|thx|lol|lmao|ok|okay|k|cool|nice|gotcha|word|bet|nvm|never\s*mind)(?:\s+(?:man|bro|dude|there|lol|lmao|cool|nice|thanks|ok|okay|too|ya)){0,2}[.!?\s]*$'
+
+    trigger_patterns:
+      time_sensitive: '\b(latest|current(ly)?|newest|right\s+now|today|tonight|tomorrow|yesterday|this\s+(year|week|month|season)|these\s+days|nowadays|recent(ly)?|news|headline|update[ds]?|released?|release\s+date|come\s+out|came\s+out|version|price[sd]?|cost[s]?|worth|stock|score|won|winner|beat|standings|weather|forecast|\b20(2[3-9]|[3-9]\d))\b'
+      factual_lookup: '\bhow\s+(tall|big|large|old|far|many|much|long|deep|fast|hot|cold|heavy|high|wide)\b|\bwho\s+(is|was|are|were|won|invented|created|discovered|wrote|founded|built|plays?|played|directed|owns?|put|ordered|called|killed|shot|murdered|betrayed|framed|hired|sent|stole|made|did|took|gave|started|sold|helped|married|dated|starred|voiced|sang|composed|painted|designed)\b|\b(?:what(?:''?s|\s+is|\s+are|\s+was|\s+were)|whos|who(?:''?s|\s+is|\s+was))\s+(?!up\b|wrong\b|new\b|going\s+on\b|good\b|your\b|my\b|this\b|that\b|happening\b)[a-z0-9]|\bwhat\s+(is|are|was|were|year)\s+the\b|\bwhen\s+(is|was|did|does|were|do)\b|\bwhere\s+(is|are|was|were)\b|\b(capital|population|height|length|distance|diameter|temperature|gdp|currency|language|timezone)\s+of\b|\bhow\s+do\s+you\s+say\b|\b(look\s+(?:that|this|it)\s+up|look\s+up\b|google\s+(?:that|this|it)\b|search\s+(?:the\s+web|online|for|that|this|it|up)\b|fact[- ]?check)\b'
+      declarative_lookup: '\b(price|cost)\s+of\b|\b(stock|share|ticket|gas)\s+price\b|\bweather\s+(in|for|near|at|today|tomorrow|this)\b|\bexchange\s+rate\b|\bhow\s+much\s+(is|are|does|do|would)\b|\b(?:edu|academic|research|peer[- ]reviewed)\s+(?:papers?|stud(?:y|ies))\b|\b(?:papers?|stud(?:y|ies))\s+(?:on|about)\b|\b(?:tell\s+me\s+about|describe|explain|recap|summarize|break\s+down|walk\s+me\s+through|synopsis\s+of|summary\s+of|plot\s+of)\s+(?!yourself\b|you\b|me\b|us\b|your\b|my\b|this\b|that\b)[a-z0-9]|\b(?:in|on)\s+the\s+shows?\s+[a-z0-9]|\b(?:in|on|from)\s+(?:the|that)\s+(?:\d{2,4}s\s+)?(?:show|series|movie|film|anime|cartoon|episode)\s+[a-z0-9]|\b(?:that|the)\s+(?:weird\s+|famous\s+|old\s+)?episode\s+of\s+[a-z0-9]|\b(?:plot|ending|cast|villain|killer|actor|actress|director|creator)\s+(?:of|in|for)\s+(?!my\b|this\b|your\b)[a-z0-9]|\b(?:season\s+\d+\s+episode\s+\d+|s\d+e\d+|episode\s+\d+\s+of)\b'
+      cli_tool: '\b(apt|apt-get|aptitude|pacman|yay|paru|pkg|dpkg|rpm|dnf|yum|zypper|apk|brew|pip|pipx|npm|pnpm|yarn|cargo|gem|composer|git|docker|docker-compose|podman|kubectl|helm|systemctl|systemd|journalctl|crontab|cron|ssh|scp|rsync|ssh-keygen|openssl|gpg|ufw|iptables|nftables|firewalld|nmcli|ifconfig|ffmpeg|imagemagick|tar|unzip|gzip|chmod|chown|mount|umount|lsblk|fdisk|cryptsetup|nmap|tcpdump|curl|wget|termux(?:-\w+)?)\b'
+      tech_ask: '\bhow\s+(do|would|can|to|should)\b|\bwhat\s+(does|flag|option|arg|argument|command|would|should)\b|\bwhich\s+(flag|option|command|package)\b|\b(correct|right|proper|safe)\s+(way|flag|command|syntax|usage|option)\b|\bwriting\s+a\b|\bwrite\s+(a|me\s+a)\b|\bput\s+in\s+(the|my|a)\b|\bis\s+(it|this|that)\s+(correct|right|safe|ok|okay|valid)\b|\bwhat\s+would\s+i\s+put\b'
+      wants_page: '\bhow\s+(much|many|long|far)\b|\bwhat\s+time\b|\bbox\s*office\b|\bopening\s+(day|weekend|night)\b|\brating\b|\bscores?\b|\bfinal\b|\bresults?\b|\bstandings?\b|\bwho\s+won\b|\bwho\s+(is|are|''?s)\s+playing\b|\bmatchup\b|\bschedule\b|\blineup\b|\bodds\b|\bprice\b|\bcost\b|\bwhen\s+did\b|\bstart\s+and\s+end\b|\b(?:first|last)\s+aired?\b|\bended\b|\bair(?:ed|ing)?\s+dates?\b'
+      event_lookup: '\bwho\s+(?:put|ordered|called|killed|shot|murdered|betrayed|framed|hired|sent)\b|\bgot\s+(?:killed|shot|murdered|arrested|caught|canceled|cancelled)\b|\b(?:how|why)\s+(?:did|does|do)\b|\bwhat\s+happened\b|\bseason\s+\d+\b|\bchoked\b|\bstrangled?\b|\bsuicide\b|\bhit\s+out\b|\b(?:does|did|can)\s+\S+(?:\s+\S+){0,3}\s+(?:see|hear|die|kill|work|have)\b'
+      correction_cues: '\b(season\s+\d+|episode\s+\d+|watched|actually|no,|nah|wait\b|choked|strangled|shot|killed|suicide|thinks?|not\s+how|isn''?t\s+how|wasn''?t\s+how|didn''?t\s+happen|that''?s\s+wrong|but\s+(?:i\s+)?(?:also\s+)?(?:asked|meant)|(?:i|you)\s+(?:also\s+)?(?:asked|forgot|missed)|what\s+about\b|wrong\s+(?:show|movie|one|person|character)|talking\s+about)\b'
+      draft_fact_claims: '\b(?:19\d\d|20[0-3]\d)\b|\$\s?\d|\d+\s?(?:%|percent\b)|\b\d+\s+(?:times|episodes?|seasons?|deaths?|years?|people|members?|operativ\w*)\b|\b(?:canonically|in\s+episode|directed\s+by|created\s+by|voiced\s+by|composed\s+by|animated\s+by|produced\s+by|written\s+by|performed\s+by|released\s+by|founded\s+by|owned\s+by|published\s+by|collaborat(?:ed|ion)|featured\s+on|feat\.|diss\s+track|flows\s+with|worked\s+with|starred\s+in|starring|played\s+by|based\s+on|sequel\s+to|prequel\s+to|spin-?off\s+of|adapted\s+from|member\s+of)\b|(?:^|\n)\s*(?:\d+\.|[-*]\s+\*\*|\*\*[^*\n]{2,32}\*\*:)'
+
+  casual_fast_path:
+    max_words: 5
+    allow_question_mark: false
+    greetings_and_reactions_regex: >-
+      ^(?:hi+|hey+|hello|yo|sup|morning|evening|night|thanks?|thank you|thx|ok|okay|cool|nice|got it|sounds good|lol|lmao|haha|how are you|what'?s up)[.!?\s]*$
+    fact_cue_regex: '\b(?:who|what|when|where|which|whose|19\d\d|20[0-3]\d)\b'
+
+  reply:
+    grounding_check: true
+    revise_default: true
+    plan_default: true
+    chat_agent_default: true
+    hard_prompt_min_words: 30
+    worth_reviewing_min_words: 40
+    hard_keywords_regex: '\b(why|how|compare|explain|debug|trace|tradeoff|architecture|implement|refactor|prove)\b'
+    max_tokens_think: 3072
+    max_tokens_default: 2048
+    temperature: 0.6
+    private_max_tokens: 900
+    private_temperature: 0.9
+    stream_secret_tail_holdback: 200
+    memory_max_chars: 2500
+    skills_limit: 3
+    skills_full_limit: 2
+    skills_procedure_steps: 4
+    repeat_nudge_chars: 200
+    subagent_max_steps: 4
+    subagent_time_budget_s: 20.0
+    retry_caps:
+      grounding: 1
+      action_honesty: 1
+      code_check: 1
+      web_fact_check: 1
+    think_pair_regex: '<(think|thinking)\b[^>]*>.*?</\1>'
+    think_close_regex: '</(?:think|thinking)\s*>'
+    admits_gap_regex: '\b(?:i\s+(?:don''?t|do\s+not|cannot|can''?t|couldn''?t)\s+(?:know|recall|remember|find|verify|confirm)|i''?m\s+not\s+sure|not\s+familiar\s+with)\b'
+    unverified_admit_regex: '\b(?:couldn''?t|could\s+not|can''?t|cannot)\s+(?:verify|confirm|find)|no\s+usable\s+source|not\s+enough\s+(?:verified\s+)?(?:info|information|sources?)'
+
+  grounding:
+    live_mark: "LIVE CHECK --"
+    skip_prefixes:
+      - "/"
+      - "~"
+      - "http:"
+      - "https:"
+      - "etc/"
+      - "usr/"
+      - "var/"
+      - "opt/"
+      - "tmp/"
+      - "proc/"
+      - "sys/"
+      - "dev/"
+      - "bin/"
+      - "home/"
+    skip_exact:
+      - "and/or"
+      - "n/a"
+      - "a/b"
+      - "km/h"
+      - "w/e"
+      - "i/o"
+    max_path_slashes: 8
+    max_unsupported_web: 3
+
+  action_honesty:
+    tool_output_rules:
+      - name: "raw nmap output"
+        pattern: 'Nmap scan report for|PORT\s+STATE\s+SERVICE|\b\d{1,5}/tcp\s+(open|closed|filtered)\b'
+      - name: "raw build/test output"
+        pattern: '\bBUILD (SUCCESSFUL|FAILED)\b|={3,}\s*\d+ (passed|failed)'
+      - name: "raw docker/container output"
+        pattern: 'CONTAINER ID\s+IMAGE|\bUp \d+ (second|minute|hour|day|week|month)s?\b|\bExited \(\d+\)|\bRestarting \(\d+\)'
+      - name: "raw systemctl output"
+        pattern: '\bActive:\s+(active|inactive|failed|deactivating)\s*\(|Loaded:\s+loaded\s*\(|●\s+\S+\.service\b'
+    backtick_cmd_regex: '`[^`\n]{2,}`'
+    ran_claim_regex: >-
+      \b(ran|executed|launched|checked|queried|pulled|fetched|grabbed)\b|results? (are|is) in|the scan (found|shows|returned|report)|based on (that|the|your)[^.\n]{0,30}\b(output|result|scan|report|listing|logs?)\b|(looking at|from)\s+(that|the|your)[^.\n]{0,30}\b(output|result|listing|logs?)\b|here'?s (the|what)[^.\n]{0,25}(output|result|the scan|it returned)
+    receipt_tag_regex: '\((?:just\s+)?(?:checked|ran|executed|pulled|fetched|queried|verified)\b[^)\n]*:[^)\n]+\)'
+    user_sourced_regex: '\byou\b[^.\n]{0,30}\b(pasted|shared|provided|posted|sent|gave|showed|ran|typed|attached)\b|\b(from|in)\s+(your|the)\s+(paste|message)\b|that you (pasted|shared|ran|sent|gave|posted)'
+    meta_frame_regex: >-
+      \b(sometimes|often|frequently|occasionally|tend to|tends to|might|may|could|can|would|will)\b[^.\n]{0,45}\b(claim|say|pretend|imply|act like|make it (?:sound|look)|sound like)\b|\bclaim(?:ing|ed|s)?\s+to\s+have\b|\b(?:fake|faking|fabricat\w*|hallucinat\w*|made[-\s]?up|pretend\w*|bluff\w*)\b|\bwithout\s+(?:actually|really|ever)\s+(?:running|executing|checking|verifying|looking)\b|\beven\s+(?:when|though)\s+i\s+(?:haven'?t|hadn'?t|didn'?t|did\s+not|have\s+not)\b|\bwhen\s+i\s+say\s+i\s+(?:checked|ran|looked|verified)\b|\bharness\s+fix\b|\bthis\s+is\s+dangerous\b
+    scan_narration_regex: '(scanning|running the scan|executing|compiling)\s*\.\.\.'
+    results_report_regex: 'results? (are|is) in|open ports|running services|vulnerab|\bports?\b.{0,20}\bopen\b'
+    web_search_claim_regex: '\b(?:from|after|with)\s+(?:a|an|my)\s+(?:quick|brief|web|online|google)?\s*search\b|\bfrom\s+a\s+quick\s+search\b|\bi\s+(?:just\s+|already\s+)?(?:searched|googled|looked\s+(?:that|it|this)\s+up)\b|\(looked\s+it\s+up\s+just\s+now:'
+
+  service_control:
+    allowed_docker:
+      - "jellyfin"
+      - "jellyseerr"
+      - "robofuse"
+      - "bridge"
+      - "unarr"
+    allowed_systemd: []
+    friendly_aliases:
+      "updates": "magic-update.timer"
+      "auto update": "magic-update.timer"
+      "update timer": "magic-update.timer"
+      "auto updates": "magic-update.timer"
+    status_timeout_s: 30
+    action_timeout_s: 60
+    docker_ps_timeout_s: 2.0
+    docker_cache_ttl_s: 30.0
+    restart_settle_s: 0.5
+    health_url: "http://127.0.0.1:8765/status"
+    health_target_unit: "magic.service"
+    health_timeout_s: 4.0
+    status_cue_regex: '\b(running|up|down|working|ok|okay|alive|healthy|status|good|fine|online|offline|dead|crash\w*|broke\w*|how''?s|how\s+(is|are|be|was)|check(ing)?)\b'
+    not_status_question_regex: '\b(restart|reboot|stop|start|kill|remove|delete|update|upgrade|install|set\s*up|setup|configure|config|logs?|fix|add|how\s+(do|can|to|should|would))\b'
+    asking_regex: '\?|^\s*(is|are|how|check|any)\b|\b(how''?s|how\s+(is|are|was)|is\s+(my|the|it|everything)|are\s+(my|the|they|all)|check|status)\b'
+    group_regex: '\b(stack|containers|services|docker)\b'
+
+soft_prompt_rules:
+  no_usable_source_instruction: "Search returned no usable source—tell the user you couldn't verify it."
+  no_source_reply: "I searched for that, but didn't get a usable source—so I can't verify it instead of guessing."
+  web_evidence_instructions: >-
+    Use these to verify what happened, preferring Wikipedia / authoritative wikis / official or academic sources over random blogs or forum chatter; only cite facts supported here and never guess figures, dates, or plot details not shown. If the results only come from dubious sources or don't establish the facts you're about to state, admit what you can't verify instead of filling gaps from memory. Only state names, events, causes, and details that are directly supported by these results—never repeat an unverified claim from the user's question or fill gaps from memory. Do NOT state any number, date, price, score, or statistic unless it appears verbatim here. Do NOT add a links footer yourself -- sources are attached automatically.
+  no_web_or_tools_guard_prompt: >-
+    [EVIDENCE_STATE: NO_WEB_OR_TOOLS_RAN_THIS_TURN. Your draft claimed to have run, searched, checked, verified, or seen live results, but nothing was actually executed this turn -- the claim is made up. Rewrite the answer WITHOUT any claim of having searched/run/checked/verified or seen real output. If you'd genuinely need to check something, say so plainly and offer to run it. Keep the rest.]
+  grounding_retry_prompt: >-
+    [A check of your draft found: {issues}. Answer again. Reference only files, paths and commands that actually exist here; if you're not sure something exists, say so rather than naming it.]
+  code_check_retry_prompt: >-
+    [A check of the code you wrote found: {issues}. Rewrite the answer with the code FIXED and written OUT IN FULL -- it must parse cleanly AND you must never summarize, shorten, or elide code with placeholders like '...', '# rest of code', or '// unchanged'. Write every line. Keep the rest of the answer.]
+  grounding_caveat_prefix: "\n\n_Heads up — I may have this wrong: {items}._"
+  web_caveat_template: "\n\n(Heads up: I couldn't confirm these details in the search results just now: {items}.)"
+  action_honesty_caveat: >-
+    (Honesty check: I did not actually run a command or tool here -- this reply didn't execute anything, so any command output above is made up, not a real result. Ask me to run it for real and I'll execute it and report the true output.)

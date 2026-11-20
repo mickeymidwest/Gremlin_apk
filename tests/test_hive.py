@@ -76,3 +76,38 @@ def test_register_new_specialist():
     h = hv.Hive(_FakeRegistry(["qwen3.5-4b-cpu"]))
     h.register(hv.Specialist("translator", "translate", "You translate."))
     assert "translator" in h.names()
+
+
+def test_strict_fail_closed_and_patch_auditor(tmp_path):
+    from magic_core import error_ledger
+
+    # Strict mode rejects non-JSON output even when model returned non-empty text
+    h_bad = _hive_with(ScriptedModel(["looks ok maybe"]), names=("qwen2.5-coder-3b-cpu",))
+    assert h_bad.get("patch_auditor").strict is True
+    r_bad = h_bad.ask("patch_auditor", "diff", strict=True)
+    assert r_bad.ok is False
+
+    # audit_patch blocks bad JSON fail-closed
+    ok1, issues1, _ = h_bad.audit_patch("goal", "--- a/magic_core/x.py\n+++ b/magic_core/x.py\n+x = 1\n")
+    assert ok1 is False and issues1
+
+    # audit_patch blocks deterministic .magic/decisions.md violations without needing a model
+    ok2, issues2, _ = hv.Hive(_FakeRegistry([])).audit_patch(
+        "revive consult",
+        "--- a/magic_core/x.py\n+++ b/magic_core/x.py\n+from magic_core import consult\n",
+    )
+    assert ok2 is False and any("consult" in i for i in issues2)
+
+    # audit_patch approves structured APPROVE
+    h_good = _hive_with(
+        ScriptedModel(['{"verdict": "APPROVE", "rule_violations": [], "blocking_bugs": [], "risk": "low"}']),
+        names=("qwen2.5-coder-3b-cpu",),
+    )
+    ok3, issues3, _ = h_good.audit_patch("safe tweak", "--- a/magic_core/x.py\n+++ b/magic_core/x.py\n+x = 1\n")
+    assert ok3 is True and issues3 == []
+
+    # Closed-loop watchdog recording surfaces recurring concerns in error_ledger.top_recurring
+    error_ledger.record_watchdog(str(tmp_path), "check docker", ["Assistant claimed it ran docker ps when it could not have"])
+    error_ledger.record_watchdog(str(tmp_path), "check logs", ["Fabricated log check output"])
+    top = error_ledger.top_recurring(str(tmp_path))
+    assert top and top[0]["count"] == 2 and "unverified" in top[0]["what"].lower()

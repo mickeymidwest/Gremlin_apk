@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
+import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -12,6 +13,7 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioGroup
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
@@ -19,6 +21,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.gremlin.app.voice.VoiceOutput
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -235,11 +238,70 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun showCanDo(prefs: SharedPreferences) {
         val c = creds(prefs) ?: run { Toast.makeText(this, "Pair with a desktop first", Toast.LENGTH_SHORT).show(); return }
-        val text = TextView(this)
         val pad = (16 * resources.displayMetrics.density).toInt()
-        text.setPadding(pad, pad, pad, pad); text.setTextIsSelectable(true); text.text = "Loading…"
+        val header = TextView(this).apply { setPadding(pad, pad, pad, pad / 2); text = "Loading…" }
+        val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, 0, pad, pad / 2) }
+        val scroll = ScrollView(this).apply { addView(listBox) }
         val input = EditText(this).apply { hint = "add a service (e.g. magic-zoid.timer)" }
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(text); addView(input) }
+        val inputWrap = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, 0, pad, 0); addView(input) }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(header)
+            addView(scroll, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                (220 * resources.displayMetrics.density).toInt()
+            ))
+            addView(inputWrap)
+        }
+
+        fun renderItems(arr: JSONArray?) {
+            listBox.removeAllViews()
+            if (arr == null || arr.length() == 0) {
+                header.text = "Magic can control:"
+                listBox.addView(TextView(this).apply { text = "(nothing yet)" })
+                return
+            }
+            header.text = "Magic can control (tap Delete to remove):"
+            for (i in 0 until arr.length()) {
+                val itemName = arr.getString(i)
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, pad / 4, 0, pad / 4)
+                }
+                val label = TextView(this).apply {
+                    text = "• $itemName"
+                    setTextIsSelectable(true)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val delBtn = Button(this).apply {
+                    text = "Delete"
+                    setOnClickListener {
+                        isEnabled = false
+                        Thread {
+                            val res = httpJson(
+                                c.first, c.second, c.third, "/allowlist", "POST",
+                                JSONObject().put("action", "remove").put("name", itemName).toString()
+                            )
+                            val updated = res?.optJSONArray("allowed")
+                            runOnUiThread {
+                                if (updated != null) {
+                                    renderItems(updated)
+                                    Toast.makeText(this@SettingsActivity, "Removed $itemName", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    isEnabled = true
+                                    Toast.makeText(this@SettingsActivity, "Failed to remove $itemName", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }.start()
+                    }
+                }
+                row.addView(label)
+                row.addView(delBtn)
+                listBox.addView(row)
+            }
+        }
+
         AlertDialog.Builder(this).setTitle("Magic's can-do list").setView(box)
             .setPositiveButton("Add") { _, _ ->
                 val name = input.text.toString().trim()
@@ -254,10 +316,7 @@ class SettingsActivity : AppCompatActivity() {
         Thread {
             val j = httpJson(c.first, c.second, c.third, "/allowlist", "GET", null)
             val arr = j?.optJSONArray("allowed")
-            val list = if (arr != null && arr.length() > 0)
-                (0 until arr.length()).joinToString("\n") { "• " + arr.getString(it) }
-            else "(nothing yet)"
-            runOnUiThread { text.text = "Magic can control:\n$list" }
+            runOnUiThread { renderItems(arr) }
         }.start()
     }
 

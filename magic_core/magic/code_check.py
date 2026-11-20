@@ -46,11 +46,25 @@ def _bash(code: str, *, allow_illustrative: bool = True) -> str:
 def _python(code: str) -> str:
     try:
         compile(code, "<chat>", "exec")
-        return ""
     except SyntaxError as e:
         return f"line {e.lineno}: {e.msg}"
     except Exception:
         return ""
+    try:
+        import ast
+        tree = ast.parse(code)
+        seen: dict[str, int] = {}
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                decs = [getattr(d, "id", getattr(d, "attr", "")) for d in getattr(node, "decorator_list", ())]
+                if "overload" in decs:
+                    continue
+                if node.name in seen:
+                    return f"duplicate top-level definition `{node.name}` (lines {seen[node.name]} and {node.lineno})"
+                seen[node.name] = node.lineno
+    except Exception:
+        pass
+    return ""
 
 
 def _node(code: str) -> str:

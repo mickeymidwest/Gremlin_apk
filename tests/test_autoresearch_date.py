@@ -48,8 +48,23 @@ def test_gather_sends_the_dated_query(monkeypatch):
 
     def _spy(q, limit=5, timeout=12):
         seen["q"] = q
-        return [{"title": "Leafs schedule", "url": "https://nhl.com", "snippet": "tonight"}]
+        return [{
+            "title": "Toronto Maple Leafs Schedule",
+            "url": "https://nhl.com",
+            "snippet": (
+                "The Toronto Maple Leafs face the Montreal Canadiens tonight at 7:00 PM ET "
+                "at Scotiabank Arena in a divisional NHL matchup with full roster updates."
+            ),
+        }]
     monkeypatch.setattr(autoresearch.web_search, "search", _spy)
+    monkeypatch.setattr(
+        autoresearch.web_search,
+        "fetch_text",
+        lambda *a, **k: (
+            "The Toronto Maple Leafs host the Montreal Canadiens tonight at 7:00 PM Eastern Time "
+            "at Scotiabank Arena, following morning skate line rushes and starting goaltender confirmation."
+        ),
+    )
     srcs, ev = asyncio.run(autoresearch.gather("who plays the leafs tonight"))
     assert srcs
     d = datetime.date.today()

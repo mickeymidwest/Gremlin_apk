@@ -43,3 +43,59 @@ def delegate(question: str, model, root: str, *, max_steps: int = 8,
     tool_steps = sum(1 for s in tr.steps if s.kind == "tool")
     gave_up = (not ans) or ans.startswith("(gave up")
     return {"answer": ans or "(no answer)", "ok": not gave_up, "steps": tool_steps}
+
+
+def delegate_structured(
+    goal: str,
+    model,
+    root: str,
+    *,
+    file_slice: str = "",
+    constraints: str = "",
+    max_steps: int = 6,
+    time_budget_s: float = 90.0,
+    skills: Sequence = (),
+    facts: Sequence = (),
+) -> dict:
+    """Isolated child-worker turn with explicit handoff schema:
+    inputs=(goal, file_slice, constraints) -> output={status, diff, short_summary, steps}.
+    Never raises; keeps raw retries/tool logs out of the parent context."""
+    import subprocess
+    from .battle import run_battle
+
+    g = (goal or "").strip()
+    if not g:
+        return {"status": "failed", "diff": "", "short_summary": "empty goal", "steps": 0}
+    parts = [f"Goal: {g}"]
+    if (file_slice or "").strip():
+        parts.append(f"Focus files/slice: {file_slice.strip()}")
+    if (constraints or "").strip():
+        parts.append(f"Constraints: {constraints.strip()}")
+    parts.append("Explore cleanly and finish with DONE and a concise summary.")
+    task = Task(id=f"sub_{int(time.time() * 1000) % 100000}", prompt="\n".join(parts))
+    try:
+        tr = run_battle(
+            task, root, model, skills=list(skills), facts=list(facts),
+            step_budget=max_steps, plan=False, readonly=True,
+            autocommit=False, time_budget_s=time_budget_s,
+        )
+    except Exception as e:
+        return {"status": "failed", "diff": "", "short_summary": f"error: {type(e).__name__}", "steps": 0}
+    ans = (tr.final_message or "").strip()
+    tool_steps = sum(1 for s in tr.steps if s.kind == "tool")
+    gave_up = (not ans) or ans.startswith("(gave up")
+    diff = ""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "diff"],
+            capture_output=True, text=True, timeout=8,
+        )
+        diff = (proc.stdout or "").strip()[:3000]
+    except Exception:
+        diff = ""
+    return {
+        "status": "failed" if gave_up else "ok",
+        "diff": diff,
+        "short_summary": (ans or "(no answer)")[:600],
+        "steps": tool_steps,
+    }

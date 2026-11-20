@@ -73,3 +73,62 @@ def test_worth_reviewing_gate():
     assert reply._worth_reviewing("```python\nx=1\n```")
     assert reply._worth_reviewing("word " * 40)
     assert not reply._worth_reviewing("ok sure")
+
+
+def test_auto_think_wiring_for_chatml_nothink(monkeypatch, tmp_path):
+    calls = []
+
+    class _ThinkBackend:
+        chat_format = "chatml-nothink"
+        no_think = False
+
+        async def generate(self, prompt, *, system="", max_tokens=1024, temperature=0.3,
+                           history=None, grammar=None):
+            calls.append((prompt, max_tokens, grammar))
+            if "strict reviewer" in system:
+                return _R('{"pass": false, "flaw": "missing detail", "fix": "add detail"}')
+            return _R("Full revised detailed answer covering everything cleanly. " * 4)
+
+    be = _ThinkBackend()
+    out, changed = _run(revise.review_and_revise(be, "explain how swap works", "short draft"))
+    assert changed is True
+    # Critic (grammar) must NOT append /think; rewrite (no grammar) MUST append /think
+    assert not calls[0][0].endswith(" /think") and calls[0][2] is not None
+    assert calls[1][0].endswith(" /think") and calls[1][1] == 3072
+
+    # In reply: casual chat skips /think, substantive turns enable it (not on fallback)
+    monkeypatch.setattr(reply, "_PLAN", False)
+    monkeypatch.setattr(reply, "_REVISE", False)
+    monkeypatch.setattr(reply, "_GROUNDING_CHECK", False)
+    monkeypatch.setattr(reply.look, "wants", lambda *a, **k: [])
+    monkeypatch.setattr(reply.look, "workspace_probe", lambda *a, **k: ([], ""))
+
+    seen = []
+
+    class _ChatThinkBackend:
+        chat_format = "chatml-nothink"
+        no_think = False
+
+        async def generate(self, prompt, max_tokens=2048, temperature=0.6, history=None):
+            seen.append((prompt, max_tokens))
+            return _R("ok")
+
+    class _FallbackBackend:
+        chat_format = None
+
+        async def generate(self, prompt, max_tokens=2048, temperature=0.6, history=None):
+            seen.append(("fb:" + prompt, max_tokens))
+            return _R("fallback ok")
+
+    _run(reply.answer(_ChatThinkBackend(), "hey", str(tmp_path)))
+    assert not seen[-1][0].endswith(" /think") and seen[-1][1] == 2048
+
+    _run(reply.answer(_ChatThinkBackend(), "explain how kubernetes ingress routing works", str(tmp_path)))
+    assert seen[-1][0].endswith(" /think") and seen[-1][1] == 3072
+
+    class _FailThinkBackend(_ChatThinkBackend):
+        async def generate(self, prompt, max_tokens=2048, temperature=0.6, history=None):
+            return _R("", ok=False)
+
+    _run(reply.answer(_FailThinkBackend(), "explain how kubernetes ingress routing works", str(tmp_path), fallback=_FallbackBackend()))
+    assert seen[-1][0].startswith("fb:") and not seen[-1][0].endswith(" /think")

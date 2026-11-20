@@ -20,11 +20,15 @@ from __future__ import annotations
 import re
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import yaml
 
+from .guardrails_config import get_guardrails
 from .sandbox import SandboxResult, SecureExecutionSandbox
+
+_SC_CFG = get_guardrails()["hard_gates"]["service_control"]
+_REPO_ROOT_RESOLVED = Path(__file__).resolve().parent.parent
 
 
 def _extra_allow_path(project_root: str) -> Path:
@@ -37,9 +41,19 @@ def _load_extra(project_root: str) -> dict:
     try:
         d = json.loads(_extra_allow_path(project_root).read_text())
     except (OSError, json.JSONDecodeError):
-        return {"docker": [], "systemd": []}
+        return {"docker": [], "systemd": [], "removed": []}
     return {"docker": [str(x) for x in (d.get("docker") or [])],
-            "systemd": [str(x) for x in (d.get("systemd") or [])]}
+            "systemd": [str(x) for x in (d.get("systemd") or [])],
+            "removed": [str(x) for x in (d.get("removed") or [])]}
+
+
+def _save_extra(project_root: str, extra: dict) -> None:
+    p = _extra_allow_path(project_root)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(extra, indent=2))
+    except OSError:
+        pass
 
 
 def add_allow(project_root: str, kind: str, name: str) -> dict:
@@ -48,45 +62,73 @@ def add_allow(project_root: str, kind: str, name: str) -> dict:
     kind = "systemd" if kind not in ("docker", "systemd") else kind
     name = (name or "").strip()
     extra = _load_extra(project_root)
+    changed = False
+    if name and name in extra["removed"]:
+        extra["removed"] = [x for x in extra["removed"] if x != name]
+        changed = True
     if name and name not in extra[kind]:
         extra[kind].append(name)
-        p = _extra_allow_path(project_root)
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(json.dumps(extra, indent=2))
-        except OSError:
-            pass
+        changed = True
+    if changed:
+        _save_extra(project_root, extra)
     return _load_allowlist(project_root)
 
 
 def remove_allow(project_root: str, name: str) -> dict:
-    """Remove a name from the can-do extra file (never touches models.yaml)."""
+    """Remove a name from the can-do list (drops from extra and suppresses any
+    matching entry from config/models.yaml without rewriting models.yaml)."""
     name = (name or "").strip()
+    if not name:
+        return _load_allowlist(project_root)
     extra = _load_extra(project_root)
     changed = False
     for k in ("docker", "systemd"):
         if name in extra[k]:
             extra[k] = [x for x in extra[k] if x != name]
             changed = True
+    cfg_allow = _load_yaml_allowlist(project_root)
+    if (name in cfg_allow["docker"] or name in cfg_allow["systemd"]) and name not in extra["removed"]:
+        extra["removed"].append(name)
+        changed = True
     if changed:
-        try:
-            _extra_allow_path(project_root).write_text(json.dumps(extra, indent=2))
-        except OSError:
-            pass
+        _save_extra(project_root, extra)
     return _load_allowlist(project_root)
 
 
-def _load_allowlist(project_root: str) -> dict:
-    path = Path(project_root) / "config" / "models.yaml"
-    try:
-        data = yaml.safe_load(path.read_text()) or {}
-    except Exception:
-        data = {}   # no/unreadable config -> still merge the extra can-do file
-    sc = data.get("service_control") or {}
-    extra = _load_extra(project_root)
+def _load_yaml_allowlist(project_root: str) -> dict:
+    root_path = Path(project_root)
+    gr_path = root_path / "config" / "guardrails.yaml"
+    models_path = root_path / "config" / "models.yaml"
+    docker_list: list[str] = []
+    systemd_list: list[str] = []
+    if gr_path.exists():
+        try:
+            sc = get_guardrails(root_path)["hard_gates"]["service_control"]
+        except Exception:
+            sc = {}
+        docker_list.extend(str(n) for n in (sc.get("allowed_docker") or []))
+        systemd_list.extend(str(n) for n in (sc.get("allowed_systemd") or []))
+    if models_path.exists():
+        try:
+            data = yaml.safe_load(models_path.read_text()) or {}
+        except Exception:
+            data = {}
+        sc_m = data.get("service_control") or {}
+        docker_list.extend(str(n) for n in (sc_m.get("docker") or []))
+        systemd_list.extend(str(n) for n in (sc_m.get("systemd") or []))
     return {
-        "docker": sorted(set([str(n) for n in (sc.get("docker") or [])]) | set(extra["docker"])),
-        "systemd": sorted(set([str(n) for n in (sc.get("systemd") or [])]) | set(extra["systemd"])),
+        "docker": list(dict.fromkeys(docker_list)),
+        "systemd": list(dict.fromkeys(systemd_list)),
+    }
+
+
+def _load_allowlist(project_root: str) -> dict:
+    base = _load_yaml_allowlist(project_root)
+    extra = _load_extra(project_root)
+    removed = set(extra["removed"])
+    return {
+        "docker": sorted((set(base["docker"]) | set(extra["docker"])) - removed),
+        "systemd": sorted((set(base["systemd"]) | set(extra["systemd"])) - removed),
     }
 
 
@@ -95,15 +137,15 @@ _SYSTEMD_SUFFIX = (".service", ".timer", ".socket", ".target", ".path",
                    ".mount", ".scope", ".slice")
 
 
-_FRIENDLY = {
-    "battles": "magic-zoid.timer", "the battles": "magic-zoid.timer",
-    "battle": "magic-zoid.timer", "battle test": "magic-zoid.timer",
-    "battle tests": "magic-zoid.timer", "nightly battles": "magic-zoid.timer",
-    "training": "magic-zoid.timer", "nightly training": "magic-zoid.timer",
-    "zoid": "magic-zoid.timer", "the nightly": "magic-zoid.timer",
-    "updates": "magic-update.timer", "auto update": "magic-update.timer",
-    "update timer": "magic-update.timer", "auto updates": "magic-update.timer",
-}
+_FRIENDLY = {str(k).lower(): str(v) for k, v in (_SC_CFG.get("friendly_aliases") or {}).items()}
+_STATUS_TIMEOUT_S = int(_SC_CFG["status_timeout_s"])
+_ACTION_TIMEOUT_S = int(_SC_CFG["action_timeout_s"])
+_DOCKER_PS_TIMEOUT_S = float(_SC_CFG["docker_ps_timeout_s"])
+_DOCKER_CACHE_TTL_S = float(_SC_CFG["docker_cache_ttl_s"])
+_RESTART_SETTLE_S = float(_SC_CFG["restart_settle_s"])
+_HEALTH_URL = str(_SC_CFG["health_url"])
+_HEALTH_TARGET_UNIT = str(_SC_CFG["health_target_unit"])
+_HEALTH_TIMEOUT_S = float(_SC_CFG["health_timeout_s"])
 
 
 def resolve_unit(project_root: str, name: str, *, allow_any: bool = False) -> Optional[tuple[str, str]]:
@@ -141,28 +183,58 @@ def allowed_names(project_root: str) -> list[str]:
 
 
 async def get_status(kind: str, name: str) -> SandboxResult:
-    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=30)
+    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_STATUS_TIMEOUT_S)
     if kind == "docker":
         return await sandbox.run_safe_command(f"docker ps -a --filter name=^{name}$")
     return await sandbox.run_safe_command(f"systemctl --user status {name} --no-pager -n 5")
 
 
 async def restart(kind: str, name: str) -> SandboxResult:
-    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=60)
+    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_ACTION_TIMEOUT_S)
     if kind == "docker":
         return await sandbox.run_safe_command(f"docker restart {name}")
     return await sandbox.run_safe_command(f"systemctl --user restart {name}")
 
 
+async def restart_and_verify(project_root: str, kind: str, name: str,
+                             health_url: Optional[str] = None) -> tuple[bool, str]:
+    """Restart a unit/container and verify O5 runtime post-conditions: unit stays
+    running/Up and optional HTTP health endpoint answers 2xx."""
+    import asyncio
+    res = await restart(kind, name)
+    if not res.ok:
+        return False, f"restart failed: {(res.stderr or res.stdout or '').strip()[:300]}"
+    await asyncio.sleep(_RESTART_SETTLE_S)
+    st = await get_status(kind, name)
+    out = (st.stdout or "") + (st.stderr or "")
+    if kind == "systemd" and "active (running)" not in out and "active" not in out:
+        return False, f"systemd post-check failed for {name}: {out.strip()[:300]}"
+    if kind == "docker" and "Up " not in out:
+        return False, f"docker post-check failed for {name}: {out.strip()[:300]}"
+    url = health_url or (_HEALTH_URL if name == _HEALTH_TARGET_UNIT else None)
+    if url:
+        import urllib.request
+        def _probe():
+            with urllib.request.urlopen(url, timeout=_HEALTH_TIMEOUT_S) as resp:
+                return resp.status
+        try:
+            code = await asyncio.to_thread(_probe)
+            if code < 200 or code >= 300:
+                return False, f"health endpoint {url} returned HTTP {code}"
+        except Exception as e:
+            return False, f"health endpoint {url} unreachable after restart: {type(e).__name__}"
+    return True, f"{name} restarted and verified healthy."
+
+
 async def stop(kind: str, name: str) -> SandboxResult:
-    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=60)
+    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_ACTION_TIMEOUT_S)
     if kind == "docker":
         return await sandbox.run_safe_command(f"docker stop {name}")
     return await sandbox.run_safe_command(f"systemctl --user stop {name}")
 
 
 async def start(kind: str, name: str) -> SandboxResult:
-    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=60)
+    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_ACTION_TIMEOUT_S)
     if kind == "docker":
         return await sandbox.run_safe_command(f"docker start {name}")
     return await sandbox.run_safe_command(f"systemctl --user start {name}")
@@ -170,35 +242,99 @@ async def start(kind: str, name: str) -> SandboxResult:
 
 # ------------------------------------------------- "is X running?" check
 
-# asking about state, not asking to change it
-_STATUS_CUE_RE = re.compile(
-    r"\b(running|up|down|working|ok|okay|alive|healthy|status|good|fine|online|offline"
-    r"|dead|crash\w*|broke\w*|how'?s|how\s+(is|are|be|was)|check(ing)?)\b", re.I)
-# a request to DO something, or a how-to question: leave those to the
-# classifier, which can propose a restart with a confirmation
-_NOT_A_STATUS_QUESTION_RE = re.compile(
-    r"\b(restart|reboot|stop|start|kill|remove|delete|update|upgrade|install|set\s*up|setup"
-    r"|configure|config|logs?|fix|add|how\s+(do|can|to|should|would))\b", re.I)
-# it has to be asked, not just mentioned: "docker is fine for that" is chat
-_ASKING_RE = re.compile(
-    r"\?|^\s*(is|are|how|check|any)\b"
-    r"|\b(how'?s|how\s+(is|are|was)|is\s+(my|the|it|everything)|are\s+(my|the|they|all)"
-    r"|check|status)\b", re.I)
-# words that mean "all of them"
-_GROUP_RE = re.compile(r"\b(stack|containers|services|docker)\b", re.I)
+_DOCKER_CACHE: dict = {"ts": 0.0, "containers": None}
 
 
-def status_question(project_root: str, message: str) -> list[str]:
+def live_docker_containers(timeout: float | None = None, *, cache_ttl: float | None = None) -> Optional[set[str]]:
+    """Return set of real container names from `docker ps -a`, or None if Docker
+    is absent/unreachable. Cached briefly so chat turns don't spawn docker on
+    every message."""
+    import shutil
+    import subprocess
+    import time
+
+    eff_timeout = _DOCKER_PS_TIMEOUT_S if timeout is None else timeout
+    eff_ttl = _DOCKER_CACHE_TTL_S if cache_ttl is None else cache_ttl
+    now = time.monotonic()
+    if now - _DOCKER_CACHE["ts"] < eff_ttl:
+        return _DOCKER_CACHE["containers"]
+    if not shutil.which("docker"):
+        _DOCKER_CACHE.update(ts=now, containers=None)
+        return None
+    try:
+        proc = subprocess.run(
+            ["docker", "ps", "-a", "--format", "{{.Names}}"],
+            capture_output=True, text=True, timeout=eff_timeout,
+        )
+        if proc.returncode != 0:
+            _DOCKER_CACHE.update(ts=now, containers=None)
+            return None
+        names = {ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()}
+        _DOCKER_CACHE.update(ts=now, containers=names)
+        return names
+    except Exception:
+        _DOCKER_CACHE.update(ts=now, containers=None)
+        return None
+
+
+def docker_available(timeout: float | None = None) -> bool:
+    return live_docker_containers(timeout=timeout) is not None
+
+
+def _systemctl_user_available() -> bool:
+    import shutil
+    return bool(shutil.which("systemctl"))
+
+
+SERVICE_REGISTRY: dict[str, dict[str, Any]] = {
+    "status": {"handler": get_status, "destructive": False},
+    "restart": {"handler": restart, "destructive": True},
+    "stop": {"handler": stop, "destructive": True},
+    "start": {"handler": start, "destructive": True},
+}
+
+
+def available_service_tools(project_root: str) -> list[dict[str, Any]]:
+    """Auto-gated summary of allow-listed services whose underlying runtime
+    (Docker daemon / systemctl) is actually available right now."""
+    allow = _load_allowlist(project_root)
+    live_docker = live_docker_containers()
+    sys_ok = _systemctl_user_available()
+    entries: list[dict[str, Any]] = []
+    for name in allow["docker"]:
+        if live_docker is not None and name in live_docker:
+            entries.append({"name": name, "kind": "docker", "available": True})
+    if sys_ok:
+        for name in allow["systemd"]:
+            entries.append({"name": name, "kind": "systemd", "available": True})
+    return entries
+
+
+_STATUS_CUE_RE = re.compile(_SC_CFG["status_cue_regex"], re.I)
+_NOT_A_STATUS_QUESTION_RE = re.compile(_SC_CFG["not_status_question_regex"], re.I)
+_ASKING_RE = re.compile(_SC_CFG["asking_regex"], re.I)
+_GROUP_RE = re.compile(_SC_CFG["group_regex"], re.I)
+
+
+def status_question(project_root: str, message: str, *, check_live: bool = False) -> list[str]:
     """Allow-listed names to check if `message` asks whether they're up,
     else []. Naming a container checks that one; "stack", "containers",
-    "services" or "docker" checks everything on the list. Pure apart from
-    reading the allow-list."""
+    "services" or "docker" checks everything on the list. When `check_live=True`,
+    inactive Docker containers/daemons are auto-gated out so ordinary words
+    like 'bridge' don't hijack chat turns when Docker or that container isn't live."""
     text = message or ""
     if (not _STATUS_CUE_RE.search(text) or not _ASKING_RE.search(text)
             or _NOT_A_STATUS_QUESTION_RE.search(text)):
         return []
     allow = _load_allowlist(project_root)
-    every = allow["docker"] + allow["systemd"]
+    docker_names = list(allow["docker"])
+    if check_live and docker_names:
+        live = live_docker_containers()
+        if live is None:
+            docker_names = []
+        else:
+            docker_names = [n for n in docker_names if n in live]
+    every = docker_names + list(allow["systemd"])
     if not every:
         return []
     named = [n for n in every
@@ -212,7 +348,7 @@ async def check_many(project_root: str, names: list[str]) -> tuple[bool, str]:
     """(all up?, answer) from one `docker ps -a` plus `systemctl --user
     is-active` per unit. The answer is built from the real output only."""
     allow = _load_allowlist(project_root)
-    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=30)
+    sandbox = SecureExecutionSandbox(str(Path.home()), timeout_seconds=_STATUS_TIMEOUT_S)
     states: dict[str, str] = {}
     docker = [n for n in names if n in allow["docker"]]
     if docker:

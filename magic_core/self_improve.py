@@ -533,7 +533,7 @@ async def run_self_edit(
             try:
                 from . import autoresearch as _ar
                 _srcs, _ev = await _ar.gather(goal)
-                if _ev:
+                if _srcs and _ev:
                     _review_system = _review_system + (
                         "\n\nLive docs that may bear on this change -- check the "
                         "patch against them and flag any outdated or wrong API/flag:\n"

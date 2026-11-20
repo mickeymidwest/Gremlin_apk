@@ -62,3 +62,32 @@ async def rollback_to(number: str, root: str) -> tuple[bool, str]:
             f"{reboot_result.stderr or reboot_result.stdout}. Reboot manually to apply it."
         )
     return True, f"Rolled back to snapshot {number} -- rebooting now."
+
+
+def prune_workdirs(project_root: str, max_age_hours: float = 12.0) -> int:
+    """Clean stale throwaway battle/fix temp workdirs under `.magic-tmp` and
+    system tempdir cleanly so abandoned crashes don't accumulate disk bloat."""
+    import shutil
+    import tempfile
+    import time
+    from pathlib import Path
+
+    cutoff = time.time() - max(0.0, float(max_age_hours)) * 3600.0
+    removed = 0
+    roots = [
+        (Path(project_root).resolve().parent / ".magic-tmp", ("magic-fix-", "magic-")),
+        (Path(tempfile.gettempdir()), ("magic-fix-loop-", "pregate-wt-")),
+    ]
+    for base, prefixes in roots:
+        if not base.is_dir():
+            continue
+        for entry in base.iterdir():
+            if not entry.is_dir() or not any(entry.name.startswith(p) for p in prefixes):
+                continue
+            try:
+                if entry.stat().st_mtime <= cutoff:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    removed += 1
+            except OSError:
+                continue
+    return removed
