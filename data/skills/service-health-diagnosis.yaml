@@ -21,7 +21,7 @@ procedure:
   Generate the WHOLE corrected file content using `write_file`.'
 - 'If the fix is a specific line or block change and the rest of the file is valid: Generate
   only the specific line or block to edit using `edit_file`.'
-- Run the verification command (e.g., `curl` or `pytest`) immediately after the fix.
+- Run the verification command (e.g., `curl` or `pytest -q`) immediately after the fix.
 - Confirm the service is now responding correctly or the error is resolved before concluding
   the task.
 supersedes: skill_2e87c158
@@ -31,15 +31,16 @@ provenance:
 - refined@1794802367
 - refined@1794803533
 - refined@1794978833
+- refined@1795256441
 created: 1793752469.3142495
 record:
   uses: 4
-  wins: 2
-  losses: 1
+  wins: 1
+  losses: 3
   score_deltas:
-  - -0.2
-  - 0.1667
-  - 0.2857
-  - 0.4444
-  last_used_battle: battle_0042_graph
-  battles_available: 4
+  - 0.0
+  - -0.4444
+  - -0.5714
+  - 0.4154
+  last_used_battle: zoid_mb_buildalot-apk_1795258971
+  battles_available: 3

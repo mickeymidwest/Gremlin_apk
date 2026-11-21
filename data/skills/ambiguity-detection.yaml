@@ -15,7 +15,7 @@ procedure:
 - Analyze the specific ambiguity to determine if it affects logic, library choice, error handling,
   or file structure.
 - If the ambiguity results in materially different code or behavior, STOP immediately and
-  do not generate any code or file edits.
+  do not generate any code, file edits, or explanations.
 - Generate a single, targeted question asking the user to choose between specific options
   or provide the missing constraint.
 - Ensure the question is specific enough to allow the user to answer with a definitive choice
@@ -32,16 +32,13 @@ provenance:
 - refined@1794889844
 - refined@1794892154
 - refined@1794974778
+- refined@1795256960
 created: 1793752469.3142495
 record:
-  uses: 5
-  wins: 2
-  losses: 3
+  uses: 1
+  wins: 0
+  losses: 1
   score_deltas:
-  - 0.6
-  - 0.0
-  - 0.0
-  - 0.0
-  - 0.5
-  last_used_battle: battle_0044_convert
-  battles_available: 5
+  - -0.5714
+  last_used_battle: battle_0042_csvreport
+  battles_available: 1
