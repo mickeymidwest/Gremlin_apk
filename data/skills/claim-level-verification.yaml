@@ -11,18 +11,18 @@ trigger_when: The model response contains multiple distinct factual assertions, 
   structure, or system constraints.
 trigger_matcher: answer|summary|report|findings|conclusion
 procedure:
-- Extract every distinct factual claim, code snippet, or configuration instruction from the
-  response into a separate list.
+- Parse the response to extract every distinct factual claim, code snippet, or configuration
+  instruction into a separate list.
 - 'For each extracted item, perform targeted verification: check header file paths against
   the actual project structure, verify function definition locations, and confirm installation
   commands align with system package manager policies.'
 - If a verification fails, identify the specific constraint violated (e.g., incorrect include
   path, wrong function signature, invalid sudo usage) and generate a specific correction adhering
   to that constraint.
-- If the correction involves modifying a file, do not rewrite the entire file; instead, edit
-  only the exact lines or sections affected by copying the correct content from the read file.
-- If the correction would make the file invalid (SyntaxError) or if the edit is complex, switch
-  to write_file with the WHOLE corrected file instead of partial edits.
+- If the correction involves modifying a file, attempt to edit only the exact lines or sections
+  affected by reading the file, copying the correct content, and writing it back.
+- If the edit would make the file invalid (SyntaxError) or if the edit is too complex for
+  partial editing, switch to write_file with the WHOLE corrected file instead.
 - If the verification involves tests, do not manually inspect or edit the test files; instead,
   run `python -m pytest -q` to ensure the tests are fully green.
 - Replace the incorrect item in the original response with the corrected version.
@@ -33,14 +33,13 @@ provenance:
 - proposed
 - refined@1794717800
 - refined@1794891846
+- refined@1795344945
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 1
   wins: 0
-  losses: 3
+  losses: 1
   score_deltas:
-  - 0.0
   - -0.5714
-  - 0.0
-  last_used_battle: battle_0044_csvreport
-  battles_available: 3
+  last_used_battle: battle_0045_csvreport
+  battles_available: 1

@@ -1,6 +1,6 @@
 id: skill_dd965ce7
 name: reproduce-before-fixing
-status: active
+status: deprecated
 destination: card
 council_reviewed: true
 purpose: Ensure the agent confirms it can see the bug before trying to fix it.
@@ -19,9 +19,9 @@ provenance:
 - zoid_mb_klondike-apk_1788850352
 created: 1788850361.0420065
 record:
-  uses: 817
+  uses: 823
   wins: 356
-  losses: 352
+  losses: 357
   score_deltas:
   - 0.5
   - 0.2
@@ -840,5 +840,11 @@ record:
   - 0.0
   - 0.0
   - 0.4154
-  last_used_battle: zoid_mb_buildalot-apk_1795344506
-  battles_available: 415
+  - -0.8333
+  - 0.2
+  - -0.1667
+  - -0.1429
+  - 0.0
+  - -0.5714
+  last_used_battle: battle_0045_csvreport
+  battles_available: 421
