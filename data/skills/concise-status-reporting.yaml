@@ -25,12 +25,13 @@ provenance:
 - refined@1794975148
 created: 1793752469.3142495
 record:
-  uses: 3
+  uses: 4
   wins: 1
-  losses: 2
+  losses: 3
   score_deltas:
   - 0.5714
   - -0.5714
   - -0.5714
-  last_used_battle: battle_0043_csvreport
-  battles_available: 3
+  - 0.0
+  last_used_battle: battle_0044_csvreport
+  battles_available: 4

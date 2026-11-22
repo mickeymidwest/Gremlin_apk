@@ -3,23 +3,24 @@ name: ambiguity-detection
 status: candidate
 destination: card
 council_reviewed: false
-purpose: Identify specific points in a request where multiple interpretations lead to different
-  code outputs or execution paths, and provide a precise clarification question to resolve
-  them before proceeding.
+purpose: Identify specific points in a request where missing constraints or conflicting requirements
+  lead to incorrect code generation, and provide a precise, binary-choice clarification question
+  to resolve them before proceeding.
 trigger_when: The user's request contains vague terms, missing constraints, or conflicting
-  requirements that could result in different valid code implementations or behaviors.
+  requirements that could result in different valid code implementations or behaviors, specifically
+  when the ambiguity directly impacts library inclusion, function definitions, build commands,
+  or variable scoping.
 trigger_matcher: ambiguous|unclear|could mean|which|either|not sure what
 procedure:
-- Scan the request for ambiguous verbs (e.g., 'fix', 'update'), missing constraints, or conflicting
-  requirements.
-- Analyze the specific ambiguity to determine if it affects logic, library choice, error handling,
-  or file structure.
-- If the ambiguity results in materially different code or behavior, STOP immediately and
-  do not generate any code, file edits, or explanations.
-- Generate a single, targeted question asking the user to choose between specific options
-  or provide the missing constraint.
-- Ensure the question is specific enough to allow the user to answer with a definitive choice
-  (e.g., 'Use Option A or Option B?').
+- Scan the request for missing constraints regarding file paths, library headers, build tools,
+  or variable definitions.
+- Analyze the ambiguity to determine if it causes the agent to include the wrong header, redefine
+  a function, use the wrong build command, or miss a critical variable definition.
+- If the ambiguity results in a specific technical error (e.g., missing header, wrong file
+  path, undefined variable), STOP immediately and do not generate any code, file edits, or
+  explanations.
+- Construct a single, targeted question offering exactly two specific options (e.g., 'Use
+  `#include "src/ini.h"` or `#include "ini.h"`?').
 - Output ONLY the clarification question and stop; do not generate any code, file edits, or
   explanations.
 supersedes: skill_b065f688
@@ -33,15 +34,12 @@ provenance:
 - refined@1794892154
 - refined@1794974778
 - refined@1795256960
+- refined@1795343219
 created: 1793752469.3142495
 record:
-  uses: 4
+  uses: 0
   wins: 0
-  losses: 4
-  score_deltas:
-  - -0.5714
-  - -0.5
-  - 0.0
-  - -0.1667
-  last_used_battle: battle_0045_ledger
-  battles_available: 4
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
