@@ -582,7 +582,7 @@ def test_36_config_and_guardrail_drift_centralized(tmp_path, monkeypatch):
         (Path(__file__).resolve().parent.parent / "config" / "models.yaml").read_text(encoding="utf-8")
     )
     by_name = {m["name"]: m for m in models_yaml["models"]}
-    assert models_yaml["persona"]["primary_model"] == "qwen2.5-14b"
+    assert models_yaml["persona"]["primary_model"] == "qwen3.5-9b"
     assert by_name["llama-3.1-8b-abliterated"]["kv_cache_type"] == "q8_0"
     assert by_name["l3-8b-stheno-v3.2"]["kv_cache_type"] == "q8_0"
     assert by_name["qwen2.5-14b"]["kv_cache_type"] == "q4_0"

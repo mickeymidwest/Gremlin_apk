@@ -194,7 +194,7 @@ persona:
   # Qwen2.5-Coder is a strong generalist (code + math + reasoning), not
   # narrow -- it passed the long-context sum and the duration parser the
   # plain 7B botched. Chat + /build + /fix now all share one warm model.
-  primary_model: qwen2.5-14b
+  primary_model: qwen3.5-9b
   fallback_models: [gemini]
   system_prompt: |
     Your name is Magic. You're a personal AI assistant running locally

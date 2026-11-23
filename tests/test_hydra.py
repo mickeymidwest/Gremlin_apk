@@ -3,7 +3,7 @@ from magic_core.magic.hydra import Hydra, Head, default_heads
 
 
 def test_roster_has_the_real_heads():
-    h = Hydra()
+    h = Hydra(default_heads(free_ram_mb=8000))
     names = {x.name for x in h.heads}
     assert "qwen3.5-9b" in names                 # general
     assert "qwen3.5-9b-abliterated" in names     # uncensored / private
@@ -57,7 +57,7 @@ def test_swap_cost_keeps_the_resident_head_when_it_fits():
 
 
 def test_report_marks_states():
-    h = Hydra()
+    h = Hydra(default_heads(free_ram_mb=8000))
     rows = {r["name"]: r for r in h.report(free_vram_mb=7000, free_ram_mb=8000)}
     assert rows["qwen2.5-14b"]["state"] == "needs-hardware"  # 7600 > 7000 VRAM
     assert rows["qwen3.5-9b"]["state"] == "available"

@@ -108,4 +108,5 @@ local_plugins/
 data/guard/
 data/fuzz_state/
 data/forged_tools/
+data/rea_uploads/
 .magic/

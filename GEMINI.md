@@ -1,18 +1,3 @@
-<!-- magic-coordination:start -->
-## READ COORDINATION.md FIRST (every session)
-**`COORDINATION.md` (repo root) is the shared game plan between Claude and agy/Gemini.**
-Read it at the START of every session, and KEEP IT UPDATED as you work: claim your lane
-before editing, mark things done when you finish, note what's in progress. This is what
-keeps a fresh Claude and a fresh agy linked across sessions, with no thrashing.
-
-- **Split:** Claude takes the harder / harness / safety-gated work; agy takes the
-  smaller, parallelizable items.
-- **Fallback (Mickey's standing order):** if Claude is down, agy handles the BIG stuff
-  too until Claude is back — agy is the full-capability fallback, not limited to lil-stuff.
-- **Branch discipline:** Claude -> main/claude-*, agy -> gemini-*. Never two agents
-  editing the same files or the same working tree at once.
-<!-- magic-coordination:end -->
-
 <!-- magic-calibration:start -->
 @./CALIBRATION.md
 @./MAGIC.md
@@ -32,3 +17,7 @@ For a REVIEW REQUEST:
 3. List blocking issues as bullets (file:line + why), then non-blocking suggestions.
 4. End with exactly one line: `VERDICT: APPROVE` or `VERDICT: BLOCK — <short reason>`.
 <!-- magic-calibration:end -->
+
+## APK build & in-app install path
+When building the Android app (`./scripts/heavy.sh bash -c 'cd android && ./gradlew assembleDebug'`), always stage the resulting `android/app/build/outputs/apk/debug/app-debug.apk` for in-app install via **Settings → Desktop Builds** (`/builds`):
+- Publish to `~/Downloads/magic-4-<NN>/magic-4.<NN>.apk` (next sequential version) and `~/Downloads/magic-apk/magic-apk.apk`, each with `.magic-build.json` via `magic_core.builds.write_marker(...)` (see `magic_core/builds.py` and `magic_core/magic/android_build.py`).

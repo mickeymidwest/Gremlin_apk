@@ -280,6 +280,11 @@ Pure Kotlin, `com.magic.app`, arm64-v8a, minSdk 24 / target 35. Built in CI
   - `build_project` already drops a `.magic-build.json` marker that makes a
     `~/Downloads/<name>/` folder listable; confirm every build path (script,
     project, android) writes that marker.
+  - For the Magic APK itself (`android/app/build/outputs/apk/debug/app-debug.apk`),
+    publish into `~/Downloads/magic-4-<NN>/magic-4.<NN>.apk` and
+    `~/Downloads/magic-apk/magic-apk.apk` with `.magic-build.json` via
+    `builds.write_marker(...)` (`magic_core/magic/android_build.py` /
+    `magic_core/builds.py`) so it installs straight from **Settings → Desktop Builds**.
 
 ## 7. Infrastructure defense — "harden and watch my own stuff"
 
