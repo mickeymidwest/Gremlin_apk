@@ -33,10 +33,28 @@ _SNIPPET_RE = re.compile(
 _TAG_RE = re.compile(r"""<(?:"[^"]*"|'[^']*'|[^>"'])*>""")
 
 
+_DATA_MW_RE = re.compile(r"""\sdata-mw=(?:"[^"]*"|'[^']*')""", re.DOTALL | re.IGNORECASE)
+_BLOCK_TAG_RE = re.compile(
+    r"""(?is)</?(?:p|div|br|h[1-6]|li|tr|blockquote|section|article|ul|ol|table|dd|dt)\b(?:"[^"]*"|'[^']*'|[^>"'])*>"""
+)
+
+
 def _clean(s: str) -> str:
     """Tag-strip + entity-decode + whitespace-collapse -- shared by
-    search-result text and fetched-page text."""
+    search-result titles and snippets."""
     return re.sub(r"\s+", " ", _html.unescape(_TAG_RE.sub(" ", s))).strip()
+
+
+def _clean_page(s: str) -> str:
+    """Tag-strip + entity-decode while preserving paragraph boundaries (\\n\\n)
+    from block HTML tags so longctx.chunk splits on real paragraphs and sentences
+    instead of slicing mid-word across a single 30k-char line."""
+    no_mw = _DATA_MW_RE.sub("", s)
+    with_breaks = _BLOCK_TAG_RE.sub("\n\n", no_mw)
+    unescaped = _html.unescape(_TAG_RE.sub(" ", with_breaks))
+    lines = [re.sub(r"[ \t\r\f\v]+", " ", ln).strip() for ln in unescaped.splitlines()]
+    joined = "\n".join(lines)
+    return re.sub(r"\n{2,}", "\n\n", joined).strip()
 
 
 def _unwrap_ddg_redirect(href: str) -> str:
@@ -90,7 +108,7 @@ def fetch_text(url: str, max_chars: int = 4000, timeout: int = 12) -> str:
     except Exception as e:
         return f"[couldn't fetch that page: {e}]"
     body = re.sub(r"(?is)<(script|style|nav|header|footer)\b.*?</\1>", "", resp.text)
-    text = _clean(body)
+    text = _clean_page(body)
     if len(text) > max_chars:
         text = text[:max_chars] + " [truncated]"
     return text or "[no readable text on that page]"
@@ -115,7 +133,7 @@ def fetch_text_rendered(url: str, max_chars: int = 8000, timeout: int = 15) -> s
         if proc.returncode != 0 or not proc.stdout:
             return ""
         body = re.sub(r"(?is)<(script|style|nav|header|footer)\b.*?</\1>", "", proc.stdout)
-        text = _clean(body)
+        text = _clean_page(body)
         if len(text) > max_chars:
             text = text[:max_chars] + " [truncated]"
         return text

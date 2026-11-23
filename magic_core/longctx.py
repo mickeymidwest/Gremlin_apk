@@ -16,10 +16,69 @@ from . import embed
 from .memory_select import _tokens
 
 
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'\u201c\u2018(\[])")
+
+
+def _split_long_paragraph(para: str, size: int, overlap: int) -> list[str]:
+    """Split a paragraph longer than `size` on sentence boundaries first, and
+    only fall back to word-boundary windows for an individual oversized sentence
+    so chunks never slice mid-word or sever a sentence's subject from its verb."""
+    sents = [s.strip() for s in _SENT_SPLIT_RE.split(para) if s.strip()]
+    if len(sents) > 1:
+        out: list[str] = []
+        cur = ""
+        prev_tail = ""
+        for sent in sents:
+            if len(sent) > size:
+                if cur:
+                    out.append(cur)
+                    cur = ""
+                out.extend(_split_word_windows(sent, size, overlap))
+                prev_tail = ""
+                continue
+            cand = (cur + " " + sent).strip() if cur else sent
+            if len(cand) <= size:
+                cur = cand
+            else:
+                if cur:
+                    out.append(cur)
+                seed = (prev_tail + " " + sent).strip() if (prev_tail and len(prev_tail) + 1 + len(sent) <= size) else sent
+                cur = seed
+            prev_tail = sent if len(sent) <= overlap else ""
+        if cur:
+            out.append(cur)
+        return out
+    return _split_word_windows(para, size, overlap)
+
+
+def _split_word_windows(text: str, size: int, overlap: int) -> list[str]:
+    out: list[str] = []
+    step = max(1, size - overlap)
+    i = 0
+    n = len(text)
+    while i < n:
+        if i > 0 and not text[i - 1].isspace() and not text[i].isspace():
+            ws = text.find(" ", i, min(n, i + 40))
+            if ws != -1:
+                i = ws + 1
+        end = min(n, i + size)
+        if end < n and not text[end - 1].isspace() and not text[end].isspace():
+            ws_back = text.rfind(" ", i + max(1, size // 2), end)
+            if ws_back != -1:
+                end = ws_back
+        piece = text[i:end].strip()
+        if piece:
+            out.append(piece)
+        if end >= n:
+            break
+        i += step
+    return out
+
+
 def chunk(text: str, size: int = 700, overlap: int = 100) -> list[str]:
-    """Split text into ~`size`-char chunks on paragraph boundaries, hard-
-    splitting a paragraph longer than `size` (with overlap so a sentence on a
-    boundary isn't lost)."""
+    """Split text into ~`size`-char chunks on paragraph boundaries, splitting
+    a paragraph longer than `size` along sentence/word boundaries (with overlap
+    so a sentence on a boundary isn't lost)."""
     out: list[str] = []
     cur = ""
     for para in re.split(r"\n\s*\n", text):
@@ -35,13 +94,7 @@ def chunk(text: str, size: int = 700, overlap: int = 100) -> list[str]:
         if len(para) <= size:
             cur = para
         else:
-            step = max(1, size - overlap)
-            i = 0
-            while i < len(para):
-                out.append(para[i:i + size])
-                if i + size >= len(para):
-                    break      # the tail is already in this slice
-                i += step
+            out.extend(_split_long_paragraph(para, size, overlap))
     if cur:
         out.append(cur)
     return out

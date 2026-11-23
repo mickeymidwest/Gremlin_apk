@@ -38,8 +38,12 @@ _STOP = {
 
 
 def _tokens(text: str) -> set[str]:
-    flat = (text or "").lower().replace("'", "").replace("’", "")
-    return {w for w in re.findall(r"[a-z0-9]+", flat) if len(w) >= 3 and w not in _STOP}
+    cleaned = re.sub(r"(?i)(?:'s|\u2019s)\b", "", (text or "").lower())
+    flat = cleaned.replace("'", "").replace("\u2019", "")
+    return {
+        w for w in re.findall(r"[a-z0-9]+", flat)
+        if (len(w) >= 3 or w.isdigit()) and w not in _STOP
+    }
 
 
 def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int = 5,

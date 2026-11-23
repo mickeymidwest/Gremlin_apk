@@ -169,7 +169,18 @@ def call_tool(server_name: str, tool_name: str, arguments: dict,
         return {"text": f"MCP server {server_name} is not available", "is_error": True}
     spec = _SPECS.get(server_name)
     t_reg = tools_mod.REGISTRY.get(f"mcp_{server_name}_{tool_name}"[:60])
-    schema = getattr(t_reg, "parameters", None) or {"type": "object", "properties": {"path": {}, "input_path": {}}}
+    schema = getattr(t_reg, "parameters", None)
+    if not schema:
+        try:
+            schema = next(
+                (t.get("inputSchema") for t in c.list_tools() if t.get("name") == tool_name),
+                None,
+            )
+        except Exception:
+            schema = None
+    if not schema:
+        default_prop = "input_path" if tool_name == "analyze_javascript_application" else "path"
+        schema = {"type": "object", "properties": {default_prop: {}}}
     sandboxed = bwrap_sandbox.is_dynamic_exec_tool(tool_name)
     return _invoke_mcp_tool(c, spec, tool_name, schema, arguments or {}, sandboxed=sandboxed)
 

@@ -467,9 +467,10 @@ _SUBJECT_IGNORE = _SUBJECTLESS | _SHORT_GLUE | {
 
 
 def _subject_terms(text: str) -> list[str]:
+    cleaned = re.sub(r"(?i)(?:'s|\u2019s)\b", "", (text or "").lower())
     return [
-        w for w in re.findall(r"[a-zA-Z0-9]+", (text or "").lower())
-        if len(w) >= 2 and w not in _SUBJECT_IGNORE
+        w for w in re.findall(r"[a-zA-Z0-9]+", cleaned)
+        if (len(w) >= 2 or w.isdigit()) and w not in _SUBJECT_IGNORE
     ]
 
 
@@ -504,8 +505,12 @@ def _should_fetch(message: str, results: list[dict]) -> bool:
 def _condense_keywords(query: str) -> str:
     """Distill a verbose natural-language query into crisp search keywords for a
     retry pass if the literal phrasing returned zero hits."""
-    toks = [w for w in re.findall(r"[a-zA-Z0-9.-]+", query or "")
-            if len(w) >= 3 and w.lower() not in _SUBJECTLESS]
+    cleaned = re.sub(r"(?i)(?:'s|\u2019s)\b", "", query or "")
+    ignore = _SUBJECTLESS | _SHORT_GLUE
+    toks = [
+        w for w in re.findall(r"[a-zA-Z0-9.-]+", cleaned)
+        if (len(w) >= 3 or w.isdigit()) and w.lower() not in ignore
+    ]
     return " ".join(toks[:_MAX_CONDENSE_TOKENS])
 
 
@@ -613,12 +618,13 @@ def _proper_entities(text: str) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for idx, tok in enumerate(tokens):
-        low = tok.lower().strip("'-")
+        stem = re.sub(r"(?i)(?:'s|\u2019s)$", "", tok)
+        low = stem.lower().strip("'-")
         if len(low) < 2 or low in _SUBJECT_IGNORE or low in seen:
             continue
-        is_cap = tok[0].isupper() or (tok.isupper() and len(tok) >= 2)
+        is_cap = stem[0].isupper() or (stem.isupper() and len(stem) >= 2)
         # Skip sentence-initial capitalized common lead words unless ALL-CAPS acronym (MGK, DBZ)
-        if idx == 0 and not (tok.isupper() and len(tok) >= 2):
+        if idx == 0 and not (stem.isupper() and len(stem) >= 2):
             continue
         if is_cap:
             seen.add(low)
@@ -736,21 +742,36 @@ def _usable_fetched_chars(fetched_txt: str) -> int:
 
 async def _fetch_top_page(results: list[dict], *, max_chars: int | None = None, query: str = "",
                           max_pages: int = 1) -> str:
-    """Read up to `max_pages` readable pages from distinct domains/URLs (never
+    """Read up to `max_pages` readable pages from distinct URLs (never
     raises; '' if none readable) so single paywalled/thin pages don't stall research."""
     if max_chars is None:
         max_chars = _MAX_PAGE_CHARS
     blocks: list[str] = []
-    seen_domains: set[str] = set()
+    seen_keys: set[str] = set()
     per_page = max_chars if max_pages <= 1 else max(1200, max_chars // max_pages)
     rquery = _page_retrieve_query(query)
-    for r in results[:min(len(results), max_pages + 3)]:
+    candidates = results[:min(len(results), max_pages + 3)]
+    # Always prioritize reading full text from Tier-0 encyclopedic/authoritative pages
+    # (e.g. Wikipedia) whose lead snippet only introduces the subject while the body
+    # holds the specific season/episode/plot details.
+    candidates = sorted(
+        enumerate(candidates),
+        key=lambda item: (
+            0 if "wikipedia.org" in (item[1].get("url") or "").lower() else (1 if _source_tier(item[1].get("url") or "", item[1].get("snippet") or "") == 0 else 2),
+            item[0],
+        ),
+    )
+    for _, r in candidates:
         url = (r.get("url") or "").strip()
         if not url:
             continue
         dom_m = re.search(r"https?://([^/]+)", url)
         dom = dom_m.group(1).lower().removeprefix("www.") if dom_m else url
-        if blocks and dom in seen_domains:
+        # Allow distinct articles on trusted encyclopedic wikis (e.g. two different
+        # Wikipedia or Fandom pages); deduplicate other hosts by domain.
+        is_wiki = any(dom == w or dom.endswith("." + w) for w in ("wikipedia.org", "fandom.com", "britannica.com", "wiki.gg"))
+        dedup_key = url.split("#", 1)[0] if is_wiki else dom
+        if blocks and dedup_key in seen_keys:
             continue
         try:
             # fetch more than we'll keep, then retrieve the parts relevant to
@@ -770,7 +791,7 @@ async def _fetch_top_page(results: list[dict], *, max_chars: int | None = None, 
             page = longctx.retrieve(raw, rquery, max_chars=per_page).strip()
             if len(re.sub(r"\s+", "", page)) < _MIN_CLEAN_PAGE_CHARS or _is_blocked_text(page):
                 continue
-            seen_domains.add(dom)
+            seen_keys.add(dedup_key)
             blocks.append(f"Full text read from ({url}):\n{page}")
             if len(blocks) >= max_pages:
                 break

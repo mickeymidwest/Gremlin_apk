@@ -555,3 +555,191 @@ def test_per_speaker_reroll_and_nudge_keep_other_girls_intact():
     finally:
         loop.call_soon_threadsafe(loop.stop)
         t.join(timeout=2)
+
+
+def test_multi_girl_stays_on_topic_and_girls_interact_with_each_other_and_mickey():
+    import threading
+    from flask import Flask
+    from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+
+    pc._sessions.clear()
+    app = Flask(__name__)
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    recorded_calls = []
+
+    class _OnTopicTwoGirlBackend(ModelBackend):
+        def __init__(self):
+            super().__init__(ModelInfo(name="fake", kind="local"))
+
+        async def generate(self, prompt, system=None, max_tokens=900, temperature=0.9, history=None):
+            recorded_calls.append({"prompt": prompt, "system": system or "", "history": list(history or [])})
+            if "SANDBOXED TURN — Maya Farrell ALONE" in prompt:
+                return GenerationResult(
+                    model="fake",
+                    text="Maya: *I nudge Cory's shoulder and hold up the sci-fi thriller case for Mickey.* \"Cory and I picked Blade Runner for tonight — tell him why you insisted, Cory.\"",
+                )
+            if "SANDBOXED TURN — Cory Chase ALONE" in prompt:
+                return GenerationResult(
+                    model="fake",
+                    text="Cory: *I laugh at Maya and pat the cushion between us for you.* \"Because Maya always steals the blanket during the neon rain scene, Mickey.\"",
+                )
+            return GenerationResult(model="fake", text="SCENE: Couch movie night")
+
+    be = _OnTopicTwoGirlBackend()
+
+    class _Reg:
+        def primary_model_name(self):
+            return "fake"
+
+        def get(self, name):
+            return be if name == "fake" else None
+
+        def all(self):
+            return {"fake": be}
+
+    persona = {
+        "name": "Cory Chase",
+        "two_dynamic": "best friends who tease each other constantly",
+        "second": {"name": "Maya Farrell"},
+    }
+    try:
+        pc.register(app, {"registry": _Reg(), "loop": loop, "check_auth": lambda: None})
+        client = app.test_client()
+        resp = client.post(
+            "/private/chat",
+            json={
+                "message": "Maya, what movie did you and Cory pick for tonight?",
+                "persona": persona,
+            },
+        )
+        assert resp.status_code == 200
+        ans = resp.get_json()["answer"]
+        # Addressed girl (Maya) speaks first, followed by Cory reacting to Maya + Mickey
+        assert ans.index("Maya Farrell:") < ans.index("Cory Chase:")
+        assert "Cory Chase: Cory:" not in ans
+        assert "Maya Farrell: Maya:" not in ans
+
+        # Filter to the 2 sandboxed character calls (excluding post-turn scene_state extraction)
+        sandbox_calls = [c for c in recorded_calls if "SANDBOXED TURN" in c["prompt"]]
+        assert len(sandbox_calls) == 2
+        first_call, second_call = sandbox_calls[0], sandbox_calls[1]
+        assert "SANDBOXED TURN — Maya Farrell ALONE" in first_call["prompt"]
+        assert "THREE-WAY INTERACTION & ON-TOPIC LOCK" in first_call["system"]
+        assert "best friends who tease each other constantly" in first_call["system"]
+
+        # Second speaker sees what the first speaker JUST said inside the turn prompt (not out-of-order in history)
+        assert "SANDBOXED TURN — Cory Chase ALONE" in second_call["prompt"]
+        assert "[JUST SPOKEN IN THIS TURN RIGHT BEFORE YOU:" in second_call["prompt"]
+        assert "Blade Runner" in second_call["prompt"]
+        assert second_call["history"] == []
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(timeout=2)
+
+
+def test_strip_combined_or_other_speakers_splits_inline_switches_and_first_name_aliases():
+    names = ["Cory Chase", "Maya Farrell"]
+    raw = (
+        "Cory: *I clink my glass against Maya's and look at you.* \"We were just talking about that concert.\" "
+        "Maya: \"Yeah, I told Cory you knew the opening band!\"\n\n"
+        "Cory Chase: \"So tell us which song was your favorite.\""
+    )
+    cleaned = pc._strip_combined_or_other_speakers(raw, "Cory Chase", names)
+    assert cleaned.startswith("Cory Chase: *I clink my glass")
+    assert "Cory Chase: Cory:" not in cleaned
+    assert "Maya" not in cleaned or "Maya Farrell:" not in cleaned
+    assert "opening band" not in cleaned
+    # Second paragraph keeps its content without repeating a duplicate 'Cory Chase:' header
+    assert "So tell us which song was your favorite." in cleaned
+    assert cleaned.count("Cory Chase:") == 1
+
+
+def test_active_whispers_and_multi_girl_remember_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(pc, "_MEM_DIR", tmp_path)
+    persona = {"name": "Cory Chase", "second": {"name": "Maya Farrell"}}
+    pc._capture_memory(persona, "Please remember that I love smoky mezcal cocktails.")
+    assert "I love smoky mezcal cocktails" in pc._load_memories({"name": "Cory Chase"})
+    assert "I love smoky mezcal cocktails" in pc._load_memories({"name": "Maya Farrell"})
+
+    pc._sessions["w_key"] = {
+        "turns": [("@Maya (quietly) meet me on the balcony in five", "Maya Farrell: *catches your eye and nods subtly*")],
+        "active_whispers": {"Maya": "meet me on the balcony in five"},
+    }
+    block = pc._scene_state_block("w_key")
+    assert "to Maya: meet me on the balcony in five" in block
+
+
+def test_multi_girl_sse_stream_prefixes_live_deltas_and_chains_girl_turns(monkeypatch):
+    import threading
+    from flask import Flask
+    from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+
+    pc._sessions.clear()
+    app = Flask(__name__)
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    stream_prompts = []
+
+    class _StreamingTwoGirlBackend(ModelBackend):
+        def __init__(self):
+            super().__init__(ModelInfo(name="fake", kind="local"))
+
+        async def generate(self, prompt, system=None, max_tokens=900, temperature=0.9, history=None):
+            return GenerationResult(model="fake", text="SCENE: Living room couch")
+
+        async def generate_stream(self, prompt, system=None, max_tokens=900, temperature=0.9, history=None):
+            stream_prompts.append(prompt)
+            if "SANDBOXED TURN — Maya Farrell ALONE" in prompt:
+                # Deliberately omit 'Maya Farrell:' prefix to verify live stream delta auto-prefixing
+                yield "*I turn to Cory and grin before answering you.* "
+                yield "\"We were just debating which vinyl record to put on next, right Cory?\""
+            elif "SANDBOXED TURN — Cory Chase ALONE" in prompt:
+                yield "Cory Chase: *I bump Maya's hip playfully and look at Mickey.* "
+                yield "\"Maya wanted synthwave, I voted for slow jazz — break the tie for us.\""
+
+    be = _StreamingTwoGirlBackend()
+
+    class _Reg:
+        def primary_model_name(self):
+            return "fake"
+
+        def get(self, name):
+            return be if name == "fake" else None
+
+        def all(self):
+            return {"fake": be}
+
+    persona = {"name": "Cory Chase", "second": {"name": "Maya Farrell"}}
+    try:
+        monkeypatch.setattr(vram, "ensure_only", lambda reg, keep=None: asyncio.sleep(0))
+        pc.register(app, {"registry": _Reg(), "loop": loop, "check_auth": lambda: None})
+        client = app.test_client()
+        resp = client.post(
+            "/private/chat/stream",
+            json={
+                "message": "Maya, what music were you and Cory picking out?",
+                "persona": persona,
+            },
+        )
+        body = resp.get_data(as_text=True)
+        events = [
+            json.loads(ln[len("data:"):].strip())
+            for ln in body.splitlines()
+            if ln.startswith("data:")
+        ]
+        deltas = "".join(ev.get("text", "") for ev in events if ev.get("type") == "delta")
+        done_ev = next(ev for ev in events if ev.get("type") == "done")
+        assert deltas.startswith("Maya Farrell: *I turn to Cory")
+        assert "\n\nCory Chase: *I bump Maya's hip" in deltas
+        assert done_ev["ok"] is True
+        assert "Maya Farrell: *I turn to Cory" in done_ev["answer"]
+        assert "Cory Chase: *I bump Maya's hip" in done_ev["answer"]
+        assert len(stream_prompts) == 2
+        assert "[JUST SPOKEN IN THIS TURN RIGHT BEFORE YOU:" in stream_prompts[1]
+        assert "which vinyl record to put on next" in stream_prompts[1]
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(timeout=2)

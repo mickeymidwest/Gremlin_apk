@@ -285,6 +285,168 @@ def _load_local_plugins(app, ctx: dict) -> None:
             print(f"local plugin {f.name} skipped: {type(e).__name__}: {e}", flush=True)
 
 
+_REA_EXPLICIT_WEB_RE = re.compile(
+    r"\b(?:search\s+(?:the\s+)?(?:internet|web|online|net)|web\s+search|"
+    r"look\s*up\s+(?:on\s+the\s+(?:internet|web)|online)|"
+    r"search\s+online|find\s+online|check\s+online|google(?:\s+for)?)\b",
+    re.I,
+)
+_REA_LOCAL_TARGET_Q_RE = re.compile(
+    r"\b(?:this\s+(?:app|apk|target|binary|file|executable|script|archive|db|database)|"
+    r"active\s+target|inside\s+this|in\s+this\s+(?:app|apk|binary|file)|"
+    r"main\s*activity|MainActivity|decompile|manifest|exported\s+components?|hardening|"
+    r"strings?\s+in)\b",
+    re.I,
+)
+_REA_LOCAL_SEARCH_RE = re.compile(
+    r"\b(?:in\s+this|inside\s+this|in\s+the\s+(?:apk|binary|file|classes|strings|target)|"
+    r"classes|strings)\b",
+    re.I,
+)
+_REA_CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.I)
+
+
+def _rea_target_label(active_target: str = "", base_rep: str = "") -> str:
+    """Best human-readable package/artifact identifier for the active REA target."""
+    if base_rep:
+        m = (
+            re.search(r'"declared_name"\s*:\s*"([^"]+)"', base_rep)
+            or re.search(r'"package_name"\s*:\s*"([^"]+)"', base_rep)
+            or re.search(r'Package:\s*([A-Za-z0-9_.-]+)', base_rep)
+        )
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+    if active_target:
+        stem = Path(active_target).stem
+        if stem and not stem.startswith(("msf_", "upload")):
+            return stem
+        return Path(active_target).name
+    return ""
+
+
+def _rea_extract_web_query(raw_text: str, active_target: str = "", base_rep: str = "") -> str:
+    """Normalize a user REA search command or question into a clean search query."""
+    q = (raw_text or "").strip()
+    q = re.sub(
+        r"^(?:please\s+|can\s+you\s+|could\s+you\s+)?"
+        r"(?:search\s+(?:the\s+)?(?:internet|web|online|net)\s+(?:for\s+)?|"
+        r"web\s+search\s+(?:for\s+)?|"
+        r"search\s+online\s+(?:for\s+)?|"
+        r"find\s+online\s+(?:for\s+)?|"
+        r"check\s+online\s+(?:for\s+|if\s+)?|"
+        r"google\s+(?:for\s+)?|"
+        r"look\s*up\s+(?:online\s+)?|"
+        r"search\s+for\s+|"
+        r"(?:the\s+)?(?:internet|web|net)\s+(?:for\s+)?|"
+        r"online\s+(?:for\s+)?|"
+        r"for\s+)",
+        "",
+        q,
+        flags=re.I,
+    ).strip()
+    q = re.sub(r"\s+(?:on\s+the\s+(?:internet|web)|online)$", "", q, flags=re.I).strip()
+    lbl = _rea_target_label(active_target, base_rep)
+    if lbl:
+        q = re.sub(
+            r"\bthis\s+(?:app|apk|package|target|binary|file)\b",
+            lbl,
+            q,
+            flags=re.I,
+        )
+    return q or (raw_text or "").strip()
+
+
+def _rea_should_search_web(cmd_raw: str) -> tuple[bool, bool]:
+    """Return (should_search, force_search) for a natural-language REA Mode turn."""
+    from . import autoresearch
+
+    t = (cmd_raw or "").strip()
+    if not t:
+        return False, False
+    if _REA_EXPLICIT_WEB_RE.search(t):
+        return True, True
+    if re.match(r"^(?:search\s+for|look\s*up)\s+\S+", t, re.I) and not _REA_LOCAL_SEARCH_RE.search(t):
+        return True, True
+    if _REA_CVE_RE.search(t):
+        return True, True
+    if autoresearch.should_search(t) and not _REA_LOCAL_TARGET_Q_RE.search(t):
+        return True, False
+    return False, False
+
+
+def _rea_fetch_url_text(url: str) -> tuple[bool, str]:
+    """Fetch readable plain text from a URL for REA Mode, falling back to
+    headless Chromium rendering if available when static HTML is thin."""
+    from . import web_search
+
+    txt = web_search.fetch_text(url, max_chars=8000)
+    ok = not txt.startswith((
+        "[not a valid URL]",
+        "[couldn't fetch that page:",
+        "[no readable text on that page]",
+    ))
+    if (not ok or len(txt.strip()) < 200) and url.startswith(("http://", "https://")):
+        rendered = web_search.fetch_text_rendered(url, max_chars=8000)
+        if rendered and len(rendered.strip()) > len(txt.strip()):
+            txt = rendered
+            ok = True
+    return ok, txt
+
+
+def _rea_format_sources_fallback(sources: list[dict]) -> str:
+    return "\n\n".join(
+        f"{i + 1}. {(s.get('title') or '').strip()}\n   {(s.get('url') or '').strip()}"
+        for i, s in enumerate(sources)
+    )
+
+
+def _rea_gather_web(query: str, *, loop: asyncio.AbstractEventLoop):
+    """Run autoresearch.gather() on the server's event loop with force=True."""
+    from . import autoresearch as _ar
+
+    return run_coro(loop, _ar.gather(query, limit=5, force=True), timeout=90.0)
+
+
+def _rea_finalize_web_answer(
+    answer: str,
+    web_ev: str,
+    web_sources: list[dict],
+    query: str,
+    *,
+    registry: ModelRegistry,
+    loop: asyncio.AbstractEventLoop,
+    include_urls: bool = False,
+) -> str:
+    """Attach web fact-check, unverified-figure caveats, and source footer."""
+    from . import autoresearch as _ar
+    from .magic import grounding as _grounding
+
+    out = answer
+    if os.environ.get("MAGIC_REA_CPU_FACTCHECK") == "1":
+        try:
+            unsup = run_coro(
+                loop,
+                magic_reply._web_fact_check(out, web_ev, query, registry=registry),
+                timeout=60.0,
+            )
+            if unsup:
+                out += _grounding.web_caveat(unsup)
+        except Exception:
+            pass
+    figs = _ar.unverified_figures(out, web_ev)
+    if figs:
+        out += _ar.figures_caveat(figs)
+    out += _ar.footer(web_sources)
+    if include_urls:
+        top_urls = "\n".join(
+            f"• {(s.get('title') or s.get('url') or '').strip()} — {(s.get('url') or '').strip()}"
+            for s in web_sources[:3] if s.get("url")
+        )
+        if top_urls:
+            out += "\n\nSources:\n" + top_urls
+    return out
+
+
 def create_app(
     registry: ModelRegistry,
     router: Router,
@@ -1923,6 +2085,716 @@ def create_app(
         root = str(project_root)
         removed = profile_mod.drop_by_text(root, text) or notes_mod.forget_note_by_text(root, text)
         return jsonify({"ok": bool(removed), "removed": removed or ""})
+
+    _rea_state: dict = {"active_target": "", "last_report": "", "tool_count_client": None, "tool_count": 0}
+
+    def _rea_uploads_dir() -> Path:
+        d = Path(project_root) / "data" / "rea_uploads"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _rea_targets_list() -> list[dict]:
+        from . import inspect as inspect_mod
+        updir = _rea_uploads_dir()
+        files = sorted(
+            (p for p in updir.iterdir() if p.is_file() and not p.name.startswith(".")),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        out = []
+        for p in files[:30]:
+            try:
+                out.append({
+                    "name": p.name,
+                    "path": str(p.resolve()),
+                    "kind": inspect_mod.sniff_artifact_kind(p),
+                    "size_bytes": p.stat().st_size,
+                })
+            except OSError:
+                continue
+        return out
+
+    def _rea_active_target(explicit: str = "") -> str:
+        from . import inspect as inspect_mod
+        root = str(project_root)
+        if explicit:
+            p = inspect_mod._resolve_target_path(explicit, root, default_target=_rea_state.get("active_target", ""))
+            if p is not None:
+                _rea_state["active_target"] = str(p)
+                return str(p)
+        cur = _rea_state.get("active_target") or ""
+        if cur and Path(cur).exists():
+            return cur
+        targets = _rea_targets_list()
+        if targets:
+            _rea_state["active_target"] = targets[0]["path"]
+            return targets[0]["path"]
+        return ""
+
+    def _rea_status_payload() -> dict:
+        from . import mcp_bridge
+        root = str(project_root)
+        targets = _rea_targets_list()
+        active = _rea_active_target()
+        active_info = next((t for t in targets if t["path"] == active), None)
+        if active and active_info is None and Path(active).exists():
+            from . import inspect as inspect_mod
+            p = Path(active)
+            active_info = {
+                "name": p.name,
+                "path": str(p.resolve()),
+                "kind": inspect_mod.sniff_artifact_kind(p),
+                "size_bytes": p.stat().st_size,
+            }
+        client = mcp_bridge.get_client("rea", root=root)
+        mcp_ready = client is not None and bool(client.alive)
+        if not mcp_ready:
+            _rea_state["tool_count_client"] = None
+            _rea_state["tool_count"] = 0
+            tool_count = 0
+        elif _rea_state.get("tool_count_client") is client and _rea_state.get("tool_count", 0) > 0:
+            tool_count = int(_rea_state["tool_count"])
+        else:
+            tool_count = len(client.list_tools())
+            _rea_state["tool_count_client"] = client
+            _rea_state["tool_count"] = tool_count
+        return {
+            "ok": True,
+            "mcp_ready": mcp_ready,
+            "tool_count": tool_count,
+            "active_target": active_info,
+            "targets": targets,
+        }
+
+    @app.route("/rea/status", methods=["GET"])
+    def rea_status_route():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        return jsonify(_rea_status_payload())
+
+    @app.route("/rea", methods=["POST"])
+    def rea_route():
+        """REA MODE cockpit endpoint:
+        1) Upload apps/APKs/binaries/files (`file_b64` + `filename`) with magic-byte
+           extension auto-fix and immediate REA inspection.
+        2) Snap camera photos or upload screenshots (`image` / `image_b64`) for
+           reverse-engineering vision + OCR (`qwen2.5-vl-7b`).
+        3) Execute 1-tap REA commands / MCP tools (`tool` or `message`) against the
+           active target without needing to retype paths.
+        4) Ask Magic natural-language reverse-engineering questions grounded in the
+           active target's REA report and decompiled classes."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        import base64 as _b64
+        import re as _re
+        from pathlib import Path as _Path
+        from . import inspect as inspect_mod
+        from . import mcp_bridge
+        from .magic import commands as cmd_mod
+
+        body = request.get_json(silent=True) or {}
+        action = str(body.get("action") or "").strip().lower()
+        message = str(body.get("message") or "").strip()
+        tool_arg = str(body.get("tool") or "").strip()
+        explicit_target = str(body.get("target") or "").strip()
+        file_b64 = body.get("file_b64")
+        filename = str(body.get("filename") or "upload.bin").strip()
+        image_b64 = body.get("image") or body.get("image_b64")
+        image_mime = str(body.get("image_mime") or "image/jpeg").strip()
+        root = str(project_root)
+
+        if action == "status":
+            return jsonify(_rea_status_payload())
+
+        if action == "clear" or history_mod.is_clear_command(message):
+            _rea_state["last_report"] = ""
+            conversation_history.clear("rea")
+            return jsonify({**_rea_status_payload(), "ok": True, "cleared": True, "answer": "Cleared -- fresh start."}), 200
+
+        if action == "select_target":
+            chosen = _rea_active_target(explicit_target or message)
+            st = _rea_status_payload()
+            if not chosen:
+                return jsonify({**st, "ok": False, "answer": "Target file not found."}), 200
+            return jsonify({**st, "answer": f"Active REA target set to: {_Path(chosen).name}"}), 200
+
+        if action == "delete_target":
+            t_del = explicit_target or message
+            updir = _rea_uploads_dir().resolve()
+            p_del = (updir / _Path(t_del).name).resolve() if t_del else None
+            if p_del and p_del.is_file() and updir in p_del.parents:
+                try:
+                    p_del.unlink()
+                except OSError:
+                    pass
+                if _rea_state.get("active_target") == str(p_del):
+                    _rea_state["active_target"] = ""
+                    _rea_state["last_report"] = ""
+            st = _rea_status_payload()
+            return jsonify({**st, "answer": f"Deleted {_Path(t_del).name}." if t_del else "Deleted."}), 200
+
+        if action == "list_tools":
+            c = mcp_bridge.get_client("rea", root=root)
+            tlist = [
+                {"name": t.get("name", ""), "description": (t.get("description") or "").strip()[:140]}
+                for t in (c.list_tools() if c else [])
+            ]
+            return jsonify({**_rea_status_payload(), "tools": tlist}), 200
+
+        # --- 1. Camera / Screenshot Vision path inside REA Mode ---
+        if image_b64:
+            _vis_be = registry.get("qwen2.5-vl-7b")
+            if _vis_be is None:
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": "Vision model (qwen2.5-vl-7b) is not configured on the desktop.",
+                }), 200
+            vis_prompt = (
+                "You are Magic's Reverse Engineering Assistant (REA) inspecting a photo or screenshot. "
+                "Read all visible text, package names, class/function names, URLs, IP addresses, "
+                "error messages, hex/disassembly, or hardware/PCB markings accurately, then explain "
+                "what it shows and what to inspect next."
+            )
+            if message:
+                vis_prompt += f"\n\nUser request: {message}"
+
+            async def _rea_see():
+                from .magic import vram
+                primary_name = registry.primary_model_name()
+                await vram.ensure_only(registry, keep="qwen2.5-vl-7b")
+                try:
+                    return await magic_reply.answer_vision(
+                        _vis_be, vis_prompt, root, image_b64, image_mime, history=""
+                    )
+                finally:
+                    try:
+                        await _vis_be.unload()
+                    except Exception:
+                        pass
+                    if primary_name:
+                        async def _warm_primary():
+                            try:
+                                await vram.ensure_only(registry, keep=primary_name)
+                                p_be = registry.get(primary_name)
+                                if p_be is not None and hasattr(p_be, "warmup"):
+                                    await p_be.warmup()
+                            except Exception:
+                                pass
+                        asyncio.run_coroutine_threadsafe(_warm_primary(), loop)
+
+            try:
+                vres = run_coro(
+                    loop,
+                    _in_phase(agent_state.AgentState.REASONING, _rea_see()),
+                    timeout=180.0,
+                )
+                ans = (vres.get("answer") or "").strip() or "Couldn't read anything from that image."
+                return jsonify({**_rea_status_payload(), "ok": bool(vres.get("ok", True)), "answer": ans}), 200
+            except Exception as e:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": f"REA Vision error: {type(e).__name__}: {e}"}), 200
+
+        # --- 2. App / File Upload path ---
+        if file_b64:
+            try:
+                raw = _b64.b64decode(file_b64)
+            except Exception:
+                return jsonify({**_rea_status_payload(), "answer": "I couldn't decode that uploaded file.", "ok": False}), 200
+            safe = _re.sub(r"[^A-Za-z0-9._-]", "_", filename).strip("._") or "upload.bin"
+            updir = _rea_uploads_dir()
+            dest = updir / safe
+            try:
+                dest.write_bytes(raw)
+            except Exception as e:  # noqa
+                return jsonify({**_rea_status_payload(), "answer": f"Couldn't save the upload: {type(e).__name__}", "ok": False}), 200
+            # If Android content:// picker gave a generic name like 'msf_10000123' without extension,
+            # sniff magic bytes and append the canonical extension so REA tools recognize it.
+            sniffed = inspect_mod.sniff_artifact_kind(dest)
+            ext_map = {"apk": ".apk", "wasm": ".wasm", "sqlite": ".sqlite", "model": ".gguf", "pe": ".exe", "elf": ".elf", "pcap": ".pcap"}
+            want_ext = ext_map.get(sniffed, "")
+            if want_ext and not dest.name.lower().endswith(want_ext):
+                renamed = updir / (dest.name + want_ext)
+                try:
+                    dest.rename(renamed)
+                    dest = renamed
+                except OSError:
+                    pass
+            _rea_state["active_target"] = str(dest.resolve())
+            try:
+                report = inspect_mod.inspect_any(str(dest.resolve()), project_root=root)
+            except Exception as e:  # noqa
+                return jsonify({**_rea_status_payload(), "answer": f"REA hit an error on {dest.name}: {type(e).__name__}: {e}", "ok": False}), 200
+            if not report:
+                report = f"Saved {dest.name} ({len(raw):,} bytes), but REA returned no output."
+            _rea_state["last_report"] = report
+            header = f"Loaded target: {dest.name} ({sniffed.upper()}, {len(raw):,} bytes)\n\n"
+            return jsonify({**_rea_status_payload(), "answer": header + report, "ok": True}), 200
+
+        active_target = _rea_active_target(explicit_target)
+
+        # --- 3. Explicit tool or quick-command button ---
+        cmd_raw = (f"{tool_arg} {message}".strip() if tool_arg else message).strip()
+        if not cmd_raw:
+            st = _rea_status_payload()
+            t_label = st["active_target"]["name"] if st.get("active_target") else "none (upload an APK/file or tap Phone Apps)"
+            return jsonify({
+                **st,
+                "ok": True,
+                "answer": (
+                    f"REA Mode Ready · {st['tool_count']} MCP tools online\n"
+                    f"Active Target: {t_label}\n\n"
+                    "Quick commands:\n"
+                    "  • Upload App/File or pick from Phone Apps\n"
+                    "  • Tap any command chip (APK Summary, Signature, Permissions, Decompile Main, Strings & URLs, Hardening, Exports, Web Search, ...)\n"
+                    "  • Search the internet (`search <query>` or `fetch <url>`)\n"
+                    "  • Ask any question about the active target or look up CVEs, packages & domains online"
+                ),
+            }), 200
+
+        low_cmd = cmd_raw.lower().strip()
+        if low_cmd in ("help", "/help", "commands", "tools"):
+            st = _rea_status_payload()
+            t_label = st["active_target"]["name"] if st.get("active_target") else "none"
+            return jsonify({
+                **st,
+                "ok": True,
+                "answer": (
+                    f"=== REA Mode Commands (Active Target: {t_label}) ===\n"
+                    "• summary / overview        — Full REA static report on active target\n"
+                    "• signature / certs         — APK v1/v2/v3 signing & certificate SHA-256\n"
+                    "• permissions / manifest    — AndroidManifest permissions & exported components\n"
+                    "• decompile [ClassName]     — Decompile MainActivity or any class via JADX MCP\n"
+                    "• classes [search_query]    — List or search classes inside APK\n"
+                    "• method <Class> <Method>   — Decompile a specific Android method\n"
+                    "• resources                 — Decode Android strings & resource tables\n"
+                    "• jni                       — Inspect Android JNI / native .so bindings\n"
+                    "• strings / urls / secrets  — Scan DEX / ELF / PE / raw bytes for URLs, IPs & risky calls\n"
+                    "• hardening                 — ELF/PE binary security hardening (PIE, Canary, NX, RELRO)\n"
+                    "• layout / entropy          — Binary sections layout or byte entropy scan\n"
+                    "• exports / elf / pe        — Native exported symbols, ELF notes, or PE imports\n"
+                    "• objdump                   — Disassemble binary with objdump\n"
+                    "• js / wasm / sqlite / pyc  — Analyze JS/Electron, WASM, SQLite DB, or Python .pyc\n"
+                    "• search / web <query>      — Search the live internet (CVEs, packages, domains, docs)\n"
+                    "• fetch <https://url>       — Fetch & read plain text of a web page\n"
+                    "• /do <recon goal>          — Run Magic's read-only ReAct recon loop on the target\n"
+                    "• Or ask any question in plain English (with automatic internet search when needed)!"
+                ),
+            }), 200
+
+        if low_cmd in ("targets", "files", "list targets"):
+            targets = _rea_targets_list()
+            if not targets:
+                return jsonify({**_rea_status_payload(), "ok": True, "answer": "No uploaded targets in data/rea_uploads/ yet."}), 200
+            lines = [
+                f"{'* ' if t['path'] == active_target else '  '}{t['name']}  ({t['kind'].upper()}, {t['size_bytes']:,} bytes)"
+                for t in targets
+            ]
+            return jsonify({**_rea_status_payload(), "ok": True, "answer": "Uploaded REA Targets:\n" + "\n".join(lines)}), 200
+
+        if low_cmd.startswith("use ") and len(cmd_raw.split()) == 2:
+            chosen = _rea_active_target(cmd_raw.split(None, 1)[1])
+            if chosen:
+                return jsonify({**_rea_status_payload(), "ok": True, "answer": f"Switched active target to {_Path(chosen).name}."}), 200
+
+        # Slash commands (/inspect, /do, /defense, etc.) -- handle /search /web /fetch locally in REA Mode
+        _had_slash_web = False
+        if cmd_raw.startswith("/"):
+            _slash_head = cmd_raw[1:].split(None, 1)[0].lower().replace("-", "_") if len(cmd_raw) > 1 else ""
+            if _slash_head in ("search", "web", "web_search", "google", "lookup", "fetch", "web_fetch", "read_url"):
+                cmd_raw = cmd_raw[1:].strip()
+                low_cmd = cmd_raw.lower().strip()
+                _had_slash_web = True
+            else:
+                slash_text = cmd_raw
+                if low_cmd in ("/inspect", "/do") and active_target:
+                    slash_text = f"{cmd_raw} {active_target}"
+                elif low_cmd.startswith("/do ") and active_target and active_target not in cmd_raw and _Path(active_target).name not in cmd_raw:
+                    slash_text = f"{cmd_raw} (Target file path: {active_target})"
+                c_ctx = cmd_mod.CommandContext(
+                    registry=registry, project_root=root, config_path=str(config_path),
+                    router=router, conversation_key="rea", loop=loop,
+                )
+                try:
+                    res = run_coro(loop, cmd_mod.dispatch(slash_text, c_ctx), timeout=300.0)
+                    return jsonify({**_rea_status_payload(), "ok": bool(res.get("ok", True)), "answer": res.get("answer") or "(no output)"}), 200
+                except Exception as e:
+                    return jsonify({**_rea_status_payload(), "ok": False, "answer": f"Command error: {type(e).__name__}: {e}"}), 200
+
+        # Built-in REA Mode 1-tap shortcuts (operate on active_target or explicit argument)
+        parts = cmd_raw.split(None, 1)
+        head_word = parts[0].lower().replace("-", "_")
+        arg_tail = parts[1].strip() if len(parts) > 1 else ""
+
+        _is_nl_search_phrase = (
+            not _had_slash_web
+            and head_word in ("search", "google", "lookup")
+            and bool(arg_tail)
+            and (
+                bool(_re.match(r"^(?:the\s+(?:internet|web|net)|online|for)\b", arg_tail, _re.I))
+                or bool(_REA_LOCAL_SEARCH_RE.search(arg_tail))
+            )
+        )
+        if head_word in ("search", "web", "web_search", "google", "lookup") and not _is_nl_search_phrase:
+            if not arg_tail:
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": "Usage: search <query> — search the live internet (CVEs, packages, domains, docs, advisories).",
+                }), 200
+            from . import autoresearch as _ar
+            from .magic import vram as _vram
+
+            search_q = _rea_extract_web_query(arg_tail, active_target, _rea_state.get("last_report", ""))
+            try:
+                web_sources, web_ev = _rea_gather_web(search_q, loop=loop)
+            except Exception as e:
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": f"Internet search failed ({type(e).__name__}: {e}).",
+                }), 200
+            if not web_sources or not web_ev or _ar.is_no_source(web_ev):
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": f'No internet results for "{search_q}" — nothing reliable came back or the desktop\'s internet is down.',
+                }), 200
+
+            magic_be = registry.get("magic") or registry.get(registry.primary_model_name())
+            answer = ""
+            if magic_be is not None:
+                tgt_note = ""
+                if active_target and _Path(active_target).exists():
+                    tgt_note = f"\n(Active REA target in workspace: {_Path(active_target).name})"
+                prompt = (
+                    f"{_ar.date_note()}{tgt_note}\n{web_ev[:6500]}\n\n"
+                    f"Using ONLY those live internet search results, answer concisely and technically: {search_q}"
+                )
+
+                async def _rea_web_synth():
+                    p_name = registry.primary_model_name()
+                    if p_name:
+                        await _vram.ensure_only(registry, keep=p_name)
+                    return await magic_be.generate(
+                        prompt,
+                        system=(
+                            "You are Magic operating in REA Mode. Answer concisely and technically "
+                            "using ONLY the provided live internet search results."
+                        ),
+                        max_tokens=768,
+                        temperature=0.3,
+                    )
+
+                try:
+                    r_web = run_coro(
+                        loop,
+                        _in_phase(agent_state.AgentState.REASONING, _rea_web_synth()),
+                        timeout=180.0,
+                    )
+                    answer = magic_reply._strip_think(getattr(r_web, "text", "") or "").strip()
+                except Exception:
+                    answer = ""
+
+            if not answer:
+                answer = _rea_format_sources_fallback(web_sources)
+            else:
+                answer = _rea_finalize_web_answer(
+                    answer, web_ev, web_sources, search_q,
+                    registry=registry, loop=loop, include_urls=True,
+                )
+
+            return jsonify({**_rea_status_payload(), "ok": True, "answer": answer, "web": web_sources}), 200
+
+        if head_word in ("fetch", "web_fetch", "read_url"):
+            if not arg_tail or not arg_tail.startswith(("http://", "https://")):
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": "Usage: fetch <https://url> — read plain text from a web page.",
+                }), 200
+            try:
+                ok_f, txt_f = run_coro(loop, _to_thread(_rea_fetch_url_text, arg_tail), timeout=45.0)
+            except Exception as e:
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": f"Couldn't fetch {arg_tail}: {type(e).__name__}: {e}",
+                }), 200
+            payload = {
+                **_rea_status_payload(),
+                "ok": ok_f,
+                "answer": f"Fetched {arg_tail}:\n\n{txt_f}" if ok_f else txt_f,
+            }
+            if ok_f:
+                payload["web"] = [{"title": arg_tail, "url": arg_tail}]
+            return jsonify(payload), 200
+
+        shortcut_report: Optional[str] = None
+        if head_word in ("summary", "overview", "inspect"):
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active target — upload an APK/file first or pass a path/URL."}), 200
+            shortcut_report = inspect_mod.inspect_any(t_eff, default_target=active_target, project_root=root)
+        elif head_word in ("signature", "certs", "cert"):
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active target to check signatures on."}), 200
+            p_eff = inspect_mod._resolve_target_path(t_eff, root, default_target=active_target)
+            k_eff = inspect_mod.sniff_artifact_kind(p_eff) if p_eff else "apk"
+            t_name = "inspect_pe_certificates" if k_eff == "pe" else "inspect_apk_signature"
+            shortcut_report = inspect_mod.inspect_via_rea(t_eff, tool=t_name, default_target=active_target, project_root=root)
+        elif head_word in ("permissions", "manifest", "components"):
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active APK target selected."}), 200
+            shortcut_report = inspect_mod.inspect_via_rea(
+                t_eff, tool="inspect_android_package", extra_args={"detail": "summary"},
+                default_target=active_target, project_root=root,
+            ) or inspect_mod.inspect_any(t_eff, default_target=active_target, project_root=root)
+        elif head_word in ("decompile", "decompile_main", "main"):
+            if not active_target and not arg_tail:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "Upload or select an APK first before decompiling."}), 200
+            # If arg_tail is a file path, decompile its main activity; otherwise treat arg_tail as class_name on active_target
+            p_arg = inspect_mod._resolve_target_path(arg_tail, root) if arg_tail else None
+            if p_arg is not None:
+                shortcut_report = inspect_mod.decompile_apk_main_or_class(str(p_arg), "", project_root=root)
+            else:
+                shortcut_report = inspect_mod.decompile_apk_main_or_class(active_target, arg_tail, project_root=root)
+        elif head_word in ("classes", "search_classes"):
+            if not active_target:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "Upload or select an APK first."}), 200
+            shortcut_report = inspect_mod.inspect_via_rea(
+                active_target, tool="search_android_classes", extra_args={"query": arg_tail},
+                default_target=active_target, project_root=root,
+            )
+        elif head_word == "method":
+            if not active_target:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "Upload or select an APK first."}), 200
+            m_parts = arg_tail.split(None, 1)
+            if len(m_parts) < 2:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "Usage: method <full.ClassName> <methodName>"}), 200
+            shortcut_report = inspect_mod.inspect_via_rea(
+                active_target, tool="inspect_android_method",
+                extra_args={"class_name": m_parts[0], "method_name": m_parts[1], "detail": "full"},
+                default_target=active_target, project_root=root,
+            )
+        elif head_word in ("strings", "urls", "secrets"):
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active target to scan for strings/URLs."}), 200
+            shortcut_report = inspect_mod.extract_target_strings(t_eff, project_root=root)
+        elif head_word == "resources":
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active APK target selected."}), 200
+            shortcut_report = inspect_mod.inspect_via_rea(
+                t_eff, tool="decode_android_resources",
+                extra_args={"include_strings": True, "string_limit": 80},
+                default_target=active_target, project_root=root,
+            )
+        elif head_word == "jni":
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active APK target selected."}), 200
+            shortcut_report = inspect_mod.inspect_via_rea(
+                t_eff, tool="inspect_android_jni_bindings",
+                default_target=active_target, project_root=root,
+            )
+        elif head_word in ("hardening", "layout", "entropy", "exports", "elf", "initializers", "objdump", "pe", "go_rust", "js", "wasm", "sqlite", "model", "pyc", "pcap", "firmware"):
+            t_eff = arg_tail or active_target
+            if not t_eff:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": "No active target selected — upload a file or provide a path."}), 200
+            tool_map = {
+                "hardening": "inspect_binary_hardening",
+                "layout": "inspect_binary_layout",
+                "entropy": "inspect_byte_entropy",
+                "exports": "inspect_native_exports",
+                "elf": "inspect_elf_notes",
+                "initializers": "inspect_native_initializers",
+                "objdump": "inspect_with_objdump",
+                "pe": "inspect_pe_imports",
+                "go_rust": "inspect_go_binary",
+                "js": "analyze_javascript_application",
+                "wasm": "inspect_wasm_artifact",
+                "sqlite": "inspect_sqlite_database",
+                "model": "inspect_model_artifact",
+                "pyc": "inspect_python_pyc",
+                "pcap": "inspect_pcap_capture",
+                "firmware": "inspect_firmware_regions",
+            }
+            shortcut_report = inspect_mod.inspect_via_rea(
+                t_eff, tool=tool_map[head_word], default_target=active_target, project_root=root
+            )
+            if not shortcut_report and head_word == "objdump":
+                shortcut_report = inspect_mod.inspect_file(t_eff)
+
+        if shortcut_report:
+            _rea_state["last_report"] = shortcut_report
+            return jsonify({**_rea_status_payload(), "ok": True, "answer": shortcut_report}), 200
+
+        # --- 4. Direct REA MCP tool call or URL/path inspection ---
+        parsed_t, _ = inspect_mod.parse_tool_and_target(cmd_raw, tool_arg)
+        is_direct_path_or_url = bool(
+            _re.match(r"^https?://", cmd_raw, _re.I)
+            or (len(cmd_raw.split()) == 1 and inspect_mod._resolve_target_path(cmd_raw, root) is not None)
+        )
+        if parsed_t or is_direct_path_or_url:
+            try:
+                if is_direct_path_or_url and not _re.match(r"^https?://", cmd_raw, _re.I):
+                    p_set = inspect_mod._resolve_target_path(cmd_raw, root)
+                    if p_set is not None:
+                        _rea_state["active_target"] = str(p_set)
+                        active_target = str(p_set)
+                report = (
+                    inspect_mod.inspect_via_rea(cmd_raw, tool=tool_arg, default_target=active_target, project_root=root)
+                    or inspect_mod.inspect_any(cmd_raw, default_target=active_target, project_root=root)
+                )
+            except Exception as e:
+                return jsonify({**_rea_status_payload(), "ok": False, "answer": f"REA error: {type(e).__name__}: {e}"}), 200
+            if report:
+                _rea_state["last_report"] = report
+                return jsonify({**_rea_status_payload(), "ok": True, "answer": report}), 200
+
+        # --- 5. Natural-Language Reverse-Engineering Question (+ Live Internet Search) ---
+        from . import action_honesty as _ah, autoresearch as _ar
+
+        ev_parts: list[str] = []
+        base_rep = ""
+        if active_target and _Path(active_target).exists():
+            base_rep = _rea_state.get("last_report") or inspect_mod.inspect_any(active_target, project_root=root)
+            if base_rep:
+                _rea_state["last_report"] = base_rep
+                ev_parts.append(f"=== REA Report for Active Target ({_Path(active_target).name}) ===\n{base_rep[:6000]}")
+            if any(w in low_cmd for w in ("url", "string", "secret", "key", "token", "ip", "endpoint", "http", "suspicious", "vuln", "risk", "safe", "malicious")):
+                str_rep = inspect_mod.extract_target_strings(active_target, project_root=root)
+                if str_rep:
+                    ev_parts.append(f"=== Extracted Strings & Calls ({_Path(active_target).name}) ===\n{str_rep[:3500]}")
+            if _Path(active_target).name.lower().endswith(".apk") and any(w in low_cmd for w in ("code", "main", "activity", "class", "decompile", "how does", "logic", "calculate", "work")):
+                cls_match = _re.search(r"\b([A-Z][A-Za-z0-9_]*(?:Activity|Service|Receiver|Provider|Manager|Helper|Client|View|Fragment|Adapter))\b", cmd_raw)
+                cls_hint = cls_match.group(1) if cls_match else ""
+                decomp = inspect_mod.decompile_apk_main_or_class(active_target, cls_hint, project_root=root)
+                if decomp:
+                    ev_parts.append(f"=== Decompiled Class Source ===\n{decomp[:4500]}")
+
+        want_web, force_web = _rea_should_search_web(cmd_raw)
+        web_sources = None
+        web_ev = ""
+        web_q = ""
+        if want_web:
+            web_q = _rea_extract_web_query(cmd_raw, active_target, base_rep)
+            try:
+                web_sources, web_ev = _rea_gather_web(web_q, loop=loop)
+            except Exception:
+                web_sources, web_ev = None, (_ar.NO_USABLE_SOURCE if force_web else "")
+            if _ar.is_no_source(web_ev) and force_web and not ev_parts:
+                return jsonify({
+                    **_rea_status_payload(),
+                    "ok": False,
+                    "answer": f'I searched the internet for "{web_q}", but couldn\'t retrieve usable results right now (nothing reliable came back or the desktop\'s internet is down).',
+                }), 200
+            if web_sources and web_ev and not _ar.is_no_source(web_ev):
+                ev_parts.append(f"=== Live Internet Search Results ({web_q}) ===\n{_ar.date_note()}\n{web_ev[:6500]}")
+
+        magic_be = registry.get("magic") or registry.get(registry.primary_model_name())
+        if magic_be is None:
+            if web_sources:
+                fb = _rea_format_sources_fallback(web_sources)
+                if ev_parts:
+                    fb = "\n\n".join(ev_parts) + "\n\n" + fb
+                return jsonify({**_rea_status_payload(), "ok": True, "answer": fb, "web": web_sources}), 200
+            fallback_txt = "\n\n".join(ev_parts) if ev_parts else "No chat model available and no target file matched."
+            return jsonify({**_rea_status_payload(), "ok": bool(ev_parts), "answer": fallback_txt}), 200
+
+        def _build_rea_prompt(parts: list[str], has_web: bool) -> tuple[str, str]:
+            if has_web:
+                sys_p = (
+                    "You are Magic operating in REA Mode (Reverse Engineering Assistant, powered by rea.tools MCP + JADX + static analyzers + live internet search). "
+                    "Answer the user's question directly, technically, and concisely using ONLY the verified REA evidence and Live Internet Search Results below. "
+                    "Cite concrete package/class names, permissions, certificates, SHA-256 digests, exported components, strings/URLs, or decompiled code from REA evidence, "
+                    "and facts/advisories/links from the Live Internet Search Results."
+                )
+            else:
+                sys_p = (
+                    "You are Magic operating in REA Mode (Reverse Engineering Assistant, powered by rea.tools MCP + JADX + static analyzers). "
+                    "Answer the user's reverse-engineering question directly, technically, and concisely using ONLY the verified REA evidence below. "
+                    "Cite concrete package/class names, permissions, certificates, SHA-256 digests, exported components, strings/URLs, or decompiled code from the evidence. "
+                    "If a detail isn't in the current REA output, state which REA command chip (e.g. `decompile <Class>`, `classes <query>`, `strings`, `resources`, `hardening`, `exports`, or `search <query>`) will extract it."
+                )
+            block = "\n\n".join(parts)
+            prompt_p = (
+                f"{block}\n\nUser REA question:\n{cmd_raw}"
+                if block
+                else f"(No active target file is currently loaded in REA Mode.)\nUser REA question:\n{cmd_raw}"
+            )
+            return sys_p, prompt_p
+
+        rea_sys, llm_prompt = _build_rea_prompt(ev_parts, bool(web_sources))
+
+        async def _rea_ask(prompt_txt: str, sys_txt: str):
+            from .magic import vram
+            p_name = registry.primary_model_name()
+            if p_name:
+                await vram.ensure_only(registry, keep=p_name)
+            return await magic_be.generate(prompt_txt, system=sys_txt, max_tokens=1536, temperature=0.3)
+
+        try:
+            r_llm = run_coro(
+                loop,
+                _in_phase(agent_state.AgentState.REASONING, _rea_ask(llm_prompt, rea_sys)),
+                timeout=240.0,
+            )
+            ans_llm = magic_reply._strip_think(getattr(r_llm, "text", "") or "").strip()
+            if (
+                not web_sources
+                and not want_web
+                and ans_llm
+                and (magic_reply._admits_unverified(ans_llm) or _ah.claims_web_search(ans_llm))
+                and _ar.can_fallback_search(cmd_raw)
+                and not _REA_LOCAL_TARGET_Q_RE.search(cmd_raw)
+            ):
+                fb_q = _rea_extract_web_query(cmd_raw, active_target, base_rep)
+                try:
+                    fb_sources, fb_ev = _rea_gather_web(fb_q, loop=loop)
+                except Exception:
+                    fb_sources, fb_ev = None, ""
+                if fb_sources and fb_ev and not _ar.is_no_source(fb_ev):
+                    web_sources, web_ev, web_q = fb_sources, fb_ev, fb_q
+                    ev_parts.append(f"=== Live Internet Search Results ({web_q}) ===\n{_ar.date_note()}\n{web_ev[:6500]}")
+                    rea_sys2, llm_prompt2 = _build_rea_prompt(ev_parts, True)
+                    r_llm2 = run_coro(
+                        loop,
+                        _in_phase(agent_state.AgentState.REASONING, _rea_ask(llm_prompt2, rea_sys2)),
+                        timeout=240.0,
+                    )
+                    ans2 = magic_reply._strip_think(getattr(r_llm2, "text", "") or "").strip()
+                    if ans2:
+                        ans_llm = ans2
+
+            if not ans_llm:
+                ans_llm = "\n\n".join(ev_parts) or "I couldn't generate an answer — try tapping one of the REA command chips above."
+            elif web_sources and web_ev:
+                ans_llm = _rea_finalize_web_answer(
+                    ans_llm, web_ev, web_sources, web_q or cmd_raw,
+                    registry=registry, loop=loop, include_urls=False,
+                )
+            else:
+                _hh = _ah.claims_web_search(ans_llm)
+                if _hh:
+                    ans_llm += _ah.caveat(_hh)
+
+            out_payload = {**_rea_status_payload(), "ok": True, "answer": ans_llm}
+            if web_sources:
+                out_payload["web"] = web_sources
+            return jsonify(out_payload), 200
+        except Exception as e:
+            ev_block = "\n\n".join(ev_parts)
+            return jsonify({
+                **_rea_status_payload(),
+                "ok": bool(ev_block),
+                "answer": ev_block or f"REA AI analysis hit an error ({type(e).__name__}: {e}).",
+            }), 200
 
     @app.route("/guard/phone", methods=["POST"])
     def guard_phone_route():

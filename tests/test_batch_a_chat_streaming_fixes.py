@@ -893,3 +893,133 @@ def test_33_answer_private_fallback_safety_no_double_call_and_strip_think():
     assert out3["ok"] is True and out3["answer"] == "Clean scene reply."
     assert "<think>" not in out3["answer"] and "hidden plan" not in out3["answer"]
 
+
+def test_possessive_proper_entities_and_sentence_safe_page_chunking():
+    from magic_core import longctx, memory_select, web_search
+
+    q = "Who had Avon's nephew killed in the wire season 2"
+    # Possessive 's must be stripped so results saying 'Avon Barksdale' are not dropped
+    assert ar._proper_entities(q) == ["avon"]
+    assert "avon" in ar._subject_terms(q)
+    assert "2" in ar._subject_terms(q)
+    assert "avon" in memory_select._tokens(q)
+    assert "2" in memory_select._tokens(q)
+    condensed = ar._condense_keywords(q)
+    assert "Avon" in condensed and "2" in condensed and "had" not in condensed.split()
+
+    # HTML block tags preserve paragraph breaks and strip Parsoid data-mw JSON with embedded '>'
+    raw_html = (
+        '<table data-mw="{&quot;wt&quot;:&quot;Episode list <ref>raw wikitext</ref>&quot;}">'
+        "<tr><td><p>First paragraph about Avon Barksdale in Season 1.</p>"
+        "<p>"
+        + ("Filler sentence about the Baltimore port investigation. " * 14)
+        + "Stringer grows afraid that D'Angelo may inform on the organization and hires a contract killer "
+        "from Washington, D.C., who in turn arranges for a prisoner to strangle D'Angelo with a belt, "
+        "staging the scene to look like a suicide.</p></td></tr></table>"
+    )
+    cleaned_page = web_search._clean_page(raw_html)
+    assert "raw wikitext" not in cleaned_page
+    assert "\n\n" in cleaned_page
+
+    # longctx.retrieve never slices mid-word ('arra' / 'nges') or severs 'Stringer' from 'arranges'
+    retrieved = longctx.retrieve(cleaned_page, ar._page_retrieve_query(q), max_chars=1200)
+    assert "Stringer grows afraid" in retrieved
+    assert "arranges for a prisoner to strangle D'Angelo" in retrieved
+    assert not any(part.strip().startswith("nges for a prisoner") for part in retrieved.split("…"))
+
+
+def test_rea_mode_cockpit_routes_upload_magic_bytes_shortcuts_and_ai_questions(tmp_path, monkeypatch):
+    import base64
+    import io
+    import zipfile
+    from magic_core import inspect as inspect_mod, mcp_bridge, server as srv
+
+    # Build a minimal valid APK (ZIP containing AndroidManifest.xml and classes.dex with a URL)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("AndroidManifest.xml", '<manifest package="com.example.demo"/>')
+        zf.writestr("classes.dex", b"dex\n035\x00https://api.demo.example.com/v1/secret\x00eval(bad)")
+    apk_bytes = buf.getvalue()
+
+    # Sniffing identifies an extensionless content:// upload as an APK
+    extless = tmp_path / "msf_10000999"
+    extless.write_bytes(apk_bytes)
+    assert inspect_mod.sniff_artifact_kind(extless) == "apk"
+
+    # Stub inspect_via_rea so the test stays fast and deterministic without spawning JADX JVM
+    monkeypatch.setattr(
+        inspect_mod,
+        "inspect_via_rea",
+        lambda target, **kw: f"[REA MCP · {kw.get('tool') or 'apk_summary'}]\nSubject: {target}\npackage_name: com.example.demo",
+    )
+    monkeypatch.setattr(mcp_bridge, "get_client", lambda name, root=None: None)
+
+    class _ReaFakeBe(ModelBackend):
+        def __init__(self):
+            super().__init__(ModelInfo(name="magic", kind="local"))
+
+        async def generate(self, prompt, system=None, max_tokens=512, temperature=0.3, history=None):
+            return GenerationResult(
+                model="magic",
+                text=f"AI Analysis: package com.example.demo talks to https://api.demo.example.com/v1/secret.",
+            )
+
+    import threading
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text("models: []\n")
+    reg = srv.ModelRegistry.from_yaml(str(cfg))
+    reg.backends["magic"] = _ReaFakeBe()
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    try:
+        app = srv.create_app(reg, Router(reg), tmp_path, loop, "tok123", "adm123")
+        headers = {"Authorization": "Bearer tok123"}
+        client = app.test_client()
+
+        # 1. Upload an extensionless content:// APK -> auto-renamed to .apk and set as active_target
+        r_up = client.post(
+            "/rea",
+            headers=headers,
+            json={
+                "filename": "msf:10000999",
+                "file_b64": base64.b64encode(apk_bytes).decode("ascii"),
+                "message": "reverse engineer this",
+            },
+        )
+        assert r_up.status_code == 200
+        d_up = r_up.get_json()
+        assert d_up["ok"] is True
+        assert d_up["active_target"]["name"].endswith(".apk")
+        assert d_up["active_target"]["kind"] == "apk"
+        assert "com.example.demo" in d_up["answer"]
+
+        # 2. GET /rea/status returns the active target and targets list
+        r_st = client.get("/rea/status", headers=headers)
+        assert r_st.status_code == 200
+        assert r_st.get_json()["active_target"]["name"] == d_up["active_target"]["name"]
+
+        # 3. 1-tap 'strings' command scans DEX bytes of the active target without needing a path
+        r_str = client.post("/rea", headers=headers, json={"message": "strings"})
+        assert r_str.status_code == 200
+        assert "https://api.demo.example.com/v1/secret" in r_str.get_json()["answer"]
+
+        # 4. Natural-language question about the active target invokes Magic's LLM with REA evidence
+        r_ai = client.post(
+            "/rea",
+            headers=headers,
+            json={"message": "What URLs or secrets are inside this app?"},
+        )
+        assert r_ai.status_code == 200
+        assert "AI Analysis: package com.example.demo" in r_ai.get_json()["answer"]
+
+        # 5. 'clear' in /rea clears server REA state and returns cleared=True
+        r_clr = client.post("/rea", headers=headers, json={"message": "clear"})
+        assert r_clr.status_code == 200
+        assert r_clr.get_json()["cleared"] is True
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(timeout=2)
+
+
+

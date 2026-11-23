@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +22,82 @@ from . import mcp_bridge
 
 _CLIP = 8000
 _DEFAULT_ROOT = str(Path(__file__).resolve().parent.parent)
+_REA_CACHE: dict[tuple, str] = {}
+
+
+def sniff_artifact_kind(path: Path) -> str:
+    """Sniff artifact kind from file extension + magic bytes so Android content://
+    uploads without an extension (e.g. 'msf_1000012345' or 'upload.bin') are still
+    routed to the right REA tools."""
+    low = path.name.lower()
+    if path.is_dir():
+        return "js"
+    if low.endswith(".apk"):
+        return "apk"
+    if low.endswith((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".asar")):
+        return "js"
+    if low.endswith(".wasm"):
+        return "wasm"
+    if low.endswith(".pyc"):
+        return "pyc"
+    if low.endswith((".sqlite", ".sqlite3", ".db")):
+        return "sqlite"
+    if low.endswith((".gguf", ".safetensors")):
+        return "model"
+    if low.endswith((".dll", ".exe")):
+        return "pe"
+    if low.endswith((".pcap", ".pcapng", ".cap")):
+        return "pcap"
+    if low.endswith((".so", ".elf", ".ko")):
+        return "elf"
+    try:
+        head = path.read_bytes()[:64]
+    except OSError:
+        return "file"
+    if head.startswith(b"PK\x03\x04"):
+        try:
+            with zipfile.ZipFile(path, "r") as zf:
+                names = set(zf.namelist())
+                if "AndroidManifest.xml" in names or "classes.dex" in names or any(n.endswith(".dex") for n in names):
+                    return "apk"
+        except Exception:
+            pass
+        return "zip"
+    if head.startswith(b"\x7fELF"):
+        return "elf"
+    if head.startswith(b"MZ"):
+        return "pe"
+    if head.startswith(b"\x00asm"):
+        return "wasm"
+    if head.startswith(b"SQLite format 3"):
+        return "sqlite"
+    if head.startswith(b"GGUF"):
+        return "model"
+    if head[:4] in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4", b"\x0a\x0d\x0d\x0a"):
+        return "pcap"
+    return "file"
+
+
+def _cache_key(p: Path, op: str) -> Optional[tuple]:
+    try:
+        st = p.stat()
+        return (str(p.resolve()), st.st_mtime_ns, st.st_size, op)
+    except OSError:
+        return None
+
+
+def _cached_get(p: Path, op: str) -> Optional[str]:
+    ck = _cache_key(p, op)
+    return _REA_CACHE.get(ck) if ck is not None else None
+
+
+def _cached_set(p: Path, op: str, val: str) -> str:
+    ck = _cache_key(p, op)
+    if ck is not None and val:
+        if len(_REA_CACHE) > 64:
+            _REA_CACHE.pop(next(iter(_REA_CACHE)), None)
+        _REA_CACHE[ck] = val
+    return val
 
 
 def _format_rea_result(tool_name: str, raw_text: str) -> str:
@@ -59,8 +136,8 @@ def _format_rea_result(tool_name: str, raw_text: str) -> str:
 
 
 _KNOWN_REA_PREFIX_RE = re.compile(
-    r"^(?:mcp_rea_)?((?:analyze|inspect|audit|open|binary|search|trace|list|compare|get)_[a-z0-9_]+|"
-    r"(?:analyze|inspect|audit|open|binary|search|trace|list|compare|get)-[a-z0-9-]+)\s+(.+)$",
+    r"^(?:mcp_rea_)?((?:analyze|inspect|audit|open|binary|search|trace|list|compare|get|decode|recover|decompile|project|match|verify|resolve|annotate)_[a-z0-9_]+|"
+    r"(?:analyze|inspect|audit|open|binary|search|trace|list|compare|get|decode|recover|decompile|project|match|verify|resolve|annotate)-[a-z0-9-]+)(?:\s+(.*))?$",
     re.I,
 )
 
@@ -74,8 +151,25 @@ def parse_tool_and_target(raw: str, explicit_tool: str = "") -> tuple[str, str]:
         return t, s
     m = _KNOWN_REA_PREFIX_RE.match(s)
     if m:
-        return m.group(1).lower().replace("-", "_"), m.group(2).strip()
+        return m.group(1).lower().replace("-", "_"), (m.group(2) or "").strip()
     return "", s
+
+
+def _resolve_target_path(raw_target: str, root: str, default_target: str = "") -> Optional[Path]:
+    cand = (raw_target or "").strip() or (default_target or "").strip()
+    if not cand:
+        return None
+    for p_try in (
+        Path(cand).expanduser(),
+        Path(root) / "data" / "rea_uploads" / Path(cand).name,
+        Path(root) / cand,
+    ):
+        try:
+            if p_try.exists():
+                return p_try.resolve()
+        except OSError:
+            continue
+    return None
 
 
 def inspect_via_rea(
@@ -83,6 +177,8 @@ def inspect_via_rea(
     *,
     kind: str = "auto",
     tool: str = "",
+    extra_args: Optional[dict] = None,
+    default_target: str = "",
     project_root: Optional[str] = None,
 ) -> Optional[str]:
     """Run real REA MCP inspection on `target`. Returns the formatted REA
@@ -95,7 +191,30 @@ def inspect_via_rea(
         return None
 
     if parsed_tool:
-        r = mcp_bridge.call_tool("rea", parsed_tool, {"target": clean_target}, root=root)
+        extra = dict(extra_args or {})
+        resolved_p = _resolve_target_path(clean_target, root, default_target=default_target)
+        # Handle tools that take 'path' + a second positional argument (e.g. 'search_android_classes MainActivity')
+        if resolved_p is None and default_target and clean_target:
+            def_p = _resolve_target_path(default_target, root)
+            if def_p is not None:
+                resolved_p = def_p
+                if parsed_tool == "search_android_classes" and "query" not in extra:
+                    extra["query"] = clean_target
+                elif parsed_tool in ("inspect_android_class", "inspect_android_jni_bindings") and "class_name" not in extra:
+                    extra["class_name"] = clean_target
+                elif parsed_tool in ("inspect_android_method", "trace_android_references") and "class_name" not in extra:
+                    parts = clean_target.split(None, 1)
+                    extra["class_name"] = parts[0]
+                    if len(parts) > 1 and "method_name" not in extra:
+                        extra["method_name"] = parts[1]
+        target_arg = str(resolved_p) if resolved_p is not None else (clean_target or default_target)
+        call_args = {"target": target_arg, **extra} if target_arg else dict(extra)
+        if parsed_tool == "search_android_classes":
+            call_args.setdefault("query", "")
+        elif parsed_tool == "decode_android_resources":
+            call_args.setdefault("include_strings", True)
+            call_args.setdefault("string_limit", 80)
+        r = mcp_bridge.call_tool("rea", parsed_tool, call_args, root=root)
         return _format_rea_result(parsed_tool, r.get("text", ""))
 
     if re.match(r"^https?://", clean_target, re.I):
@@ -122,21 +241,23 @@ def inspect_via_rea(
                 return f"Target URL: {clean_target}\n" + _format_rea_result("analyze_javascript_application", r.get("text", ""))
         return None
 
-    try:
-        p = Path(clean_target).expanduser().resolve()
-    except (OSError, ValueError):
+    p = _resolve_target_path(clean_target, root, default_target=default_target)
+    if p is None or not p.exists():
         return None
-    if not p.exists():
-        return None
+
+    eff_kind = sniff_artifact_kind(p) if kind in ("auto", "file", "") else kind
+    cached = _cached_get(p, f"summary:{eff_kind}")
+    if cached:
+        return cached
 
     low = p.name.lower()
-    if p.is_dir() or kind == "js" or low.endswith((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".asar")):
+    if p.is_dir() or eff_kind == "js" or low.endswith((".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".asar")):
         r = mcp_bridge.call_tool("rea", "analyze_javascript_application", {"input_path": str(p)}, root=root)
         if not r.get("is_error"):
-            return _format_rea_result("analyze_javascript_application", r.get("text", ""))
+            return _cached_set(p, f"summary:{eff_kind}", _format_rea_result("analyze_javascript_application", r.get("text", "")))
         return None
 
-    if kind == "apk" or low.endswith(".apk"):
+    if eff_kind == "apk" or low.endswith(".apk"):
         sections = []
         r_sig = mcp_bridge.call_tool("rea", "inspect_apk_signature", {"path": str(p)}, root=root)
         if not r_sig.get("is_error"):
@@ -145,30 +266,35 @@ def inspect_via_rea(
         if not r_pkg.get("is_error"):
             sections.append(_format_rea_result("inspect_android_package", r_pkg.get("text", "")))
         if sections:
-            return _clip("\n\n".join(sections), 9000)
+            return _cached_set(p, f"summary:{eff_kind}", _clip("\n\n".join(sections), 9000))
         return None
 
-    if low.endswith(".wasm"):
+    if eff_kind == "wasm" or low.endswith(".wasm"):
         r = mcp_bridge.call_tool("rea", "inspect_wasm_artifact", {"path": str(p), "detail": "summary"}, root=root)
         if not r.get("is_error"):
-            return _format_rea_result("inspect_wasm_artifact", r.get("text", ""))
+            return _cached_set(p, f"summary:{eff_kind}", _format_rea_result("inspect_wasm_artifact", r.get("text", "")))
 
-    if low.endswith(".pyc"):
+    if eff_kind == "pyc" or low.endswith(".pyc"):
         r = mcp_bridge.call_tool("rea", "inspect_python_pyc", {"path": str(p)}, root=root)
         if not r.get("is_error"):
-            return _format_rea_result("inspect_python_pyc", r.get("text", ""))
+            return _cached_set(p, f"summary:{eff_kind}", _format_rea_result("inspect_python_pyc", r.get("text", "")))
 
-    if low.endswith((".sqlite", ".sqlite3", ".db")):
+    if eff_kind == "sqlite" or low.endswith((".sqlite", ".sqlite3", ".db")):
         r = mcp_bridge.call_tool("rea", "inspect_sqlite_database", {"path": str(p)}, root=root)
         if not r.get("is_error"):
-            return _format_rea_result("inspect_sqlite_database", r.get("text", ""))
+            return _cached_set(p, f"summary:{eff_kind}", _format_rea_result("inspect_sqlite_database", r.get("text", "")))
 
-    if low.endswith((".gguf", ".safetensors")):
+    if eff_kind == "model" or low.endswith((".gguf", ".safetensors")):
         r = mcp_bridge.call_tool("rea", "inspect_model_artifact", {"path": str(p)}, root=root)
         if not r.get("is_error"):
-            return _format_rea_result("inspect_model_artifact", r.get("text", ""))
+            return _cached_set(p, f"summary:{eff_kind}", _format_rea_result("inspect_model_artifact", r.get("text", "")))
 
-    if low.endswith((".dll", ".exe")):
+    if eff_kind == "pcap" or low.endswith((".pcap", ".pcapng", ".cap")):
+        r = mcp_bridge.call_tool("rea", "inspect_pcap_capture", {"path": str(p)}, root=root)
+        if not r.get("is_error"):
+            return _cached_set(p, f"summary:{eff_kind}", _format_rea_result("inspect_pcap_capture", r.get("text", "")))
+
+    if eff_kind == "pe" or low.endswith((".dll", ".exe")):
         sections = []
         for tname, extra in (
             ("inspect_binary_hardening", {}),
@@ -180,7 +306,7 @@ def inspect_via_rea(
             if not r.get("is_error"):
                 sections.append(_format_rea_result(tname, r.get("text", "")))
         if sections:
-            return _clip("\n\n".join(sections), 9000)
+            return _cached_set(p, f"summary:{eff_kind}", _clip("\n\n".join(sections), 9000))
 
     sections = []
     for tname, extra in (
@@ -193,7 +319,7 @@ def inspect_via_rea(
         if not r.get("is_error"):
             sections.append(_format_rea_result(tname, r.get("text", "")))
     if sections:
-        return _clip("\n\n".join(sections), 9000)
+        return _cached_set(p, f"summary:{eff_kind}", _clip("\n\n".join(sections), 9000))
     return None
 
 
@@ -432,3 +558,97 @@ def inspect_site(target: str) -> str:
 
     out.append("\n(Read-only: fetched and read it; I did not run any of it.)")
     return _clip("\n".join(out), 9000)
+
+
+def extract_target_strings(path: str, *, project_root: Optional[str] = None) -> str:
+    """Extract notable URLs, IPs, and risky API/shell calls from any file or APK
+    (scanning classes*.dex, native .so libraries, and raw bytes)."""
+    root = project_root or _DEFAULT_ROOT
+    p = _resolve_target_path(path, root)
+    if p is None or not p.is_file():
+        return f"I can't see a file at {path!r}."
+    kind = sniff_artifact_kind(p)
+    out = [f"Target: {p.name} ({kind}, {p.stat().st_size:,} bytes)"]
+    blob = b""
+    if kind in ("apk", "zip"):
+        try:
+            with zipfile.ZipFile(p, "r") as zf:
+                entries = zf.namelist()
+                native_libs = [n for n in entries if n.endswith(".so")]
+                dex_files = [n for n in entries if n.endswith(".dex")]
+                out.append(f"Archive entries: {len(entries)} total ({len(dex_files)} DEX, {len(native_libs)} native .so)")
+                if native_libs:
+                    out.append("Bundled native libraries:\n  " + "\n  ".join(native_libs[:25]))
+                for target_entry in (dex_files[:3] + native_libs[:6]):
+                    try:
+                        blob += zf.read(target_entry)[:2_000_000]
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+    if not blob:
+        try:
+            blob = p.read_bytes()[:4_000_000]
+        except OSError:
+            pass
+    notable = _notable_strings(blob)
+    if notable:
+        out.append("\n== Notable Strings (URLs / IPs / Risky Calls) ==\n" + "\n".join(notable))
+    else:
+        out.append("\nNo hardcoded http(s) URLs, IPv4 addresses, or risky exec/eval calls detected in the scanned bytes.")
+    return _clip("\n".join(out), 9000)
+
+
+def decompile_apk_main_or_class(path: str, class_name: str = "", *, project_root: Optional[str] = None) -> str:
+    """Decompile a specific class (or auto-discover the main launcher Activity)
+    from an APK via REA's JADX MCP tool (`inspect_android_class`)."""
+    root = project_root or _DEFAULT_ROOT
+    p = _resolve_target_path(path, root)
+    if p is None or not p.is_file():
+        return f"I can't see an APK at {path!r}."
+    cls = (class_name or "").strip()
+    if not cls:
+        # Auto-discover launcher or first declared activity from cached/live package summary
+        pkg_rep = inspect_via_rea(str(p), kind="apk", project_root=root) or ""
+        m = re.search(r'"declared_name"\s*:\s*"([^"]+)"', pkg_rep) or re.search(r'"name"\s*:\s*"([a-zA-Z0-9_.]+\.[A-Z][A-Za-z0-9_$]+)"', pkg_rep)
+        if m:
+            cls = m.group(1)
+        else:
+            sr = mcp_bridge.call_tool("rea", "search_android_classes", {"path": str(p), "query": "MainActivity"}, root=root)
+            sm = re.search(r'"([a-zA-Z0-9_.]*MainActivity[^"]*)"', sr.get("text", ""))
+            if sm:
+                cls = sm.group(1)
+    if not cls:
+        return inspect_via_rea(
+            str(p), tool="search_android_classes", extra_args={"query": ""}, project_root=root
+        ) or "Couldn't auto-discover a main Activity class — pass a class name like `decompile com.example.MainActivity`."
+    out = inspect_via_rea(
+        str(p),
+        tool="inspect_android_class",
+        extra_args={"class_name": cls, "detail": "full"},
+        project_root=root,
+    )
+    return out or f"Couldn't decompile {cls} from {p.name}."
+
+
+def inspect_any(target: str, *, default_target: str = "", project_root: Optional[str] = None) -> str:
+    """High-level REA inspection with automatic offline fallback (`inspect_apk`,
+    `inspect_file`, `inspect_site`) so `/rea` never fails with an empty report."""
+    root = project_root or _DEFAULT_ROOT
+    t = (target or "").strip() or (default_target or "").strip()
+    if not t:
+        return ""
+    rea_out = inspect_via_rea(t, default_target=default_target, project_root=root)
+    if rea_out:
+        return rea_out
+    if re.match(r"^https?://", t, re.I):
+        return inspect_site(t)
+    p = _resolve_target_path(t, root, default_target=default_target)
+    if p is None:
+        return ""
+    kind = sniff_artifact_kind(p)
+    if kind == "apk":
+        return inspect_apk(str(p))
+    if kind == "js" and p.is_file():
+        return inspect_site(str(p))
+    return inspect_file(str(p))

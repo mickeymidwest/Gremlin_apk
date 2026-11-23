@@ -411,17 +411,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun showMoreMenu(anchor: View) {
         val menu = PopupMenu(this, anchor)
+        try {
+            Class.forName("com.gremlin.app.local.LocalExtras")
+                .getMethod("addMoreMenu", android.app.Activity::class.java, PopupMenu::class.java)
+                .invoke(null, this, menu)
+        } catch (_: Exception) {}
         menu.menu.add("Re-roll last answer")
         menu.menu.add("Continue")
+        menu.menu.add("Clear chat")
         menu.menu.add("Memory")
         menu.menu.add("Switch model")
         menu.menu.add("Stop running jobs")
         menu.menu.add("Pair with QR code")
         menu.menu.add("Export chat")
         menu.setOnMenuItemClickListener { item ->
+            val handledLocal = try {
+                Class.forName("com.gremlin.app.local.LocalExtras")
+                    .getMethod("handleMoreMenuItem", android.app.Activity::class.java, String::class.java)
+                    .invoke(null, this, item.title.toString()) as? Boolean ?: false
+            } catch (_: Exception) { false }
+            if (handledLocal) return@setOnMenuItemClickListener true
             when (item.title) {
                 "Re-roll last answer" -> rerollLast()
                 "Continue" -> continueLast()
+                "Clear chat" -> clearChatScreenAndServer()
                 "Memory" -> startActivity(Intent(this, MemoryActivity::class.java))
                 "Switch model" -> pickModel()
                 "Stop running jobs" -> Thread {
@@ -625,9 +638,46 @@ class MainActivity : AppCompatActivity() {
         saveHistory()
     }
 
+    private val clearCmdRegex = Regex(
+        """^(?:/?(?:chat\s+)?)?(?:clear|clear\s+(?:the\s+|this\s+|our\s+|all\s+)?(?:chat|conversation|history|screen|messages?)|start\s+(?:fresh|over)|new\s+(?:chat|conversation)|forget\s+(?:this|our|the)\s+(?:chat|conversation)|wipe\s+(?:the\s+|this\s+|our\s+)?(?:chat|conversation|history|screen|messages?)|reset\s+(?:the\s+|this\s+)?(?:chat|conversation|screen))[.!?\s]*$""",
+        RegexOption.IGNORE_CASE
+    )
+
+    private fun isClearCommandText(msg: String): Boolean =
+        clearCmdRegex.matches(msg.trim())
+
+    private fun isClearServerReply(ans: String): Boolean {
+        val t = ans.trim()
+        return t.startsWith("Cleared -- fresh start", ignoreCase = true) ||
+            t.equals("Conversation cleared.", ignoreCase = true)
+    }
+
+    private fun clearChatScreenAndServer() {
+        abandonTurn()
+        voiceOutput.stop()
+        lastUserMessage = null
+        chat.clear()
+        try { historyFile.writeText("") } catch (_: Exception) {}
+        updateTokenUsageLabel(null)
+        appendSystemTurn("Cleared — fresh start.", false)
+        val tid = currentThread
+        Thread {
+            try { magicClient.chat("clear") } catch (_: Exception) {}
+            if (tid != null) {
+                try { magicClient.command("/chat", "clear", tid) } catch (_: Exception) {}
+            }
+        }.start()
+    }
+
     private fun sendMessage() {
         val message = messageInput.text.toString().trim()
         if (message.isEmpty()) return
+
+        if (isClearCommandText(message)) {
+            messageInput.setText("")
+            clearChatScreenAndServer()
+            return
+        }
 
         if (message.startsWith("/")) {
             messageInput.setText("")
@@ -740,7 +790,13 @@ class MainActivity : AppCompatActivity() {
                         if (id != turnId) return@runOnUiThread
                         ThinkingKeepAliveService.stop(applicationContext)
                         val sub = subStatusFor(result.source)
-                        if (started.get()) {
+                        if (isClearServerReply(result.answer)) {
+                            lastUserMessage = null
+                            chat.clear()
+                            try { historyFile.writeText("") } catch (_: Exception) {}
+                            updateTokenUsageLabel(null)
+                            appendSystemTurn("Cleared — fresh start.", false)
+                        } else if (started.get()) {
                             finishAssistantStreamTurn(result.answer, sub)
                         } else if (result.source == "stopped") {
                             appendSystemTurn("Stopped.", false)
@@ -794,6 +850,10 @@ class MainActivity : AppCompatActivity() {
      * the project with no further confirmation. That should require
      * deliberately typing it, never a classifier's best guess. */
     private fun handleSlashCommand(message: String) {
+        if (isClearCommandText(message)) {
+            clearChatScreenAndServer()
+            return
+        }
         appendUserTurn(message)
         val parts = message.trim().split(Regex("\\s+"))
         val cmd = parts.getOrNull(0) ?: ""
