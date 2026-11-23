@@ -4,7 +4,8 @@ status: candidate
 destination: card
 council_reviewed: false
 purpose: Generate a precise, actionable status update that eliminates ambiguity and prevents
-  redundant context loops.
+  redundant context loops by strictly adhering to the current codebase's structure and specific
+  error contexts.
 trigger_when: The agent is providing a progress or status update to the user.
 trigger_matcher: status|update|progress|so far|currently|report
 procedure:
@@ -23,16 +24,12 @@ provenance:
 - proposed
 - refined@1794719188
 - refined@1794975148
+- refined@1795429529
 created: 1793752469.3142495
 record:
-  uses: 5
-  wins: 1
-  losses: 4
-  score_deltas:
-  - 0.5714
-  - -0.5714
-  - -0.5714
-  - 0.0
-  - -0.5714
-  last_used_battle: battle_0045_csvreport
-  battles_available: 5
+  uses: 0
+  wins: 0
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
