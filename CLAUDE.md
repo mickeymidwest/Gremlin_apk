@@ -1,18 +1,3 @@
-<!-- magic-coordination:start -->
-## READ COORDINATION.md FIRST (every session)
-**`COORDINATION.md` (repo root) is the shared game plan between Claude and agy/Gemini.**
-Read it at the START of every session, and KEEP IT UPDATED as you work: claim your lane
-before editing, mark things done when you finish, note what's in progress. This is what
-keeps a fresh Claude and a fresh agy linked across sessions, with no thrashing.
-
-- **Split:** Claude takes the harder / harness / safety-gated work; agy takes the
-  smaller, parallelizable items.
-- **Fallback (Mickey's standing order):** if Claude is down, agy handles the BIG stuff
-  too until Claude is back — agy is the full-capability fallback, not limited to lil-stuff.
-- **Branch discipline:** Claude -> main/claude-*, agy -> gemini-*. Never two agents
-  editing the same files or the same working tree at once.
-<!-- magic-coordination:end -->
-
 <!-- magic-calibration:start -->
 @CALIBRATION.md
 @MAGIC.md
