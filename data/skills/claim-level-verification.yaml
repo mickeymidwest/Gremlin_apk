@@ -11,20 +11,20 @@ trigger_when: The model response contains multiple distinct factual assertions, 
   structure, or system constraints.
 trigger_matcher: answer|summary|report|findings|conclusion
 procedure:
-- Parse the response to extract every distinct factual claim, code snippet, or configuration
-  instruction into a separate list.
-- 'For each extracted item, perform targeted verification: check header file paths against
-  the actual project structure, verify function definition locations, and confirm installation
-  commands align with system package manager policies.'
+- Extract every distinct factual claim, code snippet, or configuration instruction from the
+  response into a separate list.
+- 'For each item, perform targeted verification: check header paths against the actual project
+  structure, verify function definitions against the source file content, and confirm installation
+  commands align with system package policies.'
 - If a verification fails, identify the specific constraint violated (e.g., incorrect include
   path, wrong function signature, invalid sudo usage) and generate a specific correction adhering
   to that constraint.
-- If the correction involves modifying a file, attempt to edit only the exact lines or sections
-  affected by reading the file, copying the correct content, and writing it back.
-- If the edit would make the file invalid (SyntaxError) or if the edit is too complex for
-  partial editing, switch to write_file with the WHOLE corrected file instead.
-- If the verification involves tests, do not manually inspect or edit the test files; instead,
-  run `python -m pytest -q` to ensure the tests are fully green.
+- If the correction requires modifying a file, read the exact file content, apply only the
+  minimal necessary edits to the affected lines, and write the file back.
+- If the edit would cause a SyntaxError or is too complex for partial editing, discard the
+  partial edit and invoke write_file with the WHOLE corrected file instead.
+- If the verification involves tests, do not manually inspect or edit test files; instead,
+  run `python -m pytest -q` to ensure tests are fully green.
 - Replace the incorrect item in the original response with the corrected version.
 - If multiple items fail, report the list of all corrections required before finalizing the
   response.
@@ -34,13 +34,12 @@ provenance:
 - refined@1794717800
 - refined@1794891846
 - refined@1795344945
+- refined@1795432935
 created: 1793752469.3142495
 record:
-  uses: 2
+  uses: 0
   wins: 0
-  losses: 2
-  score_deltas:
-  - -0.5714
-  - -0.1429
-  last_used_battle: battle_0046_csvreport
-  battles_available: 2
+  losses: 0
+  score_deltas: []
+  last_used_battle: null
+  battles_available: 0
