@@ -17,7 +17,9 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -29,6 +31,10 @@ from .types import (
 )
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+_SKILLS_CACHE_LOCK = threading.Lock()
+_SKILLS_CACHE: dict[str, tuple[tuple, list[Skill]]] = {}
 
 
 def _hashid(text: str) -> str:
@@ -96,18 +102,30 @@ class Store:
         return skill
 
     def read_skills(self) -> list[Skill]:
+        entries: list[tuple[Path, tuple[str, int, int]]] = []
+        for prefix, d in (("", self.skills_dir), ("_deprecated/", self.skills_dir / "_deprecated")):
+            if not d.is_dir():
+                continue
+            for p in sorted(d.glob("*.yaml")):
+                try:
+                    st = p.stat()
+                    entries.append((p, (prefix + p.name, st.st_mtime_ns, st.st_size)))
+                except OSError:
+                    continue
+        sig = tuple(e[1] for e in entries)
+        cache_key = str(self.skills_dir.resolve())
+        with _SKILLS_CACHE_LOCK:
+            hit = _SKILLS_CACHE.get(cache_key)
+            if hit is not None and hit[0] == sig:
+                return [replace(s, record=replace(s.record)) for s in hit[1]]
         out: list[Skill] = []
-        for p in sorted(self.skills_dir.glob("*.yaml")):
+        for p, _ in entries:
             s = self._load_card(p)
             if s:
                 out.append(s)
-        dep = self.skills_dir / "_deprecated"
-        if dep.is_dir():
-            for p in sorted(dep.glob("*.yaml")):
-                s = self._load_card(p)
-                if s:
-                    out.append(s)
-        return out
+        with _SKILLS_CACHE_LOCK:
+            _SKILLS_CACHE[cache_key] = (sig, out)
+        return [replace(s, record=replace(s.record)) for s in out]
 
     def write_skills(self, skills: list[Skill]) -> None:
         """Full sync. Live cards (candidate/active) sit in data/skills/ one
@@ -131,6 +149,8 @@ class Store:
             for p in dep.glob("*.yaml"):
                 if p.name not in dep_keep:
                     p.unlink()
+        with _SKILLS_CACHE_LOCK:
+            _SKILLS_CACHE.pop(str(self.skills_dir.resolve()), None)
 
     def record_skill_outcome(self, skill_ids: list[str] | tuple[str, ...], won: bool,
                              battle_id: str = "") -> int:

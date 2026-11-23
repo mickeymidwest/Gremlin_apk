@@ -372,6 +372,17 @@ _ACT_PREAMBLE = (
     "if the message is purely conversational.\n\n")
 
 
+_ACT_SYSTEM_HINT = re.compile(
+    r"""\b(
+        jellyfin|jellyseerr|robofuse|tailscale|nvidia|gpu|vram|ram|cpu|swap|
+        disk|drive|partition|space|memory|load|uptime|temp|temperatures?|sensors|
+        ports?|process(?:es)?|pids?|network|wifi|ethernet|firewall|nft|ssh|cron|
+        timers?|logs?|journalctl|situation|status|health|alive|running|down|
+        desktop|server|box|machine|system
+      )\b""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
 # A how-to QUESTION is always ordinary chat, even when it contains action words
 # like "build / write a script / show me". The user wants the explanation or the
 # CODE TEXT in the reply -- not a project built, a command run, or a file read.
@@ -442,12 +453,12 @@ async def classify(router: Router, model_name: str, message: str, min_confidence
     if _QUESTION_HINT.search(text) or _CODE_TEXT_HINT.search(text):
         return Intent(action="chat", confidence=1.0)
 
-    # No action-suggestive word or path anywhere -> it's conversation.
-    # Skip the classifier call (keeps the primary model out of the loop
-    # on plain chat); the model would almost always answer "chat" here
-    # anyway. See _ACTION_HINT.
-    if not act_mode and not _ACTION_HINT.search(text):
-        return Intent(action="chat", confidence=1.0)
+    # No action-suggestive word, path, or (when act_mode is ON) local system/
+    # service signal -> it's ordinary conversation, so skip the CPU classifier
+    # call instead of burning ~9-25s on greetings or pure Q&A.
+    if not _ACTION_HINT.search(text):
+        if not act_mode or not _ACT_SYSTEM_HINT.search(text):
+            return Intent(action="chat", confidence=1.0)
 
     try:
         _rel = _relevant_tool_names(text)

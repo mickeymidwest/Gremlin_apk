@@ -8,8 +8,10 @@ the local backend errors outright.
 """
 from __future__ import annotations
 
+import contextvars
 import os
 import re
+import time
 from typing import Optional
 
 from .. import look
@@ -44,6 +46,25 @@ _THINK_ANALYTICAL_RE = re.compile(
     re.I,
 )
 _DEEP_HEAD_NAMES = {"qwen3-30b-a3b"}
+_TIMING_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "_magic_timing_sink", default=None
+)
+
+
+def _timing_set(key: str, val) -> None:
+    sink = _TIMING_SINK.get()
+    if sink is not None:
+        sink[key] = val
+
+
+def _timing_add_retry(rail: str, reason: str, elapsed_ms: float) -> None:
+    sink = _TIMING_SINK.get()
+    if sink is not None:
+        sink.setdefault("retries", []).append({
+            "rail": rail,
+            "reason": (reason or "")[:160],
+            "ms": round(elapsed_ms, 1),
+        })
 _RETRY_CAPS = {k: max(0, int(v)) for k, v in (_RCFG.get("retry_caps") or {}).items()}
 _HARD_MIN_WORDS = int(_RCFG["hard_prompt_min_words"])
 _WORTH_REVIEW_MIN_WORDS = int(_RCFG["worth_reviewing_min_words"])
@@ -420,10 +441,12 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     turns, this thread's history) as prior turns so the model answers in
     assistant mode with proper role separation -- not string-completing a
     'User: ...' line. Shared by answer() and answer_stream()."""
+    _t_prof0 = time.perf_counter()
     try:
         prof = profile.prompt_block(root)
     except Exception:
         prof = ""
+    _t_prof1 = time.perf_counter()
     # STATIC context (does NOT depend on this message) -- goes in the cached
     # prefix, BEFORE history, so llama.cpp reuses it turn to turn.
     static_context = "\n\n".join(p for p in (
@@ -437,15 +460,27 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     # Active constraint window (Hydra P2): re-inject the user's standing
     # instructions from this conversation, highest-recency, so a long chat can't
     # drop a rule set several turns back.
+    _t_con0 = time.perf_counter()
     try:
         from . import constraints as _constr
         _cons_block = _constr.block(_constr.extract(history, message))
     except Exception:
         _cons_block = ""
+    _t_mem0 = time.perf_counter()
+    _mem_blk = _memory_block(root, message)
+    _t_sk0 = time.perf_counter()
+    _sk_blk = _skills_block(root, message)
+    _t_sk1 = time.perf_counter()
+    _timing_set("prompt_parts_ms", {
+        "profile": round((_t_prof1 - _t_prof0) * 1000, 1),
+        "constraints": round((_t_mem0 - _t_con0) * 1000, 1),
+        "mem": round((_t_sk0 - _t_mem0) * 1000, 1),
+        "skills": round((_t_sk1 - _t_sk0) * 1000, 1),
+    })
     dynamic_context = "\n\n".join(p for p in (
         _cons_block,
-        _memory_block(root, message),
-        _skills_block(root, message),
+        _mem_blk,
+        _sk_blk,
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
@@ -716,41 +751,43 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
         return None, wev, ""
     if not ws or not wev:
         return None, "", ""
-    if _claims_facts and not _admits and not _fake_web and _REVISE:
-        # Fact-check the already-generated draft against retrieved sources,
-        # dropping the unsearched draft if rejected so wrong guesses don't anchor.
+    if _claims_facts and not _admits and not _fake_web:
+        if _REVISE and not _is_deep_head(primary):
+            # Fact-check the already-generated draft against retrieved sources,
+            # dropping the unsearched draft if rejected so wrong guesses don't anchor.
+            try:
+                from . import revise as _revmod
+                _ev = (evidence or "") + ("\n" if evidence else "") + wev
+                _clean_hist = [
+                    {"role": "user", "content": autoresearch.date_note()},
+                    {"role": "assistant", "content": "Noted."},
+                ]
+                _q = (autoresearch.contextual_query(message, history)
+                      if (history and autoresearch._needs_context(message)) else message)
+                _extra_ws: list = []
+                _extra_ev: list[str] = []
+                _rtext, _changed = await _call_review_and_revise(
+                    _revmod, primary, _q, text, evidence=_ev, history_msgs=_clean_hist,
+                    lookup_web=True, source_sink=_extra_ws, ev_sink=_extra_ev,
+                    drop_draft_on_fail=True, usage_sink=usage_sink)
+                if _extra_ws:
+                    seen_u = {s.get("url") for s in ws}
+                    ws = list(ws) + [s for s in _extra_ws if s.get("url") not in seen_u]
+                if _extra_ev:
+                    wev = "\n\n".join([wev, *_extra_ev])
+                if _changed and _rtext.strip():
+                    return ws, wev, _strip_think(_rtext)
+            except Exception:
+                pass
+        # Critic left the draft unchanged (or deep head skipped inner review_and_revise):
+        # verify against `wev` and only regenerate if figures or claims are unsupported.
         try:
-            from . import revise as _revmod
-            _ev = (evidence or "") + ("\n" if evidence else "") + wev
-            _clean_hist = [
-                {"role": "user", "content": autoresearch.date_note()},
-                {"role": "assistant", "content": "Noted."},
-            ]
-            _q = (autoresearch.contextual_query(message, history)
-                  if (history and autoresearch._needs_context(message)) else message)
-            _extra_ws: list = []
-            _extra_ev: list[str] = []
-            _rtext, _changed = await _call_review_and_revise(
-                _revmod, primary, _q, text, evidence=_ev, history_msgs=_clean_hist,
-                lookup_web=True, source_sink=_extra_ws, ev_sink=_extra_ev,
-                drop_draft_on_fail=True, usage_sink=usage_sink)
-            if _extra_ws:
-                seen_u = {s.get("url") for s in ws}
-                ws = list(ws) + [s for s in _extra_ws if s.get("url") not in seen_u]
-            if _extra_ev:
-                wev = "\n\n".join([wev, *_extra_ev])
-            if _changed and _rtext.strip():
-                return ws, wev, _strip_think(_rtext)
-            # Critic left the unsearched draft unchanged: verify it against `wev`.
-            # If figures or claims aren't supported, fall through to regenerate
-            # from `wev`; otherwise keep the draft WITHOUT stamping a web footer
-            # onto a reply that was never generated from those sources.
             _bad_figs = autoresearch.unverified_figures(text, wev)
             _bad_claims = await _web_fact_check(text, wev, message)
             if not _bad_figs and not _bad_claims:
                 return None, "", ""
         except Exception:
-            pass
+            return None, "", ""
     sprompt, shist, _ = _build_prompt(message, root, history, evidence, web_evidence=wev)
     r = await _gen(primary, sprompt, shist, think=_should_think(message))
     _merge_usage(usage_sink, (getattr(r, "meta", None) or {}).get("usage"))
@@ -763,29 +800,41 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
 async def _prepare_turn(primary, message: str, root: str, history: str, fallback):
     """Shared context, loop, web, and planner research pipeline used by both
     `answer` and `answer_stream` so streaming and non-streaming never drift."""
+    _t_prep0 = time.perf_counter()
+    _t_inl0 = time.perf_counter()
     inline_ctx = ""
     try:
         from .. import context_expand as _ce
         _, inline_ctx = _ce.expand_inline(message, root)
     except Exception:
         inline_ctx = ""
+    _timing_set("inline_ctx_ms", round((time.perf_counter() - _t_inl0) * 1000, 1))
     if _is_casual_chat(message) and not inline_ctx:
+        _t_pb0 = time.perf_counter()
         prompt, hist, ctx = _build_prompt(message, root, history, "", web_evidence="")
+        _timing_set("prompt_build_ms", round((time.perf_counter() - _t_pb0) * 1000, 1))
+        _timing_set("prepare_ms", round((time.perf_counter() - _t_prep0) * 1000, 1))
         return {
             "looped": None, "looked": [], "evidence": "",
             "web_sources": None, "web_ev": "",
             "prompt": prompt, "hist": hist, "ctx": ctx,
         }
+    _t_look0 = time.perf_counter()
     looked, evidence = await _look_first(message, root)
+    _timing_set("look_ms", round((time.perf_counter() - _t_look0) * 1000, 1))
     if not looked:
+        _t_loop0 = time.perf_counter()
         try:
             looped = await _loop_answer(primary, message, root, history, fallback)
         except Exception:
             looped = None
+        _timing_set("loop_ms", round((time.perf_counter() - _t_loop0) * 1000, 1))
         if looped:
+            _timing_set("prepare_ms", round((time.perf_counter() - _t_prep0) * 1000, 1))
             return {"looped": looped, "looked": looked, "evidence": evidence}
     web_sources, web_ev = None, ""
     if not looked:
+        _t_web0 = time.perf_counter()
         try:
             web_sources, web_ev = await autoresearch.gather(message, history=history)
         except Exception:
@@ -795,10 +844,14 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
                 if autoresearch.should_search(message)
                 else ""
             )
+        _timing_set("web_gather_ms", round((time.perf_counter() - _t_web0) * 1000, 1))
+    _t_pb0 = time.perf_counter()
     prompt, hist, ctx = _build_prompt(message, root, history, evidence,
                                       web_evidence=web_ev, inline_context=inline_ctx)
+    _timing_set("prompt_build_ms", round((time.perf_counter() - _t_pb0) * 1000, 1))
     plan_usage: dict = {}
     if _PLAN and _looks_hard(message) and not _is_deep_head(primary):
+        _t_plan0 = time.perf_counter()
         try:
             from . import planner as _plmod
             _pn = await _call_plan_note(
@@ -842,6 +895,8 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
                 prompt = _pn + "\n\n" + prompt
         except Exception:
             pass
+        _timing_set("plan_ms", round((time.perf_counter() - _t_plan0) * 1000, 1))
+    _timing_set("prepare_ms", round((time.perf_counter() - _t_prep0) * 1000, 1))
     return {
         "looped": None,
         "looked": looked,
@@ -912,12 +967,18 @@ async def answer_stream(primary, message: str, root: str,
     _think = _should_think(message)
     acc = ""
     stream_broke = False
+    _t_gen0 = time.perf_counter()
+    _first_delta_set = False
     try:
         async for delta in _stream(primary, prompt, hist, think=_think):
+            if not _first_delta_set:
+                _first_delta_set = True
+                _timing_set("first_delta_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
             acc += delta
             yield "delta", delta
     except Exception:
         stream_broke = True
+    _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
     _degen = getattr(primary, "_last_stream_degeneration", None)
 
     # Anything already on the client's screen stays the answer -- falling
@@ -1009,7 +1070,9 @@ async def answer_stream(primary, message: str, root: str,
             if wnote:
                 text += wnote
                 yield "delta", wnote
+        _t_bk0 = time.perf_counter()
         await _post_answer_bookkeeping(primary, message, root, text, False, "magic", history=history)
+        _timing_set("bookkeeping_ms", round((time.perf_counter() - _t_bk0) * 1000, 1))
         total_usage = _merge_usage(dict(plan_usage), _stream_usage(primary))
         done = _reply(
             text,
@@ -1119,11 +1182,13 @@ async def answer(primary, message: str, root: str,
                       usage=plan_usage or None)
 
     _think = _should_think(message)
+    _t_gen0 = time.perf_counter()
     r = await _gen(primary, prompt, hist, think=_think)
     used, used_fallback = getattr(r, "model", "magic"), False
     if (not getattr(r, "ok", True) or not (r.text or "").strip()) and fallback is not None:
         r = await _gen(fallback, prompt, hist, think=_think)
         used, used_fallback = getattr(r, "model", "fallback"), True
+    _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
 
     text = _strip_think(r.text or "") or "I couldn't get an answer just now — try again."
     # Real token usage from the backend's own response (LlamaCppBackend
@@ -1132,13 +1197,19 @@ async def answer(primary, message: str, root: str,
     usage = _merge_usage(dict(plan_usage), (getattr(r, "meta", None) or {}).get("usage"))
 
     if not web_sources and not _no_source and not used_fallback and text:
+        _t_sr0 = time.perf_counter()
         _ws2, _wev2, _t2 = await _maybe_search_retry(
             primary, message, root, history, evidence, text, usage_sink=usage)
+        _sr_ms = (time.perf_counter() - _t_sr0) * 1000
         if autoresearch.is_no_source(_wev2):
             _no_source = True
             web_ev = _wev2
+            _timing_add_retry("search_retry", "no_usable_source", _sr_ms)
         elif _ws2 and _t2:
             web_sources, web_ev, text = _ws2, _wev2, _t2
+            _timing_add_retry("search_retry", f"sources={len(_ws2)}", _sr_ms)
+        elif _sr_ms >= 50.0:
+            _timing_set("search_retry_check_ms", round(_sr_ms, 1))
 
     if _GROUNDING_CHECK and not used_fallback and text and not web_sources:
         try:
@@ -1146,6 +1217,8 @@ async def answer(primary, message: str, root: str,
         except Exception:
             bad = []
         if bad:
+            _t_gr0 = time.perf_counter()
+            _gr_reason = "; ".join(bad)
             _g_cap = _RETRY_CAPS.get("grounding", 1)
             for _ in range(_g_cap):
                 retry_prompt = prompt + "\n\n" + _SOFT["grounding_retry_prompt"].format(issues="; ".join(bad))
@@ -1166,6 +1239,7 @@ async def answer(primary, message: str, root: str,
                         break
                 else:
                     break
+            _timing_add_retry("grounding", _gr_reason, (time.perf_counter() - _t_gr0) * 1000)
             if bad:
                 text = text + grounding.caveat(bad)
 
@@ -1198,6 +1272,8 @@ async def answer(primary, message: str, root: str,
             # Honesty HARD-GATE (Hydra P3): don't just footnote a fabricated
             # "I ran/checked/searched X" -- reject it and regenerate honestly,
             # with the offending claim quoted back.
+            _t_ah0 = time.perf_counter()
+            _ah_reason = "; ".join(str(x) for x in _hh)
             _ah_cap = _RETRY_CAPS.get("action_honesty", 1)
             _hprompt = prompt + "\n\n" + _SOFT["no_web_or_tools_guard_prompt"]
             for _ in range(_ah_cap):
@@ -1212,6 +1288,7 @@ async def answer(primary, message: str, root: str,
                         break
                 except Exception:
                     break
+            _timing_add_retry("action_honesty", _ah_reason, (time.perf_counter() - _t_ah0) * 1000)
             if _hh:
                 text = text + _ah.caveat(_hh)   # still fabricating -> fall back to the footer
     # Code check: SYNTAX-check any script/code Magic wrote (bash -n, python
@@ -1224,6 +1301,8 @@ async def answer(primary, message: str, root: str,
     except Exception:
         _ci = []
     if _ci:
+        _t_cc0 = time.perf_counter()
+        _cc_reason = "; ".join(str(x) for x in _ci)
         _cc_cap = _RETRY_CAPS.get("code_check", 1)
         for _ in range(_cc_cap):
             _cprompt = prompt + "\n\n" + _SOFT["code_check_retry_prompt"].format(issues="; ".join(_ci))
@@ -1240,6 +1319,7 @@ async def answer(primary, message: str, root: str,
                     break
             except Exception:
                 break
+        _timing_add_retry("code_check", _cc_reason, (time.perf_counter() - _t_cc0) * 1000)
         if _ci:
             text = text + _cc.caveat(_ci)
 
@@ -1248,6 +1328,7 @@ async def answer(primary, message: str, root: str,
     # external facts need verifying. Fail-open (keeps draft on error). Before footers.
     _rev_changed = False
     if _REVISE and not _is_deep_head(primary) and text and not used_fallback and (_worth_reviewing(text) or bool(web_sources)):
+        _t_rv0 = time.perf_counter()
         try:
             from . import revise as _revmod
             _ev = (evidence or "") + (("\n" + web_ev) if web_ev else "")
@@ -1265,7 +1346,8 @@ async def answer(primary, message: str, root: str,
                 text = _rtext
                 _rev_changed = True
         except Exception:
-            pass
+            _changed = False
+        _timing_add_retry("revise", f"changed={_rev_changed}", (time.perf_counter() - _t_rv0) * 1000)
 
     # Re-enforce action-honesty if the reviser rewrote the text without web/tool evidence.
     if _rev_changed and text:
@@ -1278,6 +1360,8 @@ async def answer(primary, message: str, root: str,
         except Exception:
             _hh2 = []
         if _hh2:
+            _t_ah2_0 = time.perf_counter()
+            _ah2_reason = "; ".join(str(x) for x in _hh2)
             _ah2_cap = _RETRY_CAPS.get("action_honesty", 1)
             _hprompt2 = prompt + "\n\n" + _SOFT["no_web_or_tools_guard_prompt"]
             for _ in range(_ah2_cap):
@@ -1292,6 +1376,7 @@ async def answer(primary, message: str, root: str,
                         break
                 except Exception:
                     break
+            _timing_add_retry("action_honesty_post_revise", _ah2_reason, (time.perf_counter() - _t_ah2_0) * 1000)
             if _hh2:
                 text = text + _ah2.caveat(_hh2)
 
@@ -1301,6 +1386,8 @@ async def answer(primary, message: str, root: str,
     if web_sources and web_ev and text:
         _unsup = await _web_fact_check(text, web_ev, message)
         if _unsup and not used_fallback:
+            _t_wf0 = time.perf_counter()
+            _wf_reason = "; ".join(str(x) for x in _unsup)
             _wfc_cap = _RETRY_CAPS.get("web_fact_check", 1)
             for _ in range(_wfc_cap):
                 _wprompt = (prompt + "\n\n[Web fact check: these claims in your draft were NOT found "
@@ -1335,6 +1422,7 @@ async def answer(primary, message: str, root: str,
                         break
                 except Exception:
                     break
+            _timing_add_retry("web_fact_check", _wf_reason, (time.perf_counter() - _t_wf0) * 1000)
             if _unsup:
                 text = text + grounding.web_caveat(_unsup)
         elif _unsup:
@@ -1348,7 +1436,9 @@ async def answer(primary, message: str, root: str,
         text += look.footer(looked)
     if web_sources:
         text += autoresearch.footer(web_sources)
+    _t_bk0 = time.perf_counter()
     await _post_answer_bookkeeping(primary, message, root, text, used_fallback, used, history=history)
+    _timing_set("bookkeeping_ms", round((time.perf_counter() - _t_bk0) * 1000, 1))
     head_name = _backend_head_name(fallback if used_fallback else primary, r) or used
     out = _reply(text, source=used, head=head_name, from_memory=False, usage=usage or None)
     if looked:
