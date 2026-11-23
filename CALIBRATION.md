@@ -5,12 +5,18 @@ automatically (via CLAUDE.md / GEMINI.md). If anything here conflicts with a cha
 message, this file wins until Mickey edits it.
 
 ## 1. Hardware & runtime (CRITICAL)
-- Machine has **7.5 GB RAM**. `/build` and `/fix` peak around **5 GB**.
-- The live server daemon must NOT be running during heavy work, or the box swap-thrashes.
-- **Every heavy command goes through `scripts/heavy.sh`:**
+- **Host RAM:** **31 GiB total RAM** (~24–27 GiB available under normal server load, 19 GiB swap, **0B swap** observed across 30B swaps and tests). `/build` and `/fix` still remain desktop-CLI (`_HEAVY_ON_DESKTOP` unchanged pending separate CPU-contention review).
+- **GPU VRAM ceiling (UNCHANGED):** RTX 2070 Super (**8,192 MiB VRAM**). Strictly **1 GPU model resident** at a time via `vram.ensure_only` (`qwen3.5-9b` ~5,826–5,850 MiB / ~1.9 GiB headroom; `qwen3-30b-a3b` IQ3_XXS ~6,122–6,132 MiB / ~1.6 GiB headroom). Keep `kv_cache_type: q4_0` on 14B models (`q8_0`/higher OOMs 8 GB VRAM).
+- **30B MoE quant rationale:** Keep `qwen3-30b-a3b` on `IQ3_XXS` (12 GB GGUF) rather than bumping to `Q4_K_M` (~18–19 GB) so both `qwen3.5-9b` and `qwen3-30b-a3b` remain warm in Linux page cache (~24 GiB `buff/cache`), keeping warm Hydra reloads ~0.7–1.1s with 0B swap.
+- **Measured benchmarks (2026-11-23):**
+  - `qwen3-30b-a3b` (`/deep` / cold-swap): `138.7 tok/s` prompt eval, `15.11 tok/s` gen, `707 ms` warm load.
+  - Hydra 3-turn ping-pong (`MAGIC_HYDRA=1`, `MAGIC_ENSEMBLE=0`, post latency fixes): Turn 1 (`qwen3.5-9b`, `/chat/stream`) `2.77s`, Turn 2 (`qwen3-30b-a3b`, `/chat`, 1,319 comp tokens, `retries: []`) `202.22s`, Turn 3 (`qwen3.5-9b`, post-30B swap) `3.34s`.
+  - R5 RAM prompt-prefix cache (`MAGIC_PREFIX_CACHE=1`, `1024 MiB` LRU cap): `qwen3.5-9b` `74.9 MiB` (`1,483` tokens), `qwen3-30b-a3b` `72.43 MiB` (`1,454` tokens); `load_state()` restore `136.3–144.4 ms`; Turn 3 post-swap cache HIT `2.68s` (`2,866` prompt tokens); Turn 4 steady-state HIT `2.59s`.
+- **Auto-activated 31 GiB behaviors & active flags:** 3 non-pinned CPU Hive workers, background CPU summarization/compaction (`MemAvailable >= 12000` MB), foreground watchdog deferral, `MAGIC_HYDRA=1`, `MAGIC_PREFIX_CACHE=1` (`1,024 MiB` LRU), and `MAGIC_ENSEMBLE=0` (pending guarded live smoke test).
+- **Heavy command wrapper & APK in-app install path:**
+  Run heavy builds/tests through `scripts/heavy.sh` (stops daemon, runs command, restarts daemon even on failure; never run two heavy commands at once):
   `scripts/heavy.sh ./gradlew assembleDebug`
-  It stops the daemon, runs the command, and restarts the daemon even if the command fails.
-- Never run two heavy commands at once (`heavy.sh` holds a lock and will refuse).
+  When building the Android APK on the desktop, publish `android/app/build/outputs/apk/debug/app-debug.apk` to `~/Downloads/magic-4-<NN>/magic-4.<NN>.apk` (next sequential version) and `~/Downloads/magic-apk/magic-apk.apk`, each with `.magic-build.json` via `magic_core.builds.write_marker(...)` so Mickey can download/install directly inside the Magic phone app under **Settings -> Desktop Builds** (`/builds`).
 - Daemon settings live in `.magic/daemon.env`. Don't change them unless Mickey asks.
 
 ## 2. File safety (CRITICAL — no lost work)
