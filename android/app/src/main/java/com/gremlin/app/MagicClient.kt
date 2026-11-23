@@ -17,7 +17,7 @@ import java.net.URLEncoder
  * Full-app behavior: at home, the desktop's whole orchestrator (all
  * local models, consult, everything) is one fast LAN hop away, so use
  * it. Away from home, that's not reachable at all -- fall back to
- * calling Claude or Gemini directly with the phone's own stored API
+ * calling Gemini directly with the phone's own stored API
  * keys, in the same persona voice cached from the last time the
  * desktop was reachable. This deliberately does NOT reimplement the
  * router/persona/consult machinery in Kotlin -- that logic stays in
@@ -141,7 +141,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         }
 
         val result = chatAway(message)
-        if (result.source == "claude" || result.source == "gemini") {
+        if (result.source == "gemini") {
             appendPendingSync(message, result.answer, result.source)
         }
         return result
@@ -308,41 +308,24 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
 
         if (!hasAnyNetwork()) {
             return ChatResult(
-                "No network connection right now. Connect to Wi-Fi or mobile data to reach the desktop or Claude/Gemini.",
+                "No network connection right now. Connect to Wi-Fi or mobile data to reach the desktop or Gemini.",
                 "no-network",
             )
         }
 
-        val anthropicKey = prefs.getString("anthropic_key", null)
         val geminiKey = prefs.getString("gemini_key", null)
-        val preferred = prefs.getString("away_preferred", "claude")
-
-        val order = if (preferred == "gemini") listOf("gemini", "claude") else listOf("claude", "gemini")
-        val errors = mutableListOf<String>()
-
-        for (provider in order) {
-            try {
-                when (provider) {
-                    "claude" -> if (!anthropicKey.isNullOrBlank()) {
-                        return ChatResult(callClaude(anthropicKey, personaPrompt, message), "claude")
-                    }
-                    "gemini" -> if (!geminiKey.isNullOrBlank()) {
-                        return ChatResult(callGemini(geminiKey, personaPrompt, message), "gemini")
-                    }
-                }
-            } catch (e: Exception) {
-                errors.add("$provider: ${e.message}")
-            }
-        }
-
-        return if (anthropicKey.isNullOrBlank() && geminiKey.isNullOrBlank()) {
-            ChatResult(
-                "Can't reach the desktop and no API keys are set up. " +
-                "Check that Tailscale is on, or add a Claude/Gemini API key in Settings.",
+        if (geminiKey.isNullOrBlank()) {
+            return ChatResult(
+                "Can't reach the desktop and no Gemini API key is set up. " +
+                "Check that Tailscale is on, or add a Gemini API key in Settings.",
                 "none-configured",
             )
-        } else {
-            ChatResult("Couldn't get an answer from anything: ${errors.joinToString("; ")}", "error")
+        }
+
+        return try {
+            ChatResult(callGemini(geminiKey, personaPrompt, message), "gemini")
+        } catch (e: Exception) {
+            ChatResult("Couldn't get an answer from Gemini: ${e.message}", "error")
         }
     }
 
@@ -736,7 +719,6 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
             "fix" to "Magic improves its own harness",
             "model" to "Pick / inspect the base model",
             "builds" to "List / fetch desktop builds",
-            "claude" to "Hand a problem to a Claude Code session",
         )
         val host = prefs.getString("host", null) ?: return builtin
         val port = prefs.getInt("port", 0)
@@ -853,44 +835,10 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         return if (err == null && out.length() > 0) out else { out.delete(); null }
     }
 
-    /** Backs the `/claude <problem> confirm` slash command -- runs the
-     * `claude` CLI non-interactively on the desktop with full autonomy
-     * (--dangerously-skip-permissions), gated by the admin token plus
-     * the app's own required "confirm" step. A real Claude Code session
-     * doing actual work can run a while, hence the long read timeout --
-     * matches claude_code.py's DEFAULT_TIMEOUT (600s) plus headroom. */
-    fun runClaude(prompt: String): AdminResult {
-        val (host, port, adminToken) = adminCreds() ?: return AdminResult(false, adminCredsError())
-        return try {
-            val url = URL("http://$host:$port/admin/claude")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("X-Admin-Token", adminToken)
-            connection.doOutput = true
-            connection.connectTimeout = 8_000
-            connection.readTimeout = 630_000
-
-            val body = JSONObject().apply { put("prompt", prompt) }
-            OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
-
-            val responseCode = connection.responseCode
-            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-            val json = JSONObject(stream.bufferedReader().use { it.readText() })
-
-            val ok = responseCode in 200..299 && json.optBoolean("ok")
-            AdminResult(ok, json.optString(if (ok) "result" else "error", "HTTP $responseCode"))
-        } catch (e: Exception) {
-            AdminResult(false, "Couldn't reach desktop: ${e.message}")
-        }
-    }
-
     /** Backs the `/fix <path> <problem> confirm` slash command -- Magic
      * fixing something on the desktop that ISN'T its own code, using its
-     * own registered models end to end (not the separate `claude` CLI --
-     * see runClaude() for that). Long timeout for the same reason
-     * as runClaude: this involves real model generation plus a
-     * compile/verify check, not an instant response. */
+     * own registered models end to end. Long timeout: this involves real
+     * model generation plus a compile/verify check, not an instant response. */
     fun scriptFix(path: String, problem: String, verifyCommand: String? = null): AdminResult {
         val (host, port, adminToken) = adminCreds() ?: return AdminResult(false, adminCredsError())
         return try {
@@ -991,7 +939,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
     /** Backs the `/edit <goal> confirm` slash command -- the "just tell
      * it in the app" path onto self_improve.run_self_edit on the
      * desktop: propose a patch, run it through the two-reviewer gate
-     * (claude + gemini), and only apply if both approve (compile-checked,
+     * (local + gemini), and only apply if both approve (compile-checked,
      * auto-reverted on failure, committed to git if it lands). Same
      * admin-token gate as every other slash command here, since this is
      * the one that actually rewrites Magic's own source. Long read
@@ -1087,46 +1035,6 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
             throw RuntimeException(json.optString("error", "HTTP $responseCode"))
         }
         return DesktopReply(json.optString("answer", "[empty response]"), parseTokenUsage(json))
-    }
-
-    private fun callClaude(apiKey: String, systemPrompt: String, message: String): String {
-        val modelId = prefs.getString("claude_model_id", null) ?: "claude-sonnet-5"
-        val url = URL("https://api.anthropic.com/v1/messages")
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.setRequestProperty("x-api-key", apiKey)
-        connection.setRequestProperty("anthropic-version", "2023-06-01")
-        connection.doOutput = true
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 60_000
-
-        val body = JSONObject().apply {
-            put("model", modelId)
-            put("max_tokens", 1024)
-            if (systemPrompt.isNotBlank()) put("system", systemPrompt)
-            put("messages", org.json.JSONArray().put(
-                JSONObject().apply { put("role", "user"); put("content", message) }
-            ))
-        }
-        OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
-
-        val responseCode = connection.responseCode
-        val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-        val json = JSONObject(stream.bufferedReader().use { it.readText() })
-
-        if (responseCode !in 200..299) {
-            val errMsg = json.optJSONObject("error")?.optString("message") ?: "HTTP $responseCode"
-            throw RuntimeException(errMsg)
-        }
-
-        val contentArray = json.optJSONArray("content") ?: return "[empty response]"
-        val textParts = mutableListOf<String>()
-        for (i in 0 until contentArray.length()) {
-            val block = contentArray.getJSONObject(i)
-            if (block.optString("type") == "text") textParts.add(block.optString("text"))
-        }
-        return if (textParts.isEmpty()) "[empty response]" else textParts.joinToString("")
     }
 
     private fun callGemini(apiKey: String, systemPrompt: String, message: String): String {

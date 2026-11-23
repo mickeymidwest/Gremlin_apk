@@ -143,7 +143,7 @@ manage. Full table in the build log. Alternates registered: `qwen2.5-coder-7b`
 Run config: `n_ctx 32768`, `flash_attn true`, `n_gpu_layers -1` (never
 partial-offload the primary), **`kv_cache_type q8_0`** — the sweep's `q4_0` is
 llama-specific and breaks Qwen2.5. ~5.6 GiB VRAM at 32k, room for the Jellyfin
-transcode. Fallbacks: Gemini (Claude once the key is real).
+transcode. Fallback: Gemini.
 
 ## 2. Salvage from the old build
 
@@ -152,7 +152,7 @@ KEEP (port): `backends/`, `registry.py`, `tools.py`, `history.py`, `persona.py`,
 `sandbox.py`, `hf_hub.py`.
 
 KEEP as tools: `build_project.py`, `builds.py`, `script_edit.py`,
-`update_check.py`, `away_sync.py`, `claude_code.py`.
+`update_check.py`, `away_sync.py`.
 
 REBUILD into Magic's loop: `self_improve.py` + `review.py` + `teacher.py` +
 `mutation_log.py` → battle/reckoning/gate. `agent_state.py` → battle state machine.
@@ -257,7 +257,6 @@ the list.
 | `/build` | `build android <dir> [as <name>]` builds an APK on the desktop → Settings → Builds. Freeform `/build <goal>` is desktop-CLI only (too heavy for the server). |
 | `/fix` | Magic battle-loop on the harness code. Desktop-CLI only on this box. |
 | `/model` | pick / inspect the base model: `list` / `search <q>` / `use <name>` |
-| `/claude` | (kept) hand a problem to a full Claude Code session on the desktop, explicit confirm |
 | `/builds`, `/builds get <name>` | (kept) list / fetch desktop builds |
 
 ## 6. APK
@@ -434,7 +433,6 @@ isn't a thing; skills come from the loop and from here.
 - Testing on the actual Pixel 9.
 - `gh auth login` — github-cli is installed but not authed; needed to check
   Actions runs and pull the built APK artifact.
-- Real `ANTHROPIC_API_KEY` still a placeholder in `.env` (Gemini works).
 - ~~Push local `main` → origin~~ done — origin at `15d1c4c`.
 
 
@@ -592,9 +590,7 @@ through a Magic entrypoint, and the reply comes back through Magic:
 
 No user-facing route calls the pilot raw. Magic's own internal uses of the model
 — the compaction summariser, best-of-2 plan drafting, the skill gate — are Magic
-using its own tools, not the user reaching past it. (The `/admin/claude`
-break-glass is a *different* model, the Claude CLI, not the local pilot — see
-[[override-vs-claude]].)
+using its own tools, not the user reaching past it.
 
 **Abliterated when unfiltered.** When the unfiltered model is on, Magic is
 abliterated: it adds NO content or behavioural gate. `answer_private` drops the

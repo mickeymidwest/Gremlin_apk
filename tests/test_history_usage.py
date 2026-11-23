@@ -1,5 +1,5 @@
-"""ConversationHistory's token usage tracking -- mickey wants a running
-token counter "like Claude". Real per-turn counts come from the
+"""ConversationHistory's token usage tracking -- running conversation
+token counter. Real per-turn counts come from the
 backend's own response (LlamaCppBackend), persisted alongside each
 turn, summed across the FULL on-disk file (not just the capped
 in-memory render window) for a true conversation-wide total."""

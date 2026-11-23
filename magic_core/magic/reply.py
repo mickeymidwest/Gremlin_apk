@@ -3,7 +3,7 @@
 Replaces consult.consult_and_learn for the ordinary case: Magic
 answers as itself, with its durable notes, the recent away-mode
 exchanges, and this thread's history folded in. No specialist council --
-Magic is the one model now. Claude/Gemini stay as a fallback for when
+Magic is the one model now. Gemini stays as a fallback for when
 the local backend errors outright.
 """
 from __future__ import annotations

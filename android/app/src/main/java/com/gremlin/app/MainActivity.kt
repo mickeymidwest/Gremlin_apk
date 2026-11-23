@@ -197,7 +197,7 @@ class MainActivity : AppCompatActivity() {
         setupSlashAutocomplete()
     }
 
-    // "/" autocomplete, Claude-style: type "/" and a list of commands
+    // "/" autocomplete: type "/" and a list of commands
     // pops above the input; tap one to insert it.
     private var commandHints: List<Pair<String, String>> = emptyList()
     private var slashPopup: ListPopupWindow? = null
@@ -276,7 +276,6 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (id != turnId) return@runOnUiThread
                 val sub = when (result.source) {
-                    "claude" -> "(standalone, via Claude)"
                     "gemini" -> "(standalone, via Gemini)"
                     else -> null
                 }
@@ -532,18 +531,17 @@ class MainActivity : AppCompatActivity() {
     private fun updateConnectionLabel() {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
-        val hasAnthropicKey = !prefs.getString("anthropic_key", null).isNullOrBlank()
         val hasGeminiKey = !prefs.getString("gemini_key", null).isNullOrBlank()
 
         connectionLabel.text = when {
             host != null && port != 0 -> "Connecting to $host..."
-            hasAnthropicKey || hasGeminiKey -> "Standalone mode -- not paired with a desktop"
+            hasGeminiKey -> "Standalone mode -- not paired with a desktop"
             else -> "Not paired yet -- open Settings to set up"
         }
     }
 
-    /** Running token total for this whole conversation thread -- "like
-     * Claude". The desktop computes it from the FULL on-disk transcript
+    /** Running token total for this whole conversation thread. The desktop
+     * computes it from the FULL on-disk transcript (magic_core/history.py),
      * (magic_core/history.py), so it's a real cumulative count, not a
      * per-message stat. Hidden entirely when there's nothing to show
      * (away-mode, an old server, a backend that doesn't report usage)
@@ -749,7 +747,6 @@ class MainActivity : AppCompatActivity() {
         val id = beginTurn()
 
         fun subStatusFor(source: String): String? = when (source) {
-            "claude" -> "(standalone, via Claude)"
             "gemini" -> "(standalone, via Gemini)"
             "stopped" -> "(stopped)"
             else -> null
@@ -834,21 +831,7 @@ class MainActivity : AppCompatActivity() {
         saveHistory()
     }
 
-    /** `/claude` is the ONE remaining typed command, on purpose.
-     *
-     * Everything else that used to need a slash command (/desktop,
-     * /root, /edit, /fix, /reboot, /snapshots, /rollback, /updatecheck)
-     * is now just something you say -- "check for updates", "fix my
-     * backup script", "reboot the desktop" -- and the desktop's intent
-     * router (magic_core/intent.py) works out what you meant, finds
-     * any file paths itself, and asks for a plain yes/no before anything
-     * destructive. See that module for why conversation never pays a
-     * latency cost for this.
-     *
-     * /claude stays explicit because it hands full autonomy to a
-     * separate Claude Code session that can read and write anything in
-     * the project with no further confirmation. That should require
-     * deliberately typing it, never a classifier's best guess. */
+    /** Handle explicit typed slash commands (`/deep`, `/builds`, etc.). */
     private fun handleSlashCommand(message: String) {
         if (isClearCommandText(message)) {
             clearChatScreenAndServer()
@@ -889,24 +872,6 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                     }.start()
-                }
-            }
-
-            "/claude" -> {
-                val rest = message.removePrefix("/claude").trim()
-                val confirmed = rest.endsWith(" confirm")
-                val problem = (if (confirmed) rest.removeSuffix("confirm") else rest).trim()
-                if (problem.isEmpty()) {
-                    appendSystemTurn("Usage: /claude <problem to fix>  (then /claude <problem> confirm to actually run it)", true)
-                } else if (!confirmed) {
-                    appendSystemTurn(
-                        "This runs a full Claude Code session on the desktop with FULL autonomy -- " +
-                            "it can read/write any file and run any command in the project to fix this, " +
-                            "no further confirmation once started. Type \"/claude $problem confirm\" to proceed.",
-                        false,
-                    )
-                } else {
-                    runAdminSlash { magicClient.runClaude(problem) }
                 }
             }
 
@@ -978,7 +943,7 @@ class MainActivity : AppCompatActivity() {
 
             else -> appendSystemTurn(
                 "Commands: /chat /skill /build /fix /model /override /defense /do /memory  ·  " +
-                    "/claude <problem>  ·  /builds, /builds get <name>\n\n" +
+                    "/builds, /builds get <name>\n\n" +
                     "Or just say it normally — the desktop works out what you mean and asks before anything destructive.",
                 true,
             )

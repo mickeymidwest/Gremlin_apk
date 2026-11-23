@@ -1,7 +1,7 @@
 """
 When Magic's own execution hits a real error -- a self-improve patch
 that doesn't compile or fails its tests -- this is the "teacher loop":
-an external judge (claude or gemini, kept in their existing fallback
+an external judge (gemini, kept in its existing fallback
 role too, not instead of it -- see config/models.yaml's fallback_models)
 explains what went wrong and gives a corrected version. The correction
 is logged to learning_log.jsonl, so a concrete mistake leaves a record

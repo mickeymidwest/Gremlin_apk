@@ -83,7 +83,7 @@ def _is_gpu_backend(be) -> bool:
         return False
     info = getattr(be, "info", None)
     kind = getattr(info, "kind", "") if info is not None else ""
-    if kind in ("local_cpu", "anthropic", "openai_compatible", "gemini"):
+    if kind in ("local_cpu", "openai_compatible", "gemini"):
         return False
     if kind in ("local_gguf", "local_vlm"):
         return True

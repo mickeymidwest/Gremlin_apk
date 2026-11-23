@@ -292,8 +292,7 @@ Registered models:
   1. dolphin-3b (local_gguf)  [used by magic: consult_models]
   2. local-2 (local_gguf)  [used by magic: consult_models]
   3. mistral-7b-instruct-v0-3-q4-k-m (local_gguf)
-  4. claude (anthropic)  [used by magic: primary_model]
-  5. gemini (gemini)  [used by magic: fallback_models, consult_models]
+  4. gemini (gemini)  [used by magic: fallback_models, consult_models]
 
 Remove which one(s)? (comma-separated numbers, or blank to cancel): 3
 ```
@@ -357,7 +356,7 @@ fixing in code, that's a call for you to make with the existing
 reviewed flow:
 
 ```bash
-python main.py improve dolphin-3b,claude,gemini "teach magic to handle X" --apply
+python main.py improve dolphin-3b,gemini "teach magic to handle X" --apply
 ```
 
 ## Magic is its own identity
@@ -371,7 +370,7 @@ model actually generates the reply.
 persona:
   name: magic
   primary_model: dolphin-3b        # <-- swap this any time, no other change needed
-  fallback_models: [claude, gemini]
+  fallback_models: [gemini]
   system_prompt: |
     You are Magic, a personal AI running locally on the user's own machine...
 ```
@@ -382,7 +381,7 @@ persona:
   limited), it automatically fails over to each fallback in order --
   Magic staying available doesn't depend on any single backend
   staying up.
-- `dolphin-3b`, `claude`, and `gemini` are still directly addressable by
+- `dolphin-3b` and `gemini` are still directly addressable by
   name for `broadcast`/`plan`/`improve` when you want to reach a
   specific model rather than "whoever's currently answering as Magic."
 
@@ -390,32 +389,29 @@ persona:
 python main.py chat magic
 ```
 
-## Adding Claude and Gemini
+## Adding Gemini
 
-Both are already set up in `config/models.yaml` as `claude` and `gemini` --
-just set the two environment variables (add these to your `~/.bashrc` or
-`~/.zshrc` so they persist):
+`gemini` is already set up in `config/models.yaml` --
+just set the environment variable (add this to your `~/.bashrc` or
+`~/.zshrc` so it persists):
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
 export GEMINI_API_KEY="..."
 ```
 
-Get an Anthropic key at https://console.anthropic.com and a Gemini key at
-https://aistudio.google.com/apikey. Once both are set:
+Get a Gemini key at https://aistudio.google.com/apikey. Once it is set:
 
 ```bash
 python main.py list
 # dolphin-3b (local)
-# claude (api)
 # gemini (api)
 
-python main.py broadcast dolphin-3b,claude,gemini "what's the best way to do X"
-python main.py plan dolphin-3b,claude,gemini "build a script that does X"
-python main.py improve dolphin-3b,claude,gemini "add a retry with backoff"
+python main.py broadcast dolphin-3b,gemini "what's the best way to do X"
+python main.py plan dolphin-3b,gemini "build a script that does X"
+python main.py improve dolphin-3b,gemini "add a retry with backoff"
 ```
 
-All three now work identically everywhere in Magic -- broadcast, plan,
+All registered models work identically everywhere in Magic -- broadcast, plan,
 and self-improve all treat local and API models the same way.
 
 ## Using it
@@ -423,15 +419,15 @@ and self-improve all treat local and API models the same way.
 ```bash
 python main.py list
 python main.py chat dolphin-3b
-python main.py broadcast dolphin-3b,claude-sonnet "explain X"
-python main.py plan dolphin-3b,claude-sonnet "build a script that does X"
+python main.py broadcast dolphin-3b,gemini "explain X"
+python main.py plan dolphin-3b,gemini "build a script that does X"
 ```
 
 ## Self-improvement
 
 This is the "help it build itself more" part -- with a hard rule: **a
 self-edit only ever lands after two different models independently
-approve the exact same patch.** By default that's Claude, then Gemini.
+approve the exact same patch.** By default that includes Gemini plus a distinct local model.
 If either rejects it, their specific feedback goes to a fixer model,
 the patch gets revised, and review restarts from the first reviewer --
 so the version that finally lands is the version both of them actually
@@ -442,23 +438,20 @@ saw and approved, not an earlier draft one of them missed.
 # no review happens yet -- review is only meaningful once you intend to apply
 python main.py improve dolphin-3b "add a retry with backoff to API backends"
 
-# apply: proposes, then runs it through claude -> gemini review.
+# apply: proposes, then runs it through the two-reviewer gate.
 # Only commits if both approve (after however many fix-and-retry rounds
 # it takes, up to a max before giving up).
-python main.py improve dolphin-3b,claude,gemini "add a retry with backoff" --apply
-
-# use a local code model as the first reviewer instead of Claude
-python main.py improve dolphin-3b "add a retry with backoff" --apply --reviewer-a=dolphin-3b
+python main.py improve dolphin-3b,gemini "add a retry with backoff" --apply
 
 # also run pytest before committing, on top of the review gate
-python main.py improve dolphin-3b,claude,gemini "add a retry with backoff" --apply --test
+python main.py improve dolphin-3b,gemini "add a retry with backoff" --apply --test
 ```
 
 You'll see each reviewer's verdict printed as it happens:
 ```
-=== Review gate: claude then gemini must both approve ===
-  [claude] REQUESTED CHANGES -- doesn't handle the timeout case
-  [claude] APPROVED
+=== Review gate: reviewer_a then reviewer_b must both approve ===
+  [reviewer_a] REQUESTED CHANGES -- doesn't handle the timeout case
+  [reviewer_a] APPROVED
   [gemini] APPROVED
 
 Both reviewers approved after 2 round(s). Applying...
@@ -550,7 +543,7 @@ magic auto-fix
 ```
 
 Asks what you want added or fixed, then runs the exact same pipeline as
-`improve ... --apply` -- propose, two-reviewer gate (Claude then
+`improve ... --apply` -- propose, two-reviewer gate (local +
 Gemini by default), compile check, git commit -- just without needing
 to remember the full command or list every model by hand (it uses
 every non-persona model currently registered). There's no lighter,
@@ -620,13 +613,13 @@ on top. Set it to any multi-line text (`system_prompt: |` followed by
 indented lines) if you want one -- it's just text, and it applies in
 exactly two places (see "Magic as the main interface" below):
 Magic's own direct answers, and the final answer after a consult. It
-never affects `claude`, `gemini`, or any local model addressed directly
+never affects `gemini` or any local model addressed directly
 by name.
 
 One honest limit worth knowing: a system prompt shapes *tone*, not what
 the underlying model will actually do. Asking it to claim it's
-"uncensored" wouldn't change Claude's or Gemini's real behavior, since
-that's enforced server-side by Anthropic/Google, not by a local prompt
+"uncensored" wouldn't change Gemini's real behavior, since
+that's enforced server-side by Google, not by a local prompt
 -- you'd just get a model describing itself inaccurately. Personality
 and character voice, on the other hand, work exactly as described above.
 
@@ -851,7 +844,7 @@ which is a distinct, bigger feature than what's here.
 ### Away-mode conversations sync back automatically
 
 If you chat with Magic while away from home (standalone mode, direct
-Claude/Gemini calls), the desktop has no idea that happened -- until
+Gemini calls), the desktop has no idea that happened -- until
 now. The phone queues up every away-mode exchange locally
 (`pending_sync.jsonl` in the app's own storage), and the moment it
 successfully reconnects to the desktop, ships that whole queue along
@@ -861,7 +854,7 @@ with its very next message. No separate sync step, no button to press
 The desktop logs everything it receives to
 `data/away_session_log.jsonl`, so there's a durable record of what was
 discussed while you were out, alongside the prompt/answer/source
-(claude or gemini) and both when it actually happened and when it got
+(gemini) and both when it actually happened and when it got
 synced.
 
 The queue is only cleared once the desktop *confirms* it received the
@@ -923,10 +916,9 @@ desktop is anywhere nearby.
   desktop's `/chat` endpoint and gets the full orchestrator -- all your
   local models, consult, everything, exactly as `magic chat magic`
   gives you.
-- **Away from home** (or never paired at all): the app calls Claude or
-  Gemini directly from your phone, using API keys you enter in Settings
-  (tap the hologram). It tries whichever you set as preferred, falls
-  back to the other if that fails, and speaks in the same persona voice
+- **Away from home** (or never paired at all): the app calls Gemini
+  directly from your phone, using the API key you enter in Settings
+  (tap the hologram), and speaks in the same persona voice
   cached from the last time it *could* reach the desktop -- so the
   character doesn't change depending on where you are.
 
@@ -944,8 +936,8 @@ from Settings, not gates blocking the app until you do. Tap "Pair with
 Desktop" any time to scan a new QR code (also how you switch to a
 different desktop later).
 
-**Permissions:** `INTERNET` (talking to the desktop and to Claude/
-Gemini), `CAMERA` (QR pairing scan), `ACCESS_NETWORK_STATE` (skip
+**Permissions:** `INTERNET` (talking to the desktop and to Gemini),
+`CAMERA` (QR pairing scan), `ACCESS_NETWORK_STATE` (skip
 straight to standalone mode when there's no network at all instead of
 waiting out a connect timeout). Deliberately **no** storage permission
 -- modern Android restricts/deprecates broad storage permissions and
@@ -956,11 +948,9 @@ system file picker (Storage Access Framework), which also needs no
 manifest permission at all. Same real functionality, done the way
 Android actually wants it done now.
 
-**Settings now also has:** dropdowns to pick the exact Claude and
-Gemini model used in standalone mode (`claude-sonnet-5`/`claude-opus-4-8`/
-`claude-haiku-4-5-20251001`, `gemini-2.5-flash`/`gemini-3.1-pro`/
-`gemini-3.5-flash`), alongside the API key fields and the Claude/Gemini
-preference toggle.
+**Settings now also has:** dropdown to pick the exact
+Gemini model used in standalone mode (`gemini-2.5-flash`/`gemini-3.1-pro`/
+`gemini-3.5-flash`), alongside the API key field.
 
 **Dark theme:** the app is always dark, not just following system
 DayNight -- a white light-mode screen around the dark hologram widget
@@ -994,9 +984,9 @@ invalid XML and would have broken the build), cross-checked every
 `R.id.*` reference in the Kotlin against what's actually declared in
 the layouts (a very common source of Android build failures when they
 drift), and checked all three Kotlin files are at least structurally
-sound (balanced braces/parens). The Claude and Gemini API request
-formats in `MagicClient.kt` match the same shapes already tested on
-the desktop side (`anthropic_backend.py`, `gemini_backend.py`). But
+sound (balanced braces/parens). The Gemini API request
+format in `MagicClient.kt` matches the same shape already tested on
+the desktop side (`gemini_backend.py`). But
 actual compilation, and whatever Android Studio's dependency resolution
 turns up, is genuinely unverified. If it doesn't build cleanly on the
 first try, that's expected enough that it's worth just telling me the
@@ -1008,7 +998,7 @@ Android Studio's upgrade assistant handles automatically when prompted.
 
 Add a block to `config/models.yaml`: `local_gguf` for another local
 file, `openai_compatible` with `base_url: http://localhost:11434/v1` for
-anything running through Ollama, or `anthropic`/`openai_compatible` for
+anything running through Ollama, or `gemini`/`openai_compatible` for
 an API model. No code changes needed.
 
 ## Roadmap (not yet built)
@@ -1019,9 +1009,9 @@ an API model. No code changes needed.
   kept separate from the router so a model never touches your system
   directly, only through an explicit, audited tool call.
 - **Harness/plugin mode**: wrapping this orchestrator as an MCP server
-  so tools like Claude Code can route through Magic.
+  so coding agents can route through Magic.
 
-## Putting this on GitHub (and connecting it to Claude Code / Termux)
+## Putting this on GitHub
 
 ```bash
 cd ~/Downloads/gremlin
@@ -1045,61 +1035,6 @@ prebuilt wheel, so it never hits the compile-from-source issue you ran
 into locally), imports every module, confirms the registry actually
 builds from `config/models.yaml`, and runs any tests in `tests/` if
 you add them. Check the **Actions** tab after pushing to see it run.
-
-**A word on `claude --resume <session-id>` specifically**: that's
-Claude Code session state, which lives wherever it was originally
-created -- if that session already exists in Termux, resuming it there
-is completely normal and works exactly as expected. What doesn't work
-is expecting *this chat* to somehow attach to that session or push
-code on your behalf -- I have no access to your GitHub account, your
-phone, or that session's state from here. The actual connection
-between everything is the GitHub repo itself: once it's pushed,
-`claude --resume 7959bf23-a3e3-4ac3-9bd9-951d61ce4902` in Termux gives
-you a real, full-access Claude Code session that can `git pull` this
-exact repo, make changes, commit, and push -- genuinely different from
-this chat, which can only hand you files to move over yourself.
-
-### Setting Termux up for this, if it isn't already
-
-Worth catching before it wastes your time: a plain
-`npm install -g @anthropic-ai/claude-code` frequently fails on real
-Termux with an "Unsupported platform: android arm64" error. Claude
-Code's native binary expects genuine glibc Linux; Android's Termux
-runs on bionic libc instead, which isn't the same thing. The reliable
-path people are actually using successfully is a real Ubuntu
-environment inside Termux via `proot-distro`, not fighting the raw
-Termux environment directly:
-
-```bash
-pkg update && pkg upgrade -y
-pkg install proot-distro git -y
-proot-distro install ubuntu
-proot-distro login ubuntu
-```
-
-Then, inside that Ubuntu shell (a genuine Linux environment from here on):
-```bash
-apt update && apt install -y nodejs npm git
-npm install -g @anthropic-ai/claude-code
-git clone <your-repo-url>
-cd magic
-claude --resume 7959bf23-a3e3-4ac3-9bd9-951d61ce4902
-```
-
-Also worth knowing: Termux needs to be installed from F-Droid, not the
-Google Play Store -- the Play Store version is outdated and abandoned,
-and will cause exactly the kind of confusing failures this setup is
-already prone to.
-
-If that session ID doesn't resolve (expired, or turns out to live in a
-different environment than this one), `claude` on its own starts a
-fresh session in the same directory -- either way you end up with a
-real Claude Code instance with actual shell/git access on your phone.
-
-If you've already got Claude Code running in Termux some other way (a
-community compatibility wrapper, a different setup already working for
-you), you likely already solved this -- just `git clone` the repo into
-wherever that environment's filesystem actually lives.
 
 ### The Android project
 

@@ -47,7 +47,7 @@ class Router:
     async def broadcast(
         self, model_names: list[str], prompt: str, system: Optional[str] = None, **kw
     ) -> dict[str, GenerationResult]:
-        """API backends (claude, gemini, ...) don't compete for local
+        """API backends (gemini, ...) don't compete for local
         VRAM, so they still run together for speed. Local GGUF/VLM/persona
         backends DO share the same limited GPU memory -- nothing here shares
         VRAM between concurrently-loading models, so running two at once on a

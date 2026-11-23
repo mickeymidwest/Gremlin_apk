@@ -6,7 +6,7 @@ keeps skills portable: nothing in a skill card depends on a wire format.
 
 Adapters:
   BackendModel   -- wraps any magic_core.backends.ModelBackend (the
-                    primary GGUF, Claude, Gemini -- whatever the registry
+                    primary GGUF, Gemini -- whatever the registry
                     built). Bridges async generate() to a sync call.
   ScriptedModel  -- canned replies, for tests and dry runs (no network).
 """

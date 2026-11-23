@@ -1,5 +1,5 @@
 """
-Base interface every model backend (local GGUF, Anthropic, OpenAI, etc.)
+Base interface every model backend (local GGUF, Gemini, OpenAI, etc.)
 must implement. The router only ever talks to this interface, so it
 never needs to know or care whether a given model is running on your
 GPU or living behind an API key.

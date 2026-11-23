@@ -56,7 +56,6 @@ from . import self_improve
 from . import script_edit
 from . import snapshots as snapshots_mod
 from . import update_check
-from . import claude_code
 from .sandbox import SecureExecutionSandbox
 from .status import get_status_data
 
@@ -913,8 +912,7 @@ def create_app(
                                         completion_tokens=turn_usage.get("completion_tokens", 0))
         _maybe_compact(conv_key)
         result["synced_count"] = synced_count
-        # Cumulative usage for the WHOLE conversation, not just this turn --
-        # "like Claude Code" means a running total, not a per-message stat.
+        # Cumulative usage for the WHOLE conversation, not just this turn.
         result["conversation_usage"] = conversation_history.usage_totals(conv_key)
         _spawn_watchdog(message, result.get("answer", ""))
         return jsonify(result)
@@ -1629,33 +1627,6 @@ def create_app(
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    @app.route("/admin/claude", methods=["POST"])
-    def admin_claude():
-        # Admin-gated like /admin/execute, plus the app itself requires a
-        # typed "confirm" step before ever sending this request at all
-        # (same two-step pattern /rollback and /edit already use) -- see
-        # claude_code.py's module docstring for why this deliberately
-        # runs with full autonomy instead of going through self_improve's
-        # two-reviewer gate.
-        auth_error = _check_admin_auth()
-        if auth_error:
-            return auth_error
-
-        body = request.get_json(silent=True) or {}
-        prompt = body.get("prompt", "").strip()
-        if not prompt:
-            return jsonify({"error": "empty prompt"}), 400
-
-        result = claude_code.run_claude(str(project_root), prompt)
-
-        mutation_log.append_mutation(str(project_root), {
-            "kind": "claude",
-            "prompt": prompt,
-            "ok": result["ok"],
-        })
-
-        return jsonify(result)
-
     @app.route("/admin/execute", methods=["POST"])
     def admin_execute():
         auth_error = _check_admin_auth()
@@ -1839,10 +1810,8 @@ def create_app(
     def admin_script_edit():
         """Magic fixing/editing something on the desktop that ISN'T its
         own code -- distinct on purpose from /admin/self-edit (this
-        project's own source, two-reviewer gated) and
-        /admin/claude (shells out to the separate `claude` CLI
-        under the user's own subscription instead of Magic's own
-        models). This one runs entirely on Magic's own registered
+        project's own source, two-reviewer gated). This one runs entirely
+        on Magic's own registered
         models end to end. See script_edit.py's module docstring for the
         safety design (system-path refusal, a backup made before
         anything is touched, revert on a failed compile/verify check)

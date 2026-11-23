@@ -31,11 +31,6 @@ Three deliberate design choices:
    require knowing it lives at ~/bin/backup.sh. find_file() scans the
    project and the usual home directories and fuzzy-matches. If it's
    ambiguous it asks which one instead of picking blindly.
-
-The `/claude` command is intentionally NOT routed through here -- it
-stays an explicit, typed escape hatch, because handing full autonomy
-to a separate Claude Code session is exactly the thing that should
-require deliberate intent rather than a classifier's best guess.
 """
 from __future__ import annotations
 

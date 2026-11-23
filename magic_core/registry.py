@@ -5,7 +5,6 @@ from typing import Dict, Optional
 from .backends.base import ModelBackend, ModelInfo
 from .backends.llamacpp_backend import LlamaCppBackend
 from .backends.vision_backend import VisionBackend
-from .backends.anthropic_backend import AnthropicBackend
 from .backends.openai_backend import OpenAIBackend
 from .backends.gemini_backend import GeminiBackend
 from .persona import PersonaBackend
@@ -84,12 +83,6 @@ class ModelRegistry:
                     info, model_path=entry["model_path"],
                     n_ctx=entry.get("n_ctx", 8192),
                     pinned=entry.get("pin", False))
-            elif entry["type"] == "anthropic":
-                backend = AnthropicBackend(
-                    info,
-                    model_id=entry["model_id"],
-                    api_key_env=entry.get("api_key_env", "ANTHROPIC_API_KEY"),
-                )
             elif entry["type"] == "openai_compatible":
                 backend = OpenAIBackend(
                     info,

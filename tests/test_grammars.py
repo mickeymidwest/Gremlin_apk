@@ -120,10 +120,8 @@ def test_stream_with_grammar_passes_compiled_grammar(monkeypatch):
 # ---- interface uniformity --------------------------------------------
 
 def test_all_backends_accept_a_grammar_kwarg():
-    from magic_core.backends import (anthropic_backend, gemini_backend,
-                                        openai_backend, base)
+    from magic_core.backends import gemini_backend, openai_backend, base
     for mod, cls in [(base, "ModelBackend"),
-                     (anthropic_backend, "AnthropicBackend"),
                      (gemini_backend, "GeminiBackend"),
                      (openai_backend, "OpenAIBackend"),
                      (backend_mod, "LlamaCppBackend")]:

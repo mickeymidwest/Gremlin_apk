@@ -214,31 +214,10 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Used automatically whenever the desktop isn't reachable. Keys stay only on this phone, sent straight to Anthropic/Google, never through the desktop."
+            android:text="Used automatically whenever the desktop isn't reachable. Keys stay only on this phone, sent straight to Google, never through the desktop."
             android:textSize="11sp"
             android:alpha="0.7"
             android:layout_marginBottom="14dp" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Anthropic (Claude) API key"
-            android:textSize="12sp"
-            android:layout_marginBottom="2dp" />
-
-        <EditText
-            android:id="@+id/anthropic_key_input"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:hint="sk-ant-..."
-            android:inputType="textPassword"
-            android:layout_marginBottom="4dp" />
-
-        <Spinner
-            android:id="@+id/claude_model_spinner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -259,28 +238,7 @@
             android:id="@+id/gemini_model_spinner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp" />
-
-        <RadioGroup
-            android:id="@+id/preferred_provider_group"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="16dp">
-
-            <RadioButton
-                android:id="@+id/prefer_claude_radio"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Prefer Claude" />
-
-            <RadioButton
-                android:id="@+id/prefer_gemini_radio"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Prefer Gemini"
-                android:layout_marginStart="16dp" />
-        </RadioGroup>
+            android:layout_marginBottom="16dp" />
 
         <Button
             android:id="@+id/save_keys_button"
