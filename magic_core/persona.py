@@ -57,6 +57,7 @@ class PersonaBackend(ModelBackend):
         # check (seems_uncertain); consults then fire rarely, on genuine
         # hedging or an explicit consult_sample_rate draw.
         self.deep_uncertainty_check = deep_uncertainty_check
+        self._last_stream_backend: Optional[str] = None
 
     def _combined_system(self, extra: Optional[str]) -> str:
         if self.system_prompt and extra:
@@ -123,6 +124,7 @@ class PersonaBackend(ModelBackend):
         top of a partial reply."""
         combined_system = self._combined_system(system)
         self._last_stream_degeneration = None
+        self._last_stream_backend = None
         last_err: Optional[BaseException] = None
         for backend in [self.primary] + self.fallbacks:
             produced = False
@@ -139,12 +141,14 @@ class PersonaBackend(ModelBackend):
                     produced = True
                     yield delta
                 if produced:
+                    self._last_stream_backend = backend.info.name
                     self._last_stream_degeneration = getattr(
                         backend, "_last_stream_degeneration", None)
                     return
             except BaseException as e:  # noqa
                 last_err = e
                 if produced:
+                    self._last_stream_backend = backend.info.name
                     self._last_stream_degeneration = getattr(
                         backend, "_last_stream_degeneration", None)
                     return

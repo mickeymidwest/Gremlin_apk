@@ -278,3 +278,244 @@ def test_deep_route_soft_pauses_nonpinned_cpu_hive(tmp_path, monkeypatch):
         assert evicted == [True]
     finally:
         loop.call_soon_threadsafe(loop.stop)
+
+
+def test_deep_head_skips_plan_and_revise_and_usage_aggregates_on_9b(tmp_path, monkeypatch):
+    import asyncio
+    from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+    from magic_core.persona import PersonaBackend
+    from magic_core.magic import reply
+
+    monkeypatch.setattr(reply, "_PLAN", True)
+    monkeypatch.setattr(reply, "_REVISE", True)
+    monkeypatch.setattr(reply, "_GROUNDING_CHECK", False)
+    monkeypatch.setattr(reply.look, "wants", lambda *a, **k: [])
+    monkeypatch.setattr(reply.look, "workspace_probe", lambda *a, **k: ([], ""))
+
+    class _DeepBe(ModelBackend):
+        chat_format = "chatml-nothink"
+        no_think = False
+
+        def __init__(self):
+            super().__init__(ModelInfo(name="qwen3-30b-a3b", kind="local_gguf", footprint_mb=7800))
+            self.calls = []
+
+        async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.5,
+                           history=None, grammar=None):
+            self.calls.append((prompt, system or "", max_tokens, grammar))
+            return GenerationResult(
+                model="qwen3-30b-a3b",
+                text="A strict total order prevents wait-for cycles. " * 12,
+                meta={"usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}},
+            )
+
+    deep_persona = PersonaBackend(
+        ModelInfo(name="magic", kind="persona", display_name="Magic"),
+        primary=_DeepBe(), fallbacks=[], system_prompt="sys",
+    )
+    out_deep = asyncio.run(
+        reply.answer(
+            deep_persona,
+            "Think carefully and derive from first principles why lock ordering prevents deadlocks.",
+            str(tmp_path),
+        )
+    )
+    assert out_deep["source"] == "magic"
+    assert out_deep["head"] == "qwen3-30b-a3b"
+    assert len(deep_persona.primary.calls) == 1
+    assert deep_persona.primary.calls[0][0].endswith(" /think")
+    assert deep_persona.primary.calls[0][2] == 3072
+    assert out_deep["usage"] == {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
+
+    class _9BBe(ModelBackend):
+        chat_format = "chatml-nothink"
+        no_think = False
+
+        def __init__(self):
+            super().__init__(ModelInfo(name="qwen3.5-9b", kind="local_gguf", footprint_mb=6600))
+            self.calls = []
+
+        async def generate(self, prompt, system=None, max_tokens=1024, temperature=0.5,
+                           history=None, grammar=None):
+            self.calls.append((prompt, system or "", max_tokens, grammar))
+            if "planning another assistant" in (system or ""):
+                return GenerationResult(
+                    model="qwen3.5-9b",
+                    text='{"steps": ["Explain cycles"], "missing": []}',
+                    meta={"usage": {"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30}},
+                )
+            if "strict reviewer" in (system or ""):
+                return GenerationResult(
+                    model="qwen3.5-9b",
+                    text='{"pass": false, "flaw": "too brief", "fix": "expand slightly"}',
+                    meta={"usage": {"prompt_tokens": 30, "completion_tokens": 15, "total_tokens": 45}},
+                )
+            if "improving your OWN draft" in (system or ""):
+                return GenerationResult(
+                    model="qwen3.5-9b",
+                    text="Expanded clean explanation without extra think tag. " * 12,
+                    meta={"usage": {"prompt_tokens": 40, "completion_tokens": 25, "total_tokens": 65}},
+                )
+            return GenerationResult(
+                model="qwen3.5-9b",
+                text="Initial draft answer covering lock ordering cleanly. " * 12,
+                meta={"usage": {"prompt_tokens": 50, "completion_tokens": 35, "total_tokens": 85}},
+            )
+
+    be9 = _9BBe()
+    p9 = PersonaBackend(
+        ModelInfo(name="magic", kind="persona", display_name="Magic"),
+        primary=be9, fallbacks=[], system_prompt="sys",
+    )
+    out_9b = asyncio.run(
+        reply.answer(p9, "Explain how lock ordering prevents deadlocks.", str(tmp_path))
+    )
+    assert out_9b["source"] == "magic"
+    assert out_9b["head"] == "qwen3.5-9b"
+    assert len(be9.calls) == 4  # planner + primary + critic + revise
+    assert out_9b["usage"] == {"prompt_tokens": 140, "completion_tokens": 85, "total_tokens": 225}
+
+
+def test_should_think_gating_shared_between_answer_and_stream(tmp_path, monkeypatch):
+    import asyncio
+    from magic_core.magic import reply
+
+    monkeypatch.setattr(reply, "_PLAN", False)
+    monkeypatch.setattr(reply, "_REVISE", False)
+    monkeypatch.setattr(reply, "_GROUNDING_CHECK", False)
+    monkeypatch.setattr(reply.look, "wants", lambda *a, **k: [])
+    monkeypatch.setattr(reply.look, "workspace_probe", lambda *a, **k: ([], ""))
+
+    for no_think_msg in (
+        "hey",
+        "Hey Magic, say pong in one short sentence.",
+        "Thanks Magic, reply with one word: ready.",
+        "Magic, tell me a quick joke.",
+        "Batman Beyond could fly",
+    ):
+        assert reply._should_think(no_think_msg) is False, no_think_msg
+
+    for think_msg in (
+        "explain how kubernetes ingress routing works",
+        "Analyze the bottlenecks in this queue.",
+        "Derive the recurrence relation for mergesort.",
+        "First check the balance, then reconcile each ledger row; what mismatches remain?",
+        "say pong /think",
+    ):
+        assert reply._should_think(think_msg) is True, think_msg
+
+    seen_gen = []
+    seen_stream = []
+
+    class _MockBe:
+        chat_format = "chatml-nothink"
+        no_think = False
+
+        async def generate(self, prompt, max_tokens=2048, temperature=0.6, history=None):
+            seen_gen.append((prompt, max_tokens))
+            return type("R", (), {"ok": True, "text": "pong", "model": "magic", "meta": {}})()
+
+        async def generate_stream(self, prompt, max_tokens=2048, temperature=0.6, history=None):
+            seen_stream.append((prompt, max_tokens))
+            yield "pong"
+
+    be = _MockBe()
+    asyncio.run(reply.answer(be, "Hey Magic, say pong in one short sentence.", str(tmp_path)))
+
+    async def _collect_stream(msg):
+        evs = []
+        async for ev in reply.answer_stream(be, msg, str(tmp_path)):
+            evs.append(ev)
+        return evs
+
+    asyncio.run(_collect_stream("Hey Magic, say pong in one short sentence."))
+    assert not seen_gen[-1][0].endswith(" /think") and seen_gen[-1][1] == 2048
+    assert not seen_stream[-1][0].endswith(" /think") and seen_stream[-1][1] == 2048
+
+    asyncio.run(reply.answer(be, "Derive the recurrence relation for mergesort.", str(tmp_path)))
+    evs2 = asyncio.run(_collect_stream("Derive the recurrence relation for mergesort."))
+    assert seen_gen[-1][0].endswith(" /think") and seen_gen[-1][1] == 3072
+    assert seen_stream[-1][0].endswith(" /think") and seen_stream[-1][1] == 3072
+    done_ev = next(p for k, p in evs2 if k == "done")
+    assert done_ev["source"] == "magic"
+
+
+def test_head_observability_on_chat_and_stream_keeps_source_unchanged(tmp_path, monkeypatch):
+    import json
+    from magic_core.backends.base import ModelBackend, ModelInfo, GenerationResult
+    from magic_core.persona import PersonaBackend
+    from magic_core.registry import ModelRegistry
+    from magic_core.router import Router
+    from magic_core import server
+    from magic_core.magic import reply, vram
+
+    monkeypatch.setattr(reply, "_PLAN", False)
+    monkeypatch.setattr(reply, "_REVISE", False)
+    monkeypatch.setattr(reply, "_GROUNDING_CHECK", False)
+    monkeypatch.setattr(reply.look, "wants", lambda *a, **k: [])
+    monkeypatch.setattr(reply.look, "workspace_probe", lambda *a, **k: ([], ""))
+
+    class _HeadBe(ModelBackend):
+        chat_format = "chatml-nothink"
+        no_think = False
+
+        def __init__(self, name, fp):
+            super().__init__(ModelInfo(name=name, kind="local_gguf", footprint_mb=fp))
+            self._llm = object()
+            self.model_path = f"/fake/{name}.gguf"
+
+        async def generate(self, prompt, system=None, max_tokens=512, temperature=0.5,
+                           history=None, grammar=None):
+            return GenerationResult(model=self.info.name, text=f"reply from {self.info.name}")
+
+        async def generate_stream(self, prompt, system=None, max_tokens=512, temperature=0.5,
+                                  history=None, grammar=None):
+            yield f"stream from {self.info.name}"
+
+    reg = ModelRegistry()
+    be9 = _HeadBe("qwen3.5-9b", 6600)
+    be30 = _HeadBe("qwen3-30b-a3b", 7800)
+    reg.backends["qwen3.5-9b"] = be9
+    reg.backends["qwen3-30b-a3b"] = be30
+    reg.backends["magic"] = PersonaBackend(
+        ModelInfo(name="magic", kind="persona", display_name="Magic"),
+        primary=be9, fallbacks=[], system_prompt="sys",
+    )
+
+    async def _fake_ensure_only(_reg, keep=None):
+        return None
+    monkeypatch.setattr(vram, "ensure_only", _fake_ensure_only)
+    monkeypatch.setattr(vram, "free_mb", lambda: 2000)
+    monkeypatch.setattr("magic_core.magic.hydra._free_ram_mb", lambda: 28000)
+    monkeypatch.setenv("MAGIC_HYDRA", "1")
+
+    loop = server.start_background_loop()
+    try:
+        app = server.create_app(reg, Router(reg), tmp_path, loop, token="tok", admin_token="adm")
+        client = app.test_client()
+        headers = {"Authorization": "Bearer tok"}
+
+        r1 = client.post("/chat", json={"message": "Hey Magic, say hi"}, headers=headers).get_json()
+        assert r1["source"] == "magic" and r1["head"] == "qwen3.5-9b"
+
+        r2 = client.post(
+            "/chat",
+            json={"message": "Think carefully and derive why lock ordering prevents deadlocks."},
+            headers=headers,
+        ).get_json()
+        assert r2["source"] == "magic" and r2["head"] == "qwen3-30b-a3b"
+
+        r3 = client.post(
+            "/chat/stream",
+            json={"message": "Think carefully and derive why lock ordering prevents deadlocks."},
+            headers=headers,
+        )
+        done_evs = [
+            json.loads(ln[len("data:"):].strip())
+            for ln in r3.get_data(as_text=True).splitlines()
+            if ln.startswith("data:") and '"type": "done"' in ln
+        ]
+        assert done_evs[0]["source"] == "magic" and done_evs[0]["head"] == "qwen3-30b-a3b"
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+

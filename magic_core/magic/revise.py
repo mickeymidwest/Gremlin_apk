@@ -104,11 +104,21 @@ async def _gen(backend, prompt, system, history_msgs, grammar=None,
     return await backend.generate(prompt, max_tokens=max_tokens, temperature=temperature)
 
 
+def _add_usage(sink: dict | None, result) -> None:
+    if sink is None:
+        return
+    u = (getattr(result, "meta", None) or {}).get("usage") or {}
+    for k, v in u.items():
+        if isinstance(v, (int, float)) and isinstance(sink.get(k, 0), (int, float)):
+            sink[k] = sink.get(k, 0) + v
+
+
 async def review_and_revise(backend, question: str, draft: str, *,
                             evidence: str = "", history_msgs=None,
                             lookup_web: bool = False, source_sink: list | None = None,
                             ev_sink: list[str] | None = None,
-                            drop_draft_on_fail: bool = False):
+                            drop_draft_on_fail: bool = False,
+                            usage_sink: dict | None = None):
     """(final_text, changed). Critic pass -> on a real flaw, one rewrite pass.
     When `lookup_web=True`, looks up live sources to ground review/fact-checking
     if context is missing or the reviewer flags `"verify"`. Fail-open everywhere."""
@@ -140,6 +150,7 @@ async def review_and_revise(backend, question: str, draft: str, *,
                        grammar=_VERDICT_GRAMMAR, max_tokens=256)
     except Exception:
         return draft, False
+    _add_usage(usage_sink, r)
     if not getattr(r, "ok", True):
         return draft, False
     verdict = _parse_verdict(getattr(r, "text", "") or "")
@@ -182,18 +193,11 @@ async def review_and_revise(backend, question: str, draft: str, *,
                          f"how to fix: {fix}\n\nReply directly to the user with the fixed answer "
                          "(no preamble like 'Sure, here is the corrected answer:' and no mention of any draft).")
     revise_max_tokens = 2048
-    real_backend = getattr(backend, "primary", backend)
-    if (
-        getattr(real_backend, "chat_format", None) == "chatml-nothink"
-        and not getattr(real_backend, "no_think", False)
-        and not (" " + revise_prompt.rstrip()).endswith((" /think", " /no_think"))
-    ):
-        revise_prompt = revise_prompt.rstrip() + " /think"
-        revise_max_tokens = 3072
     try:
         r2 = await _gen(backend, revise_prompt, _REVISE_SYSTEM,
                         ([] if (drop_draft_on_fail and combined_ev) else history_msgs),
                         max_tokens=revise_max_tokens)
+        _add_usage(usage_sink, r2)
         t2 = _clean_revised_output(getattr(r2, "text", "") or "") if getattr(r2, "ok", True) else ""
     except Exception:
         return draft, False

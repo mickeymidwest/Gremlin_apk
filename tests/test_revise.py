@@ -92,9 +92,9 @@ def test_auto_think_wiring_for_chatml_nothink(monkeypatch, tmp_path):
     be = _ThinkBackend()
     out, changed = _run(revise.review_and_revise(be, "explain how swap works", "short draft"))
     assert changed is True
-    # Critic (grammar) must NOT append /think; rewrite (no grammar) MUST append /think
+    # Neither critic (grammar) nor rewrite appends /think (critic already supplied fix notes)
     assert not calls[0][0].endswith(" /think") and calls[0][2] is not None
-    assert calls[1][0].endswith(" /think") and calls[1][1] == 3072
+    assert not calls[1][0].endswith(" /think") and calls[1][1] == 2048
 
     # In reply: casual chat skips /think, substantive turns enable it (not on fallback)
     monkeypatch.setattr(reply, "_PLAN", False)

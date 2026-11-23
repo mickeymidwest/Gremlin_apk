@@ -718,6 +718,52 @@ def create_app(
             "services": service_control.available_service_tools(str(project_root)),
         })
 
+    def _backend_head_name(be) -> str:
+        real = getattr(be, "primary", be)
+        name = getattr(getattr(real, "info", None), "name", None)
+        return str(name) if name else ""
+
+    async def _resolve_chat_backend(msg: str, base_be):
+        if os.environ.get("MAGIC_HYDRA", "0") != "1":
+            return base_be
+        try:
+            from .magic.hydra import Hydra, _free_ram_mb, default_heads
+            from .magic import vram
+            from .persona import PersonaBackend
+            from .backends.base import ModelInfo
+            _raw_free = vram.free_mb()
+            _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
+            _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
+            _swap_mb = max(0.0, float(_budget) - _raw_vram)
+            _ram = _free_ram_mb()
+            _, _head = Hydra(
+                heads=default_heads(free_ram_mb=_ram, registry=registry),
+            ).select(
+                msg, free_vram_mb=_raw_vram, free_ram_mb=_ram,
+                resident=_res, swappable_vram_mb=_swap_mb,
+            )
+            if _head is None:
+                return base_be
+            _sel_be = registry.get(_head.name)
+            if _sel_be is None:
+                return base_be
+            if _head.name == "qwen3-30b-a3b":
+                from .backends import cpu_backend as _cb
+                _cb._evict_all_nonpinned()
+            if _head.gpu:
+                await vram.ensure_only(registry, keep=_head.name)
+            _prim = getattr(base_be, "primary", None)
+            if _prim is not None and _sel_be is not _prim:
+                return PersonaBackend(
+                    ModelInfo(name="magic", kind="persona", display_name="Magic"),
+                    primary=_sel_be,
+                    fallbacks=getattr(base_be, "fallbacks", []),
+                    system_prompt=getattr(base_be, "system_prompt", ""),
+                )
+        except Exception:
+            return base_be
+        return base_be
+
     @app.route("/chat", methods=["POST"])
     def chat():
         auth_error = _check_auth()
@@ -841,43 +887,11 @@ def create_app(
         fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
             or registry.get("gemini")
 
+        selected_head_box = {"name": _backend_head_name(magic_backend)}
+
         async def _chat_answer():
-            chat_be = magic_backend
-            if os.environ.get("MAGIC_HYDRA", "0") == "1":
-                try:
-                    from .magic.hydra import Hydra, _free_ram_mb, default_heads
-                    from .magic import vram
-                    from .persona import PersonaBackend
-                    from .backends.base import ModelInfo
-                    _raw_free = vram.free_mb()
-                    _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
-                    _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
-                    _swap_mb = max(0.0, float(_budget) - _raw_vram)
-                    _ram = _free_ram_mb()
-                    _, _head = Hydra(
-                        heads=default_heads(free_ram_mb=_ram, registry=registry),
-                    ).select(
-                        message, free_vram_mb=_raw_vram, free_ram_mb=_ram,
-                        resident=_res, swappable_vram_mb=_swap_mb,
-                    )
-                    if _head is not None:
-                        _sel_be = registry.get(_head.name)
-                        if _sel_be is not None:
-                            if _head.name == "qwen3-30b-a3b":
-                                from .backends import cpu_backend as _cb
-                                _cb._evict_all_nonpinned()
-                            if _head.gpu:
-                                await vram.ensure_only(registry, keep=_head.name)
-                            _prim = getattr(magic_backend, "primary", None)
-                            if _prim is not None and _sel_be is not _prim:
-                                chat_be = PersonaBackend(
-                                    ModelInfo(name="magic", kind="persona", display_name="Magic"),
-                                    primary=_sel_be,
-                                    fallbacks=getattr(magic_backend, "fallbacks", []),
-                                    system_prompt=getattr(magic_backend, "system_prompt", ""),
-                                )
-                except Exception:
-                    chat_be = magic_backend
+            chat_be = await _resolve_chat_backend(message, magic_backend)
+            selected_head_box["name"] = _backend_head_name(chat_be) or selected_head_box["name"]
             return await magic_reply.answer(
                 chat_be, message, str(project_root),
                 history=history, fallback=fallback,
@@ -906,6 +920,8 @@ def create_app(
                 "error": str(e), "synced_count": synced_count,
             }), 200
         _note_answer(result)
+        if selected_head_box["name"] and not result.get("head"):
+            result["head"] = selected_head_box["name"]
         turn_usage = result.get("usage") or {}
         with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
             conversation_history.record(conv_key, message, result.get("answer", ""),
@@ -1315,48 +1331,16 @@ def create_app(
             final = None
             try:
                 async with state_machine.phase(agent_state.AgentState.REASONING):
-                    stream_be = magic_backend
-                    if os.environ.get("MAGIC_HYDRA", "0") == "1":
-                        try:
-                            from .magic.hydra import Hydra, _free_ram_mb, default_heads
-                            from .magic import vram
-                            from .persona import PersonaBackend
-                            from .backends.base import ModelInfo
-                            _raw_free = vram.free_mb()
-                            _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
-                            _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
-                            _swap_mb = max(0.0, float(_budget) - _raw_vram)
-                            _ram = _free_ram_mb()
-                            _, _head = Hydra(
-                                heads=default_heads(free_ram_mb=_ram, registry=registry),
-                            ).select(
-                                message, free_vram_mb=_raw_vram, free_ram_mb=_ram,
-                                resident=_res, swappable_vram_mb=_swap_mb,
-                            )
-                            if _head is not None:
-                                _sel_be = registry.get(_head.name)
-                                if _sel_be is not None:
-                                    if _head.name == "qwen3-30b-a3b":
-                                        from .backends import cpu_backend as _cb
-                                        _cb._evict_all_nonpinned()
-                                    if _head.gpu:
-                                        await vram.ensure_only(registry, keep=_head.name)
-                                    _prim = getattr(magic_backend, "primary", None)
-                                    if _prim is not None and _sel_be is not _prim:
-                                        stream_be = PersonaBackend(
-                                            ModelInfo(name="magic", kind="persona", display_name="Magic"),
-                                            primary=_sel_be,
-                                            fallbacks=getattr(magic_backend, "fallbacks", []),
-                                            system_prompt=getattr(magic_backend, "system_prompt", ""),
-                                        )
-                        except Exception:
-                            stream_be = magic_backend
+                    stream_be = await _resolve_chat_backend(message, magic_backend)
+                    stream_head = _backend_head_name(stream_be)
                     async for kind, payload in magic_reply.answer_stream(
                         stream_be, message, str(project_root),
                         history=history, fallback=fallback,
                     ):
                         if kind == "done":
                             final = payload
+                            if stream_head and not final.get("head"):
+                                final["head"] = stream_head
                             # Record + compute the running total BEFORE
                             # this frame goes out -- the client needs to
                             # see conversation_usage in the SAME "done"
