@@ -65,6 +65,18 @@ def _timing_add_retry(rail: str, reason: str, elapsed_ms: float) -> None:
             "reason": (reason or "")[:160],
             "ms": round(elapsed_ms, 1),
         })
+
+
+def _timing_set_prefix(backend, result=None) -> None:
+    meta = getattr(result, "meta", None) or {}
+    pc = meta.get("prefix_cache")
+    if not pc:
+        real = getattr(backend, "primary", backend)
+        pc = getattr(real, "_last_prefix_stats", None)
+    if isinstance(pc, dict) and pc:
+        for k in ("prefix_cache_hit", "prefix_cached_tokens", "prefix_restore_ms", "prefix_save_ms"):
+            if k in pc:
+                _timing_set(k, pc[k])
 _RETRY_CAPS = {k: max(0, int(v)) for k, v in (_RCFG.get("retry_caps") or {}).items()}
 _HARD_MIN_WORDS = int(_RCFG["hard_prompt_min_words"])
 _WORTH_REVIEW_MIN_WORDS = int(_RCFG["worth_reviewing_min_words"])
@@ -447,13 +459,14 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     except Exception:
         prof = ""
     _t_prof1 = time.perf_counter()
-    # STATIC context (does NOT depend on this message) -- goes in the cached
-    # prefix, BEFORE history, so llama.cpp reuses it turn to turn.
+    # STATIC context (does NOT depend on this message or today's date) --
+    # placed strictly before volatile blocks so RamPrefixCache checkpoints
+    # stay byte-identical across turns, days, and Hydra swaps.
     static_context = "\n\n".join(p for p in (
         prof,
         _pitfalls_block(root),
-        notes.recent_away_context(root),
     ) if p)
+    recent_away = notes.recent_away_context(root)
     # DYNAMIC retrieval (re-ranked for THIS message) -- goes AFTER history, by
     # the question, so a new message only invalidates the KV-cache tail instead
     # of re-prefilling the whole conversation (the 60-80% latency win).
@@ -484,14 +497,17 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
-    # the current date is ambient, not prior-work context -- give it to the
-    # model but keep it OUT of /ctx so grounding's empty-context
-    # back-reference check stays accurate.
-    hist.append({"role": "user", "content": autoresearch.date_note()})
-    hist.append({"role": "assistant", "content": "Noted."})
     if static_context:
         hist.append({"role": "user", "content": static_context})
         hist.append({"role": "assistant", "content": "Understood -- I'll keep that in mind."})
+    # the current date is ambient, not prior-work context -- give it to the
+    # model after the cached static prefix, and keep it OUT of /ctx so
+    # grounding's empty-context back-reference check stays accurate.
+    hist.append({"role": "user", "content": autoresearch.date_note()})
+    hist.append({"role": "assistant", "content": "Noted."})
+    if recent_away:
+        hist.append({"role": "user", "content": recent_away})
+        hist.append({"role": "assistant", "content": "Got it -- noted from earlier away exchanges."})
     if history:
         hist.append({"role": "user", "content":
                      "Earlier in this conversation:\n" + history})
@@ -512,7 +528,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         "\n\n".join(ctx_parts) + f"\n\nUser question:\n{message}"
         if ctx_parts else message
     )
-    return prompt_text, hist, "\n\n".join(p for p in (static_context, dynamic_context, history,
+    return prompt_text, hist, "\n\n".join(p for p in (static_context, recent_away, dynamic_context, history,
                                                         look.context_block(evidence) if evidence else "",
                                                         inline_context,
                                                         web_evidence) if p)
@@ -979,6 +995,7 @@ async def answer_stream(primary, message: str, root: str,
     except Exception:
         stream_broke = True
     _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
+    _timing_set_prefix(primary)
     _degen = getattr(primary, "_last_stream_degeneration", None)
 
     # Anything already on the client's screen stays the answer -- falling
@@ -1189,6 +1206,7 @@ async def answer(primary, message: str, root: str,
         r = await _gen(fallback, prompt, hist, think=_think)
         used, used_fallback = getattr(r, "model", "fallback"), True
     _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
+    _timing_set_prefix(primary, r)
 
     text = _strip_think(r.text or "") or "I couldn't get an answer just now — try again."
     # Real token usage from the backend's own response (LlamaCppBackend

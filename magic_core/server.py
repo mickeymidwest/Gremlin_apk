@@ -560,6 +560,11 @@ def create_app(
         data["model_loaded"] = getattr(primary, "_llm", None) is not None
         data["primary_model"] = registry.primary_model_name()
         data["safe_mode"] = os.environ.get("MAGIC_SAFE_MODE") == "1"
+        try:
+            from . import prefix_cache as _pc
+            data["prefix_cache"] = _pc.get_prefix_cache().stats()
+        except Exception:
+            pass
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
@@ -808,6 +813,10 @@ def create_app(
                 "search_retry_check_ms": timing.get("search_retry_check_ms"),
                 "retries": timing.get("retries", []),
                 "bookkeeping_ms": timing.get("bookkeeping_ms", 0.0),
+                "prefix_cache_hit": timing.get("prefix_cache_hit"),
+                "prefix_cached_tokens": timing.get("prefix_cached_tokens", 0),
+                "prefix_restore_ms": timing.get("prefix_restore_ms"),
+                "prefix_save_ms": timing.get("prefix_save_ms"),
                 "tokens": {
                     "prompt": u.get("prompt_tokens", 0),
                     "completion": u.get("completion_tokens", 0),
