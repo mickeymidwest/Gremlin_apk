@@ -13,10 +13,16 @@ never evict the others. Falls back to newest-first for a greeting.
 """
 from __future__ import annotations
 
+import contextvars
 import re
 import time
+from typing import Optional
 
-from . import embed
+from . import embed, reranker
+
+_METRICS_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "magic_memory_rerank_metrics", default=None
+)
 
 _STOP = {
     # articles / conjunctions / prepositions / pronouns / auxiliaries that
@@ -47,7 +53,7 @@ def _tokens(text: str) -> set[str]:
 
 
 def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int = 5,
-           max_chars: int = 2500) -> list[str]:
+           max_chars: int = 2500, metrics_out: Optional[dict] = None) -> list[str]:
     """fact_texts in file order (oldest first). Returns the chosen facts,
     chronological (oldest kept -> newest), within max_chars. A single fact
     bigger than the budget is only ever returned (truncated) if nothing
@@ -57,11 +63,12 @@ def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int
         return []
     n = len(facts)
 
-    # priority order: the newest `recent` (newest first), then the older
-    # facts with the best keyword overlap (best score first, newer breaks ties)
+    # priority order: the newest `recent` pinned (newest first), then the older
+    # facts with the best stage-1 score (optionally cross-encoder reranked on CPU).
     priority: list[int] = list(range(n - 1, max(-1, n - recent - 1), -1))
     q = _tokens(message)
-    if q:
+    rerank_ms = 0.0
+    if q and matched > 0:
         use_embed = embed.enabled()
         scored = []
         for i in range(n - recent):
@@ -74,7 +81,19 @@ def select(fact_texts: list[str], message: str, *, recent: int = 3, matched: int
             if score:
                 scored.append((score, i))
         scored.sort(key=lambda si: (-si[0], -si[1]))
-        priority += [i for _s, i in scored[:matched]]
+        rr = reranker.get_reranker()
+        if rr.is_enabled() and len(scored) > 1:
+            pool_cap = min(max(matched * 3, 12), rr.max_candidates())
+            stage1 = [i for _s, i in scored[:pool_cap]]
+            reranked, rerank_ms = rr.rerank(message, stage1, lambda idx: facts[idx], matched)
+            priority += reranked
+        else:
+            priority += [i for _s, i in scored[:matched]]
+    if metrics_out is not None:
+        metrics_out["rerank_ms"] = round(float(rerank_ms), 1)
+    sink = _METRICS_SINK.get()
+    if sink is not None:
+        sink["rerank_ms"] = round(float(sink.get("rerank_ms", 0.0)) + float(rerank_ms), 1)
 
     chosen_idx: list[int] = []
     budget = max_chars

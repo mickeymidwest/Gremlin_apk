@@ -480,10 +480,17 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     except Exception:
         _cons_block = ""
     _t_mem0 = time.perf_counter()
-    _mem_blk = _memory_block(root, message)
+    from .. import memory_select as _ms_mod
+    _mem_metrics: dict = {"rerank_ms": 0.0}
+    _mem_tok = _ms_mod._METRICS_SINK.set(_mem_metrics)
+    try:
+        _mem_blk = _memory_block(root, message)
+    finally:
+        _ms_mod._METRICS_SINK.reset(_mem_tok)
     _t_sk0 = time.perf_counter()
     _sk_blk = _skills_block(root, message)
     _t_sk1 = time.perf_counter()
+    _timing_set("rerank_mem_ms", round(float(_mem_metrics.get("rerank_ms", 0.0)), 1))
     _timing_set("prompt_parts_ms", {
         "profile": round((_t_prof1 - _t_prof0) * 1000, 1),
         "constraints": round((_t_mem0 - _t_con0) * 1000, 1),
@@ -851,6 +858,8 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
     web_sources, web_ev = None, ""
     if not looked:
         _t_web0 = time.perf_counter()
+        _web_metrics: dict = {"rerank_ms": 0.0}
+        _web_tok = autoresearch._METRICS_SINK.set(_web_metrics)
         try:
             web_sources, web_ev = await autoresearch.gather(message, history=history)
         except Exception:
@@ -860,6 +869,9 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
                 if autoresearch.should_search(message)
                 else ""
             )
+        finally:
+            autoresearch._METRICS_SINK.reset(_web_tok)
+        _timing_set("rerank_web_ms", round(float(_web_metrics.get("rerank_ms", 0.0)), 1))
         _timing_set("web_gather_ms", round((time.perf_counter() - _t_web0) * 1000, 1))
     _t_pb0 = time.perf_counter()
     prompt, hist, ctx = _build_prompt(message, root, history, evidence,

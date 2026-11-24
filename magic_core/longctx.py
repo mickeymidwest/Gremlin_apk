@@ -11,8 +11,9 @@ replaces.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
-from . import embed
+from . import embed, reranker
 from .memory_select import _tokens
 
 
@@ -101,11 +102,15 @@ def chunk(text: str, size: int = 700, overlap: int = 100) -> list[str]:
 
 
 def retrieve(text: str, query: str, *, max_chars: int = 2500,
-             chunk_size: int = 700, overlap: int = 100) -> str:
+             chunk_size: int = 700, overlap: int = 100,
+             use_reranker: bool = True,
+             metrics_out: Optional[dict] = None) -> str:
     """Return the chunks of `text` most relevant to `query`, in original
     order, within `max_chars`. Short text is returned unchanged; if no chunk
     scores, the head of the text is returned (never worse than truncation)."""
     text = text or ""
+    if metrics_out is not None:
+        metrics_out.setdefault("rerank_ms", 0.0)
     if len(text) <= max_chars or not (query or "").strip():
         return text[:max_chars] if len(text) > max_chars else text
     # a chunk must fit the budget, or a relevant chunk larger than max_chars
@@ -126,11 +131,20 @@ def retrieve(text: str, query: str, *, max_chars: int = 2500,
     if all(s == 0 for s, _, _ in scored):
         return text[:max_chars]                 # fall back to the head
     scored.sort(key=lambda t: (-t[0], t[1]))
+    nonzero = [t for t in scored if t[0] > 0]
+    if use_reranker and len(nonzero) > 1:
+        rr = reranker.get_reranker()
+        if rr.is_enabled():
+            est_fit = max(1, max_chars // max(1, chunk_size // 2))
+            pool_cap = min(max(est_fit * 3, 12), rr.max_candidates())
+            pool = nonzero[:pool_cap]
+            reranked, ms = rr.rerank(query, pool, lambda item: item[2], len(pool))
+            if metrics_out is not None:
+                metrics_out["rerank_ms"] = round(float(metrics_out.get("rerank_ms", 0.0)) + ms, 1)
+            nonzero = reranked
     picked: list[tuple[int, str]] = []
     used = 0
-    for s, idx, ch in scored:
-        if s == 0:
-            break
+    for _s, idx, ch in nonzero:
         if picked and used + len(ch) + 2 > max_chars:
             break
         picked.append((idx, ch))
