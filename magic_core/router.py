@@ -39,9 +39,16 @@ class Router:
     async def route(
         self, model_name: str, prompt: str, system: Optional[str] = None, **kw
     ) -> GenerationResult:
+        from . import desktop_heavy as _dh
         backend = self.registry.get(model_name)
         if backend is None:
             return GenerationResult(model=model_name, text="", error=f"unknown model: {model_name}")
+        if _dh.in_heavy_job():
+            await _dh.async_wait_for_foreground_idle()
+            kind = getattr(getattr(backend, "info", None), "kind", None)
+            if kind in ("local_gguf", "local_vlm", "persona") and hasattr(self.registry, "names"):
+                from .magic import vram
+                await vram.ensure_only(self.registry, keep=model_name)
         return await backend.generate(prompt, system=system, **kw)
 
     async def broadcast(

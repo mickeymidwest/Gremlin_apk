@@ -221,7 +221,8 @@ def test_build_android_new_needs_a_spec(tmp_path):
     assert not r["ok"] and "Usage" in r["answer"]
 
 
-def test_build_android_new_is_desktop_only(tmp_path):
+def test_build_android_new_is_desktop_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAGIC_DESKTOP_HEAVY", "0")
     ctx = _ctx(tmp_path)
     ctx.loop = object()          # pretend we're under the server
     r = asyncio.run(dispatch("/build android new a stopwatch app", ctx))

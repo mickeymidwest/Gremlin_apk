@@ -78,6 +78,9 @@ class BackendModel:
 
     def complete(self, messages, system=None, max_tokens=4096, grammar=None,
                  timeout: float | None = None):
+        from .. import desktop_heavy as _dh
+        if _dh.in_heavy_job():
+            _dh.wait_for_foreground_idle()
         msgs = list(messages)
         # Prefer real multi-turn: the last user message is the prompt, the
         # rest is history the backend can render as ChatML turns. Falls

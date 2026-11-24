@@ -32,8 +32,11 @@ class PytestVerifier:
         if task.test_filter:
             cmd += ["-k", task.test_filter]
         try:
-            from .. import resource
+            from .. import desktop_heavy as _dh, resource
             run_cmd = resource.cgroup_argv(cmd)
+            if _dh.in_heavy_job():
+                _dh.wait_for_foreground_idle()
+                run_cmd = _dh.throttled_argv(run_cmd)
         except Exception:
             run_cmd = cmd
         try:

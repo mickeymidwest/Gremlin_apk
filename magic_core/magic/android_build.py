@@ -92,9 +92,13 @@ def build_apk(project_hint: str, out_name: str, timeout: int = 1800) -> dict:
     if not builds_mod._NAME_RE.match(out_name):
         return {"ok": False, "answer": "build name must be [A-Za-z0-9_-]+"}
 
+    from .. import desktop_heavy as _dh
     gradlew = proj / "gradlew"
-    cmd = ["./gradlew", "assembleDebug", "--no-daemon", "--console=plain"] if gradlew.exists() \
+    base_cmd = ["./gradlew", "assembleDebug", "--no-daemon", "--console=plain"] if gradlew.exists() \
         else ["gradle", "assembleDebug", "--no-daemon", "--console=plain"]
+    if _dh.in_heavy_job():
+        _dh.wait_for_foreground_idle()
+    cmd = _dh.throttled_argv(base_cmd)
     try:
         proc = subprocess.run(cmd, cwd=proj, env=_toolchain_env(),
                               capture_output=True, text=True, timeout=timeout)
