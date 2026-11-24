@@ -12,7 +12,8 @@ message, this file wins until Mickey edits it.
   - `qwen3-30b-a3b` (`/deep` / cold-swap): `138.7 tok/s` prompt eval, `15.11 tok/s` gen, `707 ms` warm load.
   - Hydra 3-turn ping-pong (`MAGIC_HYDRA=1`, `MAGIC_ENSEMBLE=0`, post latency fixes): Turn 1 (`qwen3.5-9b`, `/chat/stream`) `2.77s`, Turn 2 (`qwen3-30b-a3b`, `/chat`, 1,319 comp tokens, `retries: []`) `202.22s`, Turn 3 (`qwen3.5-9b`, post-30B swap) `3.34s`.
   - R5 RAM prompt-prefix cache (`MAGIC_PREFIX_CACHE=1`, `1024 MiB` LRU cap): `qwen3.5-9b` `74.9 MiB` (`1,483` tokens), `qwen3-30b-a3b` `72.43 MiB` (`1,454` tokens); `load_state()` restore `136.3–144.4 ms`; Turn 3 post-swap cache HIT `2.68s` (`2,866` prompt tokens); Turn 4 steady-state HIT `2.59s`.
-- **Auto-activated 31 GiB behaviors & active flags:** 3 non-pinned CPU Hive workers, background CPU summarization/compaction (`MemAvailable >= 12000` MB), foreground watchdog deferral, `MAGIC_HYDRA=1`, `MAGIC_PREFIX_CACHE=1` (`1,024 MiB` LRU), and `MAGIC_ENSEMBLE=0` (pending guarded live smoke test).
+  - Multi-head Ensemble (`MAGIC_ENSEMBLE=1` via `/deep`): `qwen3.5-9b` + `qwen3-30b-a3b` judged by `qwen3-30b-a3b` completed in `268.42s` with `+0B` new swap (`2,752,512` B unchanged), followed by `3.71s` post-swap `/chat/stream` R5 HIT recovery (`146.6 ms` restore, `4,268` prompt tokens).
+- **Auto-activated 31 GiB behaviors & active flags:** 3 non-pinned CPU Hive workers, background CPU summarization/compaction (`MemAvailable >= 12000` MB), foreground watchdog deferral, `MAGIC_HYDRA=1`, `MAGIC_PREFIX_CACHE=1` (`1,024 MiB` LRU), and `MAGIC_ENSEMBLE=1`.
 - **Heavy command wrapper & APK in-app install path:**
   Run heavy builds/tests through `scripts/heavy.sh` (stops daemon, runs command, restarts daemon even on failure; never run two heavy commands at once):
   `scripts/heavy.sh ./gradlew assembleDebug`
