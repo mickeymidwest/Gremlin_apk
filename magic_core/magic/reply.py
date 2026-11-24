@@ -45,7 +45,21 @@ _THINK_ANALYTICAL_RE = re.compile(
     or r"\b(analy[sz]e|derive|evaluat\w*|reason(?:\s+through)?|troubleshoot|diagnos\w*|audit|deduce|infer|synthesi[sz]e|formulate|first\s+principles|pros\s+and\s+cons|walk\s+me\s+through|break\s+(?:it|this)\s+down|in\s+depth|thoroughly)\b",
     re.I,
 )
-_DEEP_HEAD_NAMES = {"qwen3-30b-a3b"}
+_DEEP_HEAD_NAMES = {"qwen3-30b-a3b", "gemma4-26b-a4b"}
+_NON_CASUAL_HARD_RE = re.compile(
+    r"```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|regex|"
+    r"algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|sql|query|"
+    r"command|bash|shell|python|javascript|typescript|kotlin|rust|golang|docker|systemd|"
+    r"kubernetes|yaml|json|api|endpoint|schema|calculate|prove|design|architect|compare|"
+    r"trace|trade-?off|difference\s+between|what(?:'s|\s+is)\s+the\s+best|"
+    r"how\s+(?:do|would|can|should)\s+i|how\s+to|step[-\s]by[-\s]step)\b",
+    re.I,
+)
+_CASUAL_BRIEF_RE = re.compile(
+    r"\b(?:(?:a|an|one|two|three|\d+)\s+(?:short|quick|brief)?\s*(?:sentences?|lines?|words?)"
+    r"|short\s+sentence|briefly|in\s+a\s+few\s+words|fun\s+fact|quick\s+fact)\b",
+    re.I,
+)
 _TIMING_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "_magic_timing_sink", default=None
 )
@@ -95,10 +109,21 @@ _STREAM_TAIL_HOLDBACK = int(_RCFG["stream_secret_tail_holdback"])
 
 
 def _looks_hard(message: str) -> bool:
-    """Turns worth the extra review latency: code/technical/how-to/analytical, or
-    just long. Casual short chat streams live instead."""
+    """Turns worth the extra review latency: code/technical/analytical, or long.
+    Short casual brevity-bounded or everyday 'about how ...' questions stay fast."""
     m = (message or "").strip()
-    return bool(_HARD_RE.search(m)) or len(m.split()) >= _HARD_MIN_WORDS
+    words = m.split()
+    if len(words) >= _HARD_MIN_WORDS:
+        return True
+    if not _HARD_RE.search(m):
+        return False
+    if _NON_CASUAL_HARD_RE.search(m):
+        return True
+    if _CASUAL_BRIEF_RE.search(m):
+        return False
+    if not re.search(r"\bexplain\b", m, re.I):
+        return False
+    return True
 
 
 def _worth_reviewing(text: str) -> bool:
@@ -152,7 +177,15 @@ def _is_deep_head(backend) -> bool:
     info = getattr(real, "info", None)
     kind = getattr(info, "kind", None)
     name = str(getattr(info, "name", "") or "").strip()
-    return kind == "deep" or name in _DEEP_HEAD_NAMES
+    cpu_pats = getattr(real, "cpu_tensor_patterns", None) or getattr(info, "cpu_tensor_patterns", None) or []
+    override_t = getattr(real, "override_tensor", None) or getattr(info, "override_tensor", None) or ""
+    is_moe_offload = any("_exps" in str(p) for p in cpu_pats) or ("_exps" in str(override_t))
+    return kind == "deep" or name in _DEEP_HEAD_NAMES or is_moe_offload
+
+
+def _is_gemma4_backend(backend) -> bool:
+    real = getattr(backend, "primary", backend)
+    return getattr(real, "chat_format", None) == "gemma4"
 
 
 def _should_think(message: str) -> bool:
@@ -173,6 +206,23 @@ def _should_think(message: str) -> bool:
     if len(m.split()) >= 12 and len(re.findall(r"[?;\n]+", m)) >= 2:
         return True
     return False
+
+
+def _should_think_for(message: str, backend=None) -> bool:
+    """Think gate aware of backend class: Gemma 4 MoE stays fast (think=False)
+    for normal chat/web lookups and thinks only on explicit /think or deep-reasoning
+    escalation; smaller chatml-nothink models keep standard _should_think()."""
+    if not _is_gemma4_backend(backend):
+        return _should_think(message)
+    m = (message or "").strip()
+    if not m or (" " + m).endswith(" /no_think"):
+        return False
+    if (" " + m).endswith(" /think"):
+        return True
+    if _is_casual_chat(m) or _CASUAL_BRIEF_RE.search(m):
+        return False
+    from .hydra import classify_task
+    return classify_task(m) == "deep"
 
 
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,
@@ -819,7 +869,7 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
         except Exception:
             return None, "", ""
     sprompt, shist, _ = _build_prompt(message, root, history, evidence, web_evidence=wev)
-    r = await _gen(primary, sprompt, shist, think=_should_think(message))
+    r = await _gen(primary, sprompt, shist, think=_should_think_for(message, primary))
     _merge_usage(usage_sink, (getattr(r, "meta", None) or {}).get("usage"))
     t_new = _strip_think(r.text or "") if getattr(r, "ok", True) else ""
     if not t_new:
@@ -999,7 +1049,7 @@ async def answer_stream(primary, message: str, root: str,
             yield "done", _done
             return
 
-    _think = _should_think(message)
+    _think = _should_think_for(message, primary)
     from ..backends.llamacpp_backend import (
         split_reasoning as _split_reasoning,
         _CHANNEL_PAIR_RE as _CH_PAIR_RE,
@@ -1243,7 +1293,7 @@ async def answer(primary, message: str, root: str,
         return _reply(_NO_SOURCE_REPLY, source="magic", head=_backend_head_name(primary),
                       usage=plan_usage or None)
 
-    _think = _should_think(message)
+    _think = _should_think_for(message, primary)
     _t_gen0 = time.perf_counter()
     r = await _gen(primary, prompt, hist, think=_think)
     used, used_fallback = getattr(r, "model", "magic"), False

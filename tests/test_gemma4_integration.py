@@ -426,3 +426,163 @@ def test_magic_primary_model_env_override_validation_and_hydra_guard(tmp_path, m
         assert kept == ["gemma4-26b-a4b"]
     finally:
         loop.call_soon_threadsafe(loop.stop)
+
+
+def test_gemma4_fast_single_pass_streaming_casual_how_and_explicit_think_or_deep(tmp_path, monkeypatch):
+    from magic_core import autoresearch as ar, intent as intent_mod, tools as tools_mod
+
+    # 1) Short casual "how"/"explain" phrasing skips _looks_hard and intent CPU classifier
+    casual_how = [
+        "Hey Magic, give me one short sentence about how honeybees make honey.",
+        "Nice, explain in two short sentences how honeybees use the waggle dance.",
+    ]
+    for msg in casual_how:
+        assert reply_mod._looks_hard(msg) is False, msg
+
+    casual_intent = casual_how + [
+        "What is the current latest stable release version of Python right now?",
+    ]
+
+    class _NoCallRouter:
+        def __init__(self):
+            class _R:
+                def get(self, _n):
+                    return object()
+            self.registry = _R()
+            self.calls = 0
+
+        async def route(self, *a, **k):
+            self.calls += 1
+            return GenerationResult(model="x", text='{"action": "chat", "confidence": 1.0}')
+
+    no_cls = _NoCallRouter()
+    for msg in casual_intent:
+        out_intent = asyncio.run(intent_mod.classify(no_cls, "magic", msg))
+        assert out_intent.is_chat, msg
+    assert no_cls.calls == 0
+
+    # Genuine technical prompts still trigger _looks_hard cleanly
+    assert reply_mod._looks_hard("how do I write a bash loop") is True
+    assert reply_mod._looks_hard("debug this python traceback") is True
+    assert reply_mod._looks_hard("Explain how lock ordering prevents deadlocks.") is True
+
+    # 2) gemma4-26b-a4b detected as large MoE head -> skips inner plan + revise, streams live, stays think=False
+    monkeypatch.setattr(reply_mod, "_PLAN", True)
+    monkeypatch.setattr(reply_mod, "_REVISE", True)
+    monkeypatch.setattr(reply_mod, "_GROUNDING_CHECK", False)
+    monkeypatch.setattr(reply_mod.look, "wants", lambda *a, **k: [])
+    monkeypatch.setattr(reply_mod.look, "workspace_probe", lambda *a, **k: ([], ""))
+    monkeypatch.setattr(ar, "should_search", lambda *a, **k: False)
+    monkeypatch.setattr(ar, "needs_fact_check", lambda *a, **k: False)
+
+    class _GemmaFastBe(ModelBackend):
+        chat_format = "gemma4"
+        no_think = False
+        default_temperature = 1.0
+
+        def __init__(self):
+            super().__init__(
+                ModelInfo(
+                    name="gemma4-26b-a4b",
+                    kind="local_gguf",
+                    footprint_mb=5800,
+                    cpu_tensor_patterns=[r"blk\.([0-9]|1[0-9]|2[0-5])\.ffn_.*_exps\.weight"],
+                )
+            )
+            self.gen_calls: list[tuple[str, int]] = []
+            self.stream_calls: list[tuple[str, int]] = []
+
+        async def generate(self, prompt, system=None, max_tokens=2048, temperature=1.0, history=None, grammar=None):
+            self.gen_calls.append((prompt, max_tokens))
+            return GenerationResult(model=self.info.name, text="Single-pass reply.")
+
+        async def generate_stream(self, prompt, system=None, max_tokens=2048, temperature=1.0, history=None, grammar=None):
+            self.stream_calls.append((prompt, max_tokens))
+            yield "Fast "
+            yield "live "
+            yield "stream."
+
+    g_be = _GemmaFastBe()
+    assert reply_mod._is_deep_head(g_be) is True
+
+    async def _collect_stream(msg):
+        evs = []
+        async for ev in reply_mod.answer_stream(g_be, msg, str(tmp_path)):
+            evs.append(ev)
+        return evs
+
+    # Even a "hard" coding request streams live in 1 call (no planner/critic) and stays non-thinking
+    evs_code = asyncio.run(_collect_stream("Write a python function to reverse a string."))
+    deltas_code = [p for k, p in evs_code if k == "delta"]
+    done_code = next(p for k, p in evs_code if k == "done")
+    assert len(deltas_code) == 3 and "".join(deltas_code) == "Fast live stream."
+    assert done_code["answer"] == "Fast live stream."
+    assert g_be.gen_calls == []
+    assert len(g_be.stream_calls) == 1
+    assert not g_be.stream_calls[-1][0].endswith(" /think")
+
+    # Web search synthesis also stays single-pass, live-streamed, non-thinking
+    monkeypatch.setattr(ar, "should_search", lambda msg: "python" in msg.lower())
+    monkeypatch.setattr(
+        ar.web_search,
+        "search",
+        lambda q, limit=5, timeout=12: [{
+            "title": "Python Releases | Python.org",
+            "url": "https://www.python.org/downloads/",
+            "snippet": (
+                "Python 3.15 is the current latest stable release of the Python programming language, "
+                "featuring official installer downloads, release notes, source tarballs, and standard "
+                "security bugfix maintenance schedules published on python.org."
+            ),
+        }],
+    )
+    monkeypatch.setattr(
+        ar.web_search,
+        "fetch_text",
+        lambda *a, **k: (
+            "Official Python Software Foundation Downloads page: Python 3.15.0 is the current latest "
+            "stable release of Python for Linux, macOS, and Windows systems."
+        ),
+    )
+    evs_web = asyncio.run(_collect_stream("What is the current latest stable release version of Python right now?"))
+    done_web = next(p for k, p in evs_web if k == "done")
+    assert g_be.gen_calls == []
+    assert not g_be.stream_calls[-1][0].endswith(" /think")
+    assert "python.org" in done_web["answer"]
+
+    # Direct _tool_web_search caps oversized evidence & passes concise synthesis params
+    saw_route_kw = {}
+
+    class _SynthRouter:
+        async def route(self, model, prompt, **kw):
+            saw_route_kw["prompt_len"] = len(prompt)
+            saw_route_kw.update(kw)
+            return GenerationResult(model=model, text="Python 3.15 is the latest stable release.")
+
+    class _SynthReg:
+        def get(self, _n):
+            return None
+
+    tool_ctx = tools_mod.ExecContext(router=_SynthRouter(), registry=_SynthReg(), project_root=str(tmp_path))
+    monkeypatch.setattr(ar, "gather", lambda *a, **k: _async_val((
+        [{"title": "Python", "url": "https://www.python.org/", "snippet": "Python 3.15"}],
+        "X" * 12000,
+    )))
+    t_out = asyncio.run(tools_mod._tool_web_search({"query": "latest python"}, tool_ctx))
+    assert t_out["ok"] is True
+    assert saw_route_kw["prompt_len"] < 7000
+    assert saw_route_kw["max_tokens"] == 512 and saw_route_kw["temperature"] == 0.3
+
+    # 3) Explicit /think or deep-reasoning escalation still enables thinking + >= 1024 max_tokens
+    assert reply_mod._should_think_for("Analyze this deeply /think", g_be) is True
+    assert reply_mod._should_think_for(
+        "Think carefully and derive from first principles why deadlocks happen.", g_be
+    ) is True
+    evs_th = asyncio.run(_collect_stream("Explain this deeply /think"))
+    assert evs_th[-1][0] == "done"
+    assert g_be.stream_calls[-1][0].endswith(" /think")
+    assert g_be.stream_calls[-1][1] >= 1024
+
+
+async def _async_val(val):
+    return val
