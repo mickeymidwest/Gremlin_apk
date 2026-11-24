@@ -19,9 +19,16 @@ class ModelInfo:
     notes: str = ""
     footprint_mb: int = 0
     override_tensor: Optional[str | list[str]] = None
+    cpu_tensor_patterns: Optional[list[str]] = None
     use_mlock: bool = False
     use_mmap: bool = True
     n_threads: Optional[int] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    repeat_penalty: Optional[float] = None
+    kv_cache_type: Optional[str] = None
+    flash_attn: Optional[bool] = None
 
 
 @dataclass

@@ -57,6 +57,21 @@ _HEAVY_ON_DESKTOP = (
 )
 
 
+def _primary_model_name(registry, default: str = "") -> str:
+    """Resolve active primary model from real or stub ModelRegistry objects."""
+    fn = getattr(registry, "primary_model_name", None)
+    if callable(fn):
+        name = fn()
+        if name:
+            return str(name)
+    raw = getattr(registry, "raw_config", None) or {}
+    if isinstance(raw, dict):
+        val = (raw.get("persona") or {}).get("primary_model")
+        if val:
+            return str(val)
+    return default
+
+
 def _coding_model_name(ctx: CommandContext) -> str:
     """/build and /fix are agentic coding work. On the desktop CLI
     (ctx.loop is None) we can afford to swap in the coding specialist
@@ -64,7 +79,7 @@ def _coding_model_name(ctx: CommandContext) -> str:
     the box can't -- loading a second 7B off the HDD while the chat model
     is resident is minutes of swap thrash on 7.5GB RAM. So there, use the
     already-warm primary; it also scored 8/8."""
-    primary = ctx.registry.raw_config.get("persona", {}).get("primary_model", "magic")
+    primary = _primary_model_name(ctx.registry, "magic")
     if ctx.loop is not None:
         return primary
     return "qwen2.5-coder-14b" if ctx.registry.get("qwen2.5-coder-14b") else primary
@@ -120,7 +135,7 @@ async def _chat(args: str, ctx: CommandContext) -> dict:
         return {"ok": False, "answer": "Usage: /chat <message>   (/chat clear to wipe the thread)"}
 
     backend = ctx.registry.get("magic") or ctx.registry.get(
-        ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
+        _primary_model_name(ctx.registry))
     if backend is None:
         return {"ok": False, "answer": "no chat backend configured"}
 
@@ -431,7 +446,7 @@ async def _model(args: str, ctx: CommandContext) -> dict:
 
     if sub == "list":
         entries = model_scan.list_all_entries(Path(ctx.config_path).read_text())
-        primary = ctx.registry.raw_config.get("persona", {}).get("primary_model", "")
+        primary = _primary_model_name(ctx.registry)
         lines = [("* " if e.get("name") == primary else "  ") + e.get("name", "?")
                  for e in entries]
         return {"ok": True, "answer": "models:\n" + "\n".join(lines), "action": "model"}
@@ -626,8 +641,7 @@ async def _override(args: str, ctx: CommandContext) -> dict:
 
 def _model_for(ctx: CommandContext, name: str = "magic"):
     from .model import BackendModel
-    be = ctx.registry.get(name) or ctx.registry.get(
-        ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
+    be = ctx.registry.get(name) or ctx.registry.get(_primary_model_name(ctx.registry))
     return BackendModel(be, loop=ctx.loop) if be is not None else None
 
 
@@ -843,7 +857,7 @@ async def _do_single(args: str, ctx: CommandContext) -> dict:
     from .store import Store
     from . import lifecycle, reckoning, reflect
     backend = ctx.registry.get("magic") or ctx.registry.get(
-        ctx.registry.raw_config.get("persona", {}).get("primary_model", ""))
+        _primary_model_name(ctx.registry))
     if backend is None:
         return {"ok": False, "answer": "no model available"}
     model = BackendModel(backend, loop=ctx.loop)

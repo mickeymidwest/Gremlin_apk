@@ -544,7 +544,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
 def _supports_think_mark(backend) -> bool:
     real = getattr(backend, "primary", backend)
     return (
-        getattr(real, "chat_format", None) == "chatml-nothink"
+        getattr(real, "chat_format", None) in ("chatml-nothink", "gemma4")
         and not getattr(real, "no_think", False)
     )
 
@@ -552,37 +552,45 @@ def _supports_think_mark(backend) -> bool:
 def _apply_think(prompt: str, backend, think: bool) -> tuple[str, int]:
     p = (prompt or "").rstrip()
     if (" " + p).endswith(" /think"):
-        return prompt, _MAX_TOKENS_THINK
+        return prompt, max(_MAX_TOKENS_THINK, 1024)
     if think and _supports_think_mark(backend) and not (" " + p).endswith(" /no_think"):
-        return p + " /think", _MAX_TOKENS_THINK
+        return p + " /think", max(_MAX_TOKENS_THINK, 1024)
     return prompt, _MAX_TOKENS_DEFAULT
 
 
 _TEMPERATURE = float(_RCFG["temperature"])
 
 
+def _effective_temp(backend) -> float:
+    real = getattr(backend, "primary", backend)
+    t = getattr(real, "default_temperature", None)
+    return float(t) if t is not None else _TEMPERATURE
+
+
 async def _gen(backend, prompt: str, hist: list, *, think: bool = False):
     """backend.generate with history= when the backend takes it, else fall
     back to a flattened prompt (API fallbacks that predate the kwarg)."""
     p, mt = _apply_think(prompt, backend, think)
+    temp = _effective_temp(backend)
     try:
-        return await backend.generate(p, max_tokens=mt, temperature=_TEMPERATURE, history=hist)
+        return await backend.generate(p, max_tokens=mt, temperature=temp, history=hist)
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {p}" if flat else p
-        return await backend.generate(flat, max_tokens=mt, temperature=_TEMPERATURE)
+        return await backend.generate(flat, max_tokens=mt, temperature=temp)
 
 
 async def _stream(backend, prompt: str, hist: list, *, think: bool = False):
     p, mt = _apply_think(prompt, backend, think)
+    temp = _effective_temp(backend)
     try:
-        agen = backend.generate_stream(p, max_tokens=mt, temperature=_TEMPERATURE, history=hist)
+        agen = backend.generate_stream(p, max_tokens=mt, temperature=temp, history=hist)
         async for d in agen:
             yield d
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {p}" if flat else p
-        async for d in backend.generate_stream(flat, max_tokens=mt, temperature=_TEMPERATURE):
+        async for d in backend.generate_stream(flat, max_tokens=mt, temperature=temp):
             yield d
 
 
@@ -653,13 +661,12 @@ _THINK_CLOSE_RE = re.compile(_RCFG["think_close_regex"], re.IGNORECASE)
 
 
 def _strip_think(text: str) -> str:
-    """Belt-and-suspenders guard in case a fallback/non-local backend leaks
-    matched <think>...</think> or an unmatched leading `... </think>`."""
-    t = _THINK_PAIR_RE.sub("", text or "")
-    m = _THINK_CLOSE_RE.search(t)
-    if m and not re.search(r"<(?:think|thinking)\b", t[:m.start()], re.IGNORECASE):
-        t = t[m.end():]
-    return t.strip()
+    """Belt-and-suspenders guard stripping <think>...</think> and Gemma 4
+    <|channel>thought...<channel|> / <turn|> markers across all backends."""
+    from ..backends.llamacpp_backend import split_reasoning
+
+    visible, _ = split_reasoning(text or "", streaming=False)
+    return visible
 
 
 _NO_SOURCE_REPLY = _SOFT["no_source_reply"]
@@ -993,7 +1000,16 @@ async def answer_stream(primary, message: str, root: str,
             return
 
     _think = _should_think(message)
+    from ..backends.llamacpp_backend import (
+        split_reasoning as _split_reasoning,
+        _CHANNEL_PAIR_RE as _CH_PAIR_RE,
+        _CLOSE_ANY_RE as _CL_ANY_RE,
+        _THINK_RE as _TH_RE,
+    )
     acc = ""
+    raw_acc = ""
+    emitted = 0
+    close_seen = 0
     stream_broke = False
     _t_gen0 = time.perf_counter()
     _first_delta_set = False
@@ -1002,10 +1018,27 @@ async def answer_stream(primary, message: str, root: str,
             if not _first_delta_set:
                 _first_delta_set = True
                 _timing_set("first_delta_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
-            acc += delta
-            yield "delta", delta
+            raw_acc += delta
+            stripped_pairs = _CH_PAIR_RE.sub("", _TH_RE.sub("", raw_acc))
+            _unmatched_closes = len(_CL_ANY_RE.findall(stripped_pairs))
+            if _unmatched_closes > close_seen:
+                close_seen = _unmatched_closes
+                emitted = 0
+            visible, _ = _split_reasoning(raw_acc, streaming=True)
+            if len(visible) > emitted:
+                piece = visible[emitted:]
+                emitted = len(visible)
+                acc += piece
+                yield "delta", piece
     except Exception:
         stream_broke = True
+    if raw_acc and not stream_broke:
+        final_visible, _ = _split_reasoning(raw_acc, streaming=False)
+        if len(final_visible) > emitted:
+            piece = final_visible[emitted:]
+            emitted = len(final_visible)
+            acc += piece
+            yield "delta", piece
     _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
     _timing_set_prefix(primary)
     _degen = getattr(primary, "_last_stream_degeneration", None)
@@ -1014,8 +1047,8 @@ async def answer_stream(primary, message: str, root: str,
     # back now would splice a second full answer onto the partial one the
     # user is already reading. (PersonaBackend also stops rather than
     # re-answers mid-stream; this is the same rule one layer up.)
-    if acc.strip():
-        text = _strip_think(acc)
+    if raw_acc.strip() and (acc.strip() or _strip_think(raw_acc)):
+        text = _strip_think(raw_acc)
         if not text:
             text = acc.strip()
         if stream_broke and text.count("```") % 2 == 1:

@@ -1886,7 +1886,8 @@ async def run_fix_loop(args: str, ctx) -> dict:
     from .magic import vram
 
     router = ctx.router or Router(ctx.registry)
-    primary = ctx.registry.raw_config.get("persona", {}).get("primary_model", "magic")
+    fn = getattr(ctx.registry, "primary_model_name", None)
+    primary = (fn() if callable(fn) else None) or ctx.registry.raw_config.get("persona", {}).get("primary_model", "magic")
     coder = "qwen2.5-coder-14b" if ctx.registry.get("qwen2.5-coder-14b") else primary
     if _dh.in_heavy_job():
         await _dh.async_wait_for_foreground_idle()

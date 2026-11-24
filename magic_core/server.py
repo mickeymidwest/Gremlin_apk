@@ -747,6 +747,15 @@ def create_app(
             from .magic import vram
             from .persona import PersonaBackend
             from .backends.base import ModelInfo
+            _prim = getattr(base_be, "primary", None)
+            _env_prim = os.environ.get("MAGIC_PRIMARY_MODEL", "").strip()
+            if _env_prim and _prim is not None and getattr(getattr(_prim, "info", None), "name", None) == _env_prim:
+                _tv0 = _t.perf_counter()
+                await vram.ensure_only(registry, keep=_env_prim)
+                if timing is not None:
+                    timing["vram_swap_ms"] = round((_t.perf_counter() - _tv0) * 1000, 1)
+                    timing["swap_ms"] = timing["vram_swap_ms"]
+                return base_be
             _t0 = _t.perf_counter()
             _raw_free = vram.free_mb()
             _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
