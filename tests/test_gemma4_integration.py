@@ -586,3 +586,142 @@ def test_gemma4_fast_single_pass_streaming_casual_how_and_explicit_think_or_deep
 
 async def _async_val(val):
     return val
+
+
+def test_gemma4_fix1_look_wants_fix2_skip_post_stream_factcheck_fix3_static_skills_r5(tmp_path, monkeypatch):
+    from magic_core import autoresearch as ar, look, prefix_cache
+    from magic_core.magic import hive as hive_mod, store as store_mod
+
+    # --- Fix 1: look.wants ignores external "latest release" questions, keeps local checks ---
+    assert look.wants("What is the current latest stable release version of Python right now?") == []
+    assert look.wants("What is the newest release of Rust?") == []
+    assert "versions" in look.wants("what python version do I have installed")
+    assert "versions" in look.wants("check my local python version")
+
+    # --- Fix 2: large MoE / deep head skips blocking post-stream _web_fact_check on answer_stream ---
+    monkeypatch.setattr(reply_mod, "_PLAN", False)
+    monkeypatch.setattr(reply_mod, "_REVISE", False)
+    monkeypatch.setattr(reply_mod, "_GROUNDING_CHECK", False)
+    monkeypatch.setattr(reply_mod.look, "wants", lambda *a, **k: [])
+    monkeypatch.setattr(reply_mod.look, "workspace_probe", lambda *a, **k: ([], ""))
+    monkeypatch.setattr(ar, "should_search", lambda msg: True)
+    monkeypatch.setattr(
+        ar.web_search,
+        "search",
+        lambda q, limit=5, timeout=12: [{
+            "title": "Python Releases",
+            "url": "https://www.python.org/downloads/",
+            "snippet": (
+                "Python 3.15 is the latest stable release of Python published by the Python Software "
+                "Foundation with official source tarballs and release notes available online."
+            ),
+        }],
+    )
+    monkeypatch.setattr(
+        ar.web_search,
+        "fetch_text",
+        lambda *a, **k: (
+            "Python 3.15 is the current latest stable release of the Python programming language. "
+            "Official installer packages, gzipped source tarballs, checksums, and release notes for "
+            "Linux, macOS, and Windows are published by the Python Software Foundation."
+        ),
+    )
+
+    wfc_calls = []
+
+    class _FakeHive:
+        def check_web_facts(self, draft, source_text, question=""):
+            wfc_calls.append(draft)
+            return ["unsupported detail"]
+
+    class _HiveReg:
+        def get(self, name):
+            return object() if name == "qwen3.5-4b-cpu" else None
+
+    monkeypatch.setattr(hive_mod, "build_hive", lambda *a, **k: _FakeHive())
+    monkeypatch.setattr(reply_mod, "_HIVE_REGISTRY", _HiveReg())
+
+    class _StreamBe(ModelBackend):
+        def __init__(self, name, fmt):
+            super().__init__(ModelInfo(name=name, kind="local_gguf", footprint_mb=5800))
+            self.chat_format = fmt
+
+        async def generate(self, prompt, system=None, max_tokens=1536, temperature=0.6, history=None, grammar=None):
+            return GenerationResult(model=self.info.name, text="Python 3.15 is the latest release.")
+
+        async def generate_stream(self, prompt, system=None, max_tokens=1536, temperature=0.6, history=None, grammar=None):
+            yield "Python 3.15 is the latest release."
+
+    async def _run_stream(be, msg):
+        done = None
+        async for k, p in reply_mod.answer_stream(be, msg, str(tmp_path)):
+            if k == "done":
+                done = p
+        return done
+
+    wfc_calls.clear()
+    done_gemma = asyncio.run(_run_stream(_StreamBe("gemma4-26b-a4b", "gemma4"), "latest python release?"))
+    assert wfc_calls == [] and "couldn't confirm" not in done_gemma["answer"]
+    assert "python.org" in done_gemma["answer"]
+
+    wfc_calls.clear()
+    done_small = asyncio.run(_run_stream(_StreamBe("qwen3.5-9b", "chatml-nothink"), "latest python release?"))
+    assert len(wfc_calls) == 1 and "couldn't confirm" in done_small["answer"]
+
+    # --- Fix 3: static skills move into R5 static prefix, invariant across turns ---
+    monkeypatch.setattr(ar, "should_search", lambda msg: False)
+    s_root = tmp_path / "skills_proj"
+    st = store_mod.Store(str(s_root))
+    base_skills = [
+        store_mod.Skill(
+            id=f"sk{i}",
+            name=f"core-skill-{i}",
+            purpose=f"Helpful procedure {i} for verification.",
+            trigger_when="verify inspect build",
+            procedure=[f"Run step A for skill {i}", f"Run step B for skill {i}"],
+            trigger_matcher="verify|inspect|build",
+            status="active",
+        )
+        for i in range(1, 5)
+    ]
+    st.write_skills(base_skills)
+
+    monkeypatch.setattr(ar, "today_str", lambda: "2026-11-24")
+    _p1, hist1, _ = reply_mod._build_prompt("Say ready in one word.", str(s_root), "")
+    monkeypatch.setattr(ar, "today_str", lambda: "2026-11-25")
+    _p2, hist2, _ = reply_mod._build_prompt("Verify inspect build workflow", str(s_root), "User: hi\nMagic: ok")
+
+    sys_msg = {"role": "system", "content": "You are Magic. " * 20}
+    m1 = [sys_msg] + hist1 + [{"role": "user", "content": "Say ready in one word."}]
+    m2 = [sys_msg] + hist2 + [{"role": "user", "content": "Verify inspect build workflow"}]
+
+    pre1_msgs = chatfmt.extract_static_prefix(m1)
+    pre2_msgs = chatfmt.extract_static_prefix(m2)
+    pre1_str = chatfmt.render_prefix(pre1_msgs, chat_format="gemma4", think=False)
+    pre2_str = chatfmt.render_prefix(pre2_msgs, chat_format="gemma4", think=False)
+
+    assert "Core learned skill cards" in pre1_str
+    assert "core-skill-1" in pre1_str
+    assert pre1_str == pre2_str
+    assert prefix_cache.prefix_sha256(pre1_str) == prefix_cache.prefix_sha256(pre2_str)
+    # Core skills already in static prefix are NOT duplicated into dynamic suffix
+    dyn2 = "\n".join(m["content"] for m in hist2[len(pre2_msgs) - 1:])
+    assert "core-skill-1" not in dyn2
+    # And editing/adding a higher-priority skill invalidates the static R5 hash cleanly
+    st.write_skills(
+        [
+            store_mod.Skill(
+                id="sk0",
+                name="aaa-top-skill",
+                purpose="Newly learned priority skill.",
+                trigger_when="anything",
+                procedure=["Step 1"],
+                trigger_matcher="anything",
+                status="active",
+            )
+        ] + base_skills
+    )
+    _p3, hist3, _ = reply_mod._build_prompt("Say ready in one word.", str(s_root), "")
+    m3 = [sys_msg] + hist3 + [{"role": "user", "content": "Say ready in one word."}]
+    pre3_str = chatfmt.render_prefix(chatfmt.extract_static_prefix(m3), chat_format="gemma4", think=False)
+    assert prefix_cache.prefix_sha256(pre3_str) != prefix_cache.prefix_sha256(pre1_str)

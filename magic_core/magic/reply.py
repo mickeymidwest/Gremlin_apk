@@ -237,8 +237,42 @@ def _reply(answer: str, *, action: str = "chat", ok: bool = True,
     return d
 
 
-def _skills_block(root: str, message: str, limit: int | None = None) -> str:
-    import os
+def _static_skills_block(root: str, limit: int | None = None) -> tuple[str, set[str]]:
+    """Message-independent top active skills placed in the static R5 prefix.
+
+    Returns ``(formatted_block, included_skill_names)``. Changes only when
+    ``data/skills/`` changes on disk (automatically rolling R5's SHA-256 key).
+    """
+    if os.environ.get("MAGIC_SAFE_MODE") == "1":
+        return "", set()
+    from .skill_retrieval import track_bonus
+    from .store import Store
+    try:
+        skills = [s for s in Store(root).read_skills() if s.status != "deprecated"]
+    except Exception:
+        return "", set()
+    if not skills:
+        return "", set()
+    cap = _SKILLS_LIMIT if limit is None else int(limit)
+    if cap <= 0:
+        return "", set()
+    ranked = sorted(
+        skills,
+        key=lambda s: (-track_bonus(s), s.name),
+    )[:cap]
+    lines = ["Core learned skill cards (use whichever fit):"]
+    names: set[str] = set()
+    for idx, s in enumerate(ranked):
+        names.add(s.name)
+        lines.append(f"- {s.name}: {s.purpose}")
+        if idx < _SKILLS_FULL_LIMIT:
+            for step in s.procedure[:_SKILLS_PROC_STEPS]:
+                lines.append(f"    * {step}")
+    return "\n".join(lines), names
+
+
+def _skills_block(root: str, message: str, limit: int | None = None,
+                  exclude_names: Optional[set[str]] = None) -> str:
     if os.environ.get("MAGIC_SAFE_MODE") == "1":
         return ""
     if limit is None:
@@ -254,6 +288,8 @@ def _skills_block(root: str, message: str, limit: int | None = None) -> str:
     if not skills:
         return ""
     hits = rank_skills(skills, message or "", limit=limit)
+    if exclude_names:
+        hits = [s for s in hits if s.name not in exclude_names]
     if not hits:
         return ""
     lines = ["Approaches that have worked here before (use the ones that fit):"]
@@ -512,9 +548,13 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     # STATIC context (does NOT depend on this message or today's date) --
     # placed strictly before volatile blocks so RamPrefixCache checkpoints
     # stay byte-identical across turns, days, and Hydra swaps.
+    _t_ss0 = time.perf_counter()
+    _static_skills, _static_skill_names = _static_skills_block(root)
+    _t_ss1 = time.perf_counter()
     static_context = "\n\n".join(p for p in (
         prof,
         _pitfalls_block(root),
+        _static_skills,
     ) if p)
     recent_away = notes.recent_away_context(root)
     # DYNAMIC retrieval (re-ranked for THIS message) -- goes AFTER history, by
@@ -538,11 +578,15 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     finally:
         _ms_mod._METRICS_SINK.reset(_mem_tok)
     _t_sk0 = time.perf_counter()
-    _sk_blk = _skills_block(root, message)
+    try:
+        _sk_blk = _skills_block(root, message, exclude_names=_static_skill_names)
+    except TypeError:
+        _sk_blk = _skills_block(root, message)
     _t_sk1 = time.perf_counter()
     _timing_set("rerank_mem_ms", round(float(_mem_metrics.get("rerank_ms", 0.0)), 1))
     _timing_set("prompt_parts_ms", {
         "profile": round((_t_prof1 - _t_prof0) * 1000, 1),
+        "static_skills": round((_t_ss1 - _t_ss0) * 1000, 1),
         "constraints": round((_t_mem0 - _t_con0) * 1000, 1),
         "mem": round((_t_sk0 - _t_mem0) * 1000, 1),
         "skills": round((_t_sk1 - _t_sk0) * 1000, 1),
@@ -1137,7 +1181,7 @@ async def answer_stream(primary, message: str, root: str,
                     # `done` frame and saved conversation history) so the retracted
                     # unsearched draft never poisons later turns or final bubble.
                     text = _t2
-        if web_sources and web_ev and text and not stream_broke:
+        if web_sources and web_ev and text and not stream_broke and not _is_deep_head(primary):
             _unsup = await _web_fact_check(text, web_ev, message)
             if _unsup:
                 _wcav = grounding.web_caveat(_unsup)
