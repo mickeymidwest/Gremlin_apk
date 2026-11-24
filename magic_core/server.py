@@ -32,6 +32,7 @@ import socket
 import sys
 import subprocess
 import threading
+import time
 import yaml
 from pathlib import Path
 from typing import Optional
@@ -558,6 +559,11 @@ def create_app(
         data["model_loaded"] = getattr(primary, "_llm", None) is not None
         data["primary_model"] = registry.primary_model_name()
         data["safe_mode"] = os.environ.get("MAGIC_SAFE_MODE") == "1"
+        try:
+            from . import prefix_cache as _pc
+            data["prefix_cache"] = _pc.get_prefix_cache().stats()
+        except Exception:
+            pass
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
@@ -717,6 +723,109 @@ def create_app(
             "services": service_control.available_service_tools(str(project_root)),
         })
 
+    def _backend_head_name(be) -> str:
+        real = getattr(be, "primary", be)
+        name = getattr(getattr(real, "info", None), "name", None)
+        return str(name) if name else ""
+
+    async def _resolve_chat_backend(msg: str, base_be, timing: Optional[dict] = None):
+        if os.environ.get("MAGIC_HYDRA", "0") != "1":
+            return base_be
+        try:
+            import time as _t
+            from .magic.hydra import Hydra, _free_ram_mb, default_heads
+            from .magic import vram
+            from .persona import PersonaBackend
+            from .backends.base import ModelInfo
+            _t0 = _t.perf_counter()
+            _raw_free = vram.free_mb()
+            _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
+            _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
+            _swap_mb = max(0.0, float(_budget) - _raw_vram)
+            _ram = _free_ram_mb()
+            _, _head = Hydra(
+                heads=default_heads(free_ram_mb=_ram, registry=registry),
+            ).select(
+                msg, free_vram_mb=_raw_vram, free_ram_mb=_ram,
+                resident=_res, swappable_vram_mb=_swap_mb,
+            )
+            _t_sel = _t.perf_counter()
+            if timing is not None:
+                timing["hydra_select_ms"] = round((_t_sel - _t0) * 1000, 1)
+            if _head is None:
+                return base_be
+            _sel_be = registry.get(_head.name)
+            if _sel_be is None:
+                return base_be
+            if _head.name == "qwen3-30b-a3b":
+                _te0 = _t.perf_counter()
+                from .backends import cpu_backend as _cb
+                _cb._evict_all_nonpinned()
+                if timing is not None:
+                    timing["cpu_evict_ms"] = round((_t.perf_counter() - _te0) * 1000, 1)
+            if _head.gpu:
+                _tv0 = _t.perf_counter()
+                await vram.ensure_only(registry, keep=_head.name)
+                if timing is not None:
+                    timing["vram_swap_ms"] = round((_t.perf_counter() - _tv0) * 1000, 1)
+            if timing is not None:
+                timing["swap_ms"] = round((_t.perf_counter() - _t0) * 1000, 1)
+            _prim = getattr(base_be, "primary", None)
+            if _prim is not None and _sel_be is not _prim:
+                return PersonaBackend(
+                    ModelInfo(name="magic", kind="persona", display_name="Magic"),
+                    primary=_sel_be,
+                    fallbacks=getattr(base_be, "fallbacks", []),
+                    system_prompt=getattr(base_be, "system_prompt", ""),
+                )
+        except Exception:
+            return base_be
+        return base_be
+
+    def _emit_turn_timing(route: str, res_payload: dict, timing: dict, t_start: float) -> None:
+        try:
+            import json as _json, time as _t
+            total_ms = round((_t.perf_counter() - t_start) * 1000, 1)
+            u = res_payload.get("usage") or {}
+            summary = {
+                "route": route,
+                "head": res_payload.get("head") or "",
+                "source": res_payload.get("source") or "",
+                "action": res_payload.get("action") or "chat",
+                "bg_active": bool(timing.get("bg_active", False)),
+                "total_ms": total_ms,
+                "action_ms": timing.get("action_ms", 0.0),
+                "swap_ms": timing.get("swap_ms", 0.0),
+                "hydra_select_ms": timing.get("hydra_select_ms", 0.0),
+                "vram_swap_ms": timing.get("vram_swap_ms", 0.0),
+                "cpu_evict_ms": timing.get("cpu_evict_ms", 0.0),
+                "prepare_ms": timing.get("prepare_ms", 0.0),
+                "inline_ctx_ms": timing.get("inline_ctx_ms", 0.0),
+                "look_ms": timing.get("look_ms", 0.0),
+                "loop_ms": timing.get("loop_ms", 0.0),
+                "web_gather_ms": timing.get("web_gather_ms", 0.0),
+                "prompt_build_ms": timing.get("prompt_build_ms", 0.0),
+                "prompt_parts_ms": timing.get("prompt_parts_ms", {}),
+                "plan_ms": timing.get("plan_ms", 0.0),
+                "primary_gen_ms": timing.get("primary_gen_ms", 0.0),
+                "first_delta_ms": timing.get("first_delta_ms"),
+                "search_retry_check_ms": timing.get("search_retry_check_ms"),
+                "retries": timing.get("retries", []),
+                "bookkeeping_ms": timing.get("bookkeeping_ms", 0.0),
+                "prefix_cache_hit": timing.get("prefix_cache_hit"),
+                "prefix_cached_tokens": timing.get("prefix_cached_tokens", 0),
+                "prefix_restore_ms": timing.get("prefix_restore_ms"),
+                "prefix_save_ms": timing.get("prefix_save_ms"),
+                "tokens": {
+                    "prompt": u.get("prompt_tokens", 0),
+                    "completion": u.get("completion_tokens", 0),
+                    "total": u.get("total_tokens", 0),
+                },
+            }
+            print("[timing] " + _json.dumps(summary, separators=(",", ":")), flush=True)
+        except Exception:
+            pass
+
     @app.route("/chat", methods=["POST"])
     def chat():
         auth_error = _check_auth()
@@ -819,101 +928,84 @@ def create_app(
             notes_mod.remember_fact(str(project_root), last)
             return jsonify(_chat_reply(f"Got it — I'll remember that: {last}"))
 
-        action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
-        if action_result is not None:
-            action_result["synced_count"] = synced_count
-            # A tool action (web_search, run_command, ...) is a real
-            # exchange too -- was never recorded here before, so a
-            # search result vanished from context the instant this
-            # request returned: no "tell me more about the second one"
-            # follow-up, no "remember that" (see notes.is_remember_last_
-            # reply_command above) could ever see it. record() itself
-            # no-ops on an empty answer, so this is safe unconditionally.
-            conversation_history.record(conv_key, message, action_result.get("answer", ""))
-            action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
-            return jsonify(action_result)
-
-        # Fold the last few turns of THIS conversation in, so Magic
-        # continues the thread instead of reintroducing itself every few
-        # sentences. See magic_core/history.py.
-        history = conversation_history.render(conv_key)
-        fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
-            or registry.get("gemini")
-
-        async def _chat_answer():
-            chat_be = magic_backend
-            if os.environ.get("MAGIC_HYDRA", "0") == "1":
-                try:
-                    from .magic.hydra import Hydra, _free_ram_mb, default_heads
-                    from .magic import vram
-                    from .persona import PersonaBackend
-                    from .backends.base import ModelInfo
-                    _raw_free = vram.free_mb()
-                    _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
-                    _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
-                    _swap_mb = max(0.0, float(_budget) - _raw_vram)
-                    _ram = _free_ram_mb()
-                    _, _head = Hydra(
-                        heads=default_heads(free_ram_mb=_ram, registry=registry),
-                    ).select(
-                        message, free_vram_mb=_raw_vram, free_ram_mb=_ram,
-                        resident=_res, swappable_vram_mb=_swap_mb,
-                    )
-                    if _head is not None:
-                        _sel_be = registry.get(_head.name)
-                        if _sel_be is not None:
-                            if _head.name == "qwen3-30b-a3b":
-                                from .backends import cpu_backend as _cb
-                                _cb._evict_all_nonpinned()
-                            if _head.gpu:
-                                await vram.ensure_only(registry, keep=_head.name)
-                            _prim = getattr(magic_backend, "primary", None)
-                            if _prim is not None and _sel_be is not _prim:
-                                chat_be = PersonaBackend(
-                                    ModelInfo(name="magic", kind="persona", display_name="Magic"),
-                                    primary=_sel_be,
-                                    fallbacks=getattr(magic_backend, "fallbacks", []),
-                                    system_prompt=getattr(magic_backend, "system_prompt", ""),
-                                )
-                except Exception:
-                    chat_be = magic_backend
-            return await magic_reply.answer(
-                chat_be, message, str(project_root),
-                history=history, fallback=fallback,
-            )
-
+        _timing: dict = {"bg_active": bool(_wd_busy["on"])}
+        _t_req0 = time.perf_counter()
+        _fg_enter()
         try:
-            result = run_coro(
-                loop,
-                _in_phase(agent_state.AgentState.REASONING, _chat_answer()),
-                # `magic serve` runs throttled (nice/ionice, see main.py's
-                # cmd_serve) so it doesn't step on Jellyfin -- a real answer
-                # under contention can still take real wall time.
-                timeout=480.0,
-            )
-        except job_control.JobAborted:
-            raise
-        except Exception as e:
-            # A raw 500 here was confirmed to look like a broken app on
-            # the phone with zero explanation -- a slow answer (or one
-            # that errors outright) should read as "try again," not "the
-            # server is down."
-            health["consec_fail"] += 1
-            return jsonify({
-                "answer": "That took too long or hit an error -- try again in a moment.",
-                "consulted": False, "from_memory": False, "contributors": [],
-                "error": str(e), "synced_count": synced_count,
-            }), 200
-        _note_answer(result)
-        turn_usage = result.get("usage") or {}
-        with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
-            conversation_history.record(conv_key, message, result.get("answer", ""),
-                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                        completion_tokens=turn_usage.get("completion_tokens", 0))
-        _maybe_compact(conv_key)
-        result["synced_count"] = synced_count
-        # Cumulative usage for the WHOLE conversation, not just this turn.
-        result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+            _t_act0 = time.perf_counter()
+            action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
+            _timing["action_ms"] = round((time.perf_counter() - _t_act0) * 1000, 1)
+            if action_result is not None:
+                action_result["synced_count"] = synced_count
+                # A tool action (web_search, run_command, ...) is a real
+                # exchange too -- was never recorded here before, so a
+                # search result vanished from context the instant this
+                # request returned: no "tell me more about the second one"
+                # follow-up, no "remember that" (see notes.is_remember_last_
+                # reply_command above) could ever see it. record() itself
+                # no-ops on an empty answer, so this is safe unconditionally.
+                conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                _emit_turn_timing("/chat", action_result, _timing, _t_req0)
+                return jsonify(action_result)
+
+            # Fold the last few turns of THIS conversation in, so Magic
+            # continues the thread instead of reintroducing itself every few
+            # sentences. See magic_core/history.py.
+            history = conversation_history.render(conv_key)
+            fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
+                or registry.get("gemini")
+
+            selected_head_box = {"name": _backend_head_name(magic_backend)}
+
+            async def _chat_answer():
+                chat_be = await _resolve_chat_backend(message, magic_backend, timing=_timing)
+                selected_head_box["name"] = _backend_head_name(chat_be) or selected_head_box["name"]
+                tok = magic_reply._TIMING_SINK.set(_timing)
+                try:
+                    return await magic_reply.answer(
+                        chat_be, message, str(project_root),
+                        history=history, fallback=fallback,
+                    )
+                finally:
+                    magic_reply._TIMING_SINK.reset(tok)
+
+            try:
+                result = run_coro(
+                    loop,
+                    _in_phase(agent_state.AgentState.REASONING, _chat_answer()),
+                    # `magic serve` runs throttled (see main.py's cmd_serve)
+                    # so a real answer under contention can still take real wall time.
+                    timeout=480.0,
+                )
+            except job_control.JobAborted:
+                raise
+            except Exception as e:
+                # A raw 500 here was confirmed to look like a broken app on
+                # the phone with zero explanation -- a slow answer (or one
+                # that errors outright) should read as "try again," not "the
+                # server is down."
+                health["consec_fail"] += 1
+                return jsonify({
+                    "answer": "That took too long or hit an error -- try again in a moment.",
+                    "consulted": False, "from_memory": False, "contributors": [],
+                    "error": str(e), "synced_count": synced_count,
+                }), 200
+            _note_answer(result)
+            if selected_head_box["name"] and not result.get("head"):
+                result["head"] = selected_head_box["name"]
+            turn_usage = result.get("usage") or {}
+            with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+                conversation_history.record(conv_key, message, result.get("answer", ""),
+                                            prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                            completion_tokens=turn_usage.get("completion_tokens", 0))
+            _maybe_compact(conv_key)
+            result["synced_count"] = synced_count
+            # Cumulative usage for the WHOLE conversation, not just this turn.
+            result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+            _emit_turn_timing("/chat", result, _timing, _t_req0)
+        finally:
+            _fg_exit()
         _spawn_watchdog(message, result.get("answer", ""))
         return jsonify(result)
 
@@ -984,6 +1076,27 @@ def create_app(
 
     _wd_busy = {"on": False}
     _wd_lock = threading.Lock()
+    _fg_lock = threading.Lock()
+    _fg_active = {"n": 0}
+    _fg_gen = {"n": 0}
+    _fg_idle = threading.Event()
+    _fg_idle.set()
+
+    def _fg_enter() -> None:
+        with _fg_lock:
+            _fg_active["n"] += 1
+            _fg_gen["n"] += 1
+            _fg_idle.clear()
+
+    def _fg_exit() -> None:
+        with _fg_lock:
+            _fg_active["n"] = max(0, _fg_active["n"] - 1)
+            if _fg_active["n"] == 0:
+                _fg_idle.set()
+
+    def _fg_is_busy() -> bool:
+        with _fg_lock:
+            return _fg_active["n"] > 0
 
     def _log_watchdog(_msg, _ans, concerns):
         try:
@@ -1000,15 +1113,39 @@ def create_app(
         # IMMUTABLE hive honesty rail: the watchdog reviews EVERY answer in the
         # background on the CPU (never blocking the reply) and logs concerns.
         # Stays on even in override/private -- honesty, not a content gate.
-        # Single-flight + skip trivial answers so it can't pile up.
+        # Single-flight + defer while foreground turns are active so
+        # qwen3.5-4b-cpu never contends with back-to-back chat or 30B swaps.
         if len((_ans or "").strip()) < 40:
             return
         with _wd_lock:
             if _wd_busy["on"]:
                 return
             _wd_busy["on"] = True   # set atomically BEFORE start() so concurrent turns can't double-spawn
+        with _fg_lock:
+            _spawn_gen = _fg_gen["n"]
+        _delay_s = max(0.0, float(os.environ.get("MAGIC_WATCHDOG_DELAY_S", "1.5")))
+
         def _run():
             try:
+                cur_gen = _spawn_gen
+                if _delay_s > 0:
+                    time.sleep(_delay_s)
+                for _ in range(10):
+                    with _fg_lock:
+                        cur_n = _fg_active["n"]
+                        latest_gen = _fg_gen["n"]
+                    if cur_n == 0 and latest_gen == cur_gen:
+                        break
+                    if cur_n > 0:
+                        _fg_idle.wait(timeout=300.0)
+                    with _fg_lock:
+                        cur_gen = _fg_gen["n"]
+                    if _delay_s > 0:
+                        time.sleep(_delay_s)
+                else:
+                    return
+                if _fg_is_busy():
+                    return
                 from .magic import hive as _hive
                 _h = _hive.build_hive(registry, loop=loop)
                 _c = _h.watchdog_review(_msg, _ans)
@@ -1265,163 +1402,156 @@ def create_app(
             idx = prefix.find(marker)
             return prefix[:idx].strip() if idx != -1 else ""
 
-        if not is_continue:
-            if history_mod.is_clear_command(message):
-                conversation_history.clear(conv_key)
-                pending_confirmations.clear(conv_key)
-                done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
-                done["synced_count"] = synced_count
-                return Response(_sse({"type": "done", **done}),
-                                mimetype="text/event-stream", headers=_SSE_HEADERS)
+        _t_req0 = time.perf_counter()
+        _action_ms = 0.0
+        _bg_at_start = bool(_wd_busy["on"])
+        _handed_to_pump = False
+        _fg_enter()
+        try:
+            if not is_continue:
+                if history_mod.is_clear_command(message):
+                    conversation_history.clear(conv_key)
+                    pending_confirmations.clear(conv_key)
+                    done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
+                    done["synced_count"] = synced_count
+                    return Response(_sse({"type": "done", **done}),
+                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-            from . import notes as notes_mod
-            if notes_mod.is_remember_last_reply_command(message):
-                pending_confirmations.clear(conv_key)
-                last = conversation_history.last_assistant(conv_key)
-                if not last:
-                    done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
-                else:
-                    notes_mod.remember_fact(str(project_root), last)
-                    done = _chat_reply(f"Got it — I'll remember that: {last}")
-                done["synced_count"] = synced_count
-                return Response(_sse({"type": "done", **done}),
-                                mimetype="text/event-stream", headers=_SSE_HEADERS)
+                from . import notes as notes_mod
+                if notes_mod.is_remember_last_reply_command(message):
+                    pending_confirmations.clear(conv_key)
+                    last = conversation_history.last_assistant(conv_key)
+                    if not last:
+                        done = _chat_reply("There's nothing recent to remember yet -- ask me something first.")
+                    else:
+                        notes_mod.remember_fact(str(project_root), last)
+                        done = _chat_reply(f"Got it — I'll remember that: {last}")
+                    done["synced_count"] = synced_count
+                    return Response(_sse({"type": "done", **done}),
+                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-            action_result = _handle_possible_action(message, history=_render_stream_history())
-            if action_result is not None:
-                if is_reroll and action_result.get("ok", True):
-                    conversation_history.drop_last(conv_key)
-                conversation_history.record(conv_key, message, action_result.get("answer", ""))
-                action_result["synced_count"] = synced_count
-                action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
-                return Response(_sse({"type": "done", **action_result}),
-                                mimetype="text/event-stream", headers=_SSE_HEADERS)
+                _t_act0 = time.perf_counter()
+                action_result = _handle_possible_action(message, history=_render_stream_history())
+                _action_ms = round((time.perf_counter() - _t_act0) * 1000, 1)
+                if action_result is not None:
+                    if is_reroll and action_result.get("ok", True):
+                        conversation_history.drop_last(conv_key)
+                    conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                    action_result["synced_count"] = synced_count
+                    action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                    _emit_turn_timing("/chat/stream", action_result,
+                                      {"action_ms": _action_ms, "bg_active": _bg_at_start}, _t_req0)
+                    return Response(_sse({"type": "done", **action_result}),
+                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
 
-        history = _render_stream_history()
-        fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
-            or registry.get("gemini")
+            history = _render_stream_history()
+            fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
+                or registry.get("gemini")
 
-        # Bridge: the async generator (and every backend lock it touches)
-        # lives on the one event loop; this bounded thread-safe queue is
-        # the only thing that crosses into the Flask worker thread. A
-        # queue that fills up means the client isn't draining -- stop
-        # generating rather than blocking the loop.
-        bridge: _queue.Queue = _queue.Queue(maxsize=512)
-        _STOP = object()
+            # Bridge: the async generator (and every backend lock it touches)
+            # lives on the one event loop; this bounded thread-safe queue is
+            # the only thing that crosses into the Flask worker thread. A
+            # queue that fills up means the client isn't draining -- stop
+            # generating rather than blocking the loop.
+            bridge: _queue.Queue = _queue.Queue(maxsize=512)
+            _STOP = object()
 
-        async def _pump():
-            final = None
-            try:
-                async with state_machine.phase(agent_state.AgentState.REASONING):
-                    stream_be = magic_backend
-                    if os.environ.get("MAGIC_HYDRA", "0") == "1":
-                        try:
-                            from .magic.hydra import Hydra, _free_ram_mb, default_heads
-                            from .magic import vram
-                            from .persona import PersonaBackend
-                            from .backends.base import ModelInfo
-                            _raw_free = vram.free_mb()
-                            _raw_vram = 8000.0 if _raw_free is None else float(_raw_free)
-                            _budget, _res = vram.swappable_budget_mb(registry, free_vram_mb=_raw_vram)
-                            _swap_mb = max(0.0, float(_budget) - _raw_vram)
-                            _ram = _free_ram_mb()
-                            _, _head = Hydra(
-                                heads=default_heads(free_ram_mb=_ram, registry=registry),
-                            ).select(
-                                message, free_vram_mb=_raw_vram, free_ram_mb=_ram,
-                                resident=_res, swappable_vram_mb=_swap_mb,
-                            )
-                            if _head is not None:
-                                _sel_be = registry.get(_head.name)
-                                if _sel_be is not None:
-                                    if _head.name == "qwen3-30b-a3b":
-                                        from .backends import cpu_backend as _cb
-                                        _cb._evict_all_nonpinned()
-                                    if _head.gpu:
-                                        await vram.ensure_only(registry, keep=_head.name)
-                                    _prim = getattr(magic_backend, "primary", None)
-                                    if _prim is not None and _sel_be is not _prim:
-                                        stream_be = PersonaBackend(
-                                            ModelInfo(name="magic", kind="persona", display_name="Magic"),
-                                            primary=_sel_be,
-                                            fallbacks=getattr(magic_backend, "fallbacks", []),
-                                            system_prompt=getattr(magic_backend, "system_prompt", ""),
-                                        )
-                        except Exception:
-                            stream_be = magic_backend
-                    async for kind, payload in magic_reply.answer_stream(
-                        stream_be, message, str(project_root),
-                        history=history, fallback=fallback,
-                    ):
-                        if kind == "done":
-                            final = payload
-                            # Record + compute the running total BEFORE
-                            # this frame goes out -- the client needs to
-                            # see conversation_usage in the SAME "done"
-                            # frame it gets over SSE, not a beat later
-                            # (this frame is the only thing that reaches
-                            # the client; the finally block below only
-                            # ever runs after it's already been sent).
-                            _note_answer(final)
-                            turn_usage = final.get("usage") or {}
-                            ans_text = (final.get("answer") or "").strip()
-                            ans_ok = bool(final.get("action_ok", True)) and bool(ans_text)
-                            with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
-                                if is_continue:
-                                    conversation_history.append_to_last(
-                                        conv_key, ans_text,
-                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                        completion_tokens=turn_usage.get("completion_tokens", 0))
-                                elif is_reroll:
-                                    if ans_ok:
-                                        conversation_history.drop_last(conv_key)
+            async def _pump():
+                final = None
+                _timing: dict = {"action_ms": _action_ms, "bg_active": _bg_at_start}
+                _tok = magic_reply._TIMING_SINK.set(_timing)
+                _fg_released = False
+                try:
+                    async with state_machine.phase(agent_state.AgentState.REASONING):
+                        stream_be = await _resolve_chat_backend(message, magic_backend, timing=_timing)
+                        stream_head = _backend_head_name(stream_be)
+                        async for kind, payload in magic_reply.answer_stream(
+                            stream_be, message, str(project_root),
+                            history=history, fallback=fallback,
+                        ):
+                            if kind == "done":
+                                final = payload
+                                if stream_head and not final.get("head"):
+                                    final["head"] = stream_head
+                                # Record + compute the running total BEFORE
+                                # this frame goes out -- the client needs to
+                                # see conversation_usage in the SAME "done"
+                                # frame it gets over SSE, not a beat later
+                                # (this frame is the only thing that reaches
+                                # the client; the finally block below only
+                                # ever runs after it's already been sent).
+                                _note_answer(final)
+                                turn_usage = final.get("usage") or {}
+                                ans_text = (final.get("answer") or "").strip()
+                                ans_ok = bool(final.get("action_ok", True)) and bool(ans_text)
+                                with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+                                    if is_continue:
+                                        conversation_history.append_to_last(
+                                            conv_key, ans_text,
+                                            prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                            completion_tokens=turn_usage.get("completion_tokens", 0))
+                                    elif is_reroll:
+                                        if ans_ok:
+                                            conversation_history.drop_last(conv_key)
+                                            conversation_history.record(
+                                                conv_key, message, ans_text,
+                                                prompt_tokens=turn_usage.get("prompt_tokens", 0),
+                                                completion_tokens=turn_usage.get("completion_tokens", 0))
+                                    else:
                                         conversation_history.record(
                                             conv_key, message, ans_text,
                                             prompt_tokens=turn_usage.get("prompt_tokens", 0),
                                             completion_tokens=turn_usage.get("completion_tokens", 0))
-                                else:
-                                    conversation_history.record(
-                                        conv_key, message, ans_text,
-                                        prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                        completion_tokens=turn_usage.get("completion_tokens", 0))
-                            _maybe_compact(conv_key)
-                            final["synced_count"] = synced_count
-                            final["conversation_usage"] = conversation_history.usage_totals(conv_key)
-                            _spawn_watchdog(message, ans_text)
-                        try:
-                            bridge.put_nowait((kind, payload))
-                        except _queue.Full:
-                            return  # consumer gone/stalled -- abandon the stream
-            except asyncio.CancelledError:
-                try:
-                    err_done = _chat_reply("Stopped.", ok=False)
-                    err_done["synced_count"] = synced_count
-                    bridge.put_nowait(("done", err_done))
-                except _queue.Full:
-                    pass
-            except Exception as e:  # noqa
-                health["consec_fail"] += 1
-                try:
-                    err_done = _chat_reply(
-                        "That hit an error -- try again in a moment.", ok=False)
-                    err_done["synced_count"] = synced_count
-                    bridge.put_nowait(("done", err_done))
-                except _queue.Full:
-                    pass
-            finally:
-                # make room for the stop marker if we have to
-                while True:
+                                _maybe_compact(conv_key)
+                                final["synced_count"] = synced_count
+                                final["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                                _emit_turn_timing("/chat/stream", final, _timing, _t_req0)
+                                if not _fg_released:
+                                    _fg_released = True
+                                    _fg_exit()
+                                _spawn_watchdog(message, ans_text)
+                            try:
+                                bridge.put_nowait((kind, payload))
+                            except _queue.Full:
+                                return  # consumer gone/stalled -- abandon the stream
+                except asyncio.CancelledError:
                     try:
-                        bridge.put_nowait(_STOP)
-                        break
+                        err_done = _chat_reply("Stopped.", ok=False)
+                        err_done["synced_count"] = synced_count
+                        bridge.put_nowait(("done", err_done))
                     except _queue.Full:
+                        pass
+                except Exception as e:  # noqa
+                    health["consec_fail"] += 1
+                    try:
+                        err_done = _chat_reply(
+                            "That hit an error -- try again in a moment.", ok=False)
+                        err_done["synced_count"] = synced_count
+                        bridge.put_nowait(("done", err_done))
+                    except _queue.Full:
+                        pass
+                finally:
+                    if not _fg_released:
+                        _fg_released = True
+                        _fg_exit()
+                    magic_reply._TIMING_SINK.reset(_tok)
+                    # make room for the stop marker if we have to
+                    while True:
                         try:
-                            bridge.get_nowait()
-                        except _queue.Empty:
+                            bridge.put_nowait(_STOP)
                             break
+                        except _queue.Full:
+                            try:
+                                bridge.get_nowait()
+                            except _queue.Empty:
+                                break
 
-        pump_fut = job_control.submit(_pump(), loop, label="chat_stream")
-        pump_fut.add_done_callback(job_control.untrack)
+            pump_fut = job_control.submit(_pump(), loop, label="chat_stream")
+            _handed_to_pump = True
+            pump_fut.add_done_callback(job_control.untrack)
+        finally:
+            if not _handed_to_pump:
+                _fg_exit()
 
         def _emit():
             idle_windows = 0
@@ -1542,10 +1672,13 @@ def create_app(
             return {"answer": text, "ok": bool(text),
                     "error": getattr(r, "error", None)}
 
+        _fg_enter()
         try:
             result = run_coro(loop, _go(), timeout=900.0)
         except Exception as e:  # noqa
             return jsonify({"answer": "", "ok": False, "error": type(e).__name__}), 502
+        finally:
+            _fg_exit()
         ans = (result.get("answer") or "").strip()
         if ans:
             conversation_history.record(conv_key, message, ans)

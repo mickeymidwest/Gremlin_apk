@@ -17,6 +17,7 @@ from .base import ModelBackend, ModelInfo, GenerationResult
 from . import grammars
 from . import chatfmt  # noqa: F401  registers chatml-nothink
 from .. import output_health
+from .. import prefix_cache
 
 _log = logging.getLogger(__name__)
 
@@ -163,6 +164,7 @@ class LlamaCppBackend(ModelBackend):
         self._last_used: float = 0.0
         self._last_stream_degeneration: Optional[str] = None
         self._last_stream_usage: dict = {}  # see generate_stream's usage note
+        self._last_prefix_stats: dict = {}
         self._lock = asyncio.Lock()  # llama.cpp isn't safely reentrant per-instance --
         # also now the one thing serializing load/generate/unload against
         # each other, so unload() can never race a generate() that's
@@ -253,6 +255,112 @@ class LlamaCppBackend(ModelBackend):
     def _build_grammar(grammar):
         return _build_grammar(grammar)
 
+    @staticmethod
+    def _tokenize_like_completion(llm, text: str) -> list[int]:
+        raw = text.encode("utf-8")
+        try:
+            bos: list[int] = []
+            model_obj = getattr(llm, "_model", None)
+            if model_obj is not None and model_obj.add_bos_token():
+                cls_id = model_obj.token_cls()
+                b = cls_id if cls_id != -1 else llm.token_bos()
+                if b != -1:
+                    bos = [b]
+            return bos + list(llm.tokenize(raw, add_bos=False, special=True))
+        except Exception:
+            try:
+                return list(llm.tokenize(raw, add_bos=True, special=True))
+            except TypeError:
+                return list(llm.tokenize(raw))
+
+    @staticmethod
+    def _extract_choice_text(result: dict) -> str:
+        choice = (result.get("choices") or [{}])[0]
+        if "text" in choice and choice["text"] is not None:
+            return choice["text"]
+        return ((choice.get("message") or {}).get("content")) or ""
+
+    def _prepare_prefix_and_prompt(self, messages: list[dict]) -> tuple[Optional[str], dict]:
+        llm = self._llm
+        if llm is None or not prefix_cache.is_enabled():
+            return None, {}
+        if self.chat_format not in ("chatml-nothink", "chatml"):
+            return None, {}
+        if not all(
+            callable(getattr(llm, fn, None))
+            for fn in ("create_completion", "save_state", "load_state", "eval", "reset", "tokenize")
+        ):
+            return None, {}
+        prefix_msgs = chatfmt.extract_static_prefix(messages)
+        if not prefix_msgs:
+            return None, {}
+        prefix_str = chatfmt.render_prefix(prefix_msgs)
+        if len(prefix_str) < prefix_cache.MIN_PREFIX_CHARS:
+            return None, {}
+        full_prompt, _ = chatfmt.format_messages(
+            messages, append_assistant_think=(self.chat_format == "chatml-nothink")
+        )
+        key = prefix_cache.CacheKey(
+            model_id=self.info.name,
+            gguf_fingerprint=prefix_cache.gguf_fingerprint(self.model_path),
+            runtime_cfg_hash=prefix_cache.runtime_cfg_hash(
+                n_ctx=self.n_ctx,
+                n_gpu_layers=self.n_gpu_layers,
+                kv_cache_type=self.kv_cache_type,
+                flash_attn=self.flash_attn,
+                chat_format=self.chat_format,
+                override_tensor=self.override_tensor,
+            ),
+            prefix_sha256=prefix_cache.prefix_sha256(prefix_str),
+        )
+        cache = prefix_cache.get_prefix_cache()
+        try:
+            entry = cache.get(key)
+            if entry is not None:
+                t0 = time.perf_counter()
+                llm.reset()
+                llm.load_state(entry.state)
+                restore_ms = round((time.perf_counter() - t0) * 1000, 1)
+                return full_prompt, {
+                    "prefix_cache_hit": True,
+                    "prefix_cached_tokens": entry.n_tokens,
+                    "prefix_restore_ms": restore_ms,
+                    "prefix_save_ms": None,
+                }
+            tokens = self._tokenize_like_completion(llm, prefix_str)
+            if not tokens or len(tokens) >= self.n_ctx:
+                return None, {}
+            llm.reset()
+            llm.eval(tokens)
+            t0 = time.perf_counter()
+            state = llm.save_state()
+            save_ms = round((time.perf_counter() - t0) * 1000, 1)
+            cache.put(
+                key,
+                state,
+                n_tokens=len(tokens),
+                size_bytes=prefix_cache.state_size_bytes(state),
+            )
+            return full_prompt, {
+                "prefix_cache_hit": False,
+                "prefix_cached_tokens": len(tokens),
+                "prefix_restore_ms": None,
+                "prefix_save_ms": save_ms,
+            }
+        except Exception as exc:
+            _log.warning("prefix cache fail-open (%s): %s", type(exc).__name__, exc)
+            cache.evict(key)
+            try:
+                llm.reset()
+            except Exception:
+                pass
+            return None, {
+                "prefix_cache_hit": False,
+                "prefix_cached_tokens": 0,
+                "prefix_restore_ms": None,
+                "prefix_save_ms": None,
+            }
+
     async def warmup(self) -> None:
         async with self._lock:
             await self._ensure_loaded()
@@ -317,11 +425,27 @@ class LlamaCppBackend(ModelBackend):
             # -> unconstrained, identical to before. Compiled+cached in
             # grammars.compile so the ReAct loop doesn't rebuild it per step.
             _grammar = self._build_grammar(grammar)
+            pstats: dict = {}
 
             try:
                 await self._ensure_loaded()
+                self._last_prefix_stats = {}
 
-                def _run():
+                def _run(prepare_prefix: bool = True):
+                    nonlocal pstats
+                    full_prompt = None
+                    if prepare_prefix:
+                        full_prompt, pstats = self._prepare_prefix_and_prompt(messages)
+                        self._last_prefix_stats = pstats
+                    if full_prompt is not None:
+                        return self._llm.create_completion(
+                            prompt=full_prompt,
+                            stop=["<|im_end|>"],
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            repeat_penalty=self.repeat_penalty,
+                            **({"grammar": _grammar} if _grammar is not None else {}),
+                        )
                     return self._llm.create_chat_completion(
                         messages=messages,
                         max_tokens=max_tokens,
@@ -330,20 +454,20 @@ class LlamaCppBackend(ModelBackend):
                         **({"grammar": _grammar} if _grammar is not None else {}),
                     )
 
-                fut = loop.run_in_executor(self._executor, _run)
+                fut = loop.run_in_executor(self._executor, lambda: _run(True))
                 await _wait_for_worker(fut)
                 result = fut.result()
-                text = result["choices"][0]["message"]["content"]
+                text = self._extract_choice_text(result)
                 # Degeneration recovery (Organoid regenerative engine): if the
                 # answer looped or wouldn't stop and we aren't grammar-bound,
                 # roll it once more -- a fresh sample usually comes out clean,
                 # instead of handing back a broken reply.
                 if _grammar is None and output_health.degeneration(text):
                     try:
-                        fut2 = loop.run_in_executor(self._executor, _run)
+                        fut2 = loop.run_in_executor(self._executor, lambda: _run(False))
                         await _wait_for_worker(fut2)
                         r2 = fut2.result()
-                        t2 = r2["choices"][0]["message"]["content"]
+                        t2 = self._extract_choice_text(r2)
                         if t2 and not output_health.degeneration(t2):
                             result, text = r2, t2
                     except Exception:
@@ -354,6 +478,8 @@ class LlamaCppBackend(ModelBackend):
 
             usage = result.get("usage") or {}
             meta = {"usage": usage} if usage else {}
+            if pstats:
+                meta["prefix_cache"] = dict(pstats)
             if self.strip_reasoning:
                 if self.chat_format == "chatml-nothink" and chatfmt.format_messages(messages)[1]:
                     if text and not text.lstrip().lower().startswith("<think"):
@@ -411,20 +537,42 @@ class LlamaCppBackend(ModelBackend):
         q: asyncio.Queue = asyncio.Queue()
         stop = threading.Event()
         _DONE = object()
+        used_prompt_ref: dict = {"full_prompt": None}
 
         def _run():
             try:
-                for chunk in self._llm.create_chat_completion(
-                        messages=messages, max_tokens=max_tokens,
-                        temperature=temperature, repeat_penalty=self.repeat_penalty,
+                full_prompt, pstats = self._prepare_prefix_and_prompt(messages)
+                self._last_prefix_stats = pstats
+                used_prompt_ref["full_prompt"] = full_prompt
+                if full_prompt is not None:
+                    it = self._llm.create_completion(
+                        prompt=full_prompt,
+                        stop=["<|im_end|>"],
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        repeat_penalty=self.repeat_penalty,
                         stream=True,
-                        **({"grammar": _grammar} if _grammar is not None else {})):
-                    if stop.is_set():
-                        break
-                    choices = chunk.get("choices") or [{}]
-                    delta = (choices[0].get("delta") or {}).get("content")
-                    if delta:
-                        loop.call_soon_threadsafe(q.put_nowait, delta)
+                        **({"grammar": _grammar} if _grammar is not None else {}),
+                    )
+                    for chunk in it:
+                        if stop.is_set():
+                            break
+                        choices = chunk.get("choices") or [{}]
+                        delta = choices[0].get("text")
+                        if delta:
+                            loop.call_soon_threadsafe(q.put_nowait, delta)
+                else:
+                    for chunk in self._llm.create_chat_completion(
+                            messages=messages, max_tokens=max_tokens,
+                            temperature=temperature, repeat_penalty=self.repeat_penalty,
+                            stream=True,
+                            **({"grammar": _grammar} if _grammar is not None else {})):
+                        if stop.is_set():
+                            break
+                        choices = chunk.get("choices") or [{}]
+                        delta = (choices[0].get("delta") or {}).get("content")
+                        if delta:
+                            loop.call_soon_threadsafe(q.put_nowait, delta)
             except Exception as e:  # noqa
                 loop.call_soon_threadsafe(q.put_nowait, e)
             finally:
@@ -436,6 +584,7 @@ class LlamaCppBackend(ModelBackend):
         # report a PREVIOUS turn's token counts (usage is only set on the
         # normal-completion path below).
         self._last_stream_usage = {}
+        self._last_prefix_stats = {}
         try:
             await self._ensure_loaded()
             fut = loop.run_in_executor(self._executor, _run)
@@ -496,16 +645,14 @@ class LlamaCppBackend(ModelBackend):
             stop.set()
             await _wait_for_worker(fut)
             self._last_used = time.monotonic()
-            # A streaming create_chat_completion never reports usage the
-            # way the non-streaming call does (checked: llama-cpp-python
-            # has no per-chunk or final usage field here). prompt_tokens
-            # is an approximation -- the raw message text tokenized
-            # directly, not through the model's real chat template, so
-            # it misses template overhead (role markers etc). Good enough
-            # for a running usage counter, not a billing-precision figure.
             try:
-                prompt_text = "\n".join(m.get("content", "") for m in messages)
-                prompt_tokens = len(self._llm.tokenize(prompt_text.encode("utf-8")))
+                if used_prompt_ref["full_prompt"]:
+                    prompt_tokens = len(
+                        self._tokenize_like_completion(self._llm, used_prompt_ref["full_prompt"])
+                    )
+                else:
+                    prompt_text = "\n".join(m.get("content", "") for m in messages)
+                    prompt_tokens = len(self._llm.tokenize(prompt_text.encode("utf-8")))
             except Exception:
                 prompt_tokens = 0
             self._last_stream_usage = {

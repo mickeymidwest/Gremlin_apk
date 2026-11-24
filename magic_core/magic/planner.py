@@ -56,13 +56,23 @@ async def _gen(backend, prompt, system, grammar=None, max_tokens=256):
     return await backend.generate(prompt, max_tokens=max_tokens, temperature=0.2)
 
 
-async def _triage(backend, question, evidence=""):
+def _add_usage(sink: dict | None, result) -> None:
+    if sink is None:
+        return
+    u = (getattr(result, "meta", None) or {}).get("usage") or {}
+    for k, v in u.items():
+        if isinstance(v, (int, float)) and isinstance(sink.get(k, 0), (int, float)):
+            sink[k] = sink.get(k, 0) + v
+
+
+async def _triage(backend, question, evidence="", usage_sink: dict | None = None):
     ev = f"\n\nContext already available:\n{evidence[:1500]}" if evidence else ""
     prompt = f"User's request:\n{question}{ev}\n\nPlan it. JSON only."
     try:
         r = await _gen(backend, prompt, _SYSTEM, grammar=_GRAMMAR, max_tokens=140)
     except Exception:
         return None
+    _add_usage(usage_sink, r)
     if not getattr(r, "ok", True):
         return None
     return _parse(getattr(r, "text", "") or "")
@@ -77,9 +87,10 @@ def _clean_list(x, n):
     return out
 
 
-async def plan_note(backend, question: str, evidence: str = "", grounded: bool = False) -> str:
+async def plan_note(backend, question: str, evidence: str = "", grounded: bool = False,
+                    usage_sink: dict | None = None) -> str:
     """A bracketed scaffold to prepend to the answer prompt, or '' when empty."""
-    p = await _triage(backend, question, evidence)
+    p = await _triage(backend, question, evidence, usage_sink=usage_sink)
     if not p:
         return ""
     steps = _clean_list(p.get("steps"), 4)

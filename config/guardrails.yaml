@@ -298,7 +298,7 @@ hard_gates:
       wants_page: '\bhow\s+(much|many|long|far)\b|\bwhat\s+time\b|\bbox\s*office\b|\bopening\s+(day|weekend|night)\b|\brating\b|\bscores?\b|\bfinal\b|\bresults?\b|\bstandings?\b|\bwho\s+won\b|\bwho\s+(is|are|''?s)\s+playing\b|\bmatchup\b|\bschedule\b|\blineup\b|\bodds\b|\bprice\b|\bcost\b|\bwhen\s+did\b|\bstart\s+and\s+end\b|\b(?:first|last)\s+aired?\b|\bended\b|\bair(?:ed|ing)?\s+dates?\b'
       event_lookup: '\bwho\s+(?:put|ordered|called|killed|shot|murdered|betrayed|framed|hired|sent)\b|\bgot\s+(?:killed|shot|murdered|arrested|caught|canceled|cancelled)\b|\b(?:how|why)\s+(?:did|does|do)\b|\bwhat\s+happened\b|\bseason\s+\d+\b|\bchoked\b|\bstrangled?\b|\bsuicide\b|\bhit\s+out\b|\b(?:does|did|can)\s+\S+(?:\s+\S+){0,3}\s+(?:see|hear|die|kill|work|have)\b'
       correction_cues: '\b(season\s+\d+|episode\s+\d+|watched|actually|no,|nah|wait\b|choked|strangled|shot|killed|suicide|thinks?|not\s+how|isn''?t\s+how|wasn''?t\s+how|didn''?t\s+happen|that''?s\s+wrong|but\s+(?:i\s+)?(?:also\s+)?(?:asked|meant)|(?:i|you)\s+(?:also\s+)?(?:asked|forgot|missed)|what\s+about\b|wrong\s+(?:show|movie|one|person|character)|talking\s+about)\b'
-      draft_fact_claims: '\b(?:19\d\d|20[0-3]\d)\b|\$\s?\d|\d+\s?(?:%|percent\b)|\b\d+\s+(?:times|episodes?|seasons?|deaths?|years?|people|members?|operativ\w*)\b|\b(?:canonically|in\s+episode|directed\s+by|created\s+by|voiced\s+by|composed\s+by|animated\s+by|produced\s+by|written\s+by|performed\s+by|released\s+by|founded\s+by|owned\s+by|published\s+by|collaborat(?:ed|ion)|featured\s+on|feat\.|diss\s+track|flows\s+with|worked\s+with|starred\s+in|starring|played\s+by|based\s+on|sequel\s+to|prequel\s+to|spin-?off\s+of|adapted\s+from|member\s+of)\b|(?:^|\n)\s*(?:\d+\.|[-*]\s+\*\*|\*\*[^*\n]{2,32}\*\*:)'
+      draft_fact_claims: '\b(?:19\d\d|20[0-3]\d)\b|\$\s?\d|\d+\s?(?:%|percent\b)|\b\d+\s+(?:times|episodes?|seasons?|deaths?|years?|people|members?|operativ\w*)\b|\b(?:canonically|in\s+episode|directed\s+by|created\s+by|voiced\s+by|composed\s+by|animated\s+by|produced\s+by|written\s+by|performed\s+by|released\s+by|founded\s+by|owned\s+by|published\s+by|collaborat(?:ed|ion)|featured\s+on|feat\.|diss\s+track|flows\s+with|worked\s+with|starred\s+in|starring|played\s+by|based\s+on|sequel\s+to|prequel\s+to|spin-?off\s+of|adapted\s+from|member\s+of)\b'
 
   casual_fast_path:
     max_words: 5
@@ -315,6 +315,7 @@ hard_gates:
     hard_prompt_min_words: 30
     worth_reviewing_min_words: 40
     hard_keywords_regex: '```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|regex|algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|sql|query|command|bash|shell|python|javascript|typescript|kotlin|rust|golang|docker|systemd|kubernetes|yaml|json|api|endpoint|schema|explain|why|how|how\s+(do|would|can|should)\s+i|how\s+to|why\s+(does|is|are|do|doesn)|step[-\s]by[-\s]step|calculate|prove|design|architect|compare|trace|trade-?off|difference\s+between|what(?:''s| is)\s+the\s+best)\b'
+    think_analytical_regex: '\b(analy[sz]e|derive|evaluat\w*|reason(?:\s+through)?|troubleshoot|diagnos\w*|audit|deduce|infer|synthesi[sz]e|formulate|first\s+principles|pros\s+and\s+cons|walk\s+me\s+through|break\s+(?:it|this)\s+down|in\s+depth|thoroughly)\b'
     max_tokens_think: 3072
     max_tokens_default: 2048
     temperature: 0.6

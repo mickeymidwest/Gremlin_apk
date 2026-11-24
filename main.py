@@ -113,6 +113,20 @@ DISTILL_RESTART_AFTER = 5
 DISTILL_MAX_RESTARTS = 20
 
 
+def _throttle_foreground_serve():
+    """Keep foreground `magic serve` responsive (especially during GGUF
+    reloads and Hydra swaps, where `ionice -c 3` stalls mmap reads) while
+    still leaving normal-priority Desktop/Jellyfin media workloads headroom."""
+    try:
+        os.nice(5)
+    except OSError:
+        pass
+    try:
+        subprocess.run(["ionice", "-c", "2", "-n", "6", "-p", str(os.getpid())], check=False)
+    except FileNotFoundError:
+        pass
+
+
 def _throttle_background_work():
     """Lowest CPU (nice 19) and I/O (ionice idle class) scheduling priority
     for the calling process -- confirmed by real incident, not theory: a
@@ -1089,15 +1103,10 @@ async def main():
             problem = sys.argv[3] if len(sys.argv) > 3 else None
             await cmd_edit(registry, router, path, problem)
         elif cmd == "serve":
-            # Same reasoning as other heavy batch commands -- confirmed by a
-            # SECOND real incident, this time during normal /chat traffic
-            # (not a batch job): a local model generating during a consult
-            # call was enough to starve Jellyfin again. nice/ionice are
-            # process-wide, so setting this once here covers every
-            # request thread this process ever spawns, not just the main
-            # one. Costs nothing when nothing else wants the CPU -- niceness
-            # only matters under real contention.
-            _throttle_background_work()
+            # Foreground chat/swap latency matters, so run `serve` at mild
+            # CPU/I/O priority rather than idle nice 19 / ionice -c 3 (which
+            # stalled GGUF reloads), while still giving Jellyfin normal-prio headroom.
+            _throttle_foreground_serve()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
         elif cmd == "safe-mode":
@@ -1106,7 +1115,7 @@ async def main():
             os.environ["MAGIC_SAFE_MODE"] = "1"
             os.environ["MAGIC_LOOPS"] = "0"
             print("Starting Magic in SAFE MODE: local plugins and chat loops are off.", flush=True)
-            _throttle_background_work()
+            _throttle_foreground_serve()
             port = int(sys.argv[2]) if len(sys.argv) > 2 else server.DEFAULT_PORT
             server.serve(registry, router, PROJECT_ROOT, port=port)
         elif cmd == "adb-audit":
