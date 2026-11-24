@@ -14,6 +14,7 @@ data/.sudo_credential
 # Downloaded model weights -- large binaries, not source, and can
 # always be re-downloaded via `magic models` / `magic models --hf`
 models/*.gguf
+models/reranker/
 
 # Standard Python/venv noise
 __pycache__/

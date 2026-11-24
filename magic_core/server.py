@@ -564,6 +564,11 @@ def create_app(
             data["prefix_cache"] = _pc.get_prefix_cache().stats()
         except Exception:
             pass
+        try:
+            from . import reranker as _rr
+            data["reranker"] = _rr.get_reranker().stats()
+        except Exception:
+            pass
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
@@ -804,6 +809,8 @@ def create_app(
                 "look_ms": timing.get("look_ms", 0.0),
                 "loop_ms": timing.get("loop_ms", 0.0),
                 "web_gather_ms": timing.get("web_gather_ms", 0.0),
+                "rerank_mem_ms": timing.get("rerank_mem_ms", 0.0),
+                "rerank_web_ms": timing.get("rerank_web_ms", 0.0),
                 "prompt_build_ms": timing.get("prompt_build_ms", 0.0),
                 "prompt_parts_ms": timing.get("prompt_parts_ms", {}),
                 "plan_ms": timing.get("plan_ms", 0.0),

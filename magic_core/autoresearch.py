@@ -22,12 +22,17 @@ fully unit-tested, which is where "cautious" actually lives.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import datetime
 import re
+from typing import Optional
 
-from . import web_search
-from . import longctx
+from . import longctx, reranker, web_search
 from .guardrails_config import get_guardrails
+
+_METRICS_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+    "magic_web_rerank_metrics", default=None
+)
 
 _GR = get_guardrails()
 _SCFG = _GR["hard_gates"]["search"]
@@ -632,7 +637,16 @@ def _proper_entities(text: str) -> list[str]:
     return out
 
 
-def _rank_results(results: list[dict], keep: int = 3, query: str = "") -> list[dict]:
+def _add_rerank_ms(metrics_out: Optional[dict], ms: float) -> None:
+    if metrics_out is not None:
+        metrics_out["rerank_ms"] = round(float(metrics_out.get("rerank_ms", 0.0)) + float(ms or 0.0), 1)
+    sink = _METRICS_SINK.get()
+    if sink is not None and sink is not metrics_out:
+        sink["rerank_ms"] = round(float(sink.get("rerank_ms", 0.0)) + float(ms or 0.0), 1)
+
+
+def _rank_results(results: list[dict], keep: int = 3, query: str = "", *,
+                  metrics_out: Optional[dict] = None) -> list[dict]:
     """Keep top `keep` results, prioritizing authoritative/general sources that
     match the query's terms and dropping Tier 3 spam/social when better exist."""
     seen_urls: set[str] = set()
@@ -678,6 +692,27 @@ def _rank_results(results: list[dict], keep: int = 3, query: str = "") -> list[d
         return (1 if tier >= 3 else 0, 1 if tier == 2 else 0, miss, tier, wiki_pref, idx)
 
     indexed = sorted(scored, key=_key)
+    rr = reranker.get_reranker()
+    if (query or "").strip() and len(indexed) > 1 and rr.is_enabled():
+        pool_cap = min(max(keep * 3, 12), rr.max_candidates())
+        band = indexed[:pool_cap]
+        # Preserve spam/forum suppression, query-term coverage (`miss`), and source tier
+        # bands from Stage 1 while letting the CPU cross-encoder rank within each band.
+        band_by_id = {id(r): _key((idx, r, tier))[:4] for idx, r, tier in band}
+        stage1 = [r for _, r, _ in band]
+        reranked, ms = rr.rerank(
+            query,
+            stage1,
+            lambda item: f"{item.get('title') or ''} — {item.get('snippet') or ''}".strip(),
+            len(stage1),
+        )
+        _add_rerank_ms(metrics_out, ms)
+        reranked_pos = {id(r): pos for pos, r in enumerate(reranked)}
+        ordered = sorted(
+            stage1,
+            key=lambda r: (*band_by_id[id(r)], reranked_pos.get(id(r), len(stage1))),
+        )
+        return ordered[:keep]
     return [r for _, r, _ in indexed[:keep]]
 
 
@@ -741,7 +776,7 @@ def _usable_fetched_chars(fetched_txt: str) -> int:
 
 
 async def _fetch_top_page(results: list[dict], *, max_chars: int | None = None, query: str = "",
-                          max_pages: int = 1) -> str:
+                          max_pages: int = 1, metrics_out: Optional[dict] = None) -> str:
     """Read up to `max_pages` readable pages from distinct URLs (never
     raises; '' if none readable) so single paywalled/thin pages don't stall research."""
     if max_chars is None:
@@ -788,7 +823,9 @@ async def _fetch_top_page(results: list[dict], *, max_chars: int | None = None, 
             except Exception:
                 pass
         if raw and not raw.startswith(_FETCH_FAIL) and not _is_blocked_text(raw):
-            page = longctx.retrieve(raw, rquery, max_chars=per_page).strip()
+            chunk_metrics: dict = {}
+            page = longctx.retrieve(raw, rquery, max_chars=per_page, metrics_out=chunk_metrics).strip()
+            _add_rerank_ms(metrics_out, float(chunk_metrics.get("rerank_ms", 0.0)))
             if len(re.sub(r"\s+", "", page)) < _MIN_CLEAN_PAGE_CHARS or _is_blocked_text(page):
                 continue
             seen_keys.add(dedup_key)
@@ -863,8 +900,11 @@ def can_fallback_search(message: str) -> bool:
     return bool(_looks_like_question(t) or _FACTUAL_LOOKUP.search(t) or _DECLARATIVE_LOOKUP.search(t))
 
 
-async def _gather_single(message: str, *, limit: int | None = None, history: str = "", force: bool = False):
+async def _gather_single(message: str, *, limit: int | None = None, history: str = "", force: bool = False,
+                         metrics_out: Optional[dict] = None):
     """Single-topic search + rank + page-fetch + fail-closed validation."""
+    if metrics_out is not None:
+        metrics_out.setdefault("rerank_ms", 0.0)
     if limit is None:
         limit = _GATHER_LIMIT
     message = _clean_prompt_text(message)
@@ -944,13 +984,13 @@ async def _gather_single(message: str, *, limit: int | None = None, history: str
     ]
     if not results:
         return None, NO_USABLE_SOURCE
-    results = _rank_results(results, keep=min(_GATHER_KEEP, max(1, limit)), query=message)
+    results = _rank_results(results, keep=min(_GATHER_KEEP, max(1, limit)), query=message, metrics_out=metrics_out)
     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
     evidence = _evidence_block(message, results)
     fetched_txt = ""
     if _should_fetch(message, results) or _is_multi_source_query(message) or _usable_snippet_chars(results) < _MIN_TOTAL_EVIDENCE_CHARS:
         pages = min(_MAX_FETCH_PAGES, len(results)) if len(results) >= 2 else 1
-        fetched_txt = await _fetch_top_page(results, query=cq, max_pages=pages)
+        fetched_txt = await _fetch_top_page(results, query=cq, max_pages=pages, metrics_out=metrics_out)
         if (
             not fetched_txt
             and not is_time_sensitive(message)
@@ -967,10 +1007,10 @@ async def _gather_single(message: str, *, limit: int | None = None, history: str
                 if not _is_blocked_text((r.get("title") or "") + " " + (r.get("snippet") or ""))
             ]
             if w_hits:
-                w_fetched = await _fetch_top_page(w_hits, query=cq, max_pages=1)
+                w_fetched = await _fetch_top_page(w_hits, query=cq, max_pages=1, metrics_out=metrics_out)
                 if w_fetched:
                     fetched_txt = w_fetched
-                    results = _rank_results(list(results) + list(w_hits), keep=min(_GATHER_KEEP, max(1, limit)), query=message)
+                    results = _rank_results(list(results) + list(w_hits), keep=min(_GATHER_KEEP, max(1, limit)), query=message, metrics_out=metrics_out)
                     sources = [{"title": r.get("title", ""), "url": r.get("url", "")} for r in results]
                     evidence = _evidence_block(message, results)
         evidence += fetched_txt
@@ -1016,7 +1056,8 @@ async def _gather_single(message: str, *, limit: int | None = None, history: str
     return sources, evidence
 
 
-async def gather(message: str, *, limit: int | None = None, history: str = "", force: bool = False):
+async def gather(message: str, *, limit: int | None = None, history: str = "", force: bool = False,
+                 metrics_out: Optional[dict] = None):
     """If `message` warrants it, run a live web search and return
     (sources, evidence_text); otherwise (None, ''). Never raises --
     if a search runs and returns empty, tiny, or blocked evidence, fails
@@ -1025,6 +1066,8 @@ async def gather(message: str, *, limit: int | None = None, history: str = "", f
 
     Handles both single-topic prompts and multi-item pastes (2-5 distinct
     newline-separated prompts searched independently in parallel)."""
+    if metrics_out is not None:
+        metrics_out.setdefault("rerank_ms", 0.0)
     multi = _split_multi_items(message)
     if multi:
         targets = [it for it in multi if should_search(it)]
@@ -1036,7 +1079,7 @@ async def gather(message: str, *, limit: int | None = None, history: str = "", f
         if not targets:
             return None, ""
         per_item = await asyncio.gather(
-            *(_gather_single(it, limit=limit, history="", force=True) for it in targets[:4])
+            *(_gather_single(it, limit=limit, history="", force=True, metrics_out=metrics_out) for it in targets[:4])
         )
         all_sources: list[dict] = []
         seen_urls: set[str] = set()
@@ -1058,7 +1101,7 @@ async def gather(message: str, *, limit: int | None = None, history: str = "", f
         if any_no_source:
             return None, NO_USABLE_SOURCE
         return None, ""
-    return await _gather_single(message, limit=limit, history=history, force=force)
+    return await _gather_single(message, limit=limit, history=history, force=force, metrics_out=metrics_out)
 
 
 def footer(sources: list[dict]) -> str:
