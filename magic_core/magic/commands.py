@@ -1137,6 +1137,47 @@ async def _inspect_cmd(args: str, ctx: CommandContext) -> dict:
     return await tools_mod._tool_inspect({"target": t}, exec_ctx)
 
 
+async def _good(args: str, ctx: CommandContext) -> dict:
+    from .. import lora_dataset
+    from ..history import ConversationHistory
+    from .conversation import Threads
+
+    hist = ConversationHistory(ctx.project_root)
+    turn = None
+    if ctx.thread_id is not None:
+        tid_key = Threads(ctx.project_root, owner=ctx.conversation_key)._key(ctx.thread_id)
+        turn = hist.last_turn(tid_key)
+    if turn is None:
+        turn = hist.last_turn(ctx.conversation_key)
+    if turn is None:
+        return {
+            "ok": False,
+            "action": "good",
+            "answer": "Nothing recent to save yet — ask me something first.",
+        }
+    edited = (args or "").strip() or None
+    try:
+        res = lora_dataset.save_exemplar(
+            ctx.project_root,
+            prompt=turn.user,
+            reply=turn.assistant,
+            edited_reply=edited,
+            head=turn.head,
+            source=turn.source,
+            mode="chat",
+        )
+    except ValueError as e:
+        return {"ok": False, "action": "good", "answer": f"Couldn't save exemplar: {e}"}
+    total = res["total_exemplars"]
+    if res.get("duplicate"):
+        msg = f"Already saved in LoRA dataset ({total}/{lora_dataset.DEFAULT_TARGET})."
+    elif res.get("updated"):
+        msg = f"Updated exemplar with your edited reply ({total}/{lora_dataset.DEFAULT_TARGET})."
+    else:
+        msg = f"Saved exemplar ({total}/{lora_dataset.DEFAULT_TARGET})."
+    return {**res, "action": "good", "answer": msg}
+
+
 async def _doctor(args: str, ctx: CommandContext) -> dict:
     from .. import resource, snapshots
     pruned = snapshots.prune_workdirs(ctx.project_root) if "--prune" in (args or "") else 0
@@ -1173,6 +1214,7 @@ COMMANDS: dict[str, Command] = {
     "hive": Command("hive", "The CPU specialist hive: `list` shows the team (watchdog, summarizer, critic, ...); `<name> <text>` runs one on the CPU helper, bounded + best-effort so it never blocks the top-dog.", _hive_cmd),
     "doctor": Command("doctor", "Fast box & repo health check (RAM, disk, VRAM, git locks, config, pitfalls; add `--prune` to clean stale workdirs).", _doctor),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
+    "good": Command("good", "Save the previous turn as a LoRA training exemplar (`/good [edited reply]`).", _good),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }
 

@@ -33,6 +33,13 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     private var streamBase = ""
     private var lastUserBubble: TextView? = null
     var onEditLastUser: (() -> Unit)? = null
+    var onSaveExemplar: ((
+        prompt: String,
+        reply: String,
+        head: String,
+        source: String,
+        onDone: (ok: Boolean, total: Int, duplicate: Boolean, error: String?) -> Unit,
+    ) -> Unit)? = null
 
     private fun color(id: Int) = ContextCompat.getColor(context, id)
     private fun dp(value: Int) = TypedValue.applyDimension(
@@ -107,14 +114,24 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     }
 
     /** Non-streamed fallback for Continue: merge extra onto the last assistant turn. */
-    fun appendToLastAssistant(extra: String, note: String?) {
-        val prev = lastAssistantText() ?: run {
-            add(Turn(Kind.MAGIC, extra, note))
+    fun appendToLastAssistant(
+        extra: String,
+        note: String?,
+        prompt: String? = null,
+        head: String? = null,
+        source: String? = null,
+    ) {
+        val prevTurn = if (turns.isNotEmpty() && turns.last().kind == Kind.MAGIC) turns.last() else null
+        val prev = prevTurn?.text ?: run {
+            add(Turn(Kind.MAGIC, extra, note, prompt = prompt, head = head, source = source))
             return
         }
         val merged = if (extra.isNotBlank()) "$prev ${extra.trimStart()}".trim() else prev
+        val mergedPrompt = prompt ?: prevTurn.prompt
+        val mergedHead = head ?: prevTurn.head
+        val mergedSource = source ?: prevTurn.source
         removeLastAssistant()
-        add(Turn(Kind.MAGIC, merged, note))
+        add(Turn(Kind.MAGIC, merged, note, prompt = mergedPrompt, head = mergedHead, source = mergedSource))
     }
 
     fun appendStream(delta: String) {
@@ -125,12 +142,18 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         if (nearEnd) scrollToEnd()
     }
 
-    fun finishStream(answer: String, note: String?) {
+    fun finishStream(
+        answer: String,
+        note: String?,
+        prompt: String? = null,
+        head: String? = null,
+        source: String? = null,
+    ) {
         val bubble = streamBubble ?: return
         val raw = answer.ifEmpty { streamText.removePrefix(streamBase).toString() }
         val text = if (streamBase.isNotEmpty()) "${streamBase.trimEnd()} ${raw.trimStart()}".trim() else raw
         streamBase = ""
-        val turn = Turn(Kind.MAGIC, text, note)
+        val turn = Turn(Kind.MAGIC, text, note, prompt = prompt, head = head, source = source)
         turns.add(turn)
         if (hasCode(text)) {
             // streamed as one plain bubble for the live feel; now re-lay it out
@@ -190,15 +213,83 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         return bubble
     }
 
+    private fun resolvePromptForTurn(turn: Turn): String {
+        val explicit = turn.prompt?.trim().orEmpty()
+        if (explicit.isNotEmpty()) return explicit
+        val idx = turns.indexOfLast { it === turn }.let { if (it >= 0) it else turns.lastIndex }
+        for (i in (idx - 1) downTo 0) {
+            if (turns[i].kind == Kind.USER) {
+                val t = turns[i].text.trim()
+                if (t.isNotEmpty()) return t
+            }
+        }
+        return ""
+    }
+
     private fun addFooter(turn: Turn) {
-        val footer = TextView(context).apply {
-            text = listOfNotNull(turn.note, "Copy").joinToString("   ")
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), dp(3), dp(6), dp(2))
+        }
+        if (!turn.note.isNullOrEmpty()) {
+            val noteView = TextView(context).apply {
+                text = turn.note
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setTextColor(color(R.color.magic_text_secondary))
+                setPadding(0, 0, dp(12), 0)
+            }
+            row.addView(noteView)
+        }
+        val copyView = TextView(context).apply {
+            text = "Copy"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setTextColor(color(R.color.magic_text_secondary))
-            setPadding(dp(6), dp(3), dp(6), dp(2))
+            setPadding(0, dp(2), dp(6), dp(2))
             setOnClickListener { copy(turn.text) }
         }
-        list.addView(footer)
+        row.addView(copyView)
+
+        val saveView = TextView(context).apply {
+            text = if (turn.saved) "Saved ✓" else "Save"
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextColor(color(if (turn.saved) R.color.magic_accent else R.color.magic_text_secondary))
+            setPadding(dp(8), dp(2), dp(6), dp(2))
+            isEnabled = !turn.saved
+            setOnClickListener {
+                if (turn.saved || onSaveExemplar == null) return@setOnClickListener
+                val prompt = resolvePromptForTurn(turn)
+                if (prompt.isEmpty()) {
+                    Toast.makeText(context, "No prompt found for this turn", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                isEnabled = false
+                text = "Saving…"
+                onSaveExemplar?.invoke(
+                    prompt,
+                    turn.text,
+                    turn.head.orEmpty(),
+                    turn.source.orEmpty(),
+                ) { ok, total, _, err ->
+                    if (ok) {
+                        turn.saved = true
+                        text = "Saved ✓"
+                        setTextColor(color(R.color.magic_accent))
+                        Toast.makeText(context, "Saved exemplar ($total/200)", Toast.LENGTH_SHORT).show()
+                    } else {
+                        isEnabled = true
+                        text = "Save"
+                        Toast.makeText(
+                            context,
+                            "Save failed: ${err ?: "network error"}",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+            }
+        }
+        row.addView(saveView)
+        list.addView(row)
     }
 
     private fun hasCode(text: String) = text.contains("```")
@@ -312,20 +403,35 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         return out
     }
 
-    /** Inline `code` and **bold**. */
+    /** Inline `code`, ***bold-italic***, **bold**, and *italic*, preserving URLs. */
     private fun appendInline(out: SpannableStringBuilder, text: String) {
         var i = 0
         for (match in INLINE.findAll(text)) {
             out.append(text, i, match.range.first)
             val token = match.value
             val start = out.length
-            if (token.startsWith("`")) {
-                out.append(token.substring(1, token.length - 1))
-                out.setSpan(TypefaceSpan("monospace"), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                out.setSpan(ForegroundColorSpan(color(R.color.magic_accent)), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            } else {
-                out.append(token.substring(2, token.length - 2))
-                out.setSpan(StyleSpan(Typeface.BOLD), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            when {
+                token.startsWith("`") -> {
+                    out.append(token.substring(1, token.length - 1))
+                    out.setSpan(TypefaceSpan("monospace"), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    out.setSpan(ForegroundColorSpan(color(R.color.magic_accent)), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                token.startsWith("http://") || token.startsWith("https://") -> {
+                    out.append(token)
+                }
+                token.startsWith("***") && token.endsWith("***") && token.length > 6 -> {
+                    out.append(token.substring(3, token.length - 3))
+                    out.setSpan(StyleSpan(Typeface.BOLD_ITALIC), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                token.startsWith("**") && token.endsWith("**") && token.length > 4 -> {
+                    out.append(token.substring(2, token.length - 2))
+                    out.setSpan(StyleSpan(Typeface.BOLD), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                token.startsWith("*") && token.endsWith("*") && token.length > 2 -> {
+                    out.append(token.substring(1, token.length - 1))
+                    out.setSpan(StyleSpan(Typeface.ITALIC), start, out.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
+                else -> out.append(token)
             }
             i = match.range.last + 1
         }
@@ -334,6 +440,12 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
 
     private companion object {
         const val MAX_SHOWN = 150
-        val INLINE = Regex("`[^`\n]+`|\\*\\*[^*\n]+\\*\\*")
+        val INLINE = Regex(
+            "`[^`\n]+`" +
+                "|https?://\\S+" +
+                "|\\*\\*\\*(?!\\s)(?:[^*\n]*?[^*\\s\n])\\*\\*\\*(?!\\*)" +
+                "|\\*\\*(?!\\s)(?:[^*\n]*?[^*\\s\n])\\*\\*(?!\\*)" +
+                "|\\*(?!\\s)(?:[^*\n]*?[^*\\s\n])\\*(?!\\*)"
+        )
     }
 }

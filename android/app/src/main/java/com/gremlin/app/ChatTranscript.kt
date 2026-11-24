@@ -5,7 +5,15 @@ package com.gremlin.app
 object ChatTranscript {
     enum class Kind { USER, MAGIC, SYSTEM }
 
-    data class Turn(val kind: Kind, val text: String, val note: String? = null)
+    data class Turn(
+        val kind: Kind,
+        val text: String,
+        val note: String? = null,
+        val prompt: String? = null,
+        val head: String? = null,
+        val source: String? = null,
+        var saved: Boolean = false,
+    )
 
     private const val USER_MARK = "› "
     private const val SYSTEM_MARK = "⁘ "

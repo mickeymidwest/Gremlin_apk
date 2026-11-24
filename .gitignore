@@ -3,6 +3,7 @@
 
 # Generated at runtime, not source
 data/*.jsonl
+data/lora_exemplars.jsonl
 data/archive/
 data/*.txt
 data/.magic.lock

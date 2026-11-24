@@ -71,6 +71,8 @@ class Turn:
     at: float
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    head: str = ""
+    source: str = ""
 
 
 # How many recent exchanges to keep resident and eligible for replay.
@@ -293,7 +295,9 @@ class ConversationHistory:
                             continue
                         dq.append(Turn(user=d.get("user", ""), assistant=d.get("assistant", ""),
                                        at=d.get("at", 0.0), prompt_tokens=d.get("prompt_tokens", 0),
-                                       completion_tokens=d.get("completion_tokens", 0)))
+                                       completion_tokens=d.get("completion_tokens", 0),
+                                       head=str(d.get("head") or ""),
+                                       source=str(d.get("source") or "")))
                 except OSError:
                     pass
             self._cache[key] = dq
@@ -309,7 +313,8 @@ class ConversationHistory:
         return dq
 
     def record(self, key: str, user: str, assistant: str,
-              prompt_tokens: int = 0, completion_tokens: int = 0) -> None:
+              prompt_tokens: int = 0, completion_tokens: int = 0,
+              head: str = "", source: str = "") -> None:
         """Append one completed exchange, to memory and to disk. Token
         counts are real usage from the backend's own response (see
         LlamaCppBackend.generate) when the caller has them, else 0 --
@@ -317,21 +322,29 @@ class ConversationHistory:
         total, it never breaks it."""
         if not (user or "").strip() or not (assistant or "").strip():
             return
+        head = str(head or "").strip()
+        source = str(source or "").strip()
         with self._lock:
             # Backfill any pre-existing JSONL turns BEFORE appending this turn
             # so turn #1 is never inserted into SQLite/FTS5 twice.
             self._db_sync_from_jsonl(key)
             turn = Turn(user=user.strip(), assistant=assistant.strip(), at=time.time(),
-                       prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+                       prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+                       head=head, source=source)
             dq = self._load(key)
             dq.append(turn)
             try:
                 self._dir.mkdir(parents=True, exist_ok=True)
+                row_obj = {
+                    "user": turn.user, "assistant": turn.assistant, "at": turn.at,
+                    "prompt_tokens": turn.prompt_tokens, "completion_tokens": turn.completion_tokens,
+                }
+                if head:
+                    row_obj["head"] = head
+                if source:
+                    row_obj["source"] = source
                 with open(self._path(key), "a", encoding="utf-8") as f:
-                    f.write(json.dumps({
-                        "user": turn.user, "assistant": turn.assistant, "at": turn.at,
-                        "prompt_tokens": turn.prompt_tokens, "completion_tokens": turn.completion_tokens,
-                    }) + "\n")
+                    f.write(json.dumps(row_obj) + "\n")
             except OSError:
                 # In-memory copy still works for this session even if the disk
                 # write fails; losing durability is better than dropping the turn.
@@ -482,6 +495,12 @@ class ConversationHistory:
         with self._lock:
             dq = self._fresh(self._load(key))
             return dq[-1].assistant if dq else None
+
+    def last_turn(self, key: str) -> Optional[Turn]:
+        """The most recent Turn object in this conversation, or None."""
+        with self._lock:
+            dq = self._fresh(self._load(key))
+            return dq[-1] if dq else None
 
     def render(self, key: str) -> str:
         """Recent exchanges as a labelled transcript, or '' if none.

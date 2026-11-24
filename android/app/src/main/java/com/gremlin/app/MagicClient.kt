@@ -31,7 +31,20 @@ import java.net.URLEncoder
  * backend that doesn't report usage). */
 data class TokenUsage(val promptTokens: Int, val completionTokens: Int, val totalTokens: Int)
 
-data class ChatResult(val answer: String, val source: String, val tokenUsage: TokenUsage? = null)
+data class ChatResult(
+    val answer: String,
+    val source: String,
+    val tokenUsage: TokenUsage? = null,
+    val head: String = "",
+)
+
+data class DatasetSaveResult(
+    val ok: Boolean,
+    val duplicate: Boolean = false,
+    val totalExemplars: Int = 0,
+    val target: Int = 200,
+    val error: String? = null,
+)
 
 /** One project Magic has built on the desktop (build_project ->
  * ~/Downloads/<name>/), as listed by GET /builds. */
@@ -134,7 +147,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                 val reply = postToDesktop(host, port, token, message, pending)
                 if (pending.length() > 0) clearPendingSync() // only after the server actually got them
                 refreshCachedPersonaVoice(host, port, token) // best-effort, keeps away-mode voice current
-                return ChatResult(reply.answer, "desktop", reply.usage)
+                return ChatResult(reply.answer, "desktop", reply.usage, reply.head)
             } catch (e: Exception) {
                 // Desktop configured but unreachable -- fall through to away-mode.
             }
@@ -264,6 +277,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
             }
 
             var source = "desktop"
+            var head = ""
             var tokenUsage: TokenUsage? = null
             connection.inputStream.bufferedReader().useLines { lines ->
                 for (line in lines) {
@@ -281,6 +295,8 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                             answer = StringBuilder(full)
                             val s = obj.optString("source", "")
                             if (s.isNotEmpty() && s != "magic") source = s
+                            val h = obj.optString("head", "")
+                            if (h.isNotEmpty()) head = h
                             tokenUsage = parseTokenUsage(obj)
                         }
                     }
@@ -290,7 +306,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
             connection.disconnect(); connection = null
             if (streamCancelled) source = "stopped"
             refreshCachedPersonaVoice(host, port, token) // keep away-mode voice current, same as chat()
-            onDone(ChatResult(answer.toString(), source, tokenUsage))
+            onDone(ChatResult(answer.toString(), source, tokenUsage, head))
         } catch (e: Exception) {
             activeStream = null
             try { connection?.disconnect() } catch (_: Exception) {}
@@ -997,6 +1013,53 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         return "Set the admin token in Settings first"
     }
 
+    /** Save a good (prompt, reply) turn to the desktop's passive LoRA exemplar collector. */
+    fun saveExemplar(
+        prompt: String,
+        reply: String,
+        head: String = "",
+        source: String = "desktop",
+        mode: String = "chat",
+    ): DatasetSaveResult {
+        val host = prefs.getString("host", null)
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null)
+        if (host == null || port == 0 || token == null) {
+            return DatasetSaveResult(ok = false, error = "Not paired with a desktop")
+        }
+        return try {
+            val c = (URL("http://$host:$port/dataset/exemplar").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                setRequestProperty("Content-Type", "application/json")
+                setRequestProperty("Authorization", "Bearer $token")
+                doOutput = true
+                connectTimeout = 5_000
+                readTimeout = 15_000
+            }
+            val body = JSONObject()
+                .put("prompt", prompt)
+                .put("reply", reply)
+                .put("head", head)
+                .put("source", source)
+                .put("mode", mode)
+            OutputStreamWriter(c.outputStream).use { it.write(body.toString()) }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+            if (code !in 200..299 || !json.optBoolean("ok", false)) {
+                DatasetSaveResult(ok = false, error = json.optString("error", "HTTP $code"))
+            } else {
+                DatasetSaveResult(
+                    ok = true,
+                    duplicate = json.optBoolean("duplicate", false),
+                    totalExemplars = json.optInt("total_exemplars", 0),
+                )
+            }
+        } catch (e: Exception) {
+            DatasetSaveResult(ok = false, error = "Couldn't reach desktop: ${e.message}")
+        }
+    }
+
     private fun parseTokenUsage(json: JSONObject): TokenUsage? {
         val u = json.optJSONObject("conversation_usage") ?: return null
         return TokenUsage(
@@ -1006,7 +1069,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         )
     }
 
-    private data class DesktopReply(val answer: String, val usage: TokenUsage?)
+    private data class DesktopReply(val answer: String, val usage: TokenUsage?, val head: String = "")
 
     private fun postToDesktop(host: String, port: Int, token: String, message: String, pendingSync: JSONArray? = null): DesktopReply {
         val url = URL("http://$host:$port/chat")
@@ -1034,7 +1097,11 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         if (responseCode !in 200..299) {
             throw RuntimeException(json.optString("error", "HTTP $responseCode"))
         }
-        return DesktopReply(json.optString("answer", "[empty response]"), parseTokenUsage(json))
+        return DesktopReply(
+            json.optString("answer", "[empty response]"),
+            parseTokenUsage(json),
+            json.optString("head", ""),
+        )
     }
 
     private fun callGemini(apiKey: String, systemPrompt: String, message: String): String {

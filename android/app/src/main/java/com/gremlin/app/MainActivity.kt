@@ -147,6 +147,12 @@ class MainActivity : AppCompatActivity() {
         hologramFrame = findViewById(R.id.hologram_frame)
         chat = ChatView(findViewById<LinearLayout>(R.id.chat_list), findViewById<ScrollView>(R.id.chat_scroll))
         chat.onEditLastUser = { editLastMessage() }
+        chat.onSaveExemplar = { prompt, reply, head, source, onDone ->
+            Thread {
+                val res = magicClient.saveExemplar(prompt, reply, head, source)
+                runOnUiThread { onDone(res.ok, res.totalExemplars, res.duplicate, res.error) }
+            }.start()
+        }
         if (historyFile.exists()) {
             chat.load(historyFile.readText())
         }
@@ -279,7 +285,13 @@ class MainActivity : AppCompatActivity() {
                     "gemini" -> "(standalone, via Gemini)"
                     else -> null
                 }
-                appendAssistantTurn(result.answer, sub)
+                appendAssistantTurn(
+                    result.answer,
+                    sub,
+                    prompt = question.ifBlank { name },
+                    head = result.head,
+                    source = result.source,
+                )
                 setBusy(false)
                 ThinkingKeepAliveService.stop(applicationContext)
                 voiceOutput.speak(result.answer)
@@ -631,8 +643,14 @@ class MainActivity : AppCompatActivity() {
         saveHistory()
     }
 
-    private fun appendAssistantTurn(answer: String, subStatus: String?) {
-        chat.add(Turn(Kind.MAGIC, answer, subStatus))
+    private fun appendAssistantTurn(
+        answer: String,
+        subStatus: String?,
+        prompt: String? = lastUserMessage,
+        head: String? = null,
+        source: String? = null,
+    ) {
+        chat.add(Turn(Kind.MAGIC, answer, subStatus, prompt = prompt, head = head, source = source))
         saveHistory()
     }
 
@@ -794,15 +812,15 @@ class MainActivity : AppCompatActivity() {
                             updateTokenUsageLabel(null)
                             appendSystemTurn("Cleared — fresh start.", false)
                         } else if (started.get()) {
-                            finishAssistantStreamTurn(result.answer, sub)
+                            finishAssistantStreamTurn(result.answer, sub, lastUserMessage, result.head, result.source)
                         } else if (result.source == "stopped") {
                             appendSystemTurn("Stopped.", false)
                         } else if (cont) {
-                            chat.appendToLastAssistant(result.answer, sub)
+                            chat.appendToLastAssistant(result.answer, sub, lastUserMessage, result.head, result.source)
                             saveHistory()
                         } else {
                             // no deltas arrived (fallback path / action / clear)
-                            appendAssistantTurn(result.answer, sub)
+                            appendAssistantTurn(result.answer, sub, lastUserMessage, result.head, result.source)
                         }
                         setBusy(false)
                         if (result.source != "stopped") {
@@ -826,8 +844,14 @@ class MainActivity : AppCompatActivity() {
 
     /** The done frame's answer wins: it can differ from the streamed text
      *  (reasoning stripped, or a fallback that replaced everything). */
-    private fun finishAssistantStreamTurn(finalAnswer: String, subStatus: String?) {
-        chat.finishStream(finalAnswer, subStatus)
+    private fun finishAssistantStreamTurn(
+        finalAnswer: String,
+        subStatus: String?,
+        prompt: String? = lastUserMessage,
+        head: String? = null,
+        source: String? = null,
+    ) {
+        chat.finishStream(finalAnswer, subStatus, prompt = prompt, head = head, source = source)
         saveHistory()
     }
 
@@ -920,7 +944,7 @@ class MainActivity : AppCompatActivity() {
             // while because this list wasn't updated alongside it --
             // exactly the silent-failure trap to not repeat: when
             // adding a command in commands.py, add its name here too.
-            "/chat", "/skill", "/build", "/fix", "/model", "/override", "/defense", "/do", "/memory" -> {
+            "/chat", "/skill", "/build", "/fix", "/model", "/override", "/defense", "/do", "/memory", "/good" -> {
                 val args = message.removePrefix(cmd).trim()
                 thinkingStatus.visibility = View.VISIBLE
                 setHologramState("thinking")
@@ -942,7 +966,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             else -> appendSystemTurn(
-                "Commands: /chat /skill /build /fix /model /override /defense /do /memory  ·  " +
+                "Commands: /chat /skill /build /fix /model /override /defense /do /memory /good  ·  " +
                     "/builds, /builds get <name>\n\n" +
                     "Or just say it normally — the desktop works out what you mean and asks before anything destructive.",
                 true,

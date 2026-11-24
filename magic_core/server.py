@@ -928,6 +928,11 @@ def create_app(
             notes_mod.remember_fact(str(project_root), last)
             return jsonify(_chat_reply(f"Got it — I'll remember that: {last}"))
 
+        from . import lora_dataset as _lora_ds
+        _is_good, _good_edit = _lora_ds.parse_good_command(message)
+        if _is_good:
+            return jsonify(_handle_good_command(conv_key, _good_edit))
+
         _timing: dict = {"bg_active": bool(_wd_busy["on"])}
         _t_req0 = time.perf_counter()
         _fg_enter()
@@ -944,7 +949,11 @@ def create_app(
                 # follow-up, no "remember that" (see notes.is_remember_last_
                 # reply_command above) could ever see it. record() itself
                 # no-ops on an empty answer, so this is safe unconditionally.
-                conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                conversation_history.record(
+                    conv_key, message, action_result.get("answer", ""),
+                    head=action_result.get("head", ""),
+                    source=action_result.get("source", ""),
+                )
                 action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
                 _emit_turn_timing("/chat", action_result, _timing, _t_req0)
                 return jsonify(action_result)
@@ -998,7 +1007,9 @@ def create_app(
             with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
                 conversation_history.record(conv_key, message, result.get("answer", ""),
                                             prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                            completion_tokens=turn_usage.get("completion_tokens", 0))
+                                            completion_tokens=turn_usage.get("completion_tokens", 0),
+                                            head=result.get("head", ""),
+                                            source=result.get("source", ""))
             _maybe_compact(conv_key)
             result["synced_count"] = synced_count
             # Cumulative usage for the WHOLE conversation, not just this turn.
@@ -1166,6 +1177,47 @@ def create_app(
         except Exception:
             with _wd_lock:
                 _wd_busy["on"] = False
+
+    def _handle_good_command(conv_key: str, edited_reply: str = "") -> dict:
+        """Save the previous active conversation turn as a LoRA exemplar without hitting the LLM."""
+        from . import lora_dataset as _lora_ds
+
+        pending_confirmations.clear(conv_key)
+        turn = conversation_history.last_turn(conv_key)
+        if turn is None:
+            return _chat_reply(
+                "Nothing recent to save yet — ask me something first.",
+                action="good",
+                ok=False,
+            )
+        edited = edited_reply.strip() or None
+        try:
+            res = _lora_ds.save_exemplar(
+                str(project_root),
+                prompt=turn.user,
+                reply=turn.assistant,
+                edited_reply=edited,
+                head=turn.head,
+                source=turn.source,
+                mode="chat",
+            )
+        except ValueError as e:
+            return _chat_reply(f"Couldn't save exemplar: {e}", action="good", ok=False)
+        total = int(res.get("total_exemplars", 0))
+        if res.get("duplicate"):
+            msg = f"Already saved in LoRA dataset ({total}/{_lora_ds.DEFAULT_TARGET})."
+        elif res.get("updated"):
+            msg = f"Updated exemplar with your edited reply ({total}/{_lora_ds.DEFAULT_TARGET})."
+        else:
+            msg = f"Saved exemplar ({total}/{_lora_ds.DEFAULT_TARGET})."
+        out = _chat_reply(msg, action="good", ok=True)
+        out.update({
+            "saved": True,
+            "duplicate": bool(res.get("duplicate", False)),
+            "updated": bool(res.get("updated", False)),
+            "total_exemplars": total,
+        })
+        return out
 
     def _chat_reply(answer: str, action: str = "chat", ok: bool = True,
                     receipt: Optional[dict] = None) -> dict:
@@ -1430,13 +1482,25 @@ def create_app(
                     return Response(_sse({"type": "done", **done}),
                                     mimetype="text/event-stream", headers=_SSE_HEADERS)
 
+                from . import lora_dataset as _lora_ds
+                _is_good, _good_edit = _lora_ds.parse_good_command(message)
+                if _is_good:
+                    done = _handle_good_command(conv_key, _good_edit)
+                    done["synced_count"] = synced_count
+                    return Response(_sse({"type": "done", **done}),
+                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
+
                 _t_act0 = time.perf_counter()
                 action_result = _handle_possible_action(message, history=_render_stream_history())
                 _action_ms = round((time.perf_counter() - _t_act0) * 1000, 1)
                 if action_result is not None:
                     if is_reroll and action_result.get("ok", True):
                         conversation_history.drop_last(conv_key)
-                    conversation_history.record(conv_key, message, action_result.get("answer", ""))
+                    conversation_history.record(
+                    conv_key, message, action_result.get("answer", ""),
+                    head=action_result.get("head", ""),
+                    source=action_result.get("source", ""),
+                )
                     action_result["synced_count"] = synced_count
                     action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
                     _emit_turn_timing("/chat/stream", action_result,
@@ -1496,12 +1560,16 @@ def create_app(
                                             conversation_history.record(
                                                 conv_key, message, ans_text,
                                                 prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                                completion_tokens=turn_usage.get("completion_tokens", 0))
+                                                completion_tokens=turn_usage.get("completion_tokens", 0),
+                                                head=final.get("head", ""),
+                                                source=final.get("source", ""))
                                     else:
                                         conversation_history.record(
                                             conv_key, message, ans_text,
                                             prompt_tokens=turn_usage.get("prompt_tokens", 0),
-                                            completion_tokens=turn_usage.get("completion_tokens", 0))
+                                            completion_tokens=turn_usage.get("completion_tokens", 0),
+                                            head=final.get("head", ""),
+                                            source=final.get("source", ""))
                                 _maybe_compact(conv_key)
                                 final["synced_count"] = synced_count
                                 final["conversation_usage"] = conversation_history.usage_totals(conv_key)
@@ -2188,6 +2256,62 @@ def create_app(
         removed = profile_mod.drop_by_text(root, text) or notes_mod.forget_note_by_text(root, text)
         return jsonify({"ok": bool(removed), "removed": removed or ""})
 
+    @app.route("/dataset/exemplar", methods=["POST"])
+    def dataset_exemplar_route():
+        """Save a curated (user, assistant) LoRA exemplar to data/lora_exemplars.jsonl."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import lora_dataset as _lora_ds
+
+        body = request.get_json(silent=True) or {}
+        prompt = body.get("prompt")
+        reply = body.get("reply")
+        edited_reply = body.get("edited_reply")
+        if not isinstance(prompt, str) or not prompt.strip():
+            return jsonify({"ok": False, "error": "prompt is required"}), 400
+        has_reply = isinstance(reply, str) and bool(reply.strip())
+        has_edit = isinstance(edited_reply, str) and bool(edited_reply.strip())
+        if not has_reply and not has_edit:
+            return jsonify({"ok": False, "error": "reply is required"}), 400
+        raw_tags = body.get("tags")
+        tags = raw_tags if isinstance(raw_tags, list) else None
+        try:
+            res = _lora_ds.save_exemplar(
+                str(project_root),
+                prompt=prompt,
+                reply=reply if isinstance(reply, str) else "",
+                edited_reply=edited_reply if isinstance(edited_reply, str) else None,
+                head=str(body.get("head") or ""),
+                source=str(body.get("source") or ""),
+                mode=str(body.get("mode") or "chat"),
+                tags=tags,
+            )
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({
+            "ok": True,
+            "saved": bool(res.get("saved", True)),
+            "duplicate": bool(res.get("duplicate", False)),
+            "total_exemplars": int(res.get("total_exemplars", 0)),
+        })
+
+    @app.route("/dataset/stats", methods=["GET"])
+    def dataset_stats_route():
+        """Return collected LoRA exemplar stats."""
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import lora_dataset as _lora_ds
+
+        st = _lora_ds.stats(str(project_root))
+        return jsonify({
+            "ok": True,
+            "total_exemplars": int(st["total_exemplars"]),
+            "target": int(st["target"]),
+            "path": st["path"],
+        })
+
     _rea_state: dict = {"active_target": "", "last_report": "", "tool_count_client": None, "tool_count": 0}
 
     def _rea_uploads_dir() -> Path:
@@ -2572,7 +2696,9 @@ def create_app(
                     tgt_note = f"\n(Active REA target in workspace: {_Path(active_target).name})"
                 prompt = (
                     f"{_ar.date_note()}{tgt_note}\n{web_ev[:6500]}\n\n"
-                    f"Using ONLY those live internet search results, answer concisely and technically: {search_q}"
+                    "Using ONLY those live internet search results, answer naturally, concisely, and technically "
+                    'without meta-openers like "Based on the search results" or "According to the search results": '
+                    f"{search_q}"
                 )
 
                 async def _rea_web_synth():
@@ -2582,8 +2708,9 @@ def create_app(
                     return await magic_be.generate(
                         prompt,
                         system=(
-                            "You are Magic operating in REA Mode. Answer concisely and technically "
-                            "using ONLY the provided live internet search results."
+                            "You are Magic operating in REA Mode. Answer naturally, concisely, and technically "
+                            "using ONLY the provided live internet search results, without meta-openers like "
+                            '"Based on the search results" or "According to the search results".'
                         ),
                         max_tokens=768,
                         temperature=0.3,

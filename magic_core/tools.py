@@ -295,7 +295,9 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
         autoresearch.date_note()
         + "\n"
         + evidence
-        + "\n\nUsing ONLY those results, answer this clearly and conversationally: "
+        + "\n\nUsing ONLY those results, answer naturally and directly without meta-openers "
+        'like "Based on the search results" or "According to the search results" '
+        "(source attribution is attached automatically): "
         + query
     )
     try:
