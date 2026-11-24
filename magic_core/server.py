@@ -569,6 +569,11 @@ def create_app(
             data["reranker"] = _rr.get_reranker().stats()
         except Exception:
             pass
+        try:
+            from . import desktop_heavy as _dh
+            data["desktop_heavy"] = _dh.get_manager().status()
+        except Exception:
+            pass
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
@@ -1101,12 +1106,16 @@ def create_app(
     _fg_idle.set()
 
     def _fg_enter() -> None:
+        from . import desktop_heavy as _dh
+        _dh.fg_enter()
         with _fg_lock:
             _fg_active["n"] += 1
             _fg_gen["n"] += 1
             _fg_idle.clear()
 
     def _fg_exit() -> None:
+        from . import desktop_heavy as _dh
+        _dh.fg_exit()
         with _fg_lock:
             _fg_active["n"] = max(0, _fg_active["n"] - 1)
             if _fg_active["n"] == 0:

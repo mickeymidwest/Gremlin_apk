@@ -748,9 +748,13 @@ def verify_step_sync(
         env["PATH"] = str(Path(py_bin).parent) + os.pathsep + "/usr/bin:/bin"
         env["PYTHONPATH"] = wt + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        from . import bwrap_sandbox as _bs
+        from . import bwrap_sandbox as _bs, desktop_heavy as _dh
+        run_parsed_cmd = parsed_cmd
+        if _dh.in_heavy_job():
+            _dh.wait_for_foreground_idle()
+            run_parsed_cmd = _dh.throttled_argv(parsed_cmd)
         proc = subprocess.run(
-            parsed_cmd,
+            run_parsed_cmd,
             shell=False,
             cwd=wt,
             env=env,
@@ -1049,9 +1053,13 @@ def _test_project_step_sync(
             return False, fails
 
         if run_tests:
+            from . import desktop_heavy as _dh
             cmd = [py, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
             if test_filter:
                 cmd += ["-k", test_filter]
+            if _dh.in_heavy_job():
+                _dh.wait_for_foreground_idle()
+                cmd = _dh.throttled_argv(cmd)
             t = subprocess.run(cmd, cwd=wt, capture_output=True, text=True, timeout=timeout)
             # Exit code 5 means no tests exist in the project yet (not a failure)
             if t.returncode not in (0, 5):
@@ -1874,12 +1882,14 @@ async def run_fix_loop(args: str, ctx) -> dict:
         return {"ok": False, "answer": "Usage: /fix [--loop] [--apply] <what to improve in the harness>"}
 
     from .router import Router
-    from . import tools as tools_mod
+    from . import desktop_heavy as _dh, tools as tools_mod
     from .magic import vram
 
     router = ctx.router or Router(ctx.registry)
     primary = ctx.registry.raw_config.get("persona", {}).get("primary_model", "magic")
     coder = "qwen2.5-coder-14b" if ctx.registry.get("qwen2.5-coder-14b") else primary
+    if _dh.in_heavy_job():
+        await _dh.async_wait_for_foreground_idle()
     await vram.ensure_only(ctx.registry, keep=coder)
     exec_ctx = tools_mod.ExecContext(router=router, registry=ctx.registry, project_root=str(ctx.project_root))
     rev_a, rev_b = tools_mod._review_models(exec_ctx)

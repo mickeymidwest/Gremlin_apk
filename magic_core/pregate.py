@@ -538,10 +538,14 @@ def run_pregate_sync(patch: str, root: str, *, run_tests: bool = True,
                     f"with the daemon stopped (scripts/heavy.sh).")
             else:
                 try:
+                    from . import desktop_heavy as _dh
                     _cmd = [py, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
                     if test_filter:
                         _cmd += ["-k", test_filter]
-                    if shutil.which("nice") and shutil.which("ionice"):
+                    if _dh.in_heavy_job():
+                        _dh.wait_for_foreground_idle()
+                        _cmd = _dh.throttled_argv(_cmd)
+                    elif shutil.which("nice") and shutil.which("ionice"):
                         _cmd = ["nice", "-n", "19", "ionice", "-c", "3"] + _cmd
                     t = subprocess.run(
                         _cmd, cwd=wt, capture_output=True, text=True, timeout=test_timeout)

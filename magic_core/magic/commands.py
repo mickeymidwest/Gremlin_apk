@@ -77,6 +77,22 @@ def _coding_backend(ctx: CommandContext):
     return ctx.registry.get(name) or ctx.registry.get("magic")
 
 
+def _acquire_server_heavy(cmd_label: str, raw_args: str, action: str, ctx: CommandContext) -> tuple[bool, Optional[dict]]:
+    """Under server (`ctx.loop` set), enforce RAM unlock, low-RAM gate, and 1-job lock."""
+    if ctx.loop is None:
+        return True, None
+    from .. import desktop_heavy
+
+    job_desc = f"/{cmd_label} {raw_args}".strip()
+    ok, code, msg = desktop_heavy.get_manager().try_acquire(job_desc)
+    if ok:
+        return True, None
+    if code == "locked":
+        return False, {"ok": False, "action": action,
+                       "answer": _HEAVY_ON_DESKTOP.format(cmd=cmd_label, args=raw_args)}
+    return False, {"ok": False, "action": action, "busy": (code == "busy"), "answer": msg}
+
+
 async def _chat(args: str, ctx: CommandContext) -> dict:
     from .conversation import Conversation, Threads, wants_clear
 
@@ -166,50 +182,57 @@ async def _build(args: str, ctx: CommandContext) -> dict:
         return await asyncio.get_event_loop().run_in_executor(
             None, lambda: android_build.build_apk(hint, name))
 
-    if ctx.loop is not None:      # under the server -- too heavy, point to the desktop
-        return {"ok": False, "action": "build",
-                "answer": _HEAVY_ON_DESKTOP.format(cmd="build", args=args)}
+    acquired, denied = _acquire_server_heavy("build", args, "build", ctx)
+    if not acquired:
+        return denied
 
-    from .. import build_project
+    from .. import build_project, desktop_heavy
     from ..router import Router
-    router = ctx.router or Router(ctx.registry)
-
-    # "/build <name>: <goal>"  or  "/build <goal>"  (name derived from the goal)
-    if ":" in clean_args:
-        name, goal = (p.strip() for p in clean_args.split(":", 1))
-    else:
-        name, goal = build_project.sanitize_folder_name(clean_args[:40]) or "magic-build", clean_args
-    target = str(Path(ctx.project_root).resolve().parent / (build_project.sanitize_folder_name(name) or "magic-build"))
-
-    coder = _coding_model_name(ctx)
     from . import vram
-    await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
-    reviewer = "gemini" if ctx.registry.get("gemini") else coder
-    if use_loop:
-        result = await build_loop.run_project_build_loop(
-            router, str(ctx.project_root), target, goal,
-            model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
-            run_tests=True, teacher_model=reviewer, skip_review=False,
-            use_battle=(not no_battle),
-        )
-        return {
-            "ok": bool(result.get("applied") or result.get("ok")),
-            "answer": (result.get("trace") or result.get("answer") or result.get("reason", "build finished")),
-            "build": Path(target).name,
-            "action": "build",
-            "verdict": result.get("verdict", ""),
-            "commits": result.get("commits", []),
-        }
 
-    result = await build_project.run_build(
-        router, str(ctx.project_root), target, goal,
-        model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
-        teacher_model=reviewer, use_build_loop=False,
-    )
-    return {"ok": bool(result.get("applied") or result.get("ok", True)),
-            "answer": (result.get("answer") or result.get("summary")
-                       or (f"Built at {target}" if result.get("applied") else result.get("reason", "build finished"))),
-            "build": Path(target).name, "action": "build"}
+    with desktop_heavy.heavy_scope():
+        try:
+            router = ctx.router or Router(ctx.registry)
+
+            # "/build <name>: <goal>"  or  "/build <goal>"  (name derived from the goal)
+            if ":" in clean_args:
+                name, goal = (p.strip() for p in clean_args.split(":", 1))
+            else:
+                name, goal = build_project.sanitize_folder_name(clean_args[:40]) or "magic-build", clean_args
+            target = str(Path(ctx.project_root).resolve().parent / (build_project.sanitize_folder_name(name) or "magic-build"))
+
+            coder = _coding_model_name(ctx)
+            await desktop_heavy.async_wait_for_foreground_idle()
+            await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
+            reviewer = "gemini" if ctx.registry.get("gemini") else coder
+            if use_loop:
+                result = await build_loop.run_project_build_loop(
+                    router, str(ctx.project_root), target, goal,
+                    model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
+                    run_tests=True, teacher_model=reviewer, skip_review=False,
+                    use_battle=(not no_battle),
+                )
+                return {
+                    "ok": bool(result.get("applied") or result.get("ok")),
+                    "answer": (result.get("trace") or result.get("answer") or result.get("reason", "build finished")),
+                    "build": Path(target).name,
+                    "action": "build",
+                    "verdict": result.get("verdict", ""),
+                    "commits": result.get("commits", []),
+                }
+
+            result = await build_project.run_build(
+                router, str(ctx.project_root), target, goal,
+                model_names=[coder], reviewer_a=reviewer, reviewer_b=reviewer,
+                teacher_model=reviewer, use_build_loop=False,
+            )
+            return {"ok": bool(result.get("applied") or result.get("ok", True)),
+                    "answer": (result.get("answer") or result.get("summary")
+                               or (f"Built at {target}" if result.get("applied") else result.get("reason", "build finished"))),
+                    "build": Path(target).name, "action": "build"}
+        finally:
+            if ctx.loop is not None:
+                desktop_heavy.get_manager().release()
 
 
 async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
@@ -223,11 +246,12 @@ async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
     spec = spec.strip()
     if not spec:
         return {"ok": False, "answer": "Usage: /build android new <what the app does> [as <name>]"}
-    if ctx.loop is not None:      # under the server -- too heavy for this box
-        return {"ok": False, "action": "build",
-                "answer": _HEAVY_ON_DESKTOP.format(cmd="build android new", args=spec)}
+    acquired, denied = _acquire_server_heavy("build android new", spec, "build", ctx)
+    if not acquired:
+        return denied
 
     import asyncio
+    from .. import desktop_heavy
     from .android_scaffold import scaffold_from_spec
     from .android_build import build_apk, toolchain_ready
     from .method_builder import build_project
@@ -235,28 +259,37 @@ async def _build_android_new(spec: str, ctx: CommandContext) -> dict:
     from . import vram
     from ..build_project import sanitize_folder_name
 
-    if not toolchain_ready():
-        return {"ok": False, "answer": "Android toolchain not installed (need ~/android-build + ~/Android/Sdk)."}
+    with desktop_heavy.heavy_scope():
+        try:
+            if not toolchain_ready():
+                return {"ok": False, "answer": "Android toolchain not installed (need ~/android-build + ~/Android/Sdk)."}
 
-    coder = _coding_model_name(ctx)
-    await vram.ensure_only(ctx.registry, keep=coder)
-    model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("magic"), loop=ctx.loop)
-    slug = sanitize_folder_name(name) or "magic-app"
-    dest = str(Path(ctx.project_root).resolve().parent / slug)
+            coder = _coding_model_name(ctx)
+            await desktop_heavy.async_wait_for_foreground_idle()
+            await vram.ensure_only(ctx.registry, keep=coder)
+            model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("magic"), loop=ctx.loop)
+            slug = sanitize_folder_name(name) or "magic-app"
+            dest = str(Path(ctx.project_root).resolve().parent / slug)
 
-    def _run():
-        repo, verify = scaffold_from_spec(spec, dest, model)
-        r = build_project(repo, verify, model, best_of=3, repair_rounds=3, project_passes=4,
-                          compile_cmd="./gradlew :app:compileDebugKotlin --offline --console=plain -q")
-        if r.score >= 0.999:
-            return build_apk(repo, f"app_{slug}")
-        return {"ok": False, "action": "build",
-                "answer": (f"Scaffolded at {repo}, filled to {r.passed}/{r.passed + r.failed} "
-                           f"tests ({r.score:.2f}) -- not all green, so no APK yet. The project "
-                           f"is on disk to open or finish by hand. Note: the tests are "
-                           f"model-written -- check they're actually what you want.")}
+            def _run():
+                desktop_heavy.wait_for_foreground_idle()
+                repo, verify = scaffold_from_spec(spec, dest, model)
+                r = build_project(
+                    repo, verify, model, best_of=3, repair_rounds=3, project_passes=4,
+                    compile_cmd="./gradlew :app:compileDebugKotlin --offline --max-workers=2 --no-daemon --console=plain -q",
+                )
+                if r.score >= 0.999:
+                    return build_apk(repo, f"app_{slug}")
+                return {"ok": False, "action": "build",
+                        "answer": (f"Scaffolded at {repo}, filled to {r.passed}/{r.passed + r.failed} "
+                                   f"tests ({r.score:.2f}) -- not all green, so no APK yet. The project "
+                                   f"is on disk to open or finish by hand. Note: the tests are "
+                                   f"model-written -- check they're actually what you want.")}
 
-    return await asyncio.get_event_loop().run_in_executor(None, _run)
+            return await asyncio.to_thread(_run)
+        finally:
+            if ctx.loop is not None:
+                desktop_heavy.get_manager().release()
 
 
 async def _fix(args: str, ctx: CommandContext) -> dict:
@@ -271,122 +304,115 @@ async def _fix(args: str, ctx: CommandContext) -> dict:
     use_loop, clean_args = build_loop.strip_loop_flag(args)
     if not clean_args.strip():
         return {"ok": False, "answer": "Usage: /fix [--loop] [--apply] <what to improve in the harness>"}
-    if ctx.loop is not None:      # under the server -- too heavy for this box
-        return {"ok": False, "action": "fix",
-                "answer": _HEAVY_ON_DESKTOP.format(cmd="fix", args=args)}
-    if use_loop:
-        return await build_loop.run_fix_loop(args, ctx)
-    args = clean_args
-    import os
-    import shutil
-    import tempfile
-    from .battle import run_battle
-    from .verifier import PytestVerifier
-    from .store import Store
-    from .types import Task
+    acquired, denied = _acquire_server_heavy("fix", args, "fix", ctx)
+    if not acquired:
+        return denied
 
-    root = Path(ctx.project_root).resolve()
-    # Keep the repo copy AND the pytest run's temp off the system /tmp. On
-    # this box /tmp is a small RAM-backed tmpfs (~half of 8GB RAM); copying
-    # the repo there and running the full suite's tmp_path fixtures beside a
-    # resident model filled it and froze the box (2026-11-01). Put both on
-    # the same 1TB drive the repo lives on. Safe to set os.environ here: _fix
-    # only runs on the CLI path (it returns early under the server).
-    big_tmp = root.parent / ".magic-tmp"
-    big_tmp.mkdir(exist_ok=True)
-    os.environ["TMPDIR"] = str(big_tmp)
-    work = Path(tempfile.mkdtemp(prefix="magic-fix-", dir=str(big_tmp))) / "repo"
-    shutil.copytree(root, work, ignore=shutil.ignore_patterns(
-        ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
-        "data", "tools", "*.pyc", "*.gguf",
-        # never copy our own temp/merge scratch into the work copy -- doing
-        # so makes the battle copy nest into itself (observed 2026-11-01)
-        ".magic-tmp", ".finetune-venv", ".finetune-venv-scripts",
-        "merge_out", "merge_scratch", "merge_inputs", "merge_env", "magic-build"))
-
-    store = Store(root)
-    skills = store.read_skills()
-    facts = store.read_facts()
-    from .model import BackendModel
-    from . import vram
-    coder = _coding_model_name(ctx)
-    await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
-    model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("magic"), loop=ctx.loop)
-    # Concurrent CPU helper: a 2nd plan draft on the 4B (CPU, zero VRAM) runs
-    # alongside the GPU model's draft -- two heads, no swap.
-    # Hive coder specialist drafts the second plan head (code tasks want a
-    # code-tuned model); falls back to the general 4B if it isn't registered.
-    _cpu = ctx.registry.get("qwen2.5-coder-3b-cpu") or ctx.registry.get("qwen3.5-4b-cpu")
-    _plan_helper = BackendModel(_cpu, loop=ctx.loop) if _cpu is not None else None
-
-    tfilter = "" if "campaign" in args.lower() else "not campaign"
-    task = Task(id="fix", prompt=args, test_filter=tfilter)
-    verifier = PytestVerifier()
-
-    def _on_done():
-        s = verifier.score(task, str(work))
-        from .. import error_distill
-        _sig = error_distill.core(s.detail) or s.failure_signal or "not passing"
-        return s.value >= 0.999, _sig[:1500]
-
-    def _run():
-        # run_battle is blocking + its model.complete() submits back to
-        # the server loop -- so this MUST be off the loop, in a thread.
-        t = run_battle(task, str(work), model, skills, facts,
-                       step_budget=10, time_budget_s=420, on_done=_on_done,
-                       forged_root=ctx.project_root, plan_helper=_plan_helper)
-        s = verifier.score(task, str(work), t)
-        d = subprocess.run(
-            ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",
-             str(root), str(work)], capture_output=True, text=True).stdout
-        return t, s, d
-
-    import asyncio
-    tr, score, diff = await asyncio.get_event_loop().run_in_executor(None, _run)
-    # Per-battle reflection on the CPU helper (background): a lost /fix battle
-    # leaves a one-line lesson for next time, distilled on the 4B (CPU, zero
-    # VRAM) so it overlaps the reply/escalation instead of blocking. Daemon +
-    # best-effort -- a reflection failure never touches the fix result. This is
-    # the same pattern campaign._battle uses for the nightly loop, now on the
-    # live /fix path too (2026-11-13: push more background work onto the CPU).
-    if score.value < 0.999 and _plan_helper is not None:
+    from .. import desktop_heavy
+    with desktop_heavy.heavy_scope():
         try:
-            import threading as _th
-            from . import reflect as _reflect
-            _th.Thread(target=_reflect.lesson_on_loss,
-                       args=(_plan_helper, task, tr, root, (lambda *a: None)),
-                       daemon=True).start()
-        except Exception:
-            pass
-    # Escalation: if the pilot didn't get it green, pull in the stronger 14B
-    # coder on the GPU and try once more (a swap is affordable on the CLI).
-    _escalated = False
-    _strong = ctx.registry.get("qwen2.5-coder-14b")
-    if score.value < 0.999 and _strong is not None and coder != "qwen2.5-coder-14b":
-        await vram.ensure_only(ctx.registry, keep="qwen2.5-coder-14b")
-        model = BackendModel(_strong, loop=ctx.loop)
-        _old_work = work
-        work = Path(tempfile.mkdtemp(prefix="magic-fix2-", dir=str(big_tmp))) / "repo"
-        shutil.copytree(root, work, ignore=shutil.ignore_patterns(
-            ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
-            "data", "tools", "*.pyc", "*.gguf", ".magic-tmp", ".finetune-venv",
-            ".finetune-venv-scripts", "merge_out", "merge_scratch", "merge_inputs",
-            "merge_env", "magic-build"))
-        tr2, score2, diff2 = await asyncio.get_event_loop().run_in_executor(None, _run)
-        shutil.rmtree(_old_work.parent, ignore_errors=True)
-        if score2.value > score.value:
-            tr, score, diff, _escalated = tr2, score2, diff2, True
-    shutil.rmtree(work.parent, ignore_errors=True)
+            if use_loop:
+                return await build_loop.run_fix_loop(args, ctx)
+            args = clean_args
+            import asyncio
+            import os
+            import shutil
+            import tempfile
+            from .battle import run_battle
+            from .verifier import PytestVerifier
+            from .store import Store
+            from .types import Task
 
-    return {
-        "ok": score.value >= 0.999,
-        "answer": (("[escalated to the 14B coder after the 9B fell short]\n" if _escalated else "")
-                   + f"{tr.final_message}\n\ntests: {score.value:.2f}"
-                   + (f" ({score.failure_signal})" if score.failure_signal else "")
-                   + ("\n\n" + diff if diff.strip() else "\n\n(no changes)")),
-        "score": score.value, "diff": diff, "action": "fix",
-        "note": "not applied -- run with --apply (snapshots first) to keep it",
-    }
+            root = Path(ctx.project_root).resolve()
+            # Keep the repo copy AND the pytest run's temp off the system /tmp. On
+            # low-RAM boxes /tmp is a small RAM-backed tmpfs; putting both on the
+            # same drive avoids exhausting /tmp during a battle.
+            big_tmp = root.parent / ".magic-tmp"
+            big_tmp.mkdir(exist_ok=True)
+            os.environ["TMPDIR"] = str(big_tmp)
+            work = Path(tempfile.mkdtemp(prefix="magic-fix-", dir=str(big_tmp))) / "repo"
+            shutil.copytree(root, work, ignore=shutil.ignore_patterns(
+                ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
+                "data", "tools", "*.pyc", "*.gguf",
+                # never copy our own temp/merge scratch into the work copy -- doing
+                # so makes the battle copy nest into itself (observed 2026-11-01)
+                ".magic-tmp", ".finetune-venv", ".finetune-venv-scripts",
+                "merge_out", "merge_scratch", "merge_inputs", "merge_env", "magic-build"))
+
+            store = Store(root)
+            skills = store.read_skills()
+            facts = store.read_facts()
+            from .model import BackendModel
+            from . import vram
+            coder = _coding_model_name(ctx)
+            await desktop_heavy.async_wait_for_foreground_idle()
+            await vram.ensure_only(ctx.registry, keep=coder)   # two local models don't fit on 8GB
+            model = BackendModel(ctx.registry.get(coder) or ctx.registry.get("magic"), loop=ctx.loop)
+            _cpu = ctx.registry.get("qwen2.5-coder-3b-cpu") or ctx.registry.get("qwen3.5-4b-cpu")
+            _plan_helper = BackendModel(_cpu, loop=ctx.loop) if _cpu is not None else None
+
+            tfilter = "" if "campaign" in args.lower() else "not campaign"
+            task = Task(id="fix", prompt=args, test_filter=tfilter)
+            verifier = PytestVerifier()
+
+            def _on_done():
+                s = verifier.score(task, str(work))
+                from .. import error_distill
+                _sig = error_distill.core(s.detail) or s.failure_signal or "not passing"
+                return s.value >= 0.999, _sig[:1500]
+
+            def _run():
+                desktop_heavy.wait_for_foreground_idle()
+                t = run_battle(task, str(work), model, skills, facts,
+                               step_budget=10, time_budget_s=420, on_done=_on_done,
+                               forged_root=ctx.project_root, plan_helper=_plan_helper)
+                s = verifier.score(task, str(work), t)
+                d = subprocess.run(
+                    ["git", "-c", "core.safecrlf=false", "diff", "--no-index", "--",
+                     str(root), str(work)], capture_output=True, text=True).stdout
+                return t, s, d
+
+            tr, score, diff = await asyncio.to_thread(_run)
+            if score.value < 0.999 and _plan_helper is not None:
+                try:
+                    import threading as _th
+                    from . import reflect as _reflect
+                    _th.Thread(target=_reflect.lesson_on_loss,
+                               args=(_plan_helper, task, tr, root, (lambda *a: None)),
+                               daemon=True).start()
+                except Exception:
+                    pass
+            _escalated = False
+            _strong = ctx.registry.get("qwen2.5-coder-14b")
+            if score.value < 0.999 and _strong is not None and coder != "qwen2.5-coder-14b":
+                await desktop_heavy.async_wait_for_foreground_idle()
+                await vram.ensure_only(ctx.registry, keep="qwen2.5-coder-14b")
+                model = BackendModel(_strong, loop=ctx.loop)
+                _old_work = work
+                work = Path(tempfile.mkdtemp(prefix="magic-fix2-", dir=str(big_tmp))) / "repo"
+                shutil.copytree(root, work, ignore=shutil.ignore_patterns(
+                    ".git", "__pycache__", ".pytest_cache", "venv", ".venv", "models",
+                    "data", "tools", "*.pyc", "*.gguf", ".magic-tmp", ".finetune-venv",
+                    ".finetune-venv-scripts", "merge_out", "merge_scratch", "merge_inputs",
+                    "merge_env", "magic-build"))
+                tr2, score2, diff2 = await asyncio.to_thread(_run)
+                shutil.rmtree(_old_work.parent, ignore_errors=True)
+                if score2.value > score.value:
+                    tr, score, diff, _escalated = tr2, score2, diff2, True
+            shutil.rmtree(work.parent, ignore_errors=True)
+
+            return {
+                "ok": score.value >= 0.999,
+                "answer": (("[escalated to the 14B coder after the 9B fell short]\n" if _escalated else "")
+                           + f"{tr.final_message}\n\ntests: {score.value:.2f}"
+                           + (f" ({score.failure_signal})" if score.failure_signal else "")
+                           + ("\n\n" + diff if diff.strip() else "\n\n(no changes)")),
+                "score": score.value, "diff": diff, "action": "fix",
+                "note": "not applied -- run with --apply (snapshots first) to keep it",
+            }
+        finally:
+            if ctx.loop is not None:
+                desktop_heavy.get_manager().release()
 
 
 _VRAM_CEILING_MB = 7800  # 8GB card; leaves ~400MB for OS/desktop -- the
