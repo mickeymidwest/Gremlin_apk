@@ -120,7 +120,7 @@ async def _unload_if_local(router: Router, name: str) -> None:
     "Failed to load model from file" whenever the proposer/fixer model
     was still resident from the step before it -- the file itself was
     fine (loaded standalone with VRAM free), it was pure contention.
-    A no-op for API-backed reviewers (gemini, claude), which hold no
+    A no-op for API-backed reviewers (gemini), which hold no
     local VRAM to free."""
     try:
         backend = router.registry.get(name)
@@ -320,7 +320,7 @@ async def consult_consensus_check(
     consult_models: list[str],
 ) -> ReviewOutcome:
     """
-    The override path: instead of the claude/gemini gate, checks whether
+    The override path: instead of the normal review gate, checks whether
     EVERY model in `consult_models` independently approves the patch as
     it currently stands. Unlike review_and_revise, this doesn't loop or
     revise on a rejection -- it's a single up-or-down consensus read on

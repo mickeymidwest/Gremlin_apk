@@ -100,7 +100,7 @@ def test_ignores_self_description_running_on(tmp_path):
     alone used to be enough to flag it; now it needs an object right
     after, not a clause boundary or "on"."""
     r = _repo(tmp_path)
-    txt = ("So, Magic is the codebase maintained by Claude, right? "
+    txt = ("So, Magic is the codebase maintained by Mickey, right? "
            "That's where I'm running, and I'll give you a straight answer.")
     assert grounding.check(txt, r) == []
 

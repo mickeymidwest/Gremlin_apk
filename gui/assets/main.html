@@ -256,7 +256,7 @@ async function handleSlashCommand(message) {
       return;
     }
     if (!confirmed) {
-      addTurn('system', `This asks Magic to propose a code change for itself, reviewed by claude+gemini, and commits it to git if both approve. Type "/edit ${goal} confirm" to proceed.`);
+      addTurn('system', `This asks Magic to propose a code change for itself, reviewed by the two-reviewer gate (local+gemini), and commits it to git if both approve. Type "/edit ${goal} confirm" to proceed.`);
       return;
     }
     thinkingEl.style.display = 'block';

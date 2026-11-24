@@ -8,7 +8,7 @@ android {
 
     // No NDK/CMake config here any more: the on-device offline model was
     // removed (again -- see android/README.md's history note). This app
-    // is pure Kotlin: away from home it reaches Claude/Gemini directly
+    // is pure Kotlin: away from home it reaches Gemini directly
     // instead of a phone-local model.
 
     defaultConfig {

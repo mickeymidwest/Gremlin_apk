@@ -14,7 +14,7 @@ the model still chooses the *content* within that shape. A grammar never
 decides the answer -- it only refuses malformed ones.
 
 Only the local LlamaCppBackend can honor a grammar. Remote API backends
-(Claude, Gemini, OpenAI-compatible) accept the argument and ignore it --
+(Gemini, OpenAI-compatible) accept the argument and ignore it --
 they are fallbacks and have their own structured-output modes; a GBNF
 string is meaningless to them.
 

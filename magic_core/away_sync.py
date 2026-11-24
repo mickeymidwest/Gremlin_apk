@@ -1,6 +1,6 @@
 """
-When the phone answers a message itself (away-mode, via direct Claude/
-Gemini calls because the desktop wasn't reachable), the desktop has no
+When the phone answers a message itself (away-mode, via direct Gemini
+calls because the desktop wasn't reachable), the desktop has no
 idea that exchange ever happened. This closes that gap: the phone
 queues up away-mode exchanges locally, and the moment it successfully
 reaches the desktop again, ships that queue along with its next

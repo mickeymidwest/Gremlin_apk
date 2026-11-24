@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live Claude -> Gemini channel. Claude runs this mid-task and reads Gemini's reply from stdout.
+# Live execution-agent -> Gemini channel. Runs mid-task and reads Gemini's reply from stdout.
 #
 #   scripts/ask-gemini.sh "Is a ring buffer or a queue better for the spell log?"   # consult
 #   some_cmd 2>&1 | scripts/ask-gemini.sh - "Why is this failing?"                  # attach piped logs ("-" = read stdin)
@@ -41,19 +41,19 @@ if [ "${1:-}" = "--review" ]; then
     echo; echo "## Diff (committed vs $BASE + uncommitted)"
     git diff "$BASE"...HEAD 2>/dev/null; git diff HEAD 2>/dev/null
   } > "$CONTEXT"
-  PROMPT="REVIEW REQUEST from Claude (execution agent). Review the diff in the attached context against MAGIC.md and CALIBRATION.md. Read any repo files you need for context. ${*:-} Follow your GEMINI.md review format and end with exactly one VERDICT line."
+  PROMPT="REVIEW REQUEST from execution agent. Review the diff in the attached context against MAGIC.md and CALIBRATION.md. Read any repo files you need for context. ${*:-} Follow your GEMINI.md review format and end with exactly one VERDICT line."
 else
   # Only read stdin when explicitly asked with "-": agent shells often leave stdin open forever.
   if [ "${1:-}" = "-" ]; then shift; timeout 600 cat > "$CONTEXT"; fi
   [ $# -gt 0 ] || { echo 'usage: scripts/ask-gemini.sh "question" | - "question" | --review [note]' >&2; exit 64; }
-  PROMPT="CONSULT from Claude (execution agent): $*
+  PROMPT="CONSULT from execution agent: $*
 Answer directly and concretely; read repo files if you need them."
 fi
 [ -s "$CONTEXT" ] && PROMPT="$PROMPT
 
 Attached context is in $CONTEXT. Read that whole file before answering."
 
-{ echo "# Claude -> Gemini ($TS)"; echo; echo "$PROMPT"; [ -s "$CONTEXT" ] && { echo; echo '```'; head -c 4000 "$CONTEXT"; echo; echo '```'; }; echo; echo "# Gemini"; } > "$LOG"
+{ echo "# Agent -> Gemini ($TS)"; echo; echo "$PROMPT"; [ -s "$CONTEXT" ] && { echo; echo '```'; head -c 4000 "$CONTEXT"; echo; echo '```'; }; echo; echo "# Gemini"; } > "$LOG"
 
 MODEL_ARGS=(); [ -n "${GEMINI_MODEL:-}" ] && MODEL_ARGS=(--model "$GEMINI_MODEL")
 # Outer timeout is a backstop: --print-timeout should end it first.

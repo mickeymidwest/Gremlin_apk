@@ -14,7 +14,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-_DOCS = ("MAGIC.md", "CALIBRATION.md", "GEMINI.md", "CLAUDE.md", "HARNESS-SURVEY.md",
+_DOCS = ("MAGIC.md", "CALIBRATION.md", "GEMINI.md", "HARNESS-SURVEY.md",
          "README.md", ".magic/decisions.md", ".magic/proposals.md")
 
 # a path that clearly points inside THIS repo (so we can check it exists)

@@ -1,6 +1,6 @@
 """
 `python gui/app.py` -- the main desktop window: `main.html` (hologram
-up top, a live Claude-Code-style conversation panel below it), plus a
+up top, a live chat conversation panel below it), plus a
 settings panel (opened from below the hologram) and a per-model
 settings panel (opened from a hologram head-slot), the latter two with
 buttons that launch existing CLI commands in a terminal rather than

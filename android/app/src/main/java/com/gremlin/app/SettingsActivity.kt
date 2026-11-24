@@ -12,7 +12,6 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Spinner
@@ -80,20 +79,10 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         // Away-mode API key fields, pre-filled with whatever's already saved
-        val anthropicInput = findViewById<EditText>(R.id.anthropic_key_input)
         val geminiInput = findViewById<EditText>(R.id.gemini_key_input)
-        val providerGroup = findViewById<RadioGroup>(R.id.preferred_provider_group)
-        val claudeModelSpinner = findViewById<Spinner>(R.id.claude_model_spinner)
         val geminiModelSpinner = findViewById<Spinner>(R.id.gemini_model_spinner)
 
-        anthropicInput.setText(prefs.getString("anthropic_key", ""))
         geminiInput.setText(prefs.getString("gemini_key", ""))
-        providerGroup.check(
-            if (prefs.getString("away_preferred", "claude") == "gemini") R.id.prefer_gemini_radio
-            else R.id.prefer_claude_radio
-        )
-
-        setUpModelSpinner(claudeModelSpinner, R.array.claude_model_choices, prefs.getString("claude_model_id", null))
         setUpModelSpinner(geminiModelSpinner, R.array.gemini_model_choices, prefs.getString("gemini_model_id", null))
 
         // Admin token field lives further down this screen (see below),
@@ -105,12 +94,8 @@ class SettingsActivity : AppCompatActivity() {
         val adminTokenInputForSave = findViewById<EditText>(R.id.admin_token_input)
 
         findViewById<Button>(R.id.save_keys_button).setOnClickListener {
-            val preferred = if (providerGroup.checkedRadioButtonId == R.id.prefer_gemini_radio) "gemini" else "claude"
             prefs.edit()
-                .putString("anthropic_key", anthropicInput.text.toString().trim())
                 .putString("gemini_key", geminiInput.text.toString().trim())
-                .putString("away_preferred", preferred)
-                .putString("claude_model_id", claudeModelSpinner.selectedItem as String)
                 .putString("gemini_model_id", geminiModelSpinner.selectedItem as String)
                 .putString("admin_token", adminTokenInputForSave.text.toString().trim())
                 .apply()
@@ -362,19 +347,10 @@ class SettingsActivity : AppCompatActivity() {
 
             /fix <path> <what's wrong>
               Shows a warning, then /fix <path> <what's wrong> confirm asks
-              Magic's own registered models (not the separate claude CLI)
+              Magic's own registered models
               to fix a specific file anywhere on the desktop -- your own
               scripts/configs, not system files. Backs up the file first,
               reverts automatically if the fix fails to compile.
-
-            /claude <problem to fix>
-              Shows a warning, then /claude <problem> confirm runs a full
-              Claude Code session on the desktop with FULL autonomy -- it
-              can read/write any file and run any command in the project
-              to actually fix things, not just describe them. Uses the
-              `claude` CLI already logged into your own account on the
-              desktop, not a separate paid API key. Can take a while (up
-              to 10 minutes) for anything nontrivial.
 
             Tips:
             - No shell, so wildcards (*), pipes (|), and && don't work -- just a

@@ -4,7 +4,7 @@ backend model happens to be answering underneath it.
 
 Talking to "magic" always gets the same name, personality, and system
 prompt back -- regardless of whether the actual generation came from
-your local Dolphin model, Claude, or Gemini. Swap `primary_model` in
+your local model or Gemini. Swap `primary_model` in
 config/models.yaml and every interaction with "magic" is instantly
 backed by a different engine, with zero change to how you talk to it.
 

@@ -1,7 +1,7 @@
 # Magic (Android)
 
 Talks to a Magic desktop instance over your home Wi-Fi when it's
-reachable, and falls back to Claude or Gemini (using your own API keys,
+reachable, and falls back to Gemini (using your own API key,
 entered in Settings) when it's not. Same hologram widget as the
 desktop version.
 
@@ -9,7 +9,7 @@ This app is pure Kotlin -- no NDK, no native model weights on the
 phone. An on-device offline model was tried twice in this project's
 history and removed both times: it ate a large chunk of app size and
 storage for a much weaker conversationalist than the desktop's primary,
-and the desktop (or Claude/Gemini away from home) is always the better
+and the desktop (or Gemini away from home) is always the better
 answer anyway.
 
 ## Overlay mode
@@ -47,9 +47,8 @@ Two ways to build locally:
 
 ## Honesty note
 
-I (Claude) wrote this app without ever being able to compile or run it
-myself -- no Android SDK, emulator, or Kotlin compiler available in my
-environment. Everything I could check without a real build was
+This app was initially scaffolded without a local Android SDK, emulator,
+or Kotlin compiler available in that environment. Everything checkable
 checked: XML validity, Kotlin brace/paren balance, every `R.id.*` and
 `R.array.*` reference matched against what's actually declared in the
 layouts, current library/plugin versions verified via live search

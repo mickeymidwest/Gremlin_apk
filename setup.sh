@@ -82,16 +82,6 @@ has_real_value() {
     grep -q "^$1=.\+" .env 2>/dev/null && ! grep -q "^$1=.*your-.*-here" .env 2>/dev/null
 }
 
-if has_real_value "ANTHROPIC_API_KEY"; then
-    echo "[*] ANTHROPIC_API_KEY already set in .env, leaving it as-is"
-else
-    read -rp "Enter your Anthropic API key (blank to skip): " ANTHROPIC_KEY
-    if [ -n "$ANTHROPIC_KEY" ]; then
-        sed -i "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=$ANTHROPIC_KEY|" .env
-        echo "[+] Saved"
-    fi
-fi
-
 if has_real_value "GEMINI_API_KEY"; then
     echo "[*] GEMINI_API_KEY already set in .env, leaving it as-is"
 else

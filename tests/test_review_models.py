@@ -61,7 +61,7 @@ def test_never_crashes_with_nothing_registered_at_all():
 
 
 def test_local_only_gate_uses_two_distinct_14b_specialists_when_gemini_gone():
-    # the R2 milestone: no Claude/Gemini, yet two genuinely different local
+    # the R2 milestone: no Gemini, yet two genuinely different local
     # reviewers (code-specialist + general), neither of them the 9B author.
     ctx = _ctx({"qwen2.5-coder-14b", "qwen2.5-14b", "qwen3.5-9b"}, primary="qwen3.5-9b")
     a, b = _review_models(ctx)

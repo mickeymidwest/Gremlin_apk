@@ -130,8 +130,7 @@ def _review_models(ctx: "ExecContext") -> tuple[str, str]:
     whether that was actually true.
 
     No GPT here on purpose (mickey, same conversation): he doesn't want
-    a running API cost for this, and if he ever does pay for one it's to
-    stop using Claude, not to review Magic's own homework. So the
+    a running API cost for this. So the
     second reviewer is the biggest distinct LOCAL model instead --
     qwen2.5-coder-14b (a code-specialised 14B, with qwen2.5-14b as the
     fallback), kept registered specifically for build/fix
@@ -151,14 +150,14 @@ def _review_models(ctx: "ExecContext") -> tuple[str, str]:
             return False
     # Preference order for two DISTINCT reviewers. Gemini first while we
     # still have it; then the two local 14B specialists (code-reviewer +
-    # general), which gives a genuine two-model gate with NO Claude/Gemini
+    # general), which gives a genuine two-model gate with NO cloud API
     # -- the R2 milestone. The primary is the last resort only, because in a
     # self-edit it's the author of the patch, so it's a weak reviewer of its
     # own work. Degrades to one model counted twice only when nothing else
     # distinct exists (an honest fallback, not a silent lie about it).
     primary = ctx.registry.primary_model_name()
     # MAGIC_LOCAL_REVIEW=1 forces the local-only gate even while Gemini is
-    # still registered, so the no-Claude/Gemini review path (R2) can be
+    # still registered, so the local-only review path (R2) can be
     # exercised and trusted before Gemini is actually removed.
     import os as _os
     local_only = _os.environ.get("MAGIC_LOCAL_REVIEW") == "1"
