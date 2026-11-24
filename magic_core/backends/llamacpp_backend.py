@@ -5,8 +5,11 @@ via llama-cpp-python. Runs fully offline, no network calls.
 
 from __future__ import annotations
 import asyncio
+import contextlib
+import ctypes
 import logging
 import os
+from pathlib import Path
 import re
 import threading
 import time
@@ -15,11 +18,57 @@ from typing import Optional
 
 from .base import ModelBackend, ModelInfo, GenerationResult
 from . import grammars
-from . import chatfmt  # noqa: F401  registers chatml-nothink
+from . import chatfmt  # noqa: F401  registers chatml-nothink & gemma4
 from .. import output_health
 from .. import prefix_cache
 
 _log = logging.getLogger(__name__)
+_MODEL_OVERRIDE_LOCK = threading.Lock()
+
+
+class _TensorBuftOverride(ctypes.Structure):
+    _fields_ = [
+        ("pattern", ctypes.c_char_p),
+        ("buft", ctypes.c_void_p),
+    ]
+
+
+def _resolve_cpu_buft_ptr() -> int:
+    """Resolve ggml_backend_cpu_buffer_type() pointer from llama_cpp's libggml-cpu.so."""
+    try:
+        import llama_cpp  # type: ignore
+    except Exception as exc:
+        raise RuntimeError(
+            f"cpu_tensor_patterns configured, but llama_cpp could not be imported: {exc}"
+        ) from exc
+    lib_dir = Path(llama_cpp.__file__).resolve().parent / "lib"
+    cpu_so = lib_dir / "libggml-cpu.so"
+    if not cpu_so.is_file():
+        raise RuntimeError(
+            f"cpu_tensor_patterns configured, but {cpu_so} was not found to resolve ggml_backend_cpu_buffer_type"
+        )
+    try:
+        lib = ctypes.CDLL(str(cpu_so), mode=ctypes.RTLD_GLOBAL)
+        fn = getattr(lib, "ggml_backend_cpu_buffer_type")
+        fn.argtypes = []
+        fn.restype = ctypes.c_void_p
+        ptr = fn()
+    except Exception as exc:
+        raise RuntimeError(
+            f"cpu_tensor_patterns configured, but ggml_backend_cpu_buffer_type lookup failed: {exc}"
+        ) from exc
+    if not ptr:
+        raise RuntimeError("cpu_tensor_patterns configured, but ggml_backend_cpu_buffer_type() returned NULL")
+    return int(ptr)
+
+
+def _normalize_cpu_patterns(raw) -> Optional[list[str]]:
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else None
+    out = [str(p) for p in raw if str(p or "").strip()]
+    return out or None
 
 
 def _build_grammar(grammar):
@@ -39,13 +88,37 @@ try:
 except ImportError:
     LlamaRAMCache = None
 
-# Reasoning models (Qwen3, DeepSeek-R1 distills) wrap their scratch work
-# in <think>...</think>. Under a plain chat_format that block is handed
-# back verbatim as part of the answer. Strip it so Magic's own voice
-# isn't polluted with the model thinking out loud.
+# Reasoning models (Qwen3, DeepSeek-R1 distills, Gemma 4) wrap their scratch
+# work in <think>...</think> or <|channel>thought\n...<channel|>. Strip it so
+# Magic's own voice isn't polluted with the model thinking out loud, and ensure
+# Gemma 4 turn/channel control markers never leak to the caller.
 _THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
 _OPEN_THINK_RE = re.compile(r"<(think|thinking)\b[^>]*>", re.IGNORECASE)
 _CLOSE_THINK_RE = re.compile(r"</(think|thinking)\s*>", re.IGNORECASE)
+
+_CHANNEL_PAIR_RE = re.compile(
+    r"<\|channel>(?:thought\b)?(.*?)<channel\|>",
+    re.DOTALL | re.IGNORECASE,
+)
+_OPEN_CHANNEL_RE = re.compile(r"<\|channel>(?:thought\b)?", re.IGNORECASE)
+_CLOSE_CHANNEL_RE = re.compile(r"<channel\|>", re.IGNORECASE)
+_CLOSE_ANY_RE = re.compile(r"(?:</(?:think|thinking)\s*>|<channel\|>)", re.IGNORECASE)
+_CONTROL_MARKER_RE = re.compile(r"<\|?turn\|?>|<turn\|>|<\|turn>|<\|channel>|<channel\|>|<eos>", re.IGNORECASE)
+_HAS_THOUGHT_TAG_RE = re.compile(
+    r"<(?:think|thinking)\b|</(?:think|thinking)|<\|channel>|<channel\|>",
+    re.IGNORECASE,
+)
+_STREAM_HOLD_TAGS = (
+    "<think>",
+    "</think>",
+    "<thinking>",
+    "</thinking>",
+    "<|channel>",
+    "<channel|>",
+    "<turn|>",
+    "<|turn>",
+    "<eos>",
+)
 
 # How long to wait on the instance lock when nothing is loaded yet -- a
 # cold GGUF read off a spinning disk is ~90s on this box, occasionally
@@ -53,40 +126,54 @@ _CLOSE_THINK_RE = re.compile(r"</(think|thinking)\s*>", re.IGNORECASE)
 _COLD_LOAD_WAIT = 360.0
 
 
+def _strip_partial_tag_tail(visible: str) -> str:
+    """Hold back an incomplete trailing `<...` prefix of any thought/control tag during streaming."""
+    idx = visible.rfind("<")
+    if idx == -1 or ">" in visible[idx:]:
+        return visible
+    tail = visible[idx:].lower()
+    if any(tag.startswith(tail) for tag in _STREAM_HOLD_TAGS):
+        return visible[:idx]
+    return visible
+
+
 def split_reasoning(text: str, *, streaming: bool = False) -> tuple[str, str]:
-    """-> (visible_answer, reasoning). Handles matched <think>...</think>,
-    an unmatched closing </think> (when the chat template pre-opened <think>),
-    and an unclosed <think>. During streaming, never leaks an unclosed <think>
-    tail before the closing tag arrives."""
+    """-> (visible_answer, reasoning). Handles matched `<think>...</think>` and
+    Gemma 4 `<|channel>thought...<channel|>`, unmatched closing tags, and
+    unclosed thought blocks. Never leaks thought tails or Gemma 4 control tags."""
     if not text:
         return text, ""
-    # keep only think blocks with real content (Qwen3 emits an empty
-    # <think></think> even under /no_think)
-    reasoning_parts = [m.group(0) for m in _THINK_RE.finditer(text) if m.group(2).strip()]
+
+    reasoning_parts: list[str] = []
+    for m in _THINK_RE.finditer(text):
+        if m.group(2).strip():
+            reasoning_parts.append(m.group(0))
+    for m in _CHANNEL_PAIR_RE.finditer(text):
+        if m.group(1).strip():
+            reasoning_parts.append(m.group(0))
+
     visible = _THINK_RE.sub("", text)
-    # Prompt templates like Qwen3/3.5 open <think>\n before generation, so the
-    # completion begins inside thinking and only emits </think> at the end.
-    closes = list(_CLOSE_THINK_RE.finditer(visible))
+    visible = _CHANNEL_PAIR_RE.sub("", visible)
+
+    # Prompt templates or continuations can emit an unmatched </think> or <channel|>
+    closes = list(_CLOSE_ANY_RE.finditer(visible))
     if closes:
         cm = closes[-1]
         pre = visible[:cm.end()].strip()
         if pre:
             reasoning_parts.append(pre)
         visible = visible[cm.end():].lstrip()
-    m = _OPEN_THINK_RE.search(visible)
-    if m:  # an unclosed <think> (in-progress stream or hit token limit mid-thought)
+
+    open_matches = [m for pat in (_OPEN_THINK_RE, _OPEN_CHANNEL_RE) if (m := pat.search(visible))]
+    if open_matches:
+        m = min(open_matches, key=lambda hit: hit.start())
         reasoning_parts.append(visible[m.start():])
         # Never leak raw internal reasoning as the user-visible answer on max_tokens.
         visible = visible[:m.start()].strip()
+
+    visible = _CONTROL_MARKER_RE.sub("", visible)
     if streaming:
-        # Hold back any trailing partial `<think` / `</think` / `<thinking` / `</thinking`
-        # (including a lone trailing `<`) until complete so chunk boundaries never leak tags.
-        visible = re.sub(
-            r"<(?:/?(?:t(?:h(?:i(?:n(?:k(?:i(?:n(?:g)?)?)?)?)?)?)?)?)?$",
-            "",
-            visible,
-            flags=re.IGNORECASE,
-        )
+        visible = _strip_partial_tag_tail(visible)
     visible = visible.strip()
     return visible, "\n".join(reasoning_parts).strip()
 
@@ -137,8 +224,12 @@ class LlamaCppBackend(ModelBackend):
         # replaying a phrase from its own recent output.
         repeat_penalty: float = 1.1,
         override_tensor: Optional[str | list[str]] = None,
+        cpu_tensor_patterns: Optional[str | list[str]] = None,
         use_mlock: bool = False,
         use_mmap: bool = True,
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
     ):
         super().__init__(info)
         self.model_path = model_path
@@ -146,25 +237,45 @@ class LlamaCppBackend(ModelBackend):
         self.n_gpu_layers = n_gpu_layers
         self.n_threads = n_threads if n_threads is not None else info.n_threads
         self.chat_format = chat_format
-        self.kv_cache_type = kv_cache_type
+        self.kv_cache_type = kv_cache_type if kv_cache_type != "f16" else (info.kv_cache_type or kv_cache_type)
         self.strip_reasoning = strip_reasoning
         self.no_think = no_think
         self.lora_path = lora_path
         self.lora_scale = lora_scale
-        self.repeat_penalty = repeat_penalty
+        self.repeat_penalty = (
+            repeat_penalty
+            if repeat_penalty != 1.1
+            else (float(info.repeat_penalty) if info.repeat_penalty is not None else repeat_penalty)
+        )
         self.override_tensor = override_tensor if override_tensor is not None else info.override_tensor
+        self.cpu_tensor_patterns = _normalize_cpu_patterns(
+            cpu_tensor_patterns if cpu_tensor_patterns is not None else info.cpu_tensor_patterns
+        )
         self.use_mlock = use_mlock or info.use_mlock
         self.use_mmap = use_mmap if use_mmap is not True else info.use_mmap
+        self.default_temperature: Optional[float] = (
+            float(temperature) if temperature is not None
+            else (float(info.temperature) if info.temperature is not None else None)
+        )
+        self.top_p: Optional[float] = (
+            float(top_p) if top_p is not None
+            else (float(info.top_p) if info.top_p is not None else None)
+        )
+        self.top_k: Optional[int] = (
+            int(top_k) if top_k is not None
+            else (int(info.top_k) if info.top_k is not None else None)
+        )
         # A quantized KV cache only works with flash attention on in
         # llama.cpp (the non-FA path has no quantized-V kernel), so asking
         # for one implies the other rather than erroring at load time.
-        self.flash_attn = flash_attn or kv_cache_type != "f16"
+        self.flash_attn = bool(flash_attn or (info.flash_attn or False) or self.kv_cache_type != "f16")
         self._llm: Optional["Llama"] = None
         self._loading: bool = False
         self._last_used: float = 0.0
         self._last_stream_degeneration: Optional[str] = None
         self._last_stream_usage: dict = {}  # see generate_stream's usage note
         self._last_prefix_stats: dict = {}
+        self._override_keepalive: list = []
         self._lock = asyncio.Lock()  # llama.cpp isn't safely reentrant per-instance --
         # also now the one thing serializing load/generate/unload against
         # each other, so unload() can never race a generate() that's
@@ -173,6 +284,49 @@ class LlamaCppBackend(ModelBackend):
         # unrelated work competing for the event loop's shared default
         # executor -- each local model gets its own lane.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"llamacpp-{info.name}")
+
+    @contextlib.contextmanager
+    def _cpu_tensor_override_context(self):
+        """Attach `llama_model_params.tensor_buft_overrides` across model load, keeping buffers pinned."""
+        patterns = self.cpu_tensor_patterns or []
+        if not patterns:
+            yield
+            return
+        buft_ptr = _resolve_cpu_buft_ptr()
+        try:
+            from llama_cpp import _internals  # type: ignore
+        except Exception as exc:
+            raise RuntimeError(
+                f"cpu_tensor_patterns configured, but llama_cpp._internals is unavailable: {exc}"
+            ) from exc
+
+        kept_bufs = [ctypes.create_string_buffer(p.encode("utf-8")) for p in patterns]
+        arr = (_TensorBuftOverride * (len(kept_bufs) + 1))()
+        for i, buf in enumerate(kept_bufs):
+            arr[i].pattern = ctypes.cast(buf, ctypes.c_char_p)
+            arr[i].buft = buft_ptr
+        arr[len(kept_bufs)].pattern = None
+        arr[len(kept_bufs)].buft = None
+        keepalive = (arr, kept_bufs)
+        self._override_keepalive = [keepalive]
+
+        with _MODEL_OVERRIDE_LOCK:
+            orig_init = _internals.LlamaModel.__init__
+
+            def patched_init(model_self, *, path_model: str, params, verbose: bool = True):
+                if not hasattr(params, "tensor_buft_overrides"):
+                    raise RuntimeError(
+                        "cpu_tensor_patterns configured, but llama_model_params lacks tensor_buft_overrides"
+                    )
+                params.tensor_buft_overrides = ctypes.cast(arr, ctypes.c_void_p)
+                model_self._keepalive_buft_arr = keepalive
+                return orig_init(model_self, path_model=path_model, params=params, verbose=verbose)
+
+            _internals.LlamaModel.__init__ = patched_init
+            try:
+                yield
+            finally:
+                _internals.LlamaModel.__init__ = orig_init
 
     async def _ensure_loaded(self) -> None:
         """Must be called while holding self._lock. Split out of
@@ -191,6 +345,7 @@ class LlamaCppBackend(ModelBackend):
         loop = asyncio.get_event_loop()
 
         def _load():
+            chatfmt.register()
             kwargs = dict(
                 model_path=self.model_path,
                 n_ctx=self.n_ctx,
@@ -219,14 +374,25 @@ class LlamaCppBackend(ModelBackend):
                     kwargs["draft_model"] = LlamaPromptLookupDecoding(num_pred_tokens=10)
                 except Exception:
                     pass
-            try:
-                llm = Llama(**kwargs)
-            except TypeError:
-                if "draft_model" in kwargs:
-                    kwargs.pop("draft_model", None)
-                if "override_tensor" in kwargs:
-                    kwargs.pop("override_tensor", None)
-                llm = Llama(**kwargs)
+            with self._cpu_tensor_override_context():
+                try:
+                    llm = Llama(**kwargs)
+                except TypeError:
+                    stripped_fallback = False
+                    if "draft_model" in kwargs:
+                        kwargs.pop("draft_model", None)
+                        stripped_fallback = True
+                    if "override_tensor" in kwargs:
+                        kwargs.pop("override_tensor", None)
+                        stripped_fallback = True
+                    if not stripped_fallback:
+                        raise
+                    llm = Llama(**kwargs)
+            if self._override_keepalive:
+                try:
+                    llm._keepalive_buft_arr = self._override_keepalive[0]
+                except Exception:
+                    pass
             try:
                 cache_mb = int(os.environ.get("MAGIC_KV_RAM_MB", "256"))
             except ValueError:
@@ -284,7 +450,8 @@ class LlamaCppBackend(ModelBackend):
         llm = self._llm
         if llm is None or not prefix_cache.is_enabled():
             return None, {}
-        if self.chat_format not in ("chatml-nothink", "chatml"):
+        fmt = self.chat_format or "chatml"
+        if fmt not in ("chatml-nothink", "chatml", "gemma4"):
             return None, {}
         if not all(
             callable(getattr(llm, fn, None))
@@ -294,12 +461,14 @@ class LlamaCppBackend(ModelBackend):
         prefix_msgs = chatfmt.extract_static_prefix(messages)
         if not prefix_msgs:
             return None, {}
-        prefix_str = chatfmt.render_prefix(prefix_msgs)
+        full_prompt, think_allowed = chatfmt.format_messages(
+            messages,
+            chat_format=fmt,
+            append_assistant_think=(fmt in ("chatml-nothink", "gemma4")),
+        )
+        prefix_str = chatfmt.render_prefix(prefix_msgs, chat_format=fmt, think=think_allowed)
         if len(prefix_str) < prefix_cache.MIN_PREFIX_CHARS:
             return None, {}
-        full_prompt, _ = chatfmt.format_messages(
-            messages, append_assistant_think=(self.chat_format == "chatml-nothink")
-        )
         key = prefix_cache.CacheKey(
             model_id=self.info.name,
             gguf_fingerprint=prefix_cache.gguf_fingerprint(self.model_path),
@@ -310,6 +479,7 @@ class LlamaCppBackend(ModelBackend):
                 flash_attn=self.flash_attn,
                 chat_format=self.chat_format,
                 override_tensor=self.override_tensor,
+                cpu_tensor_patterns=self.cpu_tensor_patterns,
             ),
             prefix_sha256=prefix_cache.prefix_sha256(prefix_str),
         )
@@ -365,12 +535,41 @@ class LlamaCppBackend(ModelBackend):
         async with self._lock:
             await self._ensure_loaded()
 
+    def _sampling_kwargs(self, temperature: Optional[float], grammar=None) -> dict:
+        eff_temp = (
+            self.default_temperature
+            if temperature is None and self.default_temperature is not None
+            else (0.7 if temperature is None else temperature)
+        )
+        kw: dict = {
+            "temperature": eff_temp,
+            "repeat_penalty": self.repeat_penalty,
+        }
+        if self.top_p is not None:
+            kw["top_p"] = self.top_p
+        if self.top_k is not None:
+            kw["top_k"] = self.top_k
+        if grammar is not None:
+            kw["grammar"] = grammar
+        return kw
+
+    def _effective_max_tokens(self, messages: list[dict], max_tokens: int, grammar=None) -> tuple[int, bool]:
+        fmt = self.chat_format or "chatml"
+        think_allowed = (
+            fmt in ("chatml-nothink", "gemma4")
+            and chatfmt.format_messages(messages, chat_format=fmt)[1]
+        )
+        mt = int(max_tokens or 0)
+        if fmt == "gemma4" and think_allowed and grammar is None:
+            mt = max(mt, 1024)
+        return mt, think_allowed
+
     async def generate(
         self,
         prompt: str,
         system: Optional[str] = None,
         max_tokens: int = 1536,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
         history: Optional[list] = None,
         grammar=None,  # GBNF str | JSON-schema dict | LlamaGrammar; see grammars.py
     ) -> GenerationResult:
@@ -395,21 +594,6 @@ class LlamaCppBackend(ModelBackend):
 
             loop = asyncio.get_event_loop()
 
-            # A blocking llama.cpp call already in flight (load or generate)
-            # can't actually be cancelled once it's running in its executor
-            # thread -- that's a hard limitation of the underlying C library,
-            # not something fixable here. So a caller that gave up waiting
-            # (e.g. an HTTP client timeout) leaves this lock held until that
-            # call naturally finishes. What we CAN do is stop a *second*
-            # request from silently hanging behind it for the same amount of
-            # time again -- fail fast with a clear "busy" error instead of
-            # queuing indefinitely.
-            #
-            # Exception: if nothing is loaded yet, the wait we're about to
-            # do is a legit ~90s cold read of the GGUF off the HDD (the
-            # first message after a restart), not a stuck peer request --
-            # wait it out rather than failing over to a fallback model and
-            # answering the user in the wrong voice.
             try:
                 await asyncio.wait_for(
                     self._lock.acquire(),
@@ -421,10 +605,10 @@ class LlamaCppBackend(ModelBackend):
                     error=f"{self.info.name} is still busy with a previous request -- try again shortly",
                 )
 
-            # Grammar-constrain the sampler when asked (local only). None
-            # -> unconstrained, identical to before. Compiled+cached in
-            # grammars.compile so the ReAct loop doesn't rebuild it per step.
             _grammar = self._build_grammar(grammar)
+            eff_max_tokens, think_allowed = self._effective_max_tokens(messages, max_tokens, _grammar)
+            sample_kw = self._sampling_kwargs(temperature, _grammar)
+            stop_tokens = chatfmt.stop_tokens_for(self.chat_format)
             pstats: dict = {}
 
             try:
@@ -440,28 +624,20 @@ class LlamaCppBackend(ModelBackend):
                     if full_prompt is not None:
                         return self._llm.create_completion(
                             prompt=full_prompt,
-                            stop=["<|im_end|>"],
-                            max_tokens=max_tokens,
-                            temperature=temperature,
-                            repeat_penalty=self.repeat_penalty,
-                            **({"grammar": _grammar} if _grammar is not None else {}),
+                            stop=stop_tokens,
+                            max_tokens=eff_max_tokens,
+                            **sample_kw,
                         )
                     return self._llm.create_chat_completion(
                         messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        repeat_penalty=self.repeat_penalty,
-                        **({"grammar": _grammar} if _grammar is not None else {}),
+                        max_tokens=eff_max_tokens,
+                        **sample_kw,
                     )
 
                 fut = loop.run_in_executor(self._executor, lambda: _run(True))
                 await _wait_for_worker(fut)
                 result = fut.result()
                 text = self._extract_choice_text(result)
-                # Degeneration recovery (Organoid regenerative engine): if the
-                # answer looped or wouldn't stop and we aren't grammar-bound,
-                # roll it once more -- a fresh sample usually comes out clean,
-                # instead of handing back a broken reply.
                 if _grammar is None and output_health.degeneration(text):
                     try:
                         fut2 = loop.run_in_executor(self._executor, lambda: _run(False))
@@ -481,7 +657,7 @@ class LlamaCppBackend(ModelBackend):
             if pstats:
                 meta["prefix_cache"] = dict(pstats)
             if self.strip_reasoning:
-                if self.chat_format == "chatml-nothink" and chatfmt.format_messages(messages)[1]:
+                if self.chat_format == "chatml-nothink" and think_allowed:
                     if text and not text.lstrip().lower().startswith("<think"):
                         text = "<think>\n" + text
                 text, reasoning = split_reasoning(text)
@@ -496,21 +672,11 @@ class LlamaCppBackend(ModelBackend):
         prompt: str,
         system: Optional[str] = None,
         max_tokens: int = 1536,
-        temperature: float = 0.7,
+        temperature: Optional[float] = None,
         history: Optional[list] = None,
         grammar=None,
     ):
-        """Async generator of text deltas as llama.cpp produces them.
-
-        The blocking token iterator runs in this backend's executor lane;
-        each piece is handed to the event loop through a thread-safe
-        asyncio.Queue. The instance lock is held for the whole generation
-        (same as generate()) and only released once the worker thread has
-        actually stopped -- so unload() can never null out self._llm
-        while a token loop is still reading it. If the consumer stops
-        early (GeneratorExit), a threading.Event tells the worker to
-        stop between tokens.
-        """
+        """Async generator of text deltas as llama.cpp produces them."""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -522,8 +688,11 @@ class LlamaCppBackend(ModelBackend):
         if self.no_think:
             messages[-1]["content"] += " /no_think"
 
-        _thinking_open = (self.chat_format == "chatml-nothink" and chatfmt.format_messages(messages)[1])
         _grammar = self._build_grammar(grammar)
+        eff_max_tokens, think_allowed = self._effective_max_tokens(messages, max_tokens, _grammar)
+        _thinking_open = (self.chat_format == "chatml-nothink" and think_allowed)
+        sample_kw = self._sampling_kwargs(temperature, _grammar)
+        stop_tokens = chatfmt.stop_tokens_for(self.chat_format)
         loop = asyncio.get_event_loop()
         try:
             await asyncio.wait_for(
@@ -547,12 +716,10 @@ class LlamaCppBackend(ModelBackend):
                 if full_prompt is not None:
                     it = self._llm.create_completion(
                         prompt=full_prompt,
-                        stop=["<|im_end|>"],
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        repeat_penalty=self.repeat_penalty,
+                        stop=stop_tokens,
+                        max_tokens=eff_max_tokens,
                         stream=True,
-                        **({"grammar": _grammar} if _grammar is not None else {}),
+                        **sample_kw,
                     )
                     for chunk in it:
                         if stop.is_set():
@@ -563,10 +730,8 @@ class LlamaCppBackend(ModelBackend):
                             loop.call_soon_threadsafe(q.put_nowait, delta)
                 else:
                     for chunk in self._llm.create_chat_completion(
-                            messages=messages, max_tokens=max_tokens,
-                            temperature=temperature, repeat_penalty=self.repeat_penalty,
-                            stream=True,
-                            **({"grammar": _grammar} if _grammar is not None else {})):
+                            messages=messages, max_tokens=eff_max_tokens,
+                            stream=True, **sample_kw):
                         if stop.is_set():
                             break
                         choices = chunk.get("choices") or [{}]
@@ -580,9 +745,6 @@ class LlamaCppBackend(ModelBackend):
 
         fut = None
         self._last_stream_degeneration = None
-        # cleared at stream start so a mid-stream error can't make the caller
-        # report a PREVIOUS turn's token counts (usage is only set on the
-        # normal-completion path below).
         self._last_stream_usage = {}
         self._last_prefix_stats = {}
         try:
@@ -599,11 +761,7 @@ class LlamaCppBackend(ModelBackend):
                 if isinstance(item, BaseException):
                     raise item
                 full += item
-                # one streamed chunk == one generated token in llama.cpp's
-                # token-by-token streaming, so this is an exact completion
-                # count -- unlike prompt_tokens below, no tokenizer re-run.
                 completion_tokens += 1
-                # Grammar output is constrained by design, so repeats there mean nothing.
                 if _grammar is None and completion_tokens % output_health.CHECK_EVERY_TOKENS == 0:
                     reason = output_health.degeneration(full)
                     if reason:
@@ -617,10 +775,8 @@ class LlamaCppBackend(ModelBackend):
                         if (_thinking_open and not full.lstrip().lower().startswith("<think"))
                         else full
                     )
-                    # If an unmatched closing </think> newly arrived on a non-chatml-nothink
-                    # stream, split_reasoning retroactively strips the prefix before it;
-                    # reset emitted so the real post-</think> answer is not truncated.
-                    _unmatched_closes = len(_CLOSE_THINK_RE.findall(_THINK_RE.sub("", eff)))
+                    stripped_pairs = _CHANNEL_PAIR_RE.sub("", _THINK_RE.sub("", eff))
+                    _unmatched_closes = len(_CLOSE_ANY_RE.findall(stripped_pairs))
                     if _unmatched_closes > close_seen:
                         close_seen = _unmatched_closes
                         emitted = 0
@@ -630,7 +786,6 @@ class LlamaCppBackend(ModelBackend):
                 if len(visible) > emitted:
                     yield visible[emitted:]
                     emitted = len(visible)
-            # Flush any final held-back literal `<` (not an unclosed `<think>`) once done.
             if self.strip_reasoning and full and not self._last_stream_degeneration:
                 eff = (
                     "<think>\n" + full

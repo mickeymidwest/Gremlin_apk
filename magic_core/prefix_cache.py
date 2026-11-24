@@ -69,9 +69,13 @@ def runtime_cfg_hash(
     flash_attn: bool,
     chat_format: Optional[str],
     override_tensor: Any,
+    cpu_tensor_patterns: Any = None,
 ) -> str:
+    items = [n_ctx, n_gpu_layers, kv_cache_type, bool(flash_attn), chat_format, override_tensor]
+    if cpu_tensor_patterns:
+        items.append(list(cpu_tensor_patterns))
     payload = json.dumps(
-        [n_ctx, n_gpu_layers, kv_cache_type, bool(flash_attn), chat_format, override_tensor],
+        items,
         sort_keys=True,
         default=str,
     )

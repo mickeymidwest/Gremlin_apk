@@ -56,12 +56,10 @@ _PREAMBLE_RE = re.compile(
 
 
 def _clean_revised_output(text: str) -> str:
-    """Strip leaked <think> blocks and robotic revision preambles."""
-    t = _THINK_PAIR_RE.sub("", text or "")
-    m = _THINK_CLOSE_RE.search(t)
-    if m and not re.search(r"<(?:think|thinking)\b", t[:m.start()], re.IGNORECASE):
-        t = t[m.end():]
-    t = t.strip()
+    """Strip leaked <think> / <|channel>thought blocks and robotic revision preambles."""
+    from ..backends.llamacpp_backend import split_reasoning
+
+    t, _ = split_reasoning(text or "", streaming=False)
     t = _PREAMBLE_RE.sub("", t, count=1).strip()
     return t
 

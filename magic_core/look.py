@@ -47,6 +47,15 @@ _HOWTO = re.compile(
 _OTHER_DEVICE = re.compile(r"\b(?:phone|iphone|android|laptop|tablet|ipad|car|truck|tv|xbox|playstation|ps5|"
                            r"switch|router|watch|work (?:pc|computer))\b", re.I)
 _THIS_BOX = re.compile(r"\b(?:desktop|pc|computer|box|server|machine|rig|you|your)\b", re.I)
+_LOCAL_MACHINE_CUES = re.compile(
+    r"\b(?:my|mine|i\s+have|i've\s+got|i\s+got|local|installed|on\s+this|"
+    r"this\s+(?:machine|desktop|box|pc|computer|server|system)|here|venv)\b",
+    re.I,
+)
+_EXTERNAL_RELEASE_RE = re.compile(
+    r"\b(?:latest|newest|current(?:\s+latest|\s+stable)?(?:\s+\w+){0,3}\s+release)\b",
+    re.I,
+)
 
 
 @dataclass
@@ -199,6 +208,8 @@ def wants(message: str, root: Optional[str] = None) -> list[str]:
     if _OTHER_DEVICE.search(text) and not _THIS_BOX.search(text):
         return []
     own = [n for n in _own_names(root) if re.search(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text, re.I)]
+    if not own and _EXTERNAL_RELEASE_RE.search(text) and not _LOCAL_MACHINE_CUES.search(text):
+        return []
     if not own and not _LIVE.search(text):
         return []
     keys = [p.key for p in PROBES if p.topic.search(text)]

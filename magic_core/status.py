@@ -4,6 +4,7 @@ from pathlib import Path
 import yaml
 
 from . import model_scan
+from .registry import resolve_primary_model_name
 
 
 def _model_summary(e: dict) -> dict:
@@ -25,9 +26,11 @@ def get_status_data(config_path: Path) -> dict:
     entries = model_scan.list_all_entries(text)
     cfg = yaml.safe_load(text) or {}
     persona = cfg.get("persona", {})
+    names = {e.get("name") for e in entries if e.get("name")}
+    primary = resolve_primary_model_name(persona.get("primary_model"), names, strict=False)
     return {
         "models": [_model_summary(e) for e in entries],
-        "primary_model": persona.get("primary_model"),
+        "primary_model": primary,
         "fallback_models": persona.get("fallback_models", []),
         "consult_models": persona.get("consult_models", []),
         "last_resort_model": persona.get("last_resort_model"),

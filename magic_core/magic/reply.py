@@ -45,7 +45,21 @@ _THINK_ANALYTICAL_RE = re.compile(
     or r"\b(analy[sz]e|derive|evaluat\w*|reason(?:\s+through)?|troubleshoot|diagnos\w*|audit|deduce|infer|synthesi[sz]e|formulate|first\s+principles|pros\s+and\s+cons|walk\s+me\s+through|break\s+(?:it|this)\s+down|in\s+depth|thoroughly)\b",
     re.I,
 )
-_DEEP_HEAD_NAMES = {"qwen3-30b-a3b"}
+_DEEP_HEAD_NAMES = {"qwen3-30b-a3b", "gemma4-26b-a4b"}
+_NON_CASUAL_HARD_RE = re.compile(
+    r"```|\b(code|script|function|class|bug|debug|fix|error|exception|traceback|regex|"
+    r"algorithm|refactor|optimi[sz]e|implement|compile|install|configure|deploy|sql|query|"
+    r"command|bash|shell|python|javascript|typescript|kotlin|rust|golang|docker|systemd|"
+    r"kubernetes|yaml|json|api|endpoint|schema|calculate|prove|design|architect|compare|"
+    r"trace|trade-?off|difference\s+between|what(?:'s|\s+is)\s+the\s+best|"
+    r"how\s+(?:do|would|can|should)\s+i|how\s+to|step[-\s]by[-\s]step)\b",
+    re.I,
+)
+_CASUAL_BRIEF_RE = re.compile(
+    r"\b(?:(?:a|an|one|two|three|\d+)\s+(?:short|quick|brief)?\s*(?:sentences?|lines?|words?)"
+    r"|short\s+sentence|briefly|in\s+a\s+few\s+words|fun\s+fact|quick\s+fact)\b",
+    re.I,
+)
 _TIMING_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "_magic_timing_sink", default=None
 )
@@ -95,10 +109,21 @@ _STREAM_TAIL_HOLDBACK = int(_RCFG["stream_secret_tail_holdback"])
 
 
 def _looks_hard(message: str) -> bool:
-    """Turns worth the extra review latency: code/technical/how-to/analytical, or
-    just long. Casual short chat streams live instead."""
+    """Turns worth the extra review latency: code/technical/analytical, or long.
+    Short casual brevity-bounded or everyday 'about how ...' questions stay fast."""
     m = (message or "").strip()
-    return bool(_HARD_RE.search(m)) or len(m.split()) >= _HARD_MIN_WORDS
+    words = m.split()
+    if len(words) >= _HARD_MIN_WORDS:
+        return True
+    if not _HARD_RE.search(m):
+        return False
+    if _NON_CASUAL_HARD_RE.search(m):
+        return True
+    if _CASUAL_BRIEF_RE.search(m):
+        return False
+    if not re.search(r"\bexplain\b", m, re.I):
+        return False
+    return True
 
 
 def _worth_reviewing(text: str) -> bool:
@@ -152,7 +177,15 @@ def _is_deep_head(backend) -> bool:
     info = getattr(real, "info", None)
     kind = getattr(info, "kind", None)
     name = str(getattr(info, "name", "") or "").strip()
-    return kind == "deep" or name in _DEEP_HEAD_NAMES
+    cpu_pats = getattr(real, "cpu_tensor_patterns", None) or getattr(info, "cpu_tensor_patterns", None) or []
+    override_t = getattr(real, "override_tensor", None) or getattr(info, "override_tensor", None) or ""
+    is_moe_offload = any("_exps" in str(p) for p in cpu_pats) or ("_exps" in str(override_t))
+    return kind == "deep" or name in _DEEP_HEAD_NAMES or is_moe_offload
+
+
+def _is_gemma4_backend(backend) -> bool:
+    real = getattr(backend, "primary", backend)
+    return getattr(real, "chat_format", None) == "gemma4"
 
 
 def _should_think(message: str) -> bool:
@@ -175,6 +208,23 @@ def _should_think(message: str) -> bool:
     return False
 
 
+def _should_think_for(message: str, backend=None) -> bool:
+    """Think gate aware of backend class: Gemma 4 MoE stays fast (think=False)
+    for normal chat/web lookups and thinks only on explicit /think or deep-reasoning
+    escalation; smaller chatml-nothink models keep standard _should_think()."""
+    if not _is_gemma4_backend(backend):
+        return _should_think(message)
+    m = (message or "").strip()
+    if not m or (" " + m).endswith(" /no_think"):
+        return False
+    if (" " + m).endswith(" /think"):
+        return True
+    if _is_casual_chat(m) or _CASUAL_BRIEF_RE.search(m):
+        return False
+    from .hydra import classify_task
+    return classify_task(m) == "deep"
+
+
 def _reply(answer: str, *, action: str = "chat", ok: bool = True,
            from_memory: bool = False, source: str = "", head: Optional[str] = None,
            usage: Optional[dict] = None) -> dict:
@@ -187,8 +237,42 @@ def _reply(answer: str, *, action: str = "chat", ok: bool = True,
     return d
 
 
-def _skills_block(root: str, message: str, limit: int | None = None) -> str:
-    import os
+def _static_skills_block(root: str, limit: int | None = None) -> tuple[str, set[str]]:
+    """Message-independent top active skills placed in the static R5 prefix.
+
+    Returns ``(formatted_block, included_skill_names)``. Changes only when
+    ``data/skills/`` changes on disk (automatically rolling R5's SHA-256 key).
+    """
+    if os.environ.get("MAGIC_SAFE_MODE") == "1":
+        return "", set()
+    from .skill_retrieval import track_bonus
+    from .store import Store
+    try:
+        skills = [s for s in Store(root).read_skills() if s.status != "deprecated"]
+    except Exception:
+        return "", set()
+    if not skills:
+        return "", set()
+    cap = _SKILLS_LIMIT if limit is None else int(limit)
+    if cap <= 0:
+        return "", set()
+    ranked = sorted(
+        skills,
+        key=lambda s: (-track_bonus(s), s.name),
+    )[:cap]
+    lines = ["Core learned skill cards (use whichever fit):"]
+    names: set[str] = set()
+    for idx, s in enumerate(ranked):
+        names.add(s.name)
+        lines.append(f"- {s.name}: {s.purpose}")
+        if idx < _SKILLS_FULL_LIMIT:
+            for step in s.procedure[:_SKILLS_PROC_STEPS]:
+                lines.append(f"    * {step}")
+    return "\n".join(lines), names
+
+
+def _skills_block(root: str, message: str, limit: int | None = None,
+                  exclude_names: Optional[set[str]] = None) -> str:
     if os.environ.get("MAGIC_SAFE_MODE") == "1":
         return ""
     if limit is None:
@@ -204,6 +288,8 @@ def _skills_block(root: str, message: str, limit: int | None = None) -> str:
     if not skills:
         return ""
     hits = rank_skills(skills, message or "", limit=limit)
+    if exclude_names:
+        hits = [s for s in hits if s.name not in exclude_names]
     if not hits:
         return ""
     lines = ["Approaches that have worked here before (use the ones that fit):"]
@@ -462,9 +548,13 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     # STATIC context (does NOT depend on this message or today's date) --
     # placed strictly before volatile blocks so RamPrefixCache checkpoints
     # stay byte-identical across turns, days, and Hydra swaps.
+    _t_ss0 = time.perf_counter()
+    _static_skills, _static_skill_names = _static_skills_block(root)
+    _t_ss1 = time.perf_counter()
     static_context = "\n\n".join(p for p in (
         prof,
         _pitfalls_block(root),
+        _static_skills,
     ) if p)
     recent_away = notes.recent_away_context(root)
     # DYNAMIC retrieval (re-ranked for THIS message) -- goes AFTER history, by
@@ -488,11 +578,15 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
     finally:
         _ms_mod._METRICS_SINK.reset(_mem_tok)
     _t_sk0 = time.perf_counter()
-    _sk_blk = _skills_block(root, message)
+    try:
+        _sk_blk = _skills_block(root, message, exclude_names=_static_skill_names)
+    except TypeError:
+        _sk_blk = _skills_block(root, message)
     _t_sk1 = time.perf_counter()
     _timing_set("rerank_mem_ms", round(float(_mem_metrics.get("rerank_ms", 0.0)), 1))
     _timing_set("prompt_parts_ms", {
         "profile": round((_t_prof1 - _t_prof0) * 1000, 1),
+        "static_skills": round((_t_ss1 - _t_ss0) * 1000, 1),
         "constraints": round((_t_mem0 - _t_con0) * 1000, 1),
         "mem": round((_t_sk0 - _t_mem0) * 1000, 1),
         "skills": round((_t_sk1 - _t_sk0) * 1000, 1),
@@ -544,7 +638,7 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
 def _supports_think_mark(backend) -> bool:
     real = getattr(backend, "primary", backend)
     return (
-        getattr(real, "chat_format", None) == "chatml-nothink"
+        getattr(real, "chat_format", None) in ("chatml-nothink", "gemma4")
         and not getattr(real, "no_think", False)
     )
 
@@ -552,37 +646,45 @@ def _supports_think_mark(backend) -> bool:
 def _apply_think(prompt: str, backend, think: bool) -> tuple[str, int]:
     p = (prompt or "").rstrip()
     if (" " + p).endswith(" /think"):
-        return prompt, _MAX_TOKENS_THINK
+        return prompt, max(_MAX_TOKENS_THINK, 1024)
     if think and _supports_think_mark(backend) and not (" " + p).endswith(" /no_think"):
-        return p + " /think", _MAX_TOKENS_THINK
+        return p + " /think", max(_MAX_TOKENS_THINK, 1024)
     return prompt, _MAX_TOKENS_DEFAULT
 
 
 _TEMPERATURE = float(_RCFG["temperature"])
 
 
+def _effective_temp(backend) -> float:
+    real = getattr(backend, "primary", backend)
+    t = getattr(real, "default_temperature", None)
+    return float(t) if t is not None else _TEMPERATURE
+
+
 async def _gen(backend, prompt: str, hist: list, *, think: bool = False):
     """backend.generate with history= when the backend takes it, else fall
     back to a flattened prompt (API fallbacks that predate the kwarg)."""
     p, mt = _apply_think(prompt, backend, think)
+    temp = _effective_temp(backend)
     try:
-        return await backend.generate(p, max_tokens=mt, temperature=_TEMPERATURE, history=hist)
+        return await backend.generate(p, max_tokens=mt, temperature=temp, history=hist)
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {p}" if flat else p
-        return await backend.generate(flat, max_tokens=mt, temperature=_TEMPERATURE)
+        return await backend.generate(flat, max_tokens=mt, temperature=temp)
 
 
 async def _stream(backend, prompt: str, hist: list, *, think: bool = False):
     p, mt = _apply_think(prompt, backend, think)
+    temp = _effective_temp(backend)
     try:
-        agen = backend.generate_stream(p, max_tokens=mt, temperature=_TEMPERATURE, history=hist)
+        agen = backend.generate_stream(p, max_tokens=mt, temperature=temp, history=hist)
         async for d in agen:
             yield d
     except TypeError:
         flat = "\n\n".join(f'{m["role"]}: {m["content"]}' for m in hist)
         flat = f"{flat}\n\nUser: {p}" if flat else p
-        async for d in backend.generate_stream(flat, max_tokens=mt, temperature=_TEMPERATURE):
+        async for d in backend.generate_stream(flat, max_tokens=mt, temperature=temp):
             yield d
 
 
@@ -653,13 +755,12 @@ _THINK_CLOSE_RE = re.compile(_RCFG["think_close_regex"], re.IGNORECASE)
 
 
 def _strip_think(text: str) -> str:
-    """Belt-and-suspenders guard in case a fallback/non-local backend leaks
-    matched <think>...</think> or an unmatched leading `... </think>`."""
-    t = _THINK_PAIR_RE.sub("", text or "")
-    m = _THINK_CLOSE_RE.search(t)
-    if m and not re.search(r"<(?:think|thinking)\b", t[:m.start()], re.IGNORECASE):
-        t = t[m.end():]
-    return t.strip()
+    """Belt-and-suspenders guard stripping <think>...</think> and Gemma 4
+    <|channel>thought...<channel|> / <turn|> markers across all backends."""
+    from ..backends.llamacpp_backend import split_reasoning
+
+    visible, _ = split_reasoning(text or "", streaming=False)
+    return visible
 
 
 _NO_SOURCE_REPLY = _SOFT["no_source_reply"]
@@ -812,7 +913,7 @@ async def _maybe_search_retry(primary, message: str, root: str, history: str,
         except Exception:
             return None, "", ""
     sprompt, shist, _ = _build_prompt(message, root, history, evidence, web_evidence=wev)
-    r = await _gen(primary, sprompt, shist, think=_should_think(message))
+    r = await _gen(primary, sprompt, shist, think=_should_think_for(message, primary))
     _merge_usage(usage_sink, (getattr(r, "meta", None) or {}).get("usage"))
     t_new = _strip_think(r.text or "") if getattr(r, "ok", True) else ""
     if not t_new:
@@ -992,8 +1093,17 @@ async def answer_stream(primary, message: str, root: str,
             yield "done", _done
             return
 
-    _think = _should_think(message)
+    _think = _should_think_for(message, primary)
+    from ..backends.llamacpp_backend import (
+        split_reasoning as _split_reasoning,
+        _CHANNEL_PAIR_RE as _CH_PAIR_RE,
+        _CLOSE_ANY_RE as _CL_ANY_RE,
+        _THINK_RE as _TH_RE,
+    )
     acc = ""
+    raw_acc = ""
+    emitted = 0
+    close_seen = 0
     stream_broke = False
     _t_gen0 = time.perf_counter()
     _first_delta_set = False
@@ -1002,10 +1112,27 @@ async def answer_stream(primary, message: str, root: str,
             if not _first_delta_set:
                 _first_delta_set = True
                 _timing_set("first_delta_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
-            acc += delta
-            yield "delta", delta
+            raw_acc += delta
+            stripped_pairs = _CH_PAIR_RE.sub("", _TH_RE.sub("", raw_acc))
+            _unmatched_closes = len(_CL_ANY_RE.findall(stripped_pairs))
+            if _unmatched_closes > close_seen:
+                close_seen = _unmatched_closes
+                emitted = 0
+            visible, _ = _split_reasoning(raw_acc, streaming=True)
+            if len(visible) > emitted:
+                piece = visible[emitted:]
+                emitted = len(visible)
+                acc += piece
+                yield "delta", piece
     except Exception:
         stream_broke = True
+    if raw_acc and not stream_broke:
+        final_visible, _ = _split_reasoning(raw_acc, streaming=False)
+        if len(final_visible) > emitted:
+            piece = final_visible[emitted:]
+            emitted = len(final_visible)
+            acc += piece
+            yield "delta", piece
     _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
     _timing_set_prefix(primary)
     _degen = getattr(primary, "_last_stream_degeneration", None)
@@ -1014,8 +1141,8 @@ async def answer_stream(primary, message: str, root: str,
     # back now would splice a second full answer onto the partial one the
     # user is already reading. (PersonaBackend also stops rather than
     # re-answers mid-stream; this is the same rule one layer up.)
-    if acc.strip():
-        text = _strip_think(acc)
+    if raw_acc.strip() and (acc.strip() or _strip_think(raw_acc)):
+        text = _strip_think(raw_acc)
         if not text:
             text = acc.strip()
         if stream_broke and text.count("```") % 2 == 1:
@@ -1054,7 +1181,7 @@ async def answer_stream(primary, message: str, root: str,
                     # `done` frame and saved conversation history) so the retracted
                     # unsearched draft never poisons later turns or final bubble.
                     text = _t2
-        if web_sources and web_ev and text and not stream_broke:
+        if web_sources and web_ev and text and not stream_broke and not _is_deep_head(primary):
             _unsup = await _web_fact_check(text, web_ev, message)
             if _unsup:
                 _wcav = grounding.web_caveat(_unsup)
@@ -1210,7 +1337,7 @@ async def answer(primary, message: str, root: str,
         return _reply(_NO_SOURCE_REPLY, source="magic", head=_backend_head_name(primary),
                       usage=plan_usage or None)
 
-    _think = _should_think(message)
+    _think = _should_think_for(message, primary)
     _t_gen0 = time.perf_counter()
     r = await _gen(primary, prompt, hist, think=_think)
     used, used_fallback = getattr(r, "model", "magic"), False

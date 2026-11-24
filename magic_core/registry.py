@@ -1,6 +1,7 @@
 from __future__ import annotations
+import os
 import yaml
-from typing import Dict, Optional
+from typing import Collection, Dict, Optional
 
 from .backends.base import ModelBackend, ModelInfo
 from .backends.llamacpp_backend import LlamaCppBackend
@@ -8,6 +9,39 @@ from .backends.vision_backend import VisionBackend
 from .backends.openai_backend import OpenAIBackend
 from .backends.gemini_backend import GeminiBackend
 from .persona import PersonaBackend
+
+
+def resolve_primary_model_name(
+    configured_name: Optional[str],
+    available_models: Optional[Collection[str]] = None,
+    *,
+    strict: bool = True,
+) -> Optional[str]:
+    """Resolve Magic's primary model name, honoring ``MAGIC_PRIMARY_MODEL`` when set.
+
+    Validates that any env-specified model exists in ``available_models`` (raising
+    ``KeyError`` when ``strict=True``, or falling back cleanly to ``configured_name``
+    otherwise). Falls back cleanly to ``configured_name`` when unset or blank.
+    """
+    override = os.environ.get("MAGIC_PRIMARY_MODEL", "").strip()
+    if not override:
+        return configured_name
+    if available_models is not None and override not in available_models:
+        if strict:
+            raise KeyError(
+                f"MAGIC_PRIMARY_MODEL {override!r} is not in config/models.yaml"
+            )
+        return configured_name
+    return override
+
+
+def _normalize_patterns(raw) -> Optional[list[str]]:
+    if not raw:
+        return None
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else None
+    out = [str(p) for p in raw if str(p or "").strip()]
+    return out or None
 
 
 class ModelRegistry:
@@ -33,6 +67,7 @@ class ModelRegistry:
 
         for entry in cfg.get("models", []):
             name = entry["name"]
+            cpu_patterns = _normalize_patterns(entry.get("cpu_tensor_patterns"))
             info = ModelInfo(
                 name=name,
                 kind=entry["type"],
@@ -40,9 +75,16 @@ class ModelRegistry:
                 notes=entry.get("notes", ""),
                 footprint_mb=entry.get("footprint_mb", 0),
                 override_tensor=entry.get("override_tensor"),
+                cpu_tensor_patterns=cpu_patterns,
                 use_mlock=entry.get("use_mlock", False),
                 use_mmap=entry.get("use_mmap", True),
                 n_threads=entry.get("n_threads"),
+                temperature=entry.get("temperature"),
+                top_p=entry.get("top_p"),
+                top_k=entry.get("top_k"),
+                repeat_penalty=entry.get("repeat_penalty"),
+                kv_cache_type=entry.get("kv_cache_type"),
+                flash_attn=entry.get("flash_attn"),
             )
 
             if entry["type"] == "local_gguf":
@@ -61,8 +103,12 @@ class ModelRegistry:
                     lora_scale=entry.get("lora_scale", 1.0),
                     repeat_penalty=entry.get("repeat_penalty", 1.1),
                     override_tensor=entry.get("override_tensor"),
+                    cpu_tensor_patterns=cpu_patterns,
                     use_mlock=entry.get("use_mlock", False),
                     use_mmap=entry.get("use_mmap", True),
+                    temperature=entry.get("temperature"),
+                    top_p=entry.get("top_p"),
+                    top_k=entry.get("top_k"),
                 )
             elif entry["type"] == "local_vlm":
                 # A vision-language model: two files, weights + mmproj
@@ -104,7 +150,11 @@ class ModelRegistry:
         persona_cfg = cfg.get("persona")
         if persona_cfg:
             persona_name = persona_cfg.get("name", "magic").lower()
-            primary_name = persona_cfg["primary_model"]
+            primary_name = resolve_primary_model_name(
+                persona_cfg["primary_model"],
+                reg.backends.keys(),
+                strict=True,
+            )
             fallback_names = persona_cfg.get("fallback_models", [])
             last_resort_name = persona_cfg.get("last_resort_model")
 

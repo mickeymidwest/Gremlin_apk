@@ -109,6 +109,25 @@ models:
     kv_cache_type: q8_0
     chat_format: chatml-nothink
 
+  - name: gemma4-26b-a4b
+    type: local_gguf
+    display_name: "Gemma 4 26B-A4B MoE (QAT UD-Q4_K_XL)"
+    model_path: "/home/mickey/Downloads/gremlin/models/gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf"
+    footprint_mb: 5800   # Pass B2: layers 0..25 experts on CPU, 26..29 + attention on GPU (~5534 MiB peak VRAM)
+    n_ctx: 16384
+    n_gpu_layers: -1
+    flash_attn: true
+    use_mmap: true
+    use_mlock: false
+    kv_cache_type: q8_0
+    chat_format: gemma4
+    cpu_tensor_patterns:
+      - 'blk\.([0-9]|1[0-9]|2[0-5])\.ffn_.*_exps\.weight'
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 64
+    repeat_penalty: 1.0
+
   # Fallback when the local model errors outright. export GEMINI_API_KEY=...
   # CPU offload helper (Mickey's GPU-primary + CPU-helper design): runs on the
   # CPU in a CUDA-isolated subprocess (zero VRAM) so it is CONCURRENT with the

@@ -294,14 +294,14 @@ async def _tool_web_search(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     prompt = (
         autoresearch.date_note()
         + "\n"
-        + evidence
+        + evidence[:6500]
         + "\n\nUsing ONLY those results, answer naturally and directly without meta-openers "
         'like "Based on the search results" or "According to the search results" '
         "(source attribution is attached automatically): "
         + query
     )
     try:
-        res = await ctx.router.route("magic", prompt)
+        res = await ctx.router.route("magic", prompt, max_tokens=512, temperature=0.3)
         raw_ans = (getattr(res, "text", "") or "") if getattr(res, "ok", True) else ""
         answer = reply_mod._strip_think(raw_ans)
     except Exception:
