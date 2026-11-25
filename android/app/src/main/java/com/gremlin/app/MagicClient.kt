@@ -4,14 +4,18 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
+import android.provider.OpenableColumns
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.UUID
 
 /**
  * Full-app behavior: at home, the desktop's whole orchestrator (all
@@ -36,6 +40,39 @@ data class ChatResult(
     val source: String,
     val tokenUsage: TokenUsage? = null,
     val head: String = "",
+    val activities: List<ChatTranscript.ActivityEvent> = emptyList(),
+    val interrupted: Boolean = false,
+)
+
+data class ThreadSummary(
+    val threadId: String,
+    val title: String,
+    val pinned: Boolean,
+    val messageCount: Int,
+    val preview: String,
+    val updatedAt: Double,
+)
+
+data class ThreadMessage(
+    val id: Long,
+    val role: String,
+    val content: String,
+    val createdAt: Double,
+)
+
+data class UploadedAttachment(
+    val attachmentId: String,
+    val filename: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val kind: String,
+    val suggestedAction: String,
+)
+
+data class NetsecBriefSummary(
+    val unackedAlerts: Int,
+    val lastHostScore: Int?,
+    val knownDevices: Int,
 )
 
 data class DatasetSaveResult(
@@ -157,7 +194,11 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    fun chat(message: String): ChatResult {
+    fun chat(
+        message: String,
+        threadId: String? = null,
+        attachmentIds: List<String> = emptyList(),
+    ): ChatResult {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
         val token = prefs.getString("token", null)
@@ -167,10 +208,10 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         if (hasAnyNetwork() && host != null && port != 0 && token != null) {
             try {
                 val pending = readPendingSync()
-                val reply = postToDesktop(host, port, token, message, pending)
+                val reply = postToDesktop(host, port, token, message, pending, threadId, attachmentIds)
                 if (pending.length() > 0) clearPendingSync() // only after the server actually got them
                 refreshCachedPersonaVoice(host, port, token) // best-effort, keeps away-mode voice current
-                return ChatResult(reply.answer, "desktop", reply.usage, reply.head)
+                return ChatResult(reply.answer, "desktop", reply.usage, reply.head, reply.activities)
             } catch (e: Exception) {
                 // Desktop configured but unreachable -- fall through to away-mode.
             }
@@ -185,14 +226,10 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
 
     /**
      * Streams the desktop's POST /chat/stream (Server-Sent Events).
-     * `onDelta` fires on this background thread for each token chunk;
-     * `onDone` fires once with the final (answer, source). Anything that
-     * isn't a reachable desktop with a clean stream -- no network, not
-     * paired, pending away-mode sync to flush, a non-2xx response, a
-     * parse error, an old server with no /chat/stream -- falls back to
-     * the ordinary blocking chat() and delivers the whole answer through
-     * onDone with no deltas. So the caller can always rely on exactly one
-     * onDone; onDelta is best-effort progress.
+     * Emits `onActivity` for live tool/search/thinking steps, `onDelta` per token
+     * chunk, and `onDone` once at settlement. If an active SSE stream drops mid-flight
+     * before receiving `done`, emits an `interrupted` ChatResult preserving any
+     * streamed partial text so the UI can show tap-to-retry cleanly.
      */
     @Volatile private var activeStream: HttpURLConnection? = null
     @Volatile private var streamCancelled = false
@@ -204,8 +241,14 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
     }
 
     /** Falls back to the blocking path, unless the user already stopped. */
-    private fun chatUnlessStopped(message: String, onDone: (ChatResult) -> Unit) {
-        if (streamCancelled) onDone(ChatResult("", "stopped")) else onDone(chat(message))
+    private fun chatUnlessStopped(
+        message: String,
+        threadId: String? = null,
+        attachmentIds: List<String> = emptyList(),
+        onDone: (ChatResult) -> Unit,
+    ) {
+        if (streamCancelled) onDone(ChatResult("", "stopped"))
+        else onDone(chat(message, threadId = threadId, attachmentIds = attachmentIds))
     }
 
     /** Ends the reply in progress. Closing the connection stops the
@@ -368,30 +411,273 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         }
     }
 
+    fun listThreads(limit: Int = 100): Pair<List<ThreadSummary>, String?> {
+        val host = prefs.getString("host", null) ?: return emptyList<ThreadSummary>() to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return emptyList<ThreadSummary>() to "Missing token"
+        if (port == 0) return emptyList<ThreadSummary>() to "Invalid port"
+        return try {
+            val c = (URL("http://$host:$port/threads?limit=$limit").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 10_000
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code !in 200..299) return emptyList<ThreadSummary>() to json.optString("error", "HTTP $code")
+            val arr = json.optJSONArray("threads") ?: JSONArray()
+            val out = mutableListOf<ThreadSummary>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val tid = o.optString("thread_id", "")
+                if (tid.isEmpty()) continue
+                out.add(
+                    ThreadSummary(
+                        threadId = tid,
+                        title = o.optString("title", tid),
+                        pinned = o.optBoolean("pinned", false),
+                        messageCount = o.optInt("message_count", 0),
+                        preview = o.optString("preview", ""),
+                        updatedAt = o.optDouble("updated_at", 0.0),
+                    )
+                )
+            }
+            out to null
+        } catch (e: Exception) {
+            emptyList<ThreadSummary>() to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun getThreadMessages(threadId: String, limit: Int = 100): Pair<List<ThreadMessage>, String?> {
+        val host = prefs.getString("host", null) ?: return emptyList<ThreadMessage>() to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return emptyList<ThreadMessage>() to "Missing token"
+        if (port == 0) return emptyList<ThreadMessage>() to "Invalid port"
+        return try {
+            val enc = URLEncoder.encode(threadId, "UTF-8")
+            val c = (URL("http://$host:$port/threads/$enc?limit=$limit").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 10_000
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+            if (code !in 200..299) return emptyList<ThreadMessage>() to json.optString("error", "HTTP $code")
+            val arr = json.optJSONArray("messages") ?: JSONArray()
+            val out = mutableListOf<ThreadMessage>()
+            for (i in 0 until arr.length()) {
+                val m = arr.optJSONObject(i) ?: continue
+                out.add(
+                    ThreadMessage(
+                        id = m.optLong("id", 0L),
+                        role = m.optString("role", "user"),
+                        content = m.optString("content", ""),
+                        createdAt = m.optDouble("created_at", 0.0),
+                    )
+                )
+            }
+            out to null
+        } catch (e: Exception) {
+            emptyList<ThreadMessage>() to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun updateThreadMeta(threadId: String, title: String? = null, pinned: Boolean? = null): Pair<ThreadSummary?, String?> {
+        val host = prefs.getString("host", null) ?: return null to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null to "Missing token"
+        if (port == 0) return null to "Invalid port"
+        return try {
+            val enc = URLEncoder.encode(threadId, "UTF-8")
+            val c = (URL("http://$host:$port/threads/$enc").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 10_000
+            }
+            val body = JSONObject()
+            if (title != null) body.put("title", title)
+            if (pinned != null) body.put("pinned", pinned)
+            OutputStreamWriter(c.outputStream).use { it.write(body.toString()) }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+            if (code !in 200..299 || !json.optBoolean("ok", true)) {
+                return null to json.optString("error", "HTTP $code")
+            }
+            val t = json.optJSONObject("thread") ?: return null to null
+            ThreadSummary(
+                threadId = t.optString("thread_id", threadId),
+                title = t.optString("title", threadId),
+                pinned = t.optBoolean("pinned", false),
+                messageCount = t.optInt("message_count", 0),
+                preview = t.optString("preview", ""),
+                updatedAt = t.optDouble("updated_at", 0.0),
+            ) to null
+        } catch (e: Exception) {
+            null to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun deleteThread(threadId: String): Pair<Boolean, String?> {
+        val host = prefs.getString("host", null) ?: return false to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return false to "Missing token"
+        if (port == 0) return false to "Invalid port"
+        return try {
+            val enc = URLEncoder.encode(threadId, "UTF-8")
+            val c = (URL("http://$host:$port/threads/$enc").openConnection() as HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 10_000
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val json = JSONObject(stream?.bufferedReader()?.use { it.readText() } ?: "{}")
+            if (code in 200..299 && json.optBoolean("ok", true)) true to null
+            else false to json.optString("error", "HTTP $code")
+        } catch (e: Exception) {
+            false to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun fetchNetsecSummary(): NetsecBriefSummary? {
+        val host = prefs.getString("host", null) ?: return null
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null
+        if (port == 0) return null
+        return try {
+            val c = (URL("http://$host:$port/netsec/summary").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = 3_000
+                readTimeout = 5_000
+            }
+            if (c.responseCode !in 200..299) return null
+            val json = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+            if (!json.optBoolean("ok", true)) return null
+            val scoreVal = if (json.isNull("last_host_score")) null else json.optInt("last_host_score")
+            NetsecBriefSummary(
+                unackedAlerts = json.optInt("unacked_alerts", 0),
+                lastHostScore = scoreVal,
+                knownDevices = json.optInt("known_devices", 0),
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun uploadAttachment(uri: Uri, filenameHint: String? = null): Pair<UploadedAttachment?, String?> {
+        val host = prefs.getString("host", null) ?: return null to "Not paired with a desktop"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null to "Missing pairing token"
+        if (port == 0) return null to "Invalid desktop port"
+        var filename = filenameHint?.trim().orEmpty()
+        if (filename.isEmpty()) {
+            try {
+                appContext.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0 && cursor.moveToFirst()) {
+                        filename = cursor.getString(idx)?.trim().orEmpty()
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        if (filename.isEmpty()) {
+            filename = uri.lastPathSegment?.substringAfterLast('/') ?: "upload.bin"
+        }
+        val safeName = filename.replace("\"", "").replace("\r", "").replace("\n", "")
+        val mime = try { appContext.contentResolver.getType(uri) ?: "application/octet-stream" } catch (_: Exception) { "application/octet-stream" }
+        val boundary = "----MagicBoundary${UUID.randomUUID().toString().replace("-", "")}"
+
+        return try {
+            val c = (URL("http://$host:$port/attachments/upload").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setChunkedStreamingMode(65536)
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 180_000
+            }
+            val headerBytes = (
+                "--$boundary\r\n" +
+                    "Content-Disposition: form-data; name=\"file\"; filename=\"$safeName\"\r\n" +
+                    "Content-Type: $mime\r\n\r\n"
+                ).toByteArray(Charsets.UTF_8)
+            val tailBytes = "\r\n--$boundary--\r\n".toByteArray(Charsets.UTF_8)
+
+            BufferedOutputStream(c.outputStream, 65536).use { out ->
+                out.write(headerBytes)
+                appContext.contentResolver.openInputStream(uri)?.use { input ->
+                    val buf = ByteArray(65536)
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n <= 0) break
+                        out.write(buf, 0, n)
+                    }
+                } ?: return null to "Couldn't open selected file"
+                out.write(tailBytes)
+                out.flush()
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code !in 200..299 || !json.optBoolean("ok", true)) {
+                return null to json.optString("error", if (code == 413) "File exceeds size limit" else "HTTP $code")
+            }
+            UploadedAttachment(
+                attachmentId = json.optString("attachment_id", ""),
+                filename = json.optString("filename", safeName),
+                mimeType = json.optString("mime_type", mime),
+                sizeBytes = json.optLong("size_bytes", 0L),
+                kind = json.optString("kind", "binary"),
+                suggestedAction = json.optString("suggested_action", "chat"),
+            ) to null
+        } catch (e: Exception) {
+            null to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
     fun chatStream(
         message: String,
         reroll: Boolean = false,
         cont: Boolean = false,
+        threadId: String? = null,
+        attachmentIds: List<String> = emptyList(),
         onDelta: (String) -> Unit,
         onDone: (ChatResult) -> Unit,
         onApprovalRequired: (PendingApproval) -> Unit = {},
         onApprovalResolved: (JSONObject) -> Unit = {},
+        onActivity: (ChatTranscript.ActivityEvent) -> Unit = {},
     ) {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
         val token = prefs.getString("token", null)
 
         if (!hasAnyNetwork() || host == null || port == 0 || token == null) {
-            chatUnlessStopped(message, onDone); return
+            chatUnlessStopped(message, threadId, attachmentIds, onDone); return
         }
         // A queued away-mode exchange needs the pending_sync ride-along
         // that only the plain /chat path does -- take it this turn.
         if (readPendingSync().length() > 0) {
-            chatUnlessStopped(message, onDone); return
+            chatUnlessStopped(message, threadId, attachmentIds, onDone); return
         }
 
         var connection: HttpURLConnection? = null
         var answer = StringBuilder()
+        val seenActivities = mutableListOf<ChatTranscript.ActivityEvent>()
+        var streamOpened = false
+        var receivedDone = false
         try {
             val url = URL("http://$host:$port/chat/stream")
             connection = (url.openConnection() as HttpURLConnection).also { activeStream = it }.apply {
@@ -406,17 +692,22 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
             OutputStreamWriter(connection.outputStream).use {
                 val body = JSONObject().put("message", message).put("token", token).put("reroll", reroll)
                 if (cont) body.put("continue", true)
+                if (!threadId.isNullOrBlank()) body.put("thread", threadId)
+                if (attachmentIds.isNotEmpty()) body.put("attachment_ids", JSONArray(attachmentIds))
                 it.write(body.toString())
             }
-            if (connection.responseCode !in 200..299) {
+            val code = connection.responseCode
+            if (code !in 200..299) {
                 activeStream = null
                 connection.disconnect(); connection = null
-                chatUnlessStopped(message, onDone); return
+                chatUnlessStopped(message, threadId, attachmentIds, onDone); return
             }
+            streamOpened = true
 
             var source = "desktop"
             var head = ""
             var tokenUsage: TokenUsage? = null
+            var settledActivities: List<ChatTranscript.ActivityEvent> = emptyList()
             connection.inputStream.bufferedReader().useLines { lines ->
                 for (line in lines) {
                     if (!line.startsWith("data:")) continue
@@ -428,6 +719,16 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                             val t = obj.optString("text")
                             if (t.isNotEmpty()) { answer.append(t); onDelta(t) }
                         }
+                        "activity" -> {
+                            val ev = ChatTranscript.ActivityEvent(
+                                stage = obj.optString("stage", "tool"),
+                                label = obj.optString("label", ""),
+                                detail = obj.optString("detail", ""),
+                                durationMs = obj.optDouble("duration_ms", 0.0),
+                            )
+                            seenActivities.add(ev)
+                            onActivity(ev)
+                        }
                         "approval_required" -> {
                             val parsed = parsePendingApproval(obj)
                             if (parsed.approvalId.isNotEmpty()) onApprovalRequired(parsed)
@@ -436,6 +737,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                             onApprovalResolved(obj)
                         }
                         "done" -> {
+                            receivedDone = true
                             val full = obj.optString("answer", answer.toString())
                             answer = StringBuilder(full)
                             val s = obj.optString("source", "")
@@ -443,25 +745,70 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                             val h = obj.optString("head", "")
                             if (h.isNotEmpty()) head = h
                             tokenUsage = parseTokenUsage(obj)
+                            settledActivities = parseActivitySummary(obj).ifEmpty { seenActivities.toList() }
                         }
                     }
                 }
             }
             activeStream = null
             connection.disconnect(); connection = null
-            if (streamCancelled) source = "stopped"
+            if (streamCancelled) {
+                onDone(ChatResult(answer.toString(), "stopped", tokenUsage, head, seenActivities.toList()))
+                return
+            }
+            if (!receivedDone) {
+                onDone(
+                    ChatResult(
+                        answer = answer.toString(),
+                        source = "interrupted",
+                        tokenUsage = tokenUsage,
+                        head = head,
+                        activities = seenActivities.toList(),
+                        interrupted = true,
+                    )
+                )
+                return
+            }
             refreshCachedPersonaVoice(host, port, token) // keep away-mode voice current, same as chat()
-            onDone(ChatResult(answer.toString(), source, tokenUsage, head))
+            onDone(ChatResult(answer.toString(), source, tokenUsage, head, settledActivities.ifEmpty { seenActivities.toList() }))
         } catch (e: Exception) {
             activeStream = null
             try { connection?.disconnect() } catch (_: Exception) {}
             if (streamCancelled) {
                 // Stopping isn't a network failure: falling back would ask again.
-                onDone(ChatResult(answer.toString(), "stopped"))
+                onDone(ChatResult(answer.toString(), "stopped", activities = seenActivities.toList()))
+            } else if (streamOpened || answer.isNotEmpty()) {
+                // Mid-stream network drop (e.g. Wi-Fi <-> 5G switch): preserve partial
+                // streamed tokens cleanly so UI shows "Stream interrupted — Tap to retry".
+                onDone(
+                    ChatResult(
+                        answer = answer.toString(),
+                        source = "interrupted",
+                        activities = seenActivities.toList(),
+                        interrupted = true,
+                    )
+                )
             } else {
-                onDone(chat(message)) // any streaming trouble -> the reliable path
+                onDone(chat(message, threadId = threadId, attachmentIds = attachmentIds))
             }
         }
+    }
+
+    private fun parseActivitySummary(obj: JSONObject): List<ChatTranscript.ActivityEvent> {
+        val arr = obj.optJSONArray("activity_summary") ?: return emptyList()
+        val out = mutableListOf<ChatTranscript.ActivityEvent>()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            out.add(
+                ChatTranscript.ActivityEvent(
+                    stage = item.optString("stage", "tool"),
+                    label = item.optString("label", ""),
+                    detail = item.optString("detail", ""),
+                    durationMs = item.optDouble("duration_ms", 0.0),
+                )
+            )
+        }
+        return out
     }
 
     private fun chatAway(message: String): ChatResult {
@@ -1263,9 +1610,22 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         )
     }
 
-    private data class DesktopReply(val answer: String, val usage: TokenUsage?, val head: String = "")
+    private data class DesktopReply(
+        val answer: String,
+        val usage: TokenUsage?,
+        val head: String = "",
+        val activities: List<ChatTranscript.ActivityEvent> = emptyList(),
+    )
 
-    private fun postToDesktop(host: String, port: Int, token: String, message: String, pendingSync: JSONArray? = null): DesktopReply {
+    private fun postToDesktop(
+        host: String,
+        port: Int,
+        token: String,
+        message: String,
+        pendingSync: JSONArray? = null,
+        threadId: String? = null,
+        attachmentIds: List<String> = emptyList(),
+    ): DesktopReply {
         val url = URL("http://$host:$port/chat")
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
@@ -1278,6 +1638,12 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         val body = JSONObject().apply {
             put("message", message)
             put("token", token)
+            if (!threadId.isNullOrBlank()) {
+                put("thread", threadId)
+            }
+            if (attachmentIds.isNotEmpty()) {
+                put("attachment_ids", JSONArray(attachmentIds))
+            }
             if (pendingSync != null && pendingSync.length() > 0) {
                 put("pending_sync", pendingSync)
             }
@@ -1295,6 +1661,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
             json.optString("answer", "[empty response]"),
             parseTokenUsage(json),
             json.optString("head", ""),
+            parseActivitySummary(json),
         )
     }
 

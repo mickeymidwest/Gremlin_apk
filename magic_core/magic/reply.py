@@ -13,7 +13,7 @@ import os
 import re
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional
 
 from .. import look
 from .. import notes
@@ -64,6 +64,31 @@ _CASUAL_BRIEF_RE = re.compile(
 _TIMING_SINK: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
     "_magic_timing_sink", default=None
 )
+_ACTIVITY_SINK: contextvars.ContextVar[Optional[Callable[[dict], None]]] = contextvars.ContextVar(
+    "_magic_activity_sink", default=None
+)
+_ACTIVITY_LIST: contextvars.ContextVar[Optional[list[dict]]] = contextvars.ContextVar(
+    "_magic_activity_list", default=None
+)
+
+
+def _emit_activity(stage: str, label: str, detail: str = "", duration_ms: float = 0.0) -> None:
+    """Record an activity stage and forward it to active SSE listeners."""
+    item = {
+        "stage": str(stage),
+        "label": str(label),
+        "detail": str(detail or ""),
+        "duration_ms": round(float(duration_ms or 0.0), 1),
+    }
+    lst = _ACTIVITY_LIST.get()
+    if isinstance(lst, list):
+        lst.append(item)
+    sink = _ACTIVITY_SINK.get()
+    if sink is not None:
+        try:
+            sink({"type": "activity", **item})
+        except Exception:
+            pass
 
 
 def _timing_set(key: str, val) -> None:
@@ -623,11 +648,18 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
             _hook_ctx = (_hdec.inject_context or "").strip()
     except Exception:
         _hook_ctx = ""
+    _att_ctx = ""
+    try:
+        from .. import attachments as _att_mod
+        _att_ctx = _att_mod.current_attachment_context().strip()
+    except Exception:
+        _att_ctx = ""
     dynamic_context = "\n\n".join(p for p in (
         _cons_block,
         _mem_blk,
         _sk_blk,
         _hook_ctx,
+        _att_ctx,
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []
@@ -978,7 +1010,15 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
         }
     _t_look0 = time.perf_counter()
     looked, evidence = await _look_first(message, root)
-    _timing_set("look_ms", round((time.perf_counter() - _t_look0) * 1000, 1))
+    _look_ms = round((time.perf_counter() - _t_look0) * 1000, 1)
+    _timing_set("look_ms", _look_ms)
+    if looked:
+        _emit_activity(
+            "look",
+            f"Checked {', '.join(str(k) for k in looked)}",
+            detail=f"{len(evidence)} chars",
+            duration_ms=_look_ms,
+        )
     if not looked:
         _t_loop0 = time.perf_counter()
         try:
@@ -1005,8 +1045,20 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
             )
         finally:
             autoresearch._METRICS_SINK.reset(_web_tok)
-        _timing_set("rerank_web_ms", round(float(_web_metrics.get("rerank_ms", 0.0)), 1))
-        _timing_set("web_gather_ms", round((time.perf_counter() - _t_web0) * 1000, 1))
+        _rr_ms = round(float(_web_metrics.get("rerank_ms", 0.0)), 1)
+        _wg_ms = round((time.perf_counter() - _t_web0) * 1000, 1)
+        _timing_set("rerank_web_ms", _rr_ms)
+        _timing_set("web_gather_ms", _wg_ms)
+        if web_sources:
+            _doms = ", ".join(autoresearch._domains(web_sources, limit=3))
+            _emit_activity(
+                "web_search",
+                f"Searched {len(web_sources)} source{'s' if len(web_sources) != 1 else ''}",
+                detail=_doms,
+                duration_ms=_wg_ms,
+            )
+            if _rr_ms > 0:
+                _emit_activity("rerank", "Reranked sources", detail=f"kept {len(web_sources)}", duration_ms=_rr_ms)
     _t_pb0 = time.perf_counter()
     prompt, hist, ctx = _build_prompt(message, root, history, evidence,
                                       web_evidence=web_ev, inline_context=inline_ctx)
@@ -1057,7 +1109,9 @@ async def _prepare_turn(primary, message: str, root: str, history: str, fallback
                 prompt = _pn + "\n\n" + prompt
         except Exception:
             pass
-        _timing_set("plan_ms", round((time.perf_counter() - _t_plan0) * 1000, 1))
+        _plan_ms = round((time.perf_counter() - _t_plan0) * 1000, 1)
+        _timing_set("plan_ms", _plan_ms)
+        _emit_activity("thinking", "Planned response", duration_ms=_plan_ms)
     _timing_set("prepare_ms", round((time.perf_counter() - _t_prep0) * 1000, 1))
     return {
         "looped": None,
@@ -1078,264 +1132,274 @@ async def answer_stream(primary, message: str, root: str,
     as tokens arrive, then exactly one ('done', reply_dict) at the end.
     Same short-circuits (remember-that), same context, same fallback +
     bookkeeping as answer()."""
-    fact = notes.extract_remember_command(message)
-    if fact:
-        notes.remember_fact(root, f"[user] {fact}")
-        msg = f"Got it — I'll remember that: {fact}"
-        yield "delta", msg
-        yield "done", _reply(msg, action="remember")
-        return
+    _existing_act = _ACTIVITY_LIST.get()
+    _act_list = _existing_act if isinstance(_existing_act, list) else []
+    _act_tok = _ACTIVITY_LIST.set(_act_list) if _existing_act is None else None
 
-    prep = await _prepare_turn(primary, message, root, history, fallback)
-    plan_usage = dict(prep.get("plan_usage") or {})
-    if prep["looped"]:
-        text, solved, used_fb = prep["looped"]
-        yield "delta", text
-        head_name = _backend_head_name(fallback if used_fb else primary)
-        await _post_answer_bookkeeping(primary, message, root, text, used_fb,
-                                       "fallback" if used_fb else "magic", history=history)
-        done = _reply(text, source="fallback" if used_fb else "magic", head=head_name)
-        done["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
-        yield "done", done
-        return
-    looked, evidence = prep["looked"], prep["evidence"]
-    web_sources, web_ev = prep["web_sources"], prep["web_ev"]
-    prompt, hist, ctx = prep["prompt"], prep["hist"], prep["ctx"]
+    def _with_act(d: dict) -> dict:
+        if _act_list and "activity_summary" not in d:
+            d["activity_summary"] = list(_act_list)
+        return d
 
-    if autoresearch.is_no_source(web_ev):
-        yield "delta", _NO_SOURCE_REPLY
-        await _post_answer_bookkeeping(primary, message, root, _NO_SOURCE_REPLY, False, "magic", history=history)
-        yield "done", _reply(_NO_SOURCE_REPLY, source="magic", head=_backend_head_name(primary))
-        return
-
-    # Hydra P1.3: substantive and web-researched/factual turns go through the
-    # full review pipeline (answer() runs grounding, action-honesty hard-gate,
-    # code-check, reviewer-reviser, and web-fact-check rewrite) reusing `prep`
-    # so research never runs twice, then typewriter-stream the reviewed result.
-    if _REVISE and not _is_deep_head(primary) and (_looks_hard(message) or bool(web_sources)):
-        try:
-            _done = await answer(
-                primary, message, root, history=history, fallback=fallback, _prep=prep
-            )
-        except Exception:
-            _done = None
-        if _done is not None:
-            _full = _done.get("answer") or ""
-            for _chunk in (re.findall(r"\S+\s+|\S+$", _full) or [_full]):
-                yield "delta", _chunk
-            yield "done", _done
+    try:
+        fact = notes.extract_remember_command(message)
+        if fact:
+            notes.remember_fact(root, f"[user] {fact}")
+            msg = f"Got it — I'll remember that: {fact}"
+            yield "delta", msg
+            yield "done", _with_act(_reply(msg, action="remember"))
             return
 
-    _think = _should_think_for(message, primary)
-    from ..backends.llamacpp_backend import (
-        split_reasoning as _split_reasoning,
-        _CHANNEL_PAIR_RE as _CH_PAIR_RE,
-        _CLOSE_ANY_RE as _CL_ANY_RE,
-        _THINK_RE as _TH_RE,
-    )
-    acc = ""
-    raw_acc = ""
-    emitted = 0
-    close_seen = 0
-    stream_broke = False
-    _t_gen0 = time.perf_counter()
-    _first_delta_set = False
-    try:
-        async for delta in _stream(primary, prompt, hist, think=_think):
-            if not _first_delta_set:
-                _first_delta_set = True
-                _timing_set("first_delta_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
-            raw_acc += delta
-            stripped_pairs = _CH_PAIR_RE.sub("", _TH_RE.sub("", raw_acc))
-            _unmatched_closes = len(_CL_ANY_RE.findall(stripped_pairs))
-            if _unmatched_closes > close_seen:
-                close_seen = _unmatched_closes
-                emitted = 0
-            visible, _ = _split_reasoning(raw_acc, streaming=True)
-            if len(visible) > emitted:
-                piece = visible[emitted:]
-                emitted = len(visible)
+        prep = await _prepare_turn(primary, message, root, history, fallback)
+        plan_usage = dict(prep.get("plan_usage") or {})
+        if prep["looped"]:
+            text, solved, used_fb = prep["looped"]
+            _emit_activity("tool", f"Loop ({solved.route})", detail=f"{solved.calls} calls")
+            yield "delta", text
+            head_name = _backend_head_name(fallback if used_fb else primary)
+            await _post_answer_bookkeeping(primary, message, root, text, used_fb,
+                                           "fallback" if used_fb else "magic", history=history)
+            done = _reply(text, source="fallback" if used_fb else "magic", head=head_name)
+            done["loop"] = {"route": solved.route, "calls": solved.calls, "trace": solved.trace[-6:]}
+            yield "done", _with_act(done)
+            return
+        looked, evidence = prep["looked"], prep["evidence"]
+        web_sources, web_ev = prep["web_sources"], prep["web_ev"]
+        prompt, hist, ctx = prep["prompt"], prep["hist"], prep["ctx"]
+
+        if autoresearch.is_no_source(web_ev):
+            yield "delta", _NO_SOURCE_REPLY
+            await _post_answer_bookkeeping(primary, message, root, _NO_SOURCE_REPLY, False, "magic", history=history)
+            yield "done", _with_act(_reply(_NO_SOURCE_REPLY, source="magic", head=_backend_head_name(primary)))
+            return
+
+        # Hydra P1.3: substantive and web-researched/factual turns go through the
+        # full review pipeline (answer() runs grounding, action-honesty hard-gate,
+        # code-check, reviewer-reviser, and web-fact-check rewrite) reusing `prep`
+        # so research never runs twice, then typewriter-stream the reviewed result.
+        if _REVISE and not _is_deep_head(primary) and (_looks_hard(message) or bool(web_sources)):
+            try:
+                _done = await answer(
+                    primary, message, root, history=history, fallback=fallback, _prep=prep
+                )
+            except Exception:
+                _done = None
+            if _done is not None:
+                _full = _done.get("answer") or ""
+                for _chunk in (re.findall(r"\S+\s+|\S+$", _full) or [_full]):
+                    yield "delta", _chunk
+                yield "done", _with_act(_done)
+                return
+
+        _think = _should_think_for(message, primary)
+        if _think and _supports_think_mark(primary):
+            _emit_activity("thinking", "Thinking", detail="reasoning pass")
+        from ..backends.llamacpp_backend import (
+            split_reasoning as _split_reasoning,
+            _CHANNEL_PAIR_RE as _CH_PAIR_RE,
+            _CLOSE_ANY_RE as _CL_ANY_RE,
+            _THINK_RE as _TH_RE,
+        )
+        acc = ""
+        raw_acc = ""
+        emitted = 0
+        close_seen = 0
+        stream_broke = False
+        _t_gen0 = time.perf_counter()
+        _first_delta_set = False
+        try:
+            async for delta in _stream(primary, prompt, hist, think=_think):
+                if not _first_delta_set:
+                    _first_delta_set = True
+                    _timing_set("first_delta_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
+                raw_acc += delta
+                stripped_pairs = _CH_PAIR_RE.sub("", _TH_RE.sub("", raw_acc))
+                _unmatched_closes = len(_CL_ANY_RE.findall(stripped_pairs))
+                if _unmatched_closes > close_seen:
+                    close_seen = _unmatched_closes
+                    emitted = 0
+                visible, _ = _split_reasoning(raw_acc, streaming=True)
+                if len(visible) > emitted:
+                    piece = visible[emitted:]
+                    emitted = len(visible)
+                    acc += piece
+                    yield "delta", piece
+        except Exception:
+            stream_broke = True
+        if raw_acc and not stream_broke:
+            final_visible, _ = _split_reasoning(raw_acc, streaming=False)
+            if len(final_visible) > emitted:
+                piece = final_visible[emitted:]
+                emitted = len(final_visible)
                 acc += piece
                 yield "delta", piece
-    except Exception:
-        stream_broke = True
-    if raw_acc and not stream_broke:
-        final_visible, _ = _split_reasoning(raw_acc, streaming=False)
-        if len(final_visible) > emitted:
-            piece = final_visible[emitted:]
-            emitted = len(final_visible)
-            acc += piece
-            yield "delta", piece
-    _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
-    _timing_set_prefix(primary)
-    _degen = getattr(primary, "_last_stream_degeneration", None)
+        _timing_set("primary_gen_ms", round((time.perf_counter() - _t_gen0) * 1000, 1))
+        _timing_set_prefix(primary)
+        _degen = getattr(primary, "_last_stream_degeneration", None)
 
-    # Anything already on the client's screen stays the answer -- falling
-    # back now would splice a second full answer onto the partial one the
-    # user is already reading. (PersonaBackend also stops rather than
-    # re-answers mid-stream; this is the same rule one layer up.)
-    if raw_acc.strip() and (acc.strip() or _strip_think(raw_acc)):
-        text = _strip_think(raw_acc)
-        if not text:
-            text = acc.strip()
-        if stream_broke and text.count("```") % 2 == 1:
-            fence_close = "\n```\n"
-            text += fence_close
-            yield "delta", fence_close
-        if _degen and not stream_broke:
-            text += _DEGEN_NOTE
-            yield "delta", _DEGEN_NOTE
-        if _GROUNDING_CHECK and not stream_broke and not web_sources:
-            # tokens are already on screen -- can't regenerate; append a
-            # one-line flag if the answer named something that isn't real.
-            try:
-                bad = grounding.check(text, root, ctx)
-            except Exception:
-                bad = []
-            if bad:
-                note = grounding.caveat(bad)
-                text += note
-                yield "delta", note
-        if not web_sources and not autoresearch.is_no_source(web_ev) and text and not stream_broke:
-            _ws2, _wev2, _t2 = await _maybe_search_retry(
-                primary, message, root, history, evidence, text, for_stream=True)
-            if autoresearch.is_no_source(_wev2):
-                web_ev = _wev2
-                _ns_add = "\n\n" + _NO_SOURCE_REPLY
-                yield "delta", _ns_add
-                text = _NO_SOURCE_REPLY
-            elif _ws2:
-                web_sources, web_ev = _ws2, _wev2
-                _t2 = _strip_think(_t2)
-                if _t2:
-                    _add = "\n\nWait — I just checked that against real sources:\n\n" + _t2
-                    yield "delta", _add
-                    # Keep ONLY the verified answer in `text` (used for the final
-                    # `done` frame and saved conversation history) so the retracted
-                    # unsearched draft never poisons later turns or final bubble.
-                    text = _t2
-        if web_sources and web_ev and text and not stream_broke and not _is_deep_head(primary):
-            _unsup = await _web_fact_check(text, web_ev, message)
-            if _unsup:
-                _wcav = grounding.web_caveat(_unsup)
-                text += _wcav
-                yield "delta", _wcav
-        if web_sources and text and not stream_broke:
-            _figs = autoresearch.unverified_figures(text, web_ev)
-            if _figs:
-                _cav = autoresearch.figures_caveat(_figs)
-                text += _cav
-                yield "delta", _cav
-        # Action-honesty rail (chat path): flag fabricated tool/search claims
-        # when nothing of that kind actually executed this turn.
-        if text and text != _NO_SOURCE_REPLY:
-            try:
-                from .. import action_honesty as _ah
-                _hh = (
-                    ([] if looked else _ah.claims_execution(text))
-                    + ([] if (web_sources or autoresearch.is_no_source(web_ev)) else _ah.claims_web_search(text))
-                )
-                if _hh:
-                    _hc = _ah.caveat(_hh)
-                    text += _hc
-                    yield "delta", _hc
-            except Exception:
-                pass
-        try:
-            from . import code_check as _cc
-            _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
-        except Exception:
-            _ci = []
-        if _ci:
-            _cn = _cc.caveat(_ci)
-            text += _cn
-            yield "delta", _cn
-        if looked:
-            note = look.footer(looked)
-            text += note
-            yield "delta", note
-        if web_sources:
-            wnote = autoresearch.footer(web_sources)
-            if wnote:
-                text += wnote
-                yield "delta", wnote
-        _t_bk0 = time.perf_counter()
-        await _post_answer_bookkeeping(primary, message, root, text, False, "magic", history=history)
-        _timing_set("bookkeeping_ms", round((time.perf_counter() - _t_bk0) * 1000, 1))
-        total_usage = _merge_usage(dict(plan_usage), _stream_usage(primary))
-        done = _reply(
-            text,
-            source="magic",
-            head=_backend_head_name(primary),
-            ok=not stream_broke,
-            usage=total_usage or None,
-        )
-        if looked:
-            done["looked"], done["evidence"] = looked, evidence
-        if web_sources:
-            done["web"] = web_sources
-        yield "done", done
-        return
-
-    if fallback is not None:
-        r = await _gen(fallback, prompt, hist)
-        raw_fb = _strip_think(r.text or "") if getattr(r, "ok", True) else ""
-        text = raw_fb or "I couldn't get an answer just now — try again."
-        used = getattr(r, "model", "fallback")
-        if _GROUNDING_CHECK and raw_fb and not web_sources:
-            try:
-                bad = grounding.check(text, root, ctx)
-            except Exception:
-                bad = []
-            if bad:
-                text = text + grounding.caveat(bad)
-        if raw_fb:
-            try:
-                from .. import action_honesty as _ah
-                _hh = (
-                    ([] if looked else _ah.claims_execution(text))
-                    + ([] if web_sources else _ah.claims_web_search(text))
-                )
-                if _hh:
-                    text += _ah.caveat(_hh)
-            except Exception:
-                pass
+        if raw_acc.strip() and (acc.strip() or _strip_think(raw_acc)):
+            text = _strip_think(raw_acc)
+            if not text:
+                text = acc.strip()
+            if stream_broke and text.count("```") % 2 == 1:
+                fence_close = "\n```\n"
+                text += fence_close
+                yield "delta", fence_close
+            if _degen and not stream_broke:
+                text += _DEGEN_NOTE
+                yield "delta", _DEGEN_NOTE
+            if _GROUNDING_CHECK and not stream_broke and not web_sources:
+                try:
+                    bad = grounding.check(text, root, ctx)
+                except Exception:
+                    bad = []
+                if bad:
+                    note = grounding.caveat(bad)
+                    text += note
+                    yield "delta", note
+            if not web_sources and not autoresearch.is_no_source(web_ev) and text and not stream_broke:
+                _ws2, _wev2, _t2 = await _maybe_search_retry(
+                    primary, message, root, history, evidence, text, for_stream=True)
+                if autoresearch.is_no_source(_wev2):
+                    web_ev = _wev2
+                    _ns_add = "\n\n" + _NO_SOURCE_REPLY
+                    yield "delta", _ns_add
+                    text = _NO_SOURCE_REPLY
+                elif _ws2:
+                    web_sources, web_ev = _ws2, _wev2
+                    _doms2 = ", ".join(autoresearch._domains(_ws2, limit=3))
+                    _emit_activity("web_search", f"Verified {len(_ws2)} sources", detail=_doms2)
+                    _t2 = _strip_think(_t2)
+                    if _t2:
+                        _add = "\n\nWait — I just checked that against real sources:\n\n" + _t2
+                        yield "delta", _add
+                        text = _t2
+            if web_sources and web_ev and text and not stream_broke and not _is_deep_head(primary):
+                _unsup = await _web_fact_check(text, web_ev, message)
+                if _unsup:
+                    _wcav = grounding.web_caveat(_unsup)
+                    text += _wcav
+                    yield "delta", _wcav
+            if web_sources and text and not stream_broke:
+                _figs = autoresearch.unverified_figures(text, web_ev)
+                if _figs:
+                    _cav = autoresearch.figures_caveat(_figs)
+                    text += _cav
+                    yield "delta", _cav
+            if text and text != _NO_SOURCE_REPLY:
+                try:
+                    from .. import action_honesty as _ah
+                    _hh = (
+                        ([] if looked else _ah.claims_execution(text))
+                        + ([] if (web_sources or autoresearch.is_no_source(web_ev)) else _ah.claims_web_search(text))
+                    )
+                    if _hh:
+                        _hc = _ah.caveat(_hh)
+                        text += _hc
+                        yield "delta", _hc
+                except Exception:
+                    pass
             try:
                 from . import code_check as _cc
                 _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
             except Exception:
                 _ci = []
             if _ci:
-                text += _cc.caveat(_ci)
-        if web_sources and web_ev and raw_fb:
-            _unsup = await _web_fact_check(text, web_ev, message)
-            if _unsup:
-                text += grounding.web_caveat(_unsup)
-        if web_sources and raw_fb:
-            _figs = autoresearch.unverified_figures(text, web_ev)
-            if _figs:
-                text += autoresearch.figures_caveat(_figs)
-        if looked and raw_fb:
-            text += look.footer(looked)
-        if web_sources and raw_fb:
-            wnote = autoresearch.footer(web_sources)
-            if wnote:
-                text += wnote
-        yield "delta", text
-        await _post_answer_bookkeeping(primary, message, root, text, True, used, history=history)
-        fb_head = _backend_head_name(fallback, r) or used
-        done = _reply(text, source=used, head=fb_head, ok=bool(raw_fb),
-                      usage=dict(plan_usage) or None)
-        if looked:
-            done["looked"], done["evidence"] = looked, evidence
-        if web_sources:
-            done["web"] = web_sources
-        yield "done", done
-        return
+                _cn = _cc.caveat(_ci)
+                text += _cn
+                yield "delta", _cn
+            if looked:
+                note = look.footer(looked)
+                text += note
+                yield "delta", note
+            if web_sources:
+                wnote = autoresearch.footer(web_sources)
+                if wnote:
+                    text += wnote
+                    yield "delta", wnote
+            _t_bk0 = time.perf_counter()
+            await _post_answer_bookkeeping(primary, message, root, text, False, "magic", history=history)
+            _timing_set("bookkeeping_ms", round((time.perf_counter() - _t_bk0) * 1000, 1))
+            total_usage = _merge_usage(dict(plan_usage), _stream_usage(primary))
+            done = _reply(
+                text,
+                source="magic",
+                head=_backend_head_name(primary),
+                ok=not stream_broke,
+                usage=total_usage or None,
+            )
+            if looked:
+                done["looked"], done["evidence"] = looked, evidence
+            if web_sources:
+                done["web"] = web_sources
+            yield "done", _with_act(done)
+            return
 
-    text = "I couldn't get an answer just now — try again."
-    yield "delta", text
-    yield "done", _reply(text, source="magic", head=_backend_head_name(primary), ok=False)
+        if fallback is not None:
+            r = await _gen(fallback, prompt, hist)
+            raw_fb = _strip_think(r.text or "") if getattr(r, "ok", True) else ""
+            text = raw_fb or "I couldn't get an answer just now — try again."
+            used = getattr(r, "model", "fallback")
+            if _GROUNDING_CHECK and raw_fb and not web_sources:
+                try:
+                    bad = grounding.check(text, root, ctx)
+                except Exception:
+                    bad = []
+                if bad:
+                    text = text + grounding.caveat(bad)
+            if raw_fb:
+                try:
+                    from .. import action_honesty as _ah
+                    _hh = (
+                        ([] if looked else _ah.claims_execution(text))
+                        + ([] if web_sources else _ah.claims_web_search(text))
+                    )
+                    if _hh:
+                        text += _ah.caveat(_hh)
+                except Exception:
+                    pass
+                try:
+                    from . import code_check as _cc
+                    _ci = _cc.check_code_blocks(text) + _cc.check_code_completeness(text)
+                except Exception:
+                    _ci = []
+                if _ci:
+                    text += _cc.caveat(_ci)
+            if web_sources and web_ev and raw_fb:
+                _unsup = await _web_fact_check(text, web_ev, message)
+                if _unsup:
+                    text += grounding.web_caveat(_unsup)
+            if web_sources and raw_fb:
+                _figs = autoresearch.unverified_figures(text, web_ev)
+                if _figs:
+                    text += autoresearch.figures_caveat(_figs)
+            if looked and raw_fb:
+                text += look.footer(looked)
+            if web_sources and raw_fb:
+                wnote = autoresearch.footer(web_sources)
+                if wnote:
+                    text += wnote
+            yield "delta", text
+            await _post_answer_bookkeeping(primary, message, root, text, True, used, history=history)
+            fb_head = _backend_head_name(fallback, r) or used
+            done = _reply(text, source=used, head=fb_head, ok=bool(raw_fb),
+                          usage=dict(plan_usage) or None)
+            if looked:
+                done["looked"], done["evidence"] = looked, evidence
+            if web_sources:
+                done["web"] = web_sources
+            yield "done", _with_act(done)
+            return
+
+        text = "I couldn't get an answer just now — try again."
+        yield "delta", text
+        yield "done", _with_act(_reply(text, source="magic", head=_backend_head_name(primary), ok=False))
+    finally:
+        if _act_tok is not None:
+            try:
+                _ACTIVITY_LIST.reset(_act_tok)
+            except ValueError:
+                pass
 
 
 async def answer(primary, message: str, root: str,

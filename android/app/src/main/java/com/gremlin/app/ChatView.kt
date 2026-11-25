@@ -3,6 +3,7 @@ package com.gremlin.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Color
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.text.Spanned
@@ -20,18 +21,24 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.gremlin.app.ChatTranscript.ActivityEvent
 import com.gremlin.app.ChatTranscript.Kind
 import com.gremlin.app.ChatTranscript.Turn
+import java.util.Locale
 
-/** Draws the conversation as message bubbles. */
+/** Draws the conversation as message bubbles, syntax-highlighted code cards, and collapsible activity pills. */
 class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     private val context: Context = list.context
     private val turns = mutableListOf<Turn>()
     private var streamBubble: TextView? = null
+    private var streamPillWrap: LinearLayout? = null
+    private var streamPillHeader: TextView? = null
+    private val streamActivities = mutableListOf<ActivityEvent>()
     private var lastMagicStart = -1
     private var streamText = StringBuilder()
     private var streamBase = ""
     private var lastUserBubble: TextView? = null
+
     var onEditLastUser: (() -> Unit)? = null
     var onSaveExemplar: ((
         prompt: String,
@@ -50,9 +57,19 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         val all = ChatTranscript.parse(saved)
         all.takeLast(MAX_SHOWN).forEach {
             if (it.kind == Kind.MAGIC) lastMagicStart = list.childCount
-            if (it.kind == Kind.MAGIC && hasCode(it.text)) drawRichMagic(it) else draw(it)
+            if (it.kind == Kind.MAGIC && needsRichLayout(it)) drawRichMagic(it) else draw(it)
         }
         turns.addAll(all)
+        scrollToEnd()
+    }
+
+    fun loadTurns(items: List<Turn>) {
+        clear()
+        items.takeLast(MAX_SHOWN).forEach {
+            if (it.kind == Kind.MAGIC) lastMagicStart = list.childCount
+            if (it.kind == Kind.MAGIC && needsRichLayout(it)) drawRichMagic(it) else draw(it)
+        }
+        turns.addAll(items)
         scrollToEnd()
     }
 
@@ -60,6 +77,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         turns.clear()
         list.removeAllViews()
         streamBubble = null
+        streamPillWrap = null
+        streamPillHeader = null
+        streamActivities.clear()
         streamBase = ""
         lastMagicStart = -1
         lastUserBubble = null
@@ -68,7 +88,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
     fun add(turn: Turn) {
         if (turn.kind == Kind.MAGIC) lastMagicStart = list.childCount
         turns.add(turn)
-        if (turn.kind == Kind.MAGIC && hasCode(turn.text)) drawRichMagic(turn) else draw(turn)
+        if (turn.kind == Kind.MAGIC && needsRichLayout(turn)) drawRichMagic(turn) else draw(turn)
         scrollToEnd()
     }
 
@@ -94,11 +114,34 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         lastMagicStart = -1
     }
 
-    fun beginStream() {
+    fun beginStream(preSeededActivities: List<ActivityEvent> = emptyList()) {
         streamBase = ""
         streamText = StringBuilder()
+        streamActivities.clear()
+        streamActivities.addAll(preSeededActivities)
         lastMagicStart = list.childCount
+
+        val (wrap, header) = createLivePill()
+        streamPillWrap = wrap
+        streamPillHeader = header
+        list.addView(wrap)
+        if (streamActivities.isNotEmpty()) {
+            wrap.visibility = View.VISIBLE
+            header.text = SseParser.formatLivePillText(streamActivities.last())
+        }
+
         streamBubble = draw(Turn(Kind.MAGIC, ""))
+    }
+
+    /** Adds or updates a live activity pill event while streaming is in progress. */
+    fun addStreamActivity(event: ActivityEvent) {
+        streamActivities.add(event)
+        val wrap = streamPillWrap
+        val hdr = streamPillHeader
+        if (wrap != null && hdr != null) {
+            wrap.visibility = View.VISIBLE
+            hdr.text = SseParser.formatLivePillText(event)
+        }
     }
 
     /** Replace the last assistant bubble with a live stream pre-seeded with its text. */
@@ -107,6 +150,9 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         removeLastAssistant()
         streamBase = if (prev.isNotEmpty()) "$prev " else ""
         streamText = StringBuilder(streamBase)
+        streamActivities.clear()
+        streamPillWrap = null
+        streamPillHeader = null
         lastMagicStart = list.childCount
         streamBubble = draw(Turn(Kind.MAGIC, "")).also {
             if (prev.isNotEmpty()) it.text = styled(prev)
@@ -120,18 +166,20 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         prompt: String? = null,
         head: String? = null,
         source: String? = null,
+        activities: List<ActivityEvent> = emptyList(),
     ) {
         val prevTurn = if (turns.isNotEmpty() && turns.last().kind == Kind.MAGIC) turns.last() else null
         val prev = prevTurn?.text ?: run {
-            add(Turn(Kind.MAGIC, extra, note, prompt = prompt, head = head, source = source))
+            add(Turn(Kind.MAGIC, extra, note, prompt = prompt, head = head, source = source, activities = activities))
             return
         }
         val merged = if (extra.isNotBlank()) "$prev ${extra.trimStart()}".trim() else prev
         val mergedPrompt = prompt ?: prevTurn.prompt
         val mergedHead = head ?: prevTurn.head
         val mergedSource = source ?: prevTurn.source
+        val mergedActs = (prevTurn.activities + activities).ifEmpty { emptyList() }
         removeLastAssistant()
-        add(Turn(Kind.MAGIC, merged, note, prompt = mergedPrompt, head = mergedHead, source = mergedSource))
+        add(Turn(Kind.MAGIC, merged, note, prompt = mergedPrompt, head = mergedHead, source = mergedSource, activities = mergedActs))
     }
 
     fun appendStream(delta: String) {
@@ -148,29 +196,124 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         prompt: String? = null,
         head: String? = null,
         source: String? = null,
+        activities: List<ActivityEvent> = emptyList(),
     ) {
         val bubble = streamBubble ?: return
+        val pillWrap = streamPillWrap
         val raw = answer.ifEmpty { streamText.removePrefix(streamBase).toString() }
         val text = if (streamBase.isNotEmpty()) "${streamBase.trimEnd()} ${raw.trimStart()}".trim() else raw
         streamBase = ""
-        val turn = Turn(Kind.MAGIC, text, note, prompt = prompt, head = head, source = source)
+        val settledActs = activities.ifEmpty { streamActivities.toList() }
+        streamActivities.clear()
+        val turn = Turn(Kind.MAGIC, text, note, prompt = prompt, head = head, source = source, activities = settledActs)
         turns.add(turn)
-        if (hasCode(text)) {
-            // streamed as one plain bubble for the live feel; now re-lay it out
-            // as prose + proper code cards (each with its own Copy button).
+
+        if (needsRichLayout(turn)) {
+            if (pillWrap != null) list.removeView(pillWrap)
             list.removeView(bubble)
             drawRichMagic(turn)
         } else {
+            if (pillWrap != null) {
+                if (settledActs.isEmpty()) {
+                    list.removeView(pillWrap)
+                } else {
+                    val idx = list.indexOfChild(pillWrap)
+                    list.removeView(pillWrap)
+                    addActivityPill(settledActs, insertAt = idx.coerceAtLeast(0))
+                }
+            }
             bubble.text = styled(text)
             addFooter(turn)
         }
         streamBubble = null
+        streamPillWrap = null
+        streamPillHeader = null
         scrollToEnd()
     }
 
     fun plainText(): String = ChatTranscript.serialize(turns)
 
+    private fun needsRichLayout(turn: Turn): Boolean {
+        val t = turn.text
+        return t.contains("```") || ChatTranscript.parts(t).any { it.isTable }
+    }
+
+    private fun createLivePill(): Pair<LinearLayout, TextView> {
+        val wrap = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_pill_chip)
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            visibility = View.GONE
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp(8)
+                marginEnd = dp(24)
+            }
+        }
+        val header = TextView(context).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(color(R.color.magic_accent))
+        }
+        wrap.addView(header)
+        return wrap to header
+    }
+
+    private fun addActivityPill(activities: List<ActivityEvent>, insertAt: Int = -1) {
+        if (activities.isEmpty()) return
+        var expanded = false
+        val wrap = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_pill_chip)
+            setPadding(dp(11), dp(6), dp(11), dp(6))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dp(8)
+                marginEnd = dp(24)
+            }
+        }
+        val summaryView = TextView(context).apply {
+            text = SseParser.formatCollapsedPillText(activities, expanded = false)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(color(R.color.magic_text_secondary))
+        }
+        val detailBox = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(dp(10), dp(5), dp(4), dp(2))
+        }
+        for (ev in activities) {
+            val line = TextView(context).apply {
+                val msStr = if (ev.durationMs >= 1.0) " · ${ev.durationMs.toInt()} ms" else ""
+                val detStr = if (ev.detail.isNotBlank()) " — ${ev.detail}" else ""
+                text = "• ${ev.label.ifBlank { ev.stage }}$detStr$msStr"
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+                setTextColor(color(R.color.magic_text_secondary))
+                setPadding(0, dp(2), 0, dp(2))
+            }
+            detailBox.addView(line)
+        }
+        wrap.addView(summaryView)
+        wrap.addView(detailBox)
+        wrap.setOnClickListener {
+            expanded = !expanded
+            detailBox.visibility = if (expanded) View.VISIBLE else View.GONE
+            summaryView.text = SseParser.formatCollapsedPillText(activities, expanded = expanded)
+        }
+        if (insertAt in 0..list.childCount) {
+            list.addView(wrap, insertAt)
+        } else {
+            list.addView(wrap)
+        }
+    }
+
     private fun draw(turn: Turn): TextView {
+        if (turn.kind == Kind.MAGIC && turn.activities.isNotEmpty()) {
+            addActivityPill(turn.activities)
+        }
         val bubble = TextView(context).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, if (turn.kind == Kind.SYSTEM) 12f else 15f)
             setLineSpacing(dp(3).toFloat(), 1.12f)
@@ -246,7 +389,11 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             setTextColor(color(R.color.magic_text_secondary))
             setPadding(0, dp(2), dp(6), dp(2))
-            setOnClickListener { copy(turn.text) }
+            setOnClickListener {
+                copy(turn.text)
+                text = "Copied ✓"
+                postDelayed({ text = "Copy" }, 1500L)
+            }
         }
         row.addView(copyView)
 
@@ -292,22 +439,26 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         list.addView(row)
     }
 
-    private fun hasCode(text: String) = text.contains("```")
-
     private fun fadeIn(v: View) {
         v.alpha = 0f
         v.translationY = dp(14).toFloat()
         v.animate().alpha(1f).translationY(0f).setDuration(220).start()
     }
 
-    /** A MAGIC turn with code: prose bubbles + code cards, each card with its
-     *  own Copy button and horizontal scroll, instead of one flat bubble. */
+    /** A MAGIC turn with code or tables: collapsible activity pill, prose bubbles,
+     *  syntax-highlighted code cards (with Copy), and scrollable tables. */
     private fun drawRichMagic(turn: Turn) {
+        if (turn.activities.isNotEmpty()) {
+            addActivityPill(turn.activities)
+        }
         for (part in ChatTranscript.parts(turn.text)) {
-            if (part.isCode) addCodeCard(part.text)
-            else {
-                val t = part.text.trim()
-                if (t.isNotEmpty()) addProseBubble(t)
+            when {
+                part.isCode -> addCodeCard(part.text, part.language)
+                part.isTable -> addTableCard(part.text)
+                else -> {
+                    val t = part.text.trim()
+                    if (t.isNotEmpty()) addProseBubble(t)
+                }
             }
         }
         addFooter(turn)
@@ -334,45 +485,138 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
         fadeIn(bubble)
     }
 
-    private fun addCodeCard(code: String) {
+    private fun highlightedCode(code: String, language: String): CharSequence {
+        val sb = SpannableStringBuilder(code)
+        val spans = CodeHighlighter.tokenize(code, language)
+        val kwColor = color(R.color.magic_blue)
+        val strColor = color(R.color.magic_online)
+        val numColor = color(R.color.magic_system)
+        val cmtColor = color(R.color.magic_text_secondary)
+        for (sp in spans) {
+            val fg = when (sp.kind) {
+                CodeHighlighter.TokenKind.KEYWORD -> kwColor
+                CodeHighlighter.TokenKind.STRING -> strColor
+                CodeHighlighter.TokenKind.NUMBER -> numColor
+                CodeHighlighter.TokenKind.COMMENT -> cmtColor
+            }
+            sb.setSpan(ForegroundColorSpan(fg), sp.start, sp.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (sp.kind == CodeHighlighter.TokenKind.COMMENT) {
+                sb.setSpan(StyleSpan(Typeface.ITALIC), sp.start, sp.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            } else if (sp.kind == CodeHighlighter.TokenKind.KEYWORD) {
+                sb.setSpan(StyleSpan(Typeface.BOLD), sp.start, sp.end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
+        return sb
+    }
+
+    private fun addCodeCard(code: String, language: String = "") {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundResource(R.drawable.bg_code_card)
             setPadding(dp(12), dp(8), dp(12), dp(10))
         }
+        val langLabel = TextView(context).apply {
+            text = language.ifBlank { "code" }.uppercase(Locale.US)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            letterSpacing = 0.08f
+            setTextColor(color(R.color.magic_text_secondary))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
         val copyBtn = TextView(context).apply {
             text = "Copy"
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(color(R.color.magic_accent))
-            setPadding(dp(10), dp(2), dp(4), dp(6))
-            setOnClickListener { copy(code) }
+            setPadding(dp(10), dp(2), dp(4), dp(4))
+            setOnClickListener {
+                copy(code)
+                text = "Copied ✓"
+                postDelayed({ text = "Copy" }, 1500L)
+            }
         }
         val header = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(4))
+            addView(langLabel)
             addView(copyBtn)
         }
         card.addView(header, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        val divider = View(context).apply {
+            setBackgroundColor(color(R.color.magic_line))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(1).coerceAtLeast(1)
+            ).apply { bottomMargin = dp(6) }
+        }
+        card.addView(divider)
+
         val codeView = TextView(context).apply {
-            text = code
+            text = highlightedCode(code, language)
             typeface = Typeface.MONOSPACE
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setLineSpacing(dp(2).toFloat(), 1.15f)
             setTextColor(color(R.color.magic_text_primary))
             setTextIsSelectable(true)
             setHorizontallyScrolling(true)
         }
         val hs = HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
+            isHorizontalScrollBarEnabled = true
+            isFillViewport = false
             addView(codeView)
         }
         card.addView(hs)
         val params = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         params.topMargin = dp(8)
-        params.marginEnd = dp(24)
+        params.marginEnd = dp(16)
         list.addView(card, params)
         fadeIn(card)
+    }
+
+    private fun addTableCard(tableText: String) {
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.bg_code_card)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        val tableView = TextView(context).apply {
+            text = formatTableColumns(tableText)
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(color(R.color.magic_text_primary))
+            setTextIsSelectable(true)
+            setHorizontallyScrolling(true)
+        }
+        val hs = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = true
+            addView(tableView)
+        }
+        card.addView(hs)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        params.topMargin = dp(8)
+        params.marginEnd = dp(16)
+        list.addView(card, params)
+        fadeIn(card)
+    }
+
+    private fun formatTableColumns(raw: String): String {
+        val rows = raw.lines().filter { it.isNotBlank() }.map { line ->
+            line.trim().removePrefix("|").removeSuffix("|").split("|").map { it.trim() }
+        }
+        if (rows.isEmpty()) return raw
+        val cols = rows.maxOf { it.size }
+        val widths = IntArray(cols) { c ->
+            rows.maxOf { r -> r.getOrElse(c) { "" }.length }.coerceAtMost(36)
+        }
+        return rows.joinToString("\n") { r ->
+            (0 until cols).joinToString(" │ ") { c ->
+                r.getOrElse(c) { "" }.padEnd(widths[c])
+            }
+        }
     }
 
     private fun copy(text: String) {
@@ -391,7 +635,7 @@ class ChatView(private val list: LinearLayout, private val scroll: ScrollView) {
             if (part.isCode) {
                 if (out.isNotEmpty() && out.last() != '\n') out.append('\n')
                 val codeStart = out.length
-                out.append(part.text).append('\n')
+                out.append(highlightedCode(part.text, part.language)).append('\n')
                 val end = out.length
                 out.setSpan(TypefaceSpan("monospace"), codeStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 out.setSpan(RelativeSizeSpan(0.88f), codeStart, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
