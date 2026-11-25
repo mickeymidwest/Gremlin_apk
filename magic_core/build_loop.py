@@ -739,6 +739,20 @@ def verify_step_sync(
             )
         if not parsed_cmd:
             return VerifyResult(ok=False, command=cmd, output="", exit_code=1, reason="empty verify command")
+        from . import hooks as _hooks_mod
+        _vdec = _hooks_mod.run_pre_tool(
+            "run_shell",
+            {"command": cmd, "cmd": cmd, "tool": "verify_step"},
+            root=root_abs,
+        )
+        if not _vdec.allowed:
+            return VerifyResult(
+                ok=False,
+                command=cmd,
+                output="",
+                exit_code=1,
+                reason=_vdec.reason or "blocked by pre_tool hook",
+            )
         _secret_env = re.compile(
             r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|PASS|AUTH|CREDENTIAL|COOKIE)$"
             r"|^(?:AWS|GITHUB|ANTHROPIC|GEMINI|OPENAI)_",
@@ -1659,6 +1673,31 @@ async def run_build_loop(
             continue
 
         # 6. COMMIT per step (one logical change per commit)
+        from . import hooks as _hooks_mod
+        _touched = (
+            list(step_files_dict.keys())
+            if (step_files_dict is not None and bootstrap)
+            else pregate._touched_files(step_patch)
+        )
+        _hook_block = ""
+        for _rel in _touched:
+            _pre_d = _hooks_mod.run_pre_tool(
+                "edit_file",
+                {"path": _rel, "resolved_path": str(Path(root_abs) / _rel)},
+                root=root_abs,
+            )
+            if not _pre_d.allowed:
+                _hook_block = _pre_d.reason or f"blocked by pre_tool hook on {_rel}"
+                break
+        if _hook_block:
+            outcome.status = "failed"
+            outcome.error = _hook_block
+            outcomes.append(outcome)
+            stopped_on_red = True
+            halted_at_step = step.index
+            log(f"  [Step {step.index} BLOCKED] {_hook_block[:240]}")
+            continue
+
         applied_by = f"{','.join(model_names or ['magic'])} [build-loop step {step.index}/{total_steps}]"
         step_commit_goal = f"step {step.index}/{total_steps}: {step.title}"
         if step_files_dict is not None and bootstrap:
@@ -1692,6 +1731,14 @@ async def run_build_loop(
 
         sha = _git_head_sha(root_abs)
         changed = list(apply_res.get("files_changed") or [])
+        _post_d = _hooks_mod.run_post_tool(
+            "edit_file",
+            {"files": [str(Path(root_abs) / f) for f in changed]},
+            root=root_abs,
+        )
+        if _post_d.feedback:
+            log(f"  [Step {step.index} hook feedback] {_post_d.feedback}")
+            outcome.test_summary = (outcome.test_summary + "\n" + _post_d.feedback).strip()
         outcome.status = "committed"
         outcome.commit_sha = sha
         outcome.commit_message = apply_res.get("commit_message", "")

@@ -574,6 +574,11 @@ def create_app(
             data["desktop_heavy"] = _dh.get_manager().status()
         except Exception:
             pass
+        try:
+            from . import hooks as _hooks
+            data["hooks"] = _hooks.stats()
+        except Exception:
+            pass
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
@@ -977,6 +982,7 @@ def create_app(
                 )
                 action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
                 _emit_turn_timing("/chat", action_result, _timing, _t_req0)
+                _fire_post_turn("/chat", message, action_result)
                 return jsonify(action_result)
 
             # Fold the last few turns of THIS conversation in, so Magic
@@ -1039,6 +1045,7 @@ def create_app(
         finally:
             _fg_exit()
         _spawn_watchdog(message, result.get("answer", ""))
+        _fire_post_turn("/chat", message, result)
         return jsonify(result)
 
     async def _summarize(_prompt: str) -> str:
@@ -1420,6 +1427,31 @@ def create_app(
     def _sse(obj: dict) -> str:
         return f"data: {json.dumps(obj)}\n\n"
 
+    def _fire_post_turn(route: str, msg: str, payload: Optional[dict]) -> None:
+        try:
+            from . import hooks as _hooks
+            if not _hooks.has_enabled("post_turn"):
+                return
+            pl = payload if isinstance(payload, dict) else {}
+            _hooks.dispatch_post_turn({
+                "route": route,
+                "message": msg,
+                "answer": str(pl.get("answer") or ""),
+                "action": str(pl.get("action") or "chat"),
+                "ok": bool(pl.get("action_ok", pl.get("ok", True))),
+                "head": str(pl.get("head") or ""),
+                "source": str(pl.get("source") or ""),
+                "root": str(project_root),
+            })
+        except Exception:
+            pass
+
+    def _sse_done(route: str, msg: str, payload: dict) -> Response:
+        def _single():
+            yield _sse({"type": "done", **payload})
+            _fire_post_turn(route, msg, payload)
+        return Response(_single(), mimetype="text/event-stream", headers=_SSE_HEADERS)
+
     @app.route("/chat/stream", methods=["POST"])
     def chat_stream():
         """Server-Sent-Events twin of /chat for the ordinary answer path.
@@ -1491,8 +1523,7 @@ def create_app(
                     pending_confirmations.clear(conv_key)
                     done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
                     done["synced_count"] = synced_count
-                    return Response(_sse({"type": "done", **done}),
-                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
+                    return _sse_done("/chat/stream", message, done)
 
                 from . import notes as notes_mod
                 if notes_mod.is_remember_last_reply_command(message):
@@ -1504,16 +1535,14 @@ def create_app(
                         notes_mod.remember_fact(str(project_root), last)
                         done = _chat_reply(f"Got it — I'll remember that: {last}")
                     done["synced_count"] = synced_count
-                    return Response(_sse({"type": "done", **done}),
-                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
+                    return _sse_done("/chat/stream", message, done)
 
                 from . import lora_dataset as _lora_ds
                 _is_good, _good_edit = _lora_ds.parse_good_command(message)
                 if _is_good:
                     done = _handle_good_command(conv_key, _good_edit)
                     done["synced_count"] = synced_count
-                    return Response(_sse({"type": "done", **done}),
-                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
+                    return _sse_done("/chat/stream", message, done)
 
                 _t_act0 = time.perf_counter()
                 action_result = _handle_possible_action(message, history=_render_stream_history())
@@ -1530,8 +1559,7 @@ def create_app(
                     action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
                     _emit_turn_timing("/chat/stream", action_result,
                                       {"action_ms": _action_ms, "bg_active": _bg_at_start}, _t_req0)
-                    return Response(_sse({"type": "done", **action_result}),
-                                    mimetype="text/event-stream", headers=_SSE_HEADERS)
+                    return _sse_done("/chat/stream", message, action_result)
 
             history = _render_stream_history()
             fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
@@ -1665,6 +1693,7 @@ def create_app(
                     yield _sse({"type": "delta", "text": payload})
                 else:
                     yield _sse({"type": "done", **payload})
+                    _fire_post_turn("/chat/stream", message, payload)
 
         return Response(_emit(), mimetype="text/event-stream", headers=_SSE_HEADERS)
 

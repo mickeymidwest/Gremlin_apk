@@ -1,0 +1,44 @@
+# Magic Agent Lifecycle Hooks (controlled by MAGIC_HOOKS, default "1").
+# Events:
+#   pre_prompt : max 50ms   (injects into _dynamic_context only; never touches R5 static prefix)
+#   pre_tool   : max 2000ms (runs before shell / file-mutation tools)
+#   post_tool  : max 8000ms (runs after file-edit tools in /fix & /build)
+#   post_turn  : max 5000ms (runs asynchronously on bounded daemon pool after /chat or SSE done)
+
+hooks:
+  - name: block_destructive_git
+    event: pre_tool
+    enabled: true
+    match: "^(run_command|run_shell|shell|bash|verify_step)$|\\bgit\\b"
+    type: builtin
+    handler: block_destructive_git
+    timeout_ms: 2000
+    fail_mode: closed
+
+  - name: protect_sensitive_paths
+    event: pre_tool
+    enabled: true
+    type: builtin
+    handler: protect_sensitive_paths
+    timeout_ms: 2000
+    fail_mode: closed
+
+  - name: py_syntax_check
+    event: post_tool
+    enabled: true
+    match: "\\.py$"
+    type: builtin
+    handler: py_syntax_check
+    timeout_ms: 8000
+    fail_mode: open
+
+  # Example post_turn shell hook (disabled by default):
+  # Fires a desktop/phone notification asynchronously after a /build or /fix turn completes.
+  - name: notify_build_complete
+    event: post_turn
+    enabled: false
+    match: "^/(?:build|fix)"
+    type: shell
+    cmd: "notify-send 'Magic' 'Build/Fix turn completed' || true"
+    timeout_ms: 5000
+    fail_mode: open

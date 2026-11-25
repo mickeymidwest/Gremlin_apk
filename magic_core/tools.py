@@ -342,6 +342,14 @@ async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str,
     command = str(args.get("command") or "").strip()
     if not command:
         return {"answer": "What command do you want me to run?", "action": "run_command", "ok": False}
+    from . import hooks as hooks_mod
+    dec = hooks_mod.run_pre_tool(
+        "run_command",
+        {"command": command, "as_root": bool(args.get("as_root"))},
+        root=ctx.project_root,
+    )
+    if not dec.allowed:
+        return {"answer": dec.reason or "Blocked by pre_tool hook.", "action": "run_command", "ok": False}
     if bool(args.get("as_root")):
         result = await root_exec.run_as_root(command, ctx.project_root)
     else:
@@ -457,6 +465,10 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     goal = str(args.get("goal") or "").strip()
     if not goal:
         return {"answer": "What do you want me to change about myself?", "action": "self_edit", "ok": False}
+    from . import hooks as hooks_mod
+    dec = hooks_mod.run_pre_tool("self_edit", {"goal": goal}, root=ctx.project_root)
+    if not dec.allowed:
+        return {"answer": dec.reason or "Blocked by pre_tool hook.", "action": "self_edit", "ok": False}
     # Just the primary, not every registered model -- confirmed live
     # 2026-09-20: propose_patch() broadcasts to every name in this list
     # (2 local GGUFs, each needing its own VRAM swap, plus 2 API calls),
@@ -493,15 +505,19 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
             run_hint="the changed code")
         receipt.unknown.append("it isn't live until Magic restarts")
     if result.get("applied") and result.get("committed"):
+        post_dec = hooks_mod.run_post_tool("self_edit", {"files": files}, root=ctx.project_root)
+        fb = f"\n\n{post_dec.feedback}" if post_dec.feedback else ""
         verdict = f"\n{result['verdict']}" if result.get("verdict") else ""
         return receipt_mod.attach({
-            "answer": f"Done -- {result.get('commit_message')}\nFiles changed: {result.get('files_changed')}{verdict}",
+            "answer": f"Done -- {result.get('commit_message')}\nFiles changed: {result.get('files_changed')}{verdict}{fb}",
             "action": "self_edit",
             "ok": True,
         }, receipt)
     if result.get("applied"):
+        post_dec = hooks_mod.run_post_tool("self_edit", {"files": files}, root=ctx.project_root)
+        fb = f"\n\n{post_dec.feedback}" if post_dec.feedback else ""
         return receipt_mod.attach({
-            "answer": f"Applied but not committed -- {result.get('warning')}",
+            "answer": f"Applied but not committed -- {result.get('warning')}{fb}",
             "action": "self_edit",
             "ok": True,
         }, receipt)
@@ -522,6 +538,14 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
             "ok": False,
         }
     target_root = str(Path.home() / "Downloads" / safe_name)
+    from . import hooks as hooks_mod
+    dec = hooks_mod.run_pre_tool(
+        "build_project",
+        {"name": name, "goal": goal, "path": target_root},
+        root=ctx.project_root,
+    )
+    if not dec.allowed:
+        return {"answer": dec.reason or "Blocked by pre_tool hook.", "action": "build_project", "ok": False}
     # Just the primary, not every registered model -- broadcasting a
     # build proposal to all 21+ would mean loading each one in turn on
     # this HDD before a single draft comes back, the same "took hours"
@@ -552,16 +576,20 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
                             else ["NOT committed: " + str(result.get("warning") or "commit failed")]),
             run_hint="the program")
     if result.get("applied") and result.get("committed"):
+        post_dec = hooks_mod.run_post_tool("build_project", {"files": files}, root=target_root)
+        fb = f"\n\n{post_dec.feedback}" if post_dec.feedback else ""
         verdict = f"\n{result['verdict']}" if result.get("verdict") else ""
         return receipt_mod.attach({
             "answer": f"Built it in ~/Downloads/{safe_name}/ -- {result.get('commit_message')}\n"
-                      f"Files: {result.get('files_changed')}{verdict}",
+                      f"Files: {result.get('files_changed')}{verdict}{fb}",
             "action": "build_project",
             "ok": True,
         }, receipt)
     if result.get("applied"):
+        post_dec = hooks_mod.run_post_tool("build_project", {"files": files}, root=target_root)
+        fb = f"\n\n{post_dec.feedback}" if post_dec.feedback else ""
         return receipt_mod.attach({
-            "answer": f"Written to ~/Downloads/{safe_name}/ but not committed -- {result.get('warning')}",
+            "answer": f"Written to ~/Downloads/{safe_name}/ but not committed -- {result.get('warning')}{fb}",
             "action": "build_project",
             "ok": True,
         }, receipt)
@@ -583,6 +611,15 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     if refusal:
         return {"answer": f"I won't touch that one: {refusal}", "action": "script_fix", "ok": False}
 
+    from . import hooks as hooks_mod
+    dec = hooks_mod.run_pre_tool(
+        "script_fix",
+        {"path": path, "resolved_path": path, "problem": problem},
+        root=ctx.project_root,
+    )
+    if not dec.allowed:
+        return {"answer": dec.reason or "Blocked by pre_tool hook.", "action": "script_fix", "ok": False}
+
     model_names = [getattr(ctx.registry, "primary_model_name", lambda: None)() or "magic"]
     new_content = await script_edit.propose_fix(ctx.router, model_names, path, problem)
     result = await script_edit.apply_fix(
@@ -591,13 +628,19 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
     )
     if result.get("applied"):
         name = Path(path).name
+        post_dec = hooks_mod.run_post_tool(
+            "script_fix",
+            {"path": path, "resolved_path": path},
+            root=ctx.project_root,
+        )
+        fb = f"\n\n{post_dec.feedback}" if post_dec.feedback else ""
         receipt = receipt_mod.for_code_change(
             "script_fix", f"Rewrote {name}", [name],
             {"compiled": [name] if name.endswith(".py") else []},
             extra_evidence=[f"original backed up to {result.get('backup_path')}"],
             run_hint=name)
         return receipt_mod.attach({
-            "answer": f"Changed {name}. Original backed up to {result.get('backup_path')}.",
+            "answer": f"Changed {name}. Original backed up to {result.get('backup_path')}.{fb}",
             "action": "script_fix",
             "ok": True,
         }, receipt)

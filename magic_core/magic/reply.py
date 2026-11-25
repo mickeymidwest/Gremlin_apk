@@ -591,10 +591,19 @@ def _build_prompt(message: str, root: str, history: str, evidence: str = "",
         "mem": round((_t_sk0 - _t_mem0) * 1000, 1),
         "skills": round((_t_sk1 - _t_sk0) * 1000, 1),
     })
+    _hook_ctx = ""
+    try:
+        from .. import hooks as _hooks_mod
+        if _hooks_mod.has_enabled("pre_prompt"):
+            _hdec = _hooks_mod.run_pre_prompt(message, root=root)
+            _hook_ctx = (_hdec.inject_context or "").strip()
+    except Exception:
+        _hook_ctx = ""
     dynamic_context = "\n\n".join(p for p in (
         _cons_block,
         _mem_blk,
         _sk_blk,
+        _hook_ctx,
     ) if p)
     history, nudge = _repeat_nudge_and_clean(message, history)
     hist: list[dict] = []

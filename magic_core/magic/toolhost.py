@@ -504,6 +504,10 @@ class ShellToolHost:
             if hit:
                 return ToolResult(False, f"read-only mode: `{hit}` can change state and is blocked. "
                                          "Use a command that only reads (df, du, ls, ps, cat, ...).")
+        from .. import hooks as _hooks_mod
+        _hdec = _hooks_mod.run_pre_tool("run_shell", {"command": cmd, "cmd": cmd}, root=str(self.root))
+        if not _hdec.allowed:
+            return ToolResult(False, _hdec.reason or "Blocked by pre_tool hook.")
         run_cmd = cmd
         if re.search(r"\b(?:pytest|gradlew|cargo test|go test|npm test)\b", cmd):
             try:
@@ -677,6 +681,28 @@ class ShellToolHost:
         out = ((stat.stdout or "").strip() + "\n\n" + (res.stdout or "").strip()).strip()
         return ToolResult(res.returncode == 0, self._clip(out or "(working tree clean)"))
 
+    def _check_edit_pre_hook(self, tool_name: str, rel: str, p: Path) -> Optional[ToolResult]:
+        from .. import hooks as _hooks_mod
+        dec = _hooks_mod.run_pre_tool(
+            tool_name,
+            {"path": rel, "resolved_path": str(p)},
+            root=str(self.root),
+        )
+        if not dec.allowed:
+            return ToolResult(False, dec.reason or "Blocked by pre_tool hook.")
+        return None
+
+    def _finish_edit_result(self, tool_name: str, rel: str, p: Path, msg: str) -> ToolResult:
+        from .. import hooks as _hooks_mod
+        dec = _hooks_mod.run_post_tool(
+            tool_name,
+            {"path": rel, "resolved_path": str(p)},
+            root=str(self.root),
+        )
+        if dec.feedback:
+            msg = f"{msg}\n{dec.feedback}"
+        return ToolResult(True, msg)
+
     def _t_multi_edit(self, args: dict) -> ToolResult:
         """Atomically apply non-overlapping {search/old, replace/new} hunks on one file."""
         rel = self._val(args, "path", "file", "filename")
@@ -685,6 +711,9 @@ class ShellToolHost:
             return ToolResult(False, "path escapes the repo root")
         if self._protected(rel):
             return ToolResult(False, f"{rel} is READ-ONLY for this task -- do not change it.")
+        _blk = self._check_edit_pre_hook("multi_edit", rel, p)
+        if _blk is not None:
+            return _blk
         if not p.is_file():
             return ToolResult(False, f"no such file: {rel}")
         edits = args.get("edits")
@@ -728,7 +757,7 @@ class ShellToolHost:
         if rej:
             return ToolResult(False, rej)
         p.write_text(new_text)
-        return ToolResult(True, f"applied {len(spans)} edits to {rel}")
+        return self._finish_edit_result("multi_edit", rel, p, f"applied {len(spans)} edits to {rel}")
 
     def _t_revert_to_best(self, _args: dict) -> ToolResult:
         """Reset working tree back to 'magic-best' (highest observed pass count)
@@ -868,6 +897,9 @@ class ShellToolHost:
         if self._protected(rel):
             return ToolResult(False, f"{rel} is READ-ONLY for this task -- you can read it but "
                                      "not change it. Put your changes in a different (new) file.")
+        _blk = self._check_edit_pre_hook("write_file", rel, p)
+        if _blk is not None:
+            return _blk
         has_text = any(k in args for k in ("text", "content", "body"))
         text = args.get("text", args.get("content", args.get("body", "")))
         if not rel or not has_text or not str(text).strip():
@@ -881,7 +913,7 @@ class ShellToolHost:
             return ToolResult(False, f"NOT WRITTEN -- {rej}\nFix the syntax and send write_file again.")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(text)
-        return ToolResult(True, f"wrote {len(text)} chars to {rel}")
+        return self._finish_edit_result("write_file", rel, p, f"wrote {len(text)} chars to {rel}")
 
     def _t_edit_file(self, args: dict) -> ToolResult:
         rel = self._val(args, "path", "file", "filename", "name")
@@ -891,6 +923,9 @@ class ShellToolHost:
         if self._protected(rel):
             return ToolResult(False, f"{rel} is READ-ONLY for this task -- do not change it. "
                                      "Put your work in a new file in the repo root.")
+        _blk = self._check_edit_pre_hook("edit_file", rel, p)
+        if _blk is not None:
+            return _blk
         search = args.get("search", args.get("old", args.get("find", "")))
         replace = args.get("replace", args.get("new", args.get("with", "")))
         if not p.is_file():
@@ -903,7 +938,7 @@ class ShellToolHost:
                     return ToolResult(False, f"NOT WRITTEN -- {rej}\nFix the syntax and try again.")
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(replace if replace.endswith("\n") else replace + "\n")
-                return ToolResult(True, f"created {rel} ({len(replace)} chars)")
+                return self._finish_edit_result("edit_file", rel, p, f"created {rel} ({len(replace)} chars)")
             return ToolResult(False, f"no such file: {rel or '(empty path)'} (use write_file to create it)")
         original = p.read_text()
         if not search:
@@ -920,7 +955,9 @@ class ShellToolHost:
                 if rej:
                     return ToolResult(False, f"NOT WRITTEN -- prepend would break the file: {rej}")
                 p.write_text(updated)
-                return ToolResult(True, f"prepended to {rel} ({len(original)} -> {len(updated)} chars)")
+                return self._finish_edit_result(
+                    "edit_file", rel, p, f"prepended to {rel} ({len(original)} -> {len(updated)} chars)"
+                )
             return ToolResult(False, "edit_file needs 'search' (an exact snippet to replace) and "
                                      "'replace'. To add text at the top, pass an empty 'search' with "
                                      "your new text in 'replace'. To rewrite the whole file, use write_file.")
@@ -963,7 +1000,9 @@ class ShellToolHost:
                 "correctly-indented drop-in for what 'search' matched (e.g. if search is a "
                 "method header, replace is the whole method with its body).")
         p.write_text(updated)
-        return ToolResult(True, f"{verb} {rel} ({len(original)} -> {len(updated)} chars)")
+        return self._finish_edit_result(
+            "edit_file", rel, p, f"{verb} {rel} ({len(original)} -> {len(updated)} chars)"
+        )
 
     def _t_read_ref(self, args: dict) -> "ToolResult":
         """Read a slice of a large output stored by pass-by-reference."""
