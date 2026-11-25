@@ -79,6 +79,15 @@ class HookEntry:
     cmd: str = ""
     timeout_ms: int = 2000
     fail_mode: str = "open"
+    description: str = ""
+
+
+_DEFAULT_DESCRIPTIONS: dict[str, str] = {
+    "block_destructive_git": "Block git add -A/., reset --hard, checkout -- ., restore, push --force",
+    "protect_sensitive_paths": "Block writes/deletes to campaign_*.json, .env, keys & credentials",
+    "py_syntax_check": "Run py_compile after Python edits in /fix & /build",
+    "notify_build_complete": "Send desktop notification after a /build or /fix turn",
+}
 
 
 def is_enabled() -> bool:
@@ -436,6 +445,7 @@ class HookDispatcher:
         self._total_ms = 0.0
         self._queue: queue.Queue[tuple[dict[str, Any], Optional[threading.Event]]] = queue.Queue(maxsize=64)
         self._workers_started = False
+        self._enabled_override: Optional[bool] = None
         self._load()
 
     def _load(self) -> None:
@@ -469,6 +479,7 @@ class HookDispatcher:
                     fail_mode = str(item.get("fail_mode") or "open").strip().lower()
                     if fail_mode not in ("open", "closed"):
                         fail_mode = "open"
+                    desc = str(item.get("description") or _DEFAULT_DESCRIPTIONS.get(name, "")).strip()
                     entry = HookEntry(
                         name=name,
                         event=event,
@@ -480,6 +491,7 @@ class HookDispatcher:
                         cmd=cmd,
                         timeout_ms=timeout_ms,
                         fail_mode=fail_mode,
+                        description=desc,
                     )
                     hooks.append(entry)
                     if entry.enabled:
@@ -493,17 +505,59 @@ class HookDispatcher:
             self._config_path = Path(config_path)
         self._load()
 
-    def has_enabled(self, event: str) -> bool:
-        if not is_enabled():
+    def is_enabled(self) -> bool:
+        if os.environ.get("MAGIC_HOOKS") is not None and not is_enabled():
             return False
-        return bool(self._by_event.get(event))
+        with self._lock:
+            if self._enabled_override is not None:
+                return self._enabled_override
+        return is_enabled()
+
+    def set_enabled(self, enabled: bool) -> bool:
+        with self._lock:
+            self._enabled_override = bool(enabled)
+            return self._enabled_override
+
+    def set_hook_enabled(self, name: str, enabled: bool) -> bool:
+        with self._lock:
+            found = False
+            for entry in self._hooks:
+                if entry.name == name:
+                    entry.enabled = bool(enabled)
+                    found = True
+            if found:
+                by_event: dict[str, list[HookEntry]] = {ev: [] for ev in VALID_EVENTS}
+                for entry in self._hooks:
+                    if entry.enabled:
+                        by_event[entry.event].append(entry)
+                self._by_event = by_event
+            return found
+
+    def list_hooks(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [
+                {
+                    "name": h.name,
+                    "event": h.event,
+                    "enabled": bool(h.enabled),
+                    "description": h.description or _DEFAULT_DESCRIPTIONS.get(h.name, ""),
+                }
+                for h in self._hooks
+            ]
+
+    def has_enabled(self, event: str) -> bool:
+        if not self.is_enabled():
+            return False
+        with self._lock:
+            return bool(self._by_event.get(event))
 
     def stats(self) -> dict[str, Any]:
+        eff_enabled = self.is_enabled()
         with self._lock:
             fired = self._fired
             avg = round(self._total_ms / fired, 3) if fired > 0 else 0.0
             return {
-                "enabled": is_enabled(),
+                "enabled": eff_enabled,
                 "loaded": len(self._hooks),
                 "fired": fired,
                 "blocked": self._blocked,
@@ -614,9 +668,10 @@ class HookDispatcher:
             return HookDecision(allowed=True), True
 
     def dispatch(self, event: str, ctx: Optional[dict[str, Any]] = None) -> HookDecision:
-        if not is_enabled():
+        if not self.is_enabled():
             return HookDecision(allowed=True)
-        entries = self._by_event.get(event)
+        with self._lock:
+            entries = list(self._by_event.get(event) or ())
         if not entries:
             return HookDecision(allowed=True)
 
@@ -721,6 +776,18 @@ def has_enabled(event: str) -> bool:
 
 def stats() -> dict[str, Any]:
     return get_dispatcher().stats()
+
+
+def set_enabled(enabled: bool) -> bool:
+    return get_dispatcher().set_enabled(enabled)
+
+
+def set_hook_enabled(name: str, enabled: bool) -> bool:
+    return get_dispatcher().set_hook_enabled(name, enabled)
+
+
+def list_hooks() -> list[dict[str, Any]]:
+    return get_dispatcher().list_hooks()
 
 
 def run_pre_prompt(message: str, *, root: str = "") -> HookDecision:

@@ -526,6 +526,55 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
      *  /model) on the desktop and returns its answer text. The desktop
      *  does the work; this is just the messenger. `thread` (optional)
      *  keeps this in one named conversation. */
+    fun getControls(): Pair<JSONObject?, String?> {
+        val host = prefs.getString("host", null) ?: return null to "Not paired with a desktop"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null to "Missing pairing token"
+        if (port == 0) return null to "Invalid desktop port"
+        return try {
+            val c = (URL("http://$host:$port/controls").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = 6_000
+                readTimeout = 10_000
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code in 200..299) json to null
+            else null to json.optString("error", "HTTP $code")
+        } catch (e: Exception) {
+            null to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun postControls(patch: JSONObject): Pair<JSONObject?, String?> {
+        val host = prefs.getString("host", null) ?: return null to "Not paired with a desktop"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null to "Missing pairing token"
+        if (port == 0) return null to "Invalid desktop port"
+        return try {
+            val c = (URL("http://$host:$port/controls").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = 6_000
+                readTimeout = 30_000
+            }
+            OutputStreamWriter(c.outputStream).use { it.write(patch.toString()) }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code in 200..299 && json.optBoolean("ok", true)) json to null
+            else null to json.optString("error", "HTTP $code")
+        } catch (e: Exception) {
+            null to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
     fun command(cmd: String, args: String, thread: String? = null): String {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)

@@ -1357,41 +1357,93 @@ async def _steer(args: str, ctx: CommandContext) -> dict:
     }
 
 
+async def _deep_cmd(args: str, ctx: CommandContext) -> dict:
+    """Canonical deep-reasoning handler for `/deep` and `/think`."""
+    q = (args or "").strip()
+    if not q:
+        return {
+            "ok": False,
+            "action": "deep",
+            "answer": "Usage: /deep <question>  (or /think <question>)",
+        }
+    clean_q = q
+    if not (" " + clean_q).endswith(" /think"):
+        clean_q = clean_q + " /think"
+    res = await _chat(clean_q, ctx)
+    res["action"] = "deep"
+    return res
+
+
+async def _help_cmd(_args: str, _ctx: CommandContext) -> dict:
+    return {"ok": True, "action": "help", "answer": help_text()}
+
+
+async def _clear_cmd(_args: str, ctx: CommandContext) -> dict:
+    return await _chat("clear", ctx)
+
+
+async def _remember_cmd(args: str, ctx: CommandContext) -> dict:
+    from .. import notes
+    fact = (args or "").strip()
+    if not fact:
+        return {"ok": False, "action": "memory", "answer": "Usage: /remember <fact to save>"}
+    notes.remember_fact(ctx.project_root, f"[user] {fact}")
+    return {"ok": True, "action": "memory", "answer": f"Got it — I'll remember that: {fact}"}
+
+
 COMMANDS: dict[str, Command] = {
-    "chat": Command("chat", "Plain talk to Magic. No tools, no routing.", _chat),
-    "inspect": Command("inspect", "Reverse-engineer / inspect a binary, APK, JS/Electron/.NET/WASM app, or URL via REA MCP (`rea.tools`). Usage: `/inspect [rea_tool] <target>`.", _inspect_cmd),
-    "skill": Command("skill", "Add or improve a Magic skill: list | show <name> | "
-                     "new <desc> | improve <name> | <fix>. Falls back to Gemini to draft.", _skill),
-    "defense": Command("defense", "Check your own box: surface | updates | ssh | "
-                       "secrets <path> | report. Read-only, defensive.", _defense),
-    "do": Command("do", "Ask something that needs live data, or recon/RE a target -- "
-                  "Magic runs read-only shell commands to answer (\"what's using my "
-                  "disk\", \"is jellyfin up\", \"what keys are in this apk\"). "
-                  "`do learn <q>` also keeps a skill card from how it did it.", _do),
-    "memory": Command("memory", "What Magic remembers about you: list | forget <n> | clear. "
-                      "(The file is ~/Downloads/gremlin_memory.txt -- editable by hand too.)", _memory),
-    "profile": Command("profile", "How Mickey likes things: show | keep <n> | drop <n> | "
-                       "add <section> <text>. Magic adds guesses from chat; you confirm "
-                       "them. (The file is ~/Downloads/gremlin_profile.md.)", _profile),
-    "build": Command("build", "Magic builds a script / project / app on the desktop; "
-                     "grab it from the app's Builds screen. `build android new <what "
-                     "it does>` scaffolds a whole Android app from one sentence.", _build),
-    "fix": Command("fix", "Magic runs Magic's battle loop on its own harness code "
-                   "and shows the diff.", _fix),
-    "recipe": Command("recipe", "Saved parameterized workflows: list | <name> key=val ... (modes chat/plan/build). Files: data/recipes/*.yaml.", _recipe),
-    "act": Command("act", "Act mode: when ON I RUN your check/run/show requests on the box (real output) instead of just talking. `on | off`.", _act_cmd),
-    "forge": Command("forge", "The Tool Forge -- Magic builds its own tools: list | new <name>: <what it should do> | test <name> [json] | remove <name>. Forged tools are security-scanned and run sandboxed.", _forge),
-    "hive": Command("hive", "The CPU specialist hive: `list` shows the team (watchdog, summarizer, critic, ...); `<name> <text>` runs one on the CPU helper, bounded + best-effort so it never blocks the top-dog.", _hive_cmd),
-    "doctor": Command("doctor", "Fast box & repo health check (RAM, disk, VRAM, git locks, config, pitfalls; add `--prune` to clean stale workdirs).", _doctor),
-    "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
-    "steer": Command("steer", "Runtime control-vector steering: status | off | <name_or_path> <alpha> [il_start-il_end].", _steer),
-    "good": Command("good", "Save the previous turn as a LoRA training exemplar (`/good [edited reply]`).", _good),
-    "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
+    "chat": Command("chat", "Plain talk to Magic (`/chat clear` resets thread).", _chat),
+    "deep": Command("deep", "Deep reasoning turn (forces `<think>`; `/think` is an alias).", _deep_cmd),
+    "do": Command("do", "Live read-only system probe (`/do learn <q>` distills a skill).", _do),
+    "inspect": Command("inspect", "Reverse-engineer a binary, APK, JS/WASM app, or URL via REA.", _inspect_cmd),
+    "defense": Command("defense", "Box security audit: surface | updates | ssh | secrets | report.", _defense),
+    "override": Command("override", "Unfiltered local reply for one message.", _override),
+    "build": Command("build", "Build a script, project, or Android APK on the desktop.", _build),
+    "fix": Command("fix", "Run Magic's battle loop on its own harness code.", _fix),
+    "forge": Command("forge", "Author and manage sandboxed custom tools.", _forge),
+    "recipe": Command("recipe", "Run saved parameterized workflows (`list | <name> k=v...`).", _recipe),
+    "memory": Command("memory", "View or forget durable memory notes.", _memory),
+    "profile": Command("profile", "View or curate your preference profile.", _profile),
+    "skill": Command("skill", "List, inspect, or draft learned skill cards.", _skill),
+    "model": Command("model", "Base model management (`list | search | download | switch`).", _model),
+    "doctor": Command("doctor", "Fast box & repo health check (`--prune`).", _doctor),
 }
+
+# Hidden legacy/UI-superseded commands & aliases: keep working silently for scripts & tests
+# without cluttering `/help`.
+_HIDDEN_COMMANDS: dict[str, Command] = {
+    "think": Command("think", "Alias for /deep.", _deep_cmd),
+    "steer": Command("steer", "Control-vector steering (also in Settings -> Tuning & Controls).", _steer),
+    "act": Command("act", "Toggle Act mode (`on | off`).", _act_cmd),
+    "good": Command("good", "Save previous turn as a LoRA training exemplar.", _good),
+    "hive": Command("hive", "Inspect or invoke CPU specialist hive.", _hive_cmd),
+    "help": Command("help", "Show available commands.", _help_cmd),
+    "clear": Command("clear", "Alias for `/chat clear`.", _clear_cmd),
+    "reset": Command("reset", "Alias for `/chat clear`.", _clear_cmd),
+    "status": Command("status", "Alias for `/doctor`.", _doctor),
+    "health": Command("health", "Alias for `/doctor`.", _doctor),
+    "check": Command("check", "Alias for `/doctor`.", _doctor),
+    "skills": Command("skills", "Alias for `/skill`.", _skill),
+    "mem": Command("mem", "Alias for `/memory`.", _memory),
+    "re": Command("re", "Alias for `/inspect`.", _inspect_cmd),
+    "remember": Command("remember", "Save a durable memory note.", _remember_cmd),
+}
+
+_HELP_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Core & Reasoning", ("chat", "deep", "do", "inspect", "defense", "override")),
+    ("Build & Repair", ("build", "fix", "forge", "recipe")),
+    ("Memory, Skills & System", ("memory", "profile", "skill", "model", "doctor")),
+)
 
 
 def help_text() -> str:
-    return "Commands:\n" + "\n".join(f"  /{c.name} — {c.help}" for c in COMMANDS.values())
+    sections: list[str] = []
+    for title, names in _HELP_CATEGORIES:
+        rows = [f"  /{name} — {COMMANDS[name].help}" for name in names if name in COMMANDS]
+        if rows:
+            sections.append(f"{title}:\n" + "\n".join(rows))
+    sections.append("Tip: Steering, reasoning mode, hooks, and reranker toggles live in Settings → Tuning & Controls.")
+    return "\n\n".join(sections)
 
 
 def parse(text: str) -> tuple[str, str]:
@@ -1405,6 +1457,7 @@ def parse(text: str) -> tuple[str, str]:
 
 async def dispatch(text: str, ctx: CommandContext) -> dict:
     cmd, args = parse(text)
-    if cmd not in COMMANDS:
+    target = COMMANDS.get(cmd) or _HIDDEN_COMMANDS.get(cmd)
+    if target is None:
         return {"ok": False, "answer": help_text(), "action": "help"}
-    return await COMMANDS[cmd].run(args, ctx)
+    return await target.run(args, ctx)

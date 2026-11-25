@@ -89,6 +89,219 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/tuning_controls_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card_gradient"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tuning &amp; Controls"
+                    android:textColor="@color/magic_accent"
+                    android:textStyle="bold"
+                    android:textSize="16sp"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:id="@+id/controls_status_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Connect to desktop to load live controls"
+                    android:textSize="11sp"
+                    android:alpha="0.75"
+                    android:layout_marginBottom="12dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Activation Steering (Control Vector)"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="4dp" />
+
+                <Spinner
+                    android:id="@+id/controls_cvec_spinner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="2dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Strength (alpha)"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/controls_alpha_value"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0.00"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold"
+                        android:textColor="@color/magic_accent"
+                        android:layout_marginEnd="10dp" />
+
+                    <Button
+                        android:id="@+id/controls_alpha_reset_btn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="34dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:textSize="12sp"
+                        android:text="Reset (0.0)" />
+                </LinearLayout>
+
+                <SeekBar
+                    android:id="@+id/controls_alpha_seekbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="60"
+                    android:progress="30"
+                    android:layout_marginBottom="2dp" />
+
+                <TextView
+                    android:id="@+id/controls_alpha_warning"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="High |alpha| &gt; 1.0 may reduce coherence"
+                    android:textSize="11sp"
+                    android:textColor="@color/magic_system"
+                    android:visibility="gone"
+                    android:layout_marginBottom="6dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Layer range"
+                    android:textSize="11sp"
+                    android:alpha="0.75"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="4dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="14dp">
+
+                    <Button
+                        android:id="@+id/controls_layers_default"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="36dp"
+                        android:textSize="11sp"
+                        android:layout_marginEnd="6dp"
+                        android:text="Default (Mid-Late)" />
+
+                    <Button
+                        android:id="@+id/controls_layers_focused"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="36dp"
+                        android:textSize="11sp"
+                        android:layout_marginEnd="6dp"
+                        android:text="Focused (Mid)" />
+
+                    <Button
+                        android:id="@+id/controls_layers_wide"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="36dp"
+                        android:textSize="11sp"
+                        android:text="Wide" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reasoning Mode"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="6dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="14dp">
+
+                    <Button
+                        android:id="@+id/controls_think_auto"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="38dp"
+                        android:textSize="12sp"
+                        android:layout_marginEnd="6dp"
+                        android:text="Auto" />
+
+                    <Button
+                        android:id="@+id/controls_think_on"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="38dp"
+                        android:textSize="12sp"
+                        android:layout_marginEnd="6dp"
+                        android:text="Always Think" />
+
+                    <Button
+                        android:id="@+id/controls_think_off"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:minHeight="38dp"
+                        android:textSize="12sp"
+                        android:text="Fast (No Think)" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/controls_hooks_master_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Safety &amp; automation hooks"
+                    android:textColor="@color/magic_text_primary"
+                    android:layout_marginBottom="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/controls_hooks_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="12dp"
+                    android:layout_marginBottom="8dp" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/controls_reranker_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="CPU Reranker (FlashRank)"
+                    android:textColor="@color/magic_text_primary" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
