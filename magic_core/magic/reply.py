@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextvars
 import os
 import re
+import threading
 import time
 from typing import Optional
 
@@ -208,17 +209,40 @@ def _should_think(message: str) -> bool:
     return False
 
 
+_THINKING_MODES = ("auto", "on", "off")
+_THINKING_MODE_LOCK = threading.Lock()
+_THINKING_MODE = "auto"
+
+
+def get_thinking_mode() -> str:
+    with _THINKING_MODE_LOCK:
+        return _THINKING_MODE
+
+
+def set_thinking_mode(mode: str) -> str:
+    val = str(mode or "").strip().lower()
+    if val not in _THINKING_MODES:
+        raise ValueError(f"Invalid thinking_mode {mode!r}; expected one of {_THINKING_MODES}")
+    with _THINKING_MODE_LOCK:
+        global _THINKING_MODE
+        _THINKING_MODE = val
+        return _THINKING_MODE
+
+
 def _should_think_for(message: str, backend=None) -> bool:
-    """Think gate aware of backend class: Gemma 4 MoE stays fast (think=False)
-    for normal chat/web lookups and thinks only on explicit /think or deep-reasoning
-    escalation; smaller chatml-nothink models keep standard _should_think()."""
-    if not _is_gemma4_backend(backend):
-        return _should_think(message)
+    """Think gate aware of backend class and runtime thinking_mode override."""
     m = (message or "").strip()
     if not m or (" " + m).endswith(" /no_think"):
         return False
     if (" " + m).endswith(" /think"):
         return True
+    mode = get_thinking_mode()
+    if mode == "on":
+        return True
+    if mode == "off":
+        return False
+    if not _is_gemma4_backend(backend):
+        return _should_think(message)
     if _is_casual_chat(m) or _CASUAL_BRIEF_RE.search(m):
         return False
     from .hydra import classify_task

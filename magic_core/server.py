@@ -609,6 +609,225 @@ def create_app(
         ok, summary, checks = _res.doctor_report(str(project_root))
         return jsonify({"ok": ok, "summary": summary, "checks": checks})
 
+    def _active_primary_backend():
+        active_name = registry.primary_model_name()
+        be = registry.get(active_name) if active_name else None
+        if be is None:
+            be = registry.get("magic")
+        return active_name, getattr(be, "primary", be)
+
+    _controls_swap_lock = threading.Lock()
+
+    def _available_primary_models() -> list[dict]:
+        from . import model_scan as _ms
+        avail_models = []
+        try:
+            for e in _ms.list_all_entries(Path(config_path).read_text(encoding="utf-8")):
+                if e.get("type") != "local_gguf":
+                    continue
+                nm = str(e.get("name") or "")
+                low = nm.lower()
+                if "stheno" in low or "lotus" in low or ("abliterated" in low and nm != "qwen3-30b-a3b"):
+                    continue
+                avail_models.append({
+                    "name": nm,
+                    "display_name": e.get("display_name", nm),
+                    "type": e["type"],
+                })
+        except Exception:
+            pass
+        return avail_models
+
+    def _switch_primary_model(target_name: str) -> None:
+        from . import registry as _reg_mod
+        from .magic import vram as _vram
+
+        clean = str(target_name or "").strip()
+        avail_models = _available_primary_models()
+        allowed_names = {m["name"] for m in avail_models}
+        target_be = registry.get(clean) if clean else None
+        if (
+            not clean
+            or (allowed_names and clean not in allowed_names)
+            or target_be is None
+            or getattr(getattr(target_be, "info", None), "kind", None) == "persona"
+        ):
+            raise ValueError(f"Unknown or disallowed primary_model {target_name!r}")
+
+        with _controls_swap_lock:
+            cur_name, cur_be = _active_primary_backend()
+            if cur_name == clean:
+                return
+
+            # Clear any active control vector on the outgoing backend before swapping
+            # so architecture-specific steering never leaks across heads.
+            if cur_be is not None:
+                if callable(getattr(cur_be, "async_clear_control_vector", None)):
+                    run_coro(loop, cur_be.async_clear_control_vector(), timeout=60.0)
+                elif callable(getattr(cur_be, "clear_control_vector", None)):
+                    cur_be.clear_control_vector()
+
+            async def _swap_coro():
+                await _vram.ensure_only(registry, keep=clean)
+                if callable(getattr(registry, "set_primary_model", None)):
+                    registry.set_primary_model(clean)
+                else:
+                    magic_be = registry.get("magic")
+                    if magic_be is not None and hasattr(magic_be, "primary"):
+                        magic_be.primary = target_be
+                    _reg_mod.set_runtime_primary_model(clean)
+
+                if target_be is not cur_be and callable(getattr(target_be, "clear_control_vector", None)):
+                    cv_st = (
+                        target_be.control_vector_status()
+                        if callable(getattr(target_be, "control_vector_status", None))
+                        else {}
+                    )
+                    if cv_st.get("active"):
+                        if callable(getattr(target_be, "async_clear_control_vector", None)):
+                            await target_be.async_clear_control_vector()
+                        else:
+                            target_be.clear_control_vector()
+
+                if getattr(target_be, "_llm", None) is None and callable(getattr(target_be, "warmup", None)):
+                    await target_be.warmup()
+
+            run_coro(loop, _swap_coro(), timeout=180.0)
+
+    def _controls_snapshot() -> dict:
+        from . import control_vectors as _cv
+        from . import hooks as _hooks
+        from . import reranker as _rr
+
+        active_name, active_be = _active_primary_backend()
+        cv_fn = getattr(active_be, "control_vector_status", None)
+        cv_st = cv_fn() if callable(cv_fn) else {
+            "active": False, "path": None, "name": None, "alpha": 0.0,
+            "il_start": -1, "il_end": -1, "signature": "none", "warning": "",
+        }
+        n_layers = 0
+        llm_obj = getattr(active_be, "_llm", None)
+        if llm_obj is not None:
+            dims_fn = getattr(active_be, "_llm_dims", None)
+            if callable(dims_fn):
+                try:
+                    n_layers = int(dims_fn(llm_obj)[1] or 0)
+                except Exception:
+                    n_layers = 0
+            if n_layers <= 0:
+                n_layers = int(getattr(llm_obj, "_n_layer", 0) or 0)
+        avail_vecs = [p.name for p in _cv.list_cvecs(project_root)]
+        if n_layers <= 0 and avail_vecs:
+            try:
+                first_vec = _cv.load_cvec_gguf(_cv.cvecs_dir(project_root) / avail_vecs[0])
+                n_layers = int(first_vec.max_layer + 1)
+            except Exception:
+                pass
+
+        avail_models = _available_primary_models()
+
+        return {
+            "ok": True,
+            "control_vector": {
+                "active": bool(cv_st.get("active")),
+                "name": cv_st.get("name"),
+                "alpha": float(cv_st.get("alpha", 0.0)),
+                "il_start": int(cv_st.get("il_start", -1)),
+                "il_end": int(cv_st.get("il_end", -1)),
+                "n_layers": n_layers,
+                "signature": cv_st.get("signature", "none"),
+                "warning": cv_st.get("warning", ""),
+                "available_vectors": avail_vecs,
+            },
+            "thinking_mode": magic_reply.get_thinking_mode(),
+            "hooks": {
+                "enabled": _hooks.get_dispatcher().is_enabled(),
+                "items": _hooks.list_hooks(),
+            },
+            "primary_model": active_name,
+            "available_models": avail_models,
+            "reranker_enabled": bool(_rr.get_reranker().is_enabled()),
+        }
+
+    @app.route("/controls", methods=["GET", "POST"])
+    def controls():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        if request.method == "GET":
+            return jsonify(_controls_snapshot())
+
+        from . import control_vectors as _cv
+        from . import hooks as _hooks
+        from . import reranker as _rr
+
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "expected JSON object"}), 400
+
+        try:
+            if "primary_model" in body:
+                _switch_primary_model(str(body["primary_model"]))
+
+            if "thinking_mode" in body:
+                magic_reply.set_thinking_mode(str(body["thinking_mode"]))
+
+            if "reranker_enabled" in body:
+                _rr.set_enabled(bool(body["reranker_enabled"]))
+
+            if "hooks" in body:
+                h_upd = body["hooks"]
+                if not isinstance(h_upd, dict):
+                    raise ValueError("'hooks' must be an object")
+                if "enabled" in h_upd:
+                    _hooks.set_enabled(bool(h_upd["enabled"]))
+                if "hook_states" in h_upd:
+                    states = h_upd["hook_states"]
+                    if not isinstance(states, dict):
+                        raise ValueError("'hooks.hook_states' must be an object")
+                    for hname, hval in states.items():
+                        _hooks.set_hook_enabled(str(hname), bool(hval))
+
+            if "control_vector" in body:
+                cv_upd = body["control_vector"]
+                if not isinstance(cv_upd, dict):
+                    raise ValueError("'control_vector' must be an object")
+                _, active_be = _active_primary_backend()
+                if active_be is None or not callable(getattr(active_be, "apply_control_vector", None)):
+                    raise ValueError("Active model backend does not support control vectors")
+                off = bool(cv_upd.get("off", False))
+                vec_name = cv_upd.get("name")
+                alpha = float(cv_upd.get("alpha", 0.0)) if "alpha" in cv_upd else (
+                    0.0 if off else float((active_be.control_vector_status() or {}).get("alpha", 0.0))
+                )
+                if off or not vec_name or str(vec_name).strip().lower() in ("off", "none") or alpha == 0.0:
+                    if callable(getattr(active_be, "async_clear_control_vector", None)):
+                        run_coro(loop, active_be.async_clear_control_vector(), timeout=60.0)
+                    else:
+                        active_be.clear_control_vector()
+                else:
+                    vec_path = _cv.resolve_cvec_path(str(vec_name), str(project_root))
+                    il_s = int(cv_upd["il_start"]) if cv_upd.get("il_start") is not None else None
+                    il_e = int(cv_upd["il_end"]) if cv_upd.get("il_end") is not None else None
+                    if callable(getattr(active_be, "async_apply_control_vector", None)):
+                        run_coro(
+                            loop,
+                            active_be.async_apply_control_vector(
+                                str(vec_path), alpha=alpha, il_start=il_s, il_end=il_e
+                            ),
+                            timeout=120.0,
+                        )
+                    else:
+                        active_be.apply_control_vector(
+                            str(vec_path), alpha=alpha, il_start=il_s, il_end=il_e
+                        )
+        except (ValueError, FileNotFoundError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
+
+        return jsonify(_controls_snapshot())
+
     @app.route("/conversations", methods=["GET", "POST"])
     def conversations():
         auth_error = _check_auth()

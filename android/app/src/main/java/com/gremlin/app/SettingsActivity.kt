@@ -7,6 +7,7 @@ import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.view.View
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -19,6 +20,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.gremlin.app.voice.VoiceOutput
 import org.json.JSONArray
 import org.json.JSONObject
@@ -26,6 +28,8 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -103,6 +107,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         setUpVoiceSection(prefs)
+        setUpTuningControls(prefs)
 
         if (host.isNotEmpty()) {
             loadStatus(host, port, token)
@@ -305,63 +310,449 @@ class SettingsActivity : AppCompatActivity() {
         }.start()
     }
 
-    /** Just a reference -- these all run from the chat input on the main
-     * screen (MainActivity.handleSlashCommand), not from here. Kept as
-     * plain text in a dialog rather than a separate screen since it's
-     * static content with nothing to interact with. */
+    private fun setUpTuningControls(prefs: SharedPreferences) {
+        val statusLabel = findViewById<TextView>(R.id.controls_status_label)
+        val modelSpinner = findViewById<Spinner>(R.id.controls_model_spinner)
+        val cvecSpinner = findViewById<Spinner>(R.id.controls_cvec_spinner)
+        val alphaValue = findViewById<TextView>(R.id.controls_alpha_value)
+        val alphaResetBtn = findViewById<Button>(R.id.controls_alpha_reset_btn)
+        val alphaSeekBar = findViewById<SeekBar>(R.id.controls_alpha_seekbar)
+        val alphaWarning = findViewById<TextView>(R.id.controls_alpha_warning)
+        val layersDefaultBtn = findViewById<Button>(R.id.controls_layers_default)
+        val layersFocusedBtn = findViewById<Button>(R.id.controls_layers_focused)
+        val layersWideBtn = findViewById<Button>(R.id.controls_layers_wide)
+        val thinkAutoBtn = findViewById<Button>(R.id.controls_think_auto)
+        val thinkOnBtn = findViewById<Button>(R.id.controls_think_on)
+        val thinkOffBtn = findViewById<Button>(R.id.controls_think_off)
+        val hooksMasterSwitch = findViewById<SwitchMaterial>(R.id.controls_hooks_master_switch)
+        val hooksList = findViewById<LinearLayout>(R.id.controls_hooks_list)
+        val rerankerSwitch = findViewById<SwitchMaterial>(R.id.controls_reranker_switch)
+
+        val client = MagicClient(prefs, applicationContext)
+        val layerButtons = listOf(layersDefaultBtn, layersFocusedBtn, layersWideBtn)
+        val thinkButtons = listOf(thinkAutoBtn, thinkOnBtn, thinkOffBtn)
+
+        var hydrating = false
+        var modelNames = listOf<String>()
+        var modelDisplayLabels = listOf<String>()
+        var syncedModelName = ""
+        var vecOptions = listOf("Off (none)")
+        var syncedVecLabel = "Off (none)"
+        var selectedLayerPreset = "default"
+        var currentNLayers = 0
+        var lastRenderedSnapshot: JSONObject? = null
+
+        fun setControlsEnabled(enabled: Boolean) {
+            modelSpinner.isEnabled = enabled
+            cvecSpinner.isEnabled = enabled
+            alphaResetBtn.isEnabled = enabled
+            alphaSeekBar.isEnabled = enabled
+            layerButtons.forEach { it.isEnabled = enabled }
+            thinkButtons.forEach { it.isEnabled = enabled }
+            hooksMasterSwitch.isEnabled = enabled
+            rerankerSwitch.isEnabled = enabled
+        }
+
+        fun formatAlpha(a: Double): String =
+            if (abs(a) < 0.005) "0.00" else String.format(Locale.US, "%+.2f", a)
+
+        fun progressToAlpha(progress: Int): Double =
+            ((progress - 30) * 0.05 * 100.0).roundToInt() / 100.0
+
+        fun alphaToProgress(alpha: Double): Int =
+            ((alpha / 0.05) + 30.0).roundToInt().coerceIn(0, 60)
+
+        fun updateAlphaReadout(alpha: Double, serverWarning: String = "") {
+            alphaValue.text = formatAlpha(alpha)
+            val warnText = when {
+                serverWarning.isNotEmpty() -> serverWarning
+                abs(alpha) > 1.25 -> "High steering strength (|alpha| > 1.25) may degrade coherence."
+                else -> ""
+            }
+            if (warnText.isNotEmpty()) {
+                alphaWarning.text = warnText
+                alphaWarning.visibility = View.VISIBLE
+            } else {
+                alphaWarning.text = ""
+                alphaWarning.visibility = View.GONE
+            }
+        }
+
+        fun styleButtonGroup(active: Button, group: List<Button>) {
+            group.forEach { btn ->
+                val isSelected = btn === active
+                btn.setBackgroundResource(if (isSelected) R.drawable.bg_btn_primary else R.drawable.bg_btn)
+                btn.alpha = if (isSelected) 1.0f else 0.72f
+            }
+        }
+
+        fun layerBoundsForPreset(preset: String, nLayers: Int): Pair<Int?, Int?> {
+            if (nLayers <= 0 || preset == "default") return null to null
+            return when (preset) {
+                "focused" -> {
+                    val s = nLayers / 2
+                    val e = maxOf(s, (nLayers * 5) / 6)
+                    s to e
+                }
+                "wide" -> {
+                    val s = nLayers / 4
+                    val e = maxOf(s, (nLayers * 7) / 8)
+                    s to e
+                }
+                else -> null to null
+            }
+        }
+
+        fun inferLayerPreset(ilStart: Int, ilEnd: Int, nLayers: Int): String {
+            if (nLayers <= 0 || ilStart < 0 || ilEnd < 0) return "default"
+            val focused = layerBoundsForPreset("focused", nLayers)
+            if (ilStart == focused.first && ilEnd == focused.second) return "focused"
+            val wide = layerBoundsForPreset("wide", nLayers)
+            if (ilStart == wide.first && ilEnd == wide.second) return "wide"
+            return "default"
+        }
+
+        fun renderControlsSnapshot(json: JSONObject) {
+            hydrating = true
+            try {
+                lastRenderedSnapshot = json
+                val activeModel = if (json.isNull("primary_model")) "" else json.optString("primary_model", "")
+                val availModelsArr = json.optJSONArray("available_models")
+                val nextModelNames = mutableListOf<String>()
+                val nextModelLabels = mutableListOf<String>()
+                if (availModelsArr != null) {
+                    for (i in 0 until availModelsArr.length()) {
+                        val m = availModelsArr.optJSONObject(i) ?: continue
+                        val nm = m.optString("name", "")
+                        if (nm.isEmpty()) continue
+                        val disp = m.optString("display_name", nm).ifEmpty { nm }
+                        nextModelNames.add(nm)
+                        nextModelLabels.add(disp)
+                    }
+                }
+                if (activeModel.isNotEmpty() && !nextModelNames.contains(activeModel)) {
+                    nextModelNames.add(0, activeModel)
+                    nextModelLabels.add(0, activeModel)
+                }
+                if (nextModelNames != modelNames || nextModelLabels != modelDisplayLabels || modelSpinner.adapter == null) {
+                    modelNames = nextModelNames
+                    modelDisplayLabels = nextModelLabels
+                    val mAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modelDisplayLabels)
+                    mAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    modelSpinner.adapter = mAdapter
+                }
+                val modelIdx = modelNames.indexOf(activeModel).let { if (it >= 0) it else 0 }
+                syncedModelName = modelNames.getOrElse(modelIdx) { activeModel }
+                if (modelNames.isNotEmpty()) {
+                    modelSpinner.setSelection(modelIdx, false)
+                }
+
+                val cv = json.optJSONObject("control_vector") ?: JSONObject()
+                val cvActive = cv.optBoolean("active", false)
+                val cvName = if (cv.isNull("name")) "" else cv.optString("name", "")
+                val alpha = if (cvActive) cv.optDouble("alpha", 0.0) else 0.0
+                val ilStart = cv.optInt("il_start", -1)
+                val ilEnd = cv.optInt("il_end", -1)
+                currentNLayers = cv.optInt("n_layers", 0)
+                val cvWarning = if (cv.isNull("warning")) "" else cv.optString("warning", "")
+
+                val availArr = cv.optJSONArray("available_vectors")
+                val nextOptions = mutableListOf("Off (none)")
+                if (availArr != null) {
+                    for (i in 0 until availArr.length()) {
+                        val item = availArr.optString(i, "")
+                        if (item.isNotEmpty()) nextOptions.add(item)
+                    }
+                }
+                if (nextOptions != vecOptions || cvecSpinner.adapter == null) {
+                    vecOptions = nextOptions
+                    val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, vecOptions)
+                    adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    cvecSpinner.adapter = adapter
+                }
+                val selIdx = if (cvActive && cvName.isNotEmpty() && vecOptions.contains(cvName)) {
+                    vecOptions.indexOf(cvName)
+                } else {
+                    0
+                }
+                syncedVecLabel = vecOptions[selIdx]
+                cvecSpinner.setSelection(selIdx, false)
+
+                alphaSeekBar.progress = alphaToProgress(alpha)
+                updateAlphaReadout(alpha, cvWarning)
+
+                if (cvActive) {
+                    selectedLayerPreset = inferLayerPreset(ilStart, ilEnd, currentNLayers)
+                }
+                val activeLayerBtn = when (selectedLayerPreset) {
+                    "focused" -> layersFocusedBtn
+                    "wide" -> layersWideBtn
+                    else -> layersDefaultBtn
+                }
+                styleButtonGroup(activeLayerBtn, layerButtons)
+
+                val thinkMode = json.optString("thinking_mode", "auto")
+                val activeThinkBtn = when (thinkMode) {
+                    "on" -> thinkOnBtn
+                    "off" -> thinkOffBtn
+                    else -> thinkAutoBtn
+                }
+                styleButtonGroup(activeThinkBtn, thinkButtons)
+
+                val hooksObj = json.optJSONObject("hooks") ?: JSONObject()
+                val hooksMaster = hooksObj.optBoolean("enabled", true)
+                hooksMasterSwitch.isChecked = hooksMaster
+
+                val hooksArr = hooksObj.optJSONArray("items")
+                hooksList.removeAllViews()
+                if (hooksArr != null) {
+                    val pad = (4 * resources.displayMetrics.density).toInt()
+                    for (i in 0 until hooksArr.length()) {
+                        val h = hooksArr.optJSONObject(i) ?: continue
+                        val hName = h.optString("name", "")
+                        if (hName.isEmpty()) continue
+                        val hEvent = h.optString("event", "")
+                        val hEnabled = h.optBoolean("enabled", true)
+                        val hDesc = h.optString("description", "")
+
+                        val row = LinearLayout(this).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(0, pad, 0, pad)
+                        }
+                        val sw = SwitchMaterial(this).apply {
+                            text = hName
+                            textSize = 13f
+                            isChecked = hEnabled
+                            isEnabled = hooksMaster
+                            setOnCheckedChangeListener { _, checked ->
+                                if (hydrating) return@setOnCheckedChangeListener
+                                val patch = JSONObject().put(
+                                    "hooks",
+                                    JSONObject().put("hook_states", JSONObject().put(hName, checked))
+                                )
+                                statusLabel.text = "Updating hook $hName..."
+                                Thread {
+                                    val (updated, err) = client.postControls(patch)
+                                    runOnUiThread {
+                                        if (updated != null) {
+                                            renderControlsSnapshot(updated)
+                                        } else {
+                                            lastRenderedSnapshot?.let { renderControlsSnapshot(it) }
+                                            statusLabel.text = "Failed: ${err ?: "error"}"
+                                            Toast.makeText(this@SettingsActivity, err ?: "Failed", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }.start()
+                            }
+                        }
+                        row.addView(sw)
+                        if (hDesc.isNotEmpty() || hEvent.isNotEmpty()) {
+                            val caption = TextView(this).apply {
+                                text = if (hDesc.isNotEmpty()) "$hEvent · $hDesc" else hEvent
+                                textSize = 11f
+                                this.alpha = 0.7f
+                            }
+                            row.addView(caption)
+                        }
+                        hooksList.addView(row)
+                    }
+                }
+
+                rerankerSwitch.isChecked = json.optBoolean("reranker_enabled", true)
+
+                val steerSummary = if (cvActive && cvName.isNotEmpty()) {
+                    "$cvName (${formatAlpha(alpha)}, L$ilStart–$ilEnd)"
+                } else {
+                    "off"
+                }
+                val hookLabel = if (hooksMaster) "on" else "off"
+                val modelLabel = syncedModelName.ifEmpty { activeModel.ifEmpty { "default" } }
+                statusLabel.text = "Live · Model: $modelLabel · Steer: $steerSummary · Think: $thinkMode · Hooks: $hookLabel"
+                setControlsEnabled(true)
+            } finally {
+                hydrating = false
+            }
+        }
+
+        fun postPatch(patch: JSONObject, busyMessage: String, disableAllDuringCall: Boolean = false) {
+            statusLabel.text = busyMessage
+            if (disableAllDuringCall) setControlsEnabled(false)
+            Thread {
+                val (updated, err) = client.postControls(patch)
+                runOnUiThread {
+                    if (updated != null) {
+                        renderControlsSnapshot(updated)
+                    } else {
+                        lastRenderedSnapshot?.let { renderControlsSnapshot(it) }
+                        if (disableAllDuringCall && lastRenderedSnapshot == null) setControlsEnabled(true)
+                        statusLabel.text = "Failed: ${err ?: "error"}"
+                        Toast.makeText(this@SettingsActivity, err ?: "Controls update failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+
+        fun buildVectorPatch(vecLabel: String, alpha: Double, preset: String): JSONObject {
+            if (vecLabel == "Off (none)" || abs(alpha) < 0.005) {
+                return JSONObject().put("control_vector", JSONObject().put("off", true))
+            }
+            val cvPatch = JSONObject()
+                .put("name", vecLabel)
+                .put("alpha", alpha)
+            val (ilStart, ilEnd) = layerBoundsForPreset(preset, currentNLayers)
+            if (ilStart != null && ilEnd != null) {
+                cvPatch.put("il_start", ilStart).put("il_end", ilEnd)
+            }
+            return JSONObject().put("control_vector", cvPatch)
+        }
+
+        if (creds(prefs) == null) {
+            statusLabel.text = "Pair with a desktop to adjust live tuning controls."
+            setControlsEnabled(false)
+            return
+        }
+
+        setControlsEnabled(false)
+        statusLabel.text = "Loading controls from desktop..."
+        Thread {
+            val (snap, err) = client.getControls()
+            runOnUiThread {
+                if (snap != null) {
+                    renderControlsSnapshot(snap)
+                } else {
+                    statusLabel.text = "Couldn't load controls: ${err ?: "desktop unreachable"}"
+                }
+            }
+        }.start()
+
+        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                if (hydrating || pos !in modelNames.indices) return
+                val chosen = modelNames[pos]
+                if (chosen == syncedModelName) return
+                syncedModelName = chosen
+                postPatch(
+                    JSONObject().put("primary_model", chosen),
+                    "Switching model...",
+                    disableAllDuringCall = true
+                )
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        cvecSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                if (hydrating || pos !in vecOptions.indices) return
+                val chosen = vecOptions[pos]
+                if (chosen == syncedVecLabel) return
+                syncedVecLabel = chosen
+                val currentAlpha = progressToAlpha(alphaSeekBar.progress)
+                val targetAlpha = if (chosen == "Off (none)") 0.0 else if (abs(currentAlpha) < 0.005) 0.5 else currentAlpha
+                postPatch(buildVectorPatch(chosen, targetAlpha, selectedLayerPreset), "Updating control vector...")
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        alphaSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                val a = progressToAlpha(progress)
+                updateAlphaReadout(a)
+            }
+
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+
+            override fun onStopTrackingTouch(sb: SeekBar?) {
+                if (hydrating || sb == null) return
+                val a = progressToAlpha(sb.progress)
+                val chosen = vecOptions.getOrElse(cvecSpinner.selectedItemPosition) { "Off (none)" }
+                if (chosen == "Off (none)") {
+                    if (abs(a) >= 0.005) {
+                        Toast.makeText(this@SettingsActivity, "Pick a control vector above first.", Toast.LENGTH_SHORT).show()
+                        hydrating = true
+                        sb.progress = 30
+                        updateAlphaReadout(0.0)
+                        hydrating = false
+                    }
+                    return
+                }
+                postPatch(buildVectorPatch(chosen, a, selectedLayerPreset), "Applying steering (${formatAlpha(a)})...")
+            }
+        })
+
+        alphaResetBtn.setOnClickListener {
+            postPatch(JSONObject().put("control_vector", JSONObject().put("off", true)), "Clearing steering...")
+        }
+
+        val onLayerPresetClick: (String, Button) -> Unit = { preset, btn ->
+            selectedLayerPreset = preset
+            styleButtonGroup(btn, layerButtons)
+            val chosen = vecOptions.getOrElse(cvecSpinner.selectedItemPosition) { "Off (none)" }
+            val a = progressToAlpha(alphaSeekBar.progress)
+            if (chosen != "Off (none)" && abs(a) >= 0.005) {
+                postPatch(buildVectorPatch(chosen, a, preset), "Applying layer range ($preset)...")
+            }
+        }
+        layersDefaultBtn.setOnClickListener { onLayerPresetClick("default", layersDefaultBtn) }
+        layersFocusedBtn.setOnClickListener { onLayerPresetClick("focused", layersFocusedBtn) }
+        layersWideBtn.setOnClickListener { onLayerPresetClick("wide", layersWideBtn) }
+
+        thinkAutoBtn.setOnClickListener {
+            postPatch(JSONObject().put("thinking_mode", "auto"), "Setting thinking mode: auto...")
+        }
+        thinkOnBtn.setOnClickListener {
+            postPatch(JSONObject().put("thinking_mode", "on"), "Setting thinking mode: on...")
+        }
+        thinkOffBtn.setOnClickListener {
+            postPatch(JSONObject().put("thinking_mode", "off"), "Setting thinking mode: off...")
+        }
+
+        hooksMasterSwitch.setOnCheckedChangeListener { _, checked ->
+            if (hydrating) return@setOnCheckedChangeListener
+            postPatch(
+                JSONObject().put("hooks", JSONObject().put("enabled", checked)),
+                if (checked) "Enabling hooks..." else "Disabling hooks..."
+            )
+        }
+
+        rerankerSwitch.setOnCheckedChangeListener { _, checked ->
+            if (hydrating) return@setOnCheckedChangeListener
+            postPatch(
+                JSONObject().put("reranker_enabled", checked),
+                if (checked) "Enabling CPU reranker..." else "Disabling CPU reranker..."
+            )
+        }
+    }
+
+    /** Just a reference -- consolidated chat commands + desktop admin
+     * commands. Chat commands run from MainActivity.handleSlashCommand;
+     * live toggles live right above in Tuning & Controls. */
     private fun showCommandsReference() {
         val text = """
-            Type these directly in the chat box on the main screen -- no need to come back here.
+            Core & Reasoning (in main chat):
+            - /deep <q>      Deep reasoning turn (/think <q> is an alias)
+            - /do <task>     Live read-only system probe (/do learn distills skill)
+            - /inspect <t>   Reverse-engineer binary, APK, JS/WASM, or URL
+            - /defense <k>   Security audit: surface | updates | ssh | secrets | report
+            - /override <m>  Unfiltered local reply for one message
 
-            /desktop <command>
-              Run a command on the desktop (sandboxed: confined directory, timeout, no root).
-              e.g. /desktop ls -la
-                   /desktop find /home -iname "*keyword*"
-              This also works for magic's own CLI (checkpoint-eval, distill,
-              finetune, bench, specialists, build, and anything else listed
-              below) -- none of those have their own slash command, so run
-              them as e.g. /desktop magic checkpoint-eval
-              For the full, current list with usage: /desktop magic
-              (no arguments -- prints everything straight from the source)
+            Build & Repair:
+            - /build <spec>  Build a script, project, or Android APK on desktop
+            - /fix <goal>    Run battle loop on Magic's harness
 
-            /root <command>
-              Same, but with sudo. Needs a sudo password cached first --
-              run `magic set-sudo-password` on the desktop itself, once.
-              e.g. /root pacman -S --noconfirm neovim
-                   /root pacman -Syu --noconfirm
+            Memory & System:
+            - /memory | /profile | /skill | /doctor
+            - Primary model, steering, thinking mode, hooks & reranker live in Settings -> Tuning & Controls.
 
-            /reboot
-              Shows a confirmation, then /reboot confirm actually reboots the desktop.
-
-            /snapshots
-              List BTRFS snapshots (for rolling back if something breaks).
-
-            /rollback <number>
-              Shows a confirmation, then /rollback <number> confirm rolls the
-              desktop back to that snapshot and reboots it.
-
-            /updatecheck
-              Checks pending pacman updates against Manjaro's own forum for
-              known issues with those specific packages. Read-only, doesn't
-              need the Admin token below -- just needs to be paired.
-
-            /fix <path> <what's wrong>
-              Shows a warning, then /fix <path> <what's wrong> confirm asks
-              Magic's own registered models
-              to fix a specific file anywhere on the desktop -- your own
-              scripts/configs, not system files. Backs up the file first,
-              reverts automatically if the fix fails to compile.
-
-            Tips:
-            - No shell, so wildcards (*), pipes (|), and && don't work -- just a
-              program plus its own flags/arguments.
-            - pacman -S / -Syu need --noconfirm added, since there's no way to
-              answer its "Proceed? [Y/n]" prompt through this.
-            - Not sure where a file is? /desktop find /home -iname "*name*"
-              searches by partial name. Widening to /desktop find / ... searches
-              everywhere but can be slow and may hit the timeout -- narrower is faster.
-
-            All of the above need the Admin token entered below first.
+            Desktop admin commands (require Admin token below):
+            - /desktop <command>   Run sandboxed desktop command
+            - /root <command>      Run command with sudo
+            - /reboot              Reboot desktop (confirm required)
+            - /snapshots           List BTRFS snapshots
+            - /rollback <num>      Roll back to BTRFS snapshot and reboot
+            - /updatecheck         Check pending pacman updates against Manjaro forum
+            - /fix <path> <issue>  Fix a user script/config on desktop
         """.trimIndent()
 
         AlertDialog.Builder(this)

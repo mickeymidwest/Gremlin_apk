@@ -866,10 +866,10 @@ class MainActivity : AppCompatActivity() {
         val cmd = parts.getOrNull(0) ?: ""
 
         when (cmd) {
-            "/deep" -> {
-                val q = message.removePrefix("/deep").trim()
+            "/deep", "/think" -> {
+                val q = message.removePrefix(cmd).trim()
                 if (q.isEmpty()) {
-                    appendSystemTurn("Usage: /deep <a hard question> \u2014 summons the big MoE deep-reasoning head (slow: a few minutes).", true)
+                    appendSystemTurn("Usage: $cmd <a hard question> \u2014 runs deep reasoning (or set Reasoning Mode in Settings).", true)
                 } else {
                     setBusy(true)
                     setHologramState("thinking")
@@ -944,7 +944,10 @@ class MainActivity : AppCompatActivity() {
             // while because this list wasn't updated alongside it --
             // exactly the silent-failure trap to not repeat: when
             // adding a command in commands.py, add its name here too.
-            "/chat", "/skill", "/build", "/fix", "/model", "/override", "/defense", "/do", "/memory", "/good" -> {
+            "/chat", "/skill", "/skills", "/build", "/fix", "/model", "/override",
+            "/defense", "/do", "/memory", "/mem", "/good", "/profile", "/inspect", "/re",
+            "/forge", "/recipe", "/doctor", "/status", "/health", "/check", "/steer",
+            "/act", "/hive", "/help", "/remember", "/reset" -> {
                 val args = message.removePrefix(cmd).trim()
                 thinkingStatus.visibility = View.VISIBLE
                 setHologramState("thinking")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import threading
 import yaml
 from typing import Collection, Dict, Optional
 
@@ -10,6 +11,24 @@ from .backends.openai_backend import OpenAIBackend
 from .backends.gemini_backend import GeminiBackend
 from .persona import PersonaBackend
 
+_PRIMARY_OVERRIDE_LOCK = threading.Lock()
+_RUNTIME_PRIMARY_MODEL: Optional[str] = None
+
+
+def get_runtime_primary_model() -> Optional[str]:
+    """Return runtime in-memory primary model override, if set."""
+    with _PRIMARY_OVERRIDE_LOCK:
+        return _RUNTIME_PRIMARY_MODEL
+
+
+def set_runtime_primary_model(name: Optional[str]) -> Optional[str]:
+    """Set or clear the in-memory runtime primary model override (never mutating disk YAML)."""
+    clean = str(name or "").strip() or None
+    with _PRIMARY_OVERRIDE_LOCK:
+        global _RUNTIME_PRIMARY_MODEL
+        _RUNTIME_PRIMARY_MODEL = clean
+        return _RUNTIME_PRIMARY_MODEL
+
 
 def resolve_primary_model_name(
     configured_name: Optional[str],
@@ -17,19 +36,21 @@ def resolve_primary_model_name(
     *,
     strict: bool = True,
 ) -> Optional[str]:
-    """Resolve Magic's primary model name, honoring ``MAGIC_PRIMARY_MODEL`` when set.
+    """Resolve Magic's primary model name, honoring runtime override and ``MAGIC_PRIMARY_MODEL``.
 
-    Validates that any env-specified model exists in ``available_models`` (raising
+    Validates that any override exists in ``available_models`` (raising
     ``KeyError`` when ``strict=True``, or falling back cleanly to ``configured_name``
     otherwise). Falls back cleanly to ``configured_name`` when unset or blank.
     """
-    override = os.environ.get("MAGIC_PRIMARY_MODEL", "").strip()
+    runtime_override = get_runtime_primary_model()
+    override = runtime_override or os.environ.get("MAGIC_PRIMARY_MODEL", "").strip()
     if not override:
         return configured_name
     if available_models is not None and override not in available_models:
         if strict:
+            src = "Runtime primary_model" if runtime_override else "MAGIC_PRIMARY_MODEL"
             raise KeyError(
-                f"MAGIC_PRIMARY_MODEL {override!r} is not in config/models.yaml"
+                f"{src} {override!r} is not in config/models.yaml"
             )
         return configured_name
     return override
@@ -219,6 +240,27 @@ class ModelRegistry:
                 primary = getattr(b, "primary", None)
                 return primary.info.name if primary else None
         return None
+
+    def set_primary_model(self, name: str) -> ModelBackend:
+        """Switch the active primary backend in memory without modifying config/models.yaml."""
+        clean = str(name or "").strip()
+        target = self.backends.get(clean)
+        if target is None or getattr(getattr(target, "info", None), "kind", None) == "persona":
+            raise ValueError(f"Unknown or non-switchable primary model {name!r}")
+        with _PRIMARY_OVERRIDE_LOCK:
+            for b in self.backends.values():
+                if getattr(getattr(b, "info", None), "kind", None) == "persona":
+                    b.primary = target
+                    fb_names = [
+                        getattr(getattr(fb, "info", None), "name", "")
+                        for fb in (getattr(b, "fallbacks", None) or [])
+                    ]
+                    b.info.notes = f"backed by {clean}" + (
+                        f", falls back to {fb_names}" if fb_names else ""
+                    )
+            global _RUNTIME_PRIMARY_MODEL
+            _RUNTIME_PRIMARY_MODEL = clean
+        return target
 
     async def close_all(self):
         for b in self.backends.values():

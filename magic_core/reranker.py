@@ -96,9 +96,18 @@ class CpuReranker:
         self._errors: int = 0
         self._total_ms: float = 0.0
         self._warned: bool = False
+        self._enabled_override: Optional[bool] = None
 
     def is_enabled(self) -> bool:
+        with self._lock:
+            if self._enabled_override is not None:
+                return self._enabled_override
         return is_enabled()
+
+    def set_enabled(self, enabled: Optional[bool]) -> bool:
+        with self._lock:
+            self._enabled_override = None if enabled is None else bool(enabled)
+        return self.is_enabled()
 
     def model_name(self) -> str:
         return model_name()
@@ -238,3 +247,7 @@ def rerank(
 
 def stats() -> dict[str, Any]:
     return get_reranker().stats()
+
+
+def set_enabled(enabled: Optional[bool]) -> bool:
+    return get_reranker().set_enabled(enabled)

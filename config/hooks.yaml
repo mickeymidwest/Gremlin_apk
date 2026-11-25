@@ -9,6 +9,7 @@ hooks:
   - name: block_destructive_git
     event: pre_tool
     enabled: true
+    description: "Block destructive git commands (add -A/., reset --hard, checkout -- ., restore, push --force)"
     match: "^(run_command|run_shell|shell|bash|verify_step)$|\\bgit\\b"
     type: builtin
     handler: block_destructive_git
@@ -18,6 +19,7 @@ hooks:
   - name: protect_sensitive_paths
     event: pre_tool
     enabled: true
+    description: "Block writes/deletes to campaign_*.json, .env, keys & credentials"
     type: builtin
     handler: protect_sensitive_paths
     timeout_ms: 2000
@@ -26,6 +28,7 @@ hooks:
   - name: py_syntax_check
     event: post_tool
     enabled: true
+    description: "Run py_compile after Python file edits in /fix & /build"
     match: "\\.py$"
     type: builtin
     handler: py_syntax_check
@@ -37,6 +40,7 @@ hooks:
   - name: notify_build_complete
     event: post_turn
     enabled: false
+    description: "Desktop notification after a /build or /fix turn completes"
     match: "^/(?:build|fix)"
     type: shell
     cmd: "notify-send 'Magic' 'Build/Fix turn completed' || true"
