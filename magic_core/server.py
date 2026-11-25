@@ -510,6 +510,19 @@ def create_app(
     # the same friendly fallback a slow/failed consult already gets.
     state_machine = agent_state.AgentStateMachine()
 
+    # Generic user-activity idle tracker: updated on any non-polling POST
+    # (chat, builds, Private Mode, etc.) so overnight jobs can defer gracefully.
+    _activity_lock = threading.Lock()
+    _last_user_activity_mono = [time.monotonic()]
+    _IDLE_IGNORE_PATHS = frozenset({"/status", "/health", "/metrics"})
+
+    @app.before_request
+    def _track_user_activity() -> None:
+        if request.method == "POST" and request.path not in _IDLE_IGNORE_PATHS:
+            now_m = time.monotonic()
+            with _activity_lock:
+                _last_user_activity_mono[0] = now_m
+
     # Health: consecutive answer failures. The wedge failure mode (CUDA
     # context corrupted, process still up, every generate() returns an
     # error) isn't caught by an HTTP-liveness check -- the watchdog reads
@@ -603,6 +616,11 @@ def create_app(
         except Exception:
             pass
         try:
+            from .magic import zoids_v2 as _zv2
+            data["battles"] = _zv2.battle_status_summary(project_root, state_store=state_store)
+        except Exception:
+            pass
+        try:
             from . import netsec_scheduler as _ns_sched
             _ns_sum = state_store.netsec_summary()
             data["netsec"] = {
@@ -632,6 +650,9 @@ def create_app(
         data["healthy"] = health["consec_fail"] < 3
         data["consec_answer_failures"] = health["consec_fail"]
         data["busy"] = state_machine.state.value != "idle"
+        with _activity_lock:
+            _idle_s = max(0.0, time.monotonic() - _last_user_activity_mono[0])
+        data["idle_seconds"] = round(_idle_s, 1)
         return jsonify(data)
 
     @app.route("/doctor", methods=["GET"])
