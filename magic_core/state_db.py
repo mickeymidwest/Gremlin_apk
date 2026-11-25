@@ -255,6 +255,35 @@ class StateDB:
                         ON sec_alerts(acknowledged, created_at);
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS battle_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        run_id TEXT UNIQUE NOT NULL,
+                        ts TEXT NOT NULL,
+                        model TEXT NOT NULL,
+                        bouts_attempted INTEGER DEFAULT 0,
+                        bouts_passed INTEGER DEFAULT 0,
+                        first_try_passes INTEGER DEFAULT 0,
+                        repaired_passes INTEGER DEFAULT 0,
+                        circuit_breaker_trips INTEGER DEFAULT 0,
+                        exemplars_harvested INTEGER DEFAULT 0,
+                        skills_distilled INTEGER DEFAULT 0,
+                        weakest_category TEXT DEFAULT '',
+                        duration_s REAL DEFAULT 0.0,
+                        peak_vram_mb REAL,
+                        swap_delta_mb REAL,
+                        summary_json TEXT NOT NULL DEFAULT '{}',
+                        created_at REAL NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_battle_runs_created
+                        ON battle_runs(created_at DESC, id DESC);
+                    """
+                )
                 conn.execute("COMMIT;")
                 _INITIALIZED_PATHS.add(key)
             except Exception:
@@ -1136,6 +1165,113 @@ class StateDB:
             "unacked_alerts": int(unacked),
             "last_host_score": int(host_row[0]) if (host_row and host_row[0] is not None) else None,
             "last_host_run_at": float(host_row[1]) if host_row else None,
+        }
+
+    def record_battle_run(self, summary: dict[str, Any]) -> dict[str, Any]:
+        """Persist a nightly Zoids battle session digest into SQLite `battle_runs`."""
+        run_id = str(summary.get("run_id") or f"zoids_{int(time.time() * 1000)}")
+        ts = str(summary.get("ts") or "")
+        model = str(summary.get("model") or "")
+        created_at = float(summary.get("created_at") or time.time())
+        payload = json.dumps(summary, ensure_ascii=False)
+        with self._write_tx() as conn:
+            conn.execute(
+                """
+                INSERT INTO battle_runs (
+                    run_id, ts, model, bouts_attempted, bouts_passed,
+                    first_try_passes, repaired_passes, circuit_breaker_trips,
+                    exemplars_harvested, skills_distilled, weakest_category,
+                    duration_s, peak_vram_mb, swap_delta_mb, summary_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    ts = excluded.ts,
+                    model = excluded.model,
+                    bouts_attempted = excluded.bouts_attempted,
+                    bouts_passed = excluded.bouts_passed,
+                    first_try_passes = excluded.first_try_passes,
+                    repaired_passes = excluded.repaired_passes,
+                    circuit_breaker_trips = excluded.circuit_breaker_trips,
+                    exemplars_harvested = excluded.exemplars_harvested,
+                    skills_distilled = excluded.skills_distilled,
+                    weakest_category = excluded.weakest_category,
+                    duration_s = excluded.duration_s,
+                    peak_vram_mb = excluded.peak_vram_mb,
+                    swap_delta_mb = excluded.swap_delta_mb,
+                    summary_json = excluded.summary_json,
+                    created_at = excluded.created_at;
+                """,
+                (
+                    run_id,
+                    ts,
+                    model,
+                    int(summary.get("bouts_attempted") or 0),
+                    int(summary.get("bouts_passed") or 0),
+                    int(summary.get("first_try_passes") or 0),
+                    int(summary.get("repaired_passes") or 0),
+                    int(summary.get("circuit_breaker_trips") or 0),
+                    int(summary.get("exemplars_harvested") or 0),
+                    int(summary.get("skills_distilled") or 0),
+                    str(summary.get("weakest_category") or ""),
+                    float(summary.get("duration_s") or 0.0),
+                    (float(summary["peak_vram_mb"]) if summary.get("peak_vram_mb") is not None else None),
+                    (float(summary["swap_delta_mb"]) if summary.get("swap_delta_mb") is not None else None),
+                    payload,
+                    created_at,
+                ),
+            )
+        return dict(summary, run_id=run_id, created_at=created_at)
+
+    def battle_summary(self) -> dict[str, Any]:
+        """Return latest nightly battle digest metrics for /status & /doctor."""
+        with self._read_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT run_id, ts, model, bouts_attempted, bouts_passed,
+                       first_try_passes, repaired_passes, circuit_breaker_trips,
+                       exemplars_harvested, skills_distilled, weakest_category,
+                       duration_s, peak_vram_mb, swap_delta_mb, summary_json, created_at
+                FROM battle_runs
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1;
+                """
+            ).fetchone()
+            runs_count = conn.execute("SELECT COUNT(*) FROM battle_runs").fetchone()[0]
+        if not row:
+            return {
+                "total_runs": 0,
+                "last_run_at": None,
+                "last_run_id": None,
+                "model": None,
+                "pass_rate": None,
+                "bouts_attempted": 0,
+                "bouts_passed": 0,
+                "first_try_passes": 0,
+                "repaired_passes": 0,
+                "circuit_breaker_trips": 0,
+                "weakest_category": None,
+                "skills_distilled": 0,
+            }
+        attempted = int(row[3] or 0)
+        passed = int(row[4] or 0)
+        pass_rate = round(passed / attempted, 4) if attempted > 0 else 0.0
+        return {
+            "total_runs": int(runs_count),
+            "last_run_at": float(row[15]),
+            "last_run_ts": str(row[1]),
+            "last_run_id": str(row[0]),
+            "model": str(row[2]),
+            "pass_rate": pass_rate,
+            "bouts_attempted": attempted,
+            "bouts_passed": passed,
+            "first_try_passes": int(row[5] or 0),
+            "repaired_passes": int(row[6] or 0),
+            "circuit_breaker_trips": int(row[7] or 0),
+            "exemplars_harvested": int(row[8] or 0),
+            "skills_distilled": int(row[9] or 0),
+            "weakest_category": str(row[10] or "") or None,
+            "duration_s": float(row[11] or 0.0),
+            "peak_vram_mb": float(row[12]) if row[12] is not None else None,
+            "swap_delta_mb": float(row[13]) if row[13] is not None else None,
         }
 
     def stats(self) -> dict[str, Any]:

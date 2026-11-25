@@ -25,7 +25,7 @@ sleep 4
 nvidia-smi --query-gpu=memory.free --format=csv,noheader || true
 
 echo "-- zoid loop --"
-venv/bin/python zoid_loop.py --minutes "$MINUTES" --rounds "${ZOID_ROUNDS:-200}"
+nice -n 10 ionice -c 2 -n 7 venv/bin/python zoid_loop.py --v2 --minutes "$MINUTES" --rounds "${ZOID_ROUNDS:-200}" --max-bouts "${ZOID_MAX_BOUTS:-8}"
 ZOID_EXIT=$?
 
 echo "-- restoring service + timers --"

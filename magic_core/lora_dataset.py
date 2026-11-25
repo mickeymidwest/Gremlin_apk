@@ -18,7 +18,7 @@ import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 DATASET_REL_PATH = "data/lora_exemplars.jsonl"
 DEFAULT_TARGET = 200
@@ -145,6 +145,7 @@ def save_exemplar(
     source: str = "",
     mode: str = "chat",
     tags: Optional[Iterable[str]] = None,
+    extra_meta: Optional[dict[str, Any]] = None,
 ) -> dict:
     """Save or update an exemplar pair atomically and thread-safely."""
     clean_prompt = (prompt or "").strip()
@@ -161,19 +162,25 @@ def save_exemplar(
     target_digest = pair_hash(clean_prompt, final_reply)
     orig_digest = pair_hash(clean_prompt, clean_orig_reply) if clean_orig_reply else ""
 
+    meta_dict: dict[str, Any] = {
+        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "head": str(head or "").strip(),
+        "source": str(source or "").strip(),
+        "mode": str(mode or "chat").strip() or "chat",
+        "edited": is_edited,
+        "tags": _normalize_tags(tags),
+    }
+    if isinstance(extra_meta, dict):
+        for ek, ev in extra_meta.items():
+            if ek and ek not in ("ts", "head", "source", "mode", "edited", "tags"):
+                meta_dict[str(ek)] = ev
+
     entry = {
         "messages": [
             {"role": "user", "content": clean_prompt},
             {"role": "assistant", "content": final_reply},
         ],
-        "meta": {
-            "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "head": str(head or "").strip(),
-            "source": str(source or "").strip(),
-            "mode": str(mode or "chat").strip() or "chat",
-            "edited": is_edited,
-            "tags": _normalize_tags(tags),
-        },
+        "meta": meta_dict,
     }
 
     path = dataset_path(project_root)
@@ -225,3 +232,17 @@ def stats(project_root: str | Path, *, target: int = DEFAULT_TARGET) -> dict:
         "target": int(target),
         "path": DATASET_REL_PATH,
     }
+
+
+def verified_battle_exemplar_count(project_root: str | Path) -> int:
+    """Count deduplicated verified Zoids battle exemplars stored in the dataset."""
+    path = dataset_path(project_root)
+    with _lock_for(path):
+        records = _read_records(path)
+    return sum(
+        1
+        for rec in records
+        if isinstance(rec.get("meta"), dict)
+        and rec["meta"].get("source") == "zoids_battle"
+        and rec["meta"].get("verified") is True
+    )

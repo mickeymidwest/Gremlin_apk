@@ -114,4 +114,6 @@ data/fuzz_state/
 data/forged_tools/
 data/rea_uploads/
 data/magic/*.db*
+data/magic/battle_digests.jsonl
+data/magic/zoids_scheduler.json
 .magic/

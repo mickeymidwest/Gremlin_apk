@@ -136,6 +136,20 @@ The check for this task:  {test_cmd}
 """
 
 
+def _assemble_static_system(repo_path: str, toolhost: ShellToolHost) -> str:
+    """Invariant R5-friendly system prompt reused verbatim across bouts & turns."""
+    full_host = ShellToolHost(
+        repo_path, readonly=toolhost.readonly, allowed=None,
+        protect_glob=getattr(toolhost, "protect_glob", None),
+        forged=getattr(toolhost, "_forged", None),
+        forged_root=getattr(toolhost, "_forged_root", None),
+        allow_web=getattr(toolhost, "allow_web", True),
+    )
+    return _PROTOCOL.replace("{tools}", full_host.tool_help()).replace(
+        "{test_cmd}", "(see the verification command specified in the task opening)"
+    )
+
+
 def _assemble_system(task: Task, facts: Sequence[Fact], skills: Sequence[Skill],
                      toolhost: ShellToolHost, fact_budget: int = 12,
                      skill_budget: int = 8) -> tuple[str, list[str]]:
@@ -626,6 +640,17 @@ def _initial_scout(task: Task, repo_path: str, toolhost: ShellToolHost) -> str:
         return ""
 
 
+def _call_model_complete(model: Model, messages, *, system=None, max_tokens: int = 4096,
+                         grammar=None, think: bool | None = None):
+    if think is not None:
+        try:
+            return model.complete(messages, system=system, max_tokens=max_tokens,
+                                  grammar=grammar, think=think)
+        except TypeError:
+            pass
+    return model.complete(messages, system=system, max_tokens=max_tokens, grammar=grammar)
+
+
 def run_battle(task: Task, repo_path: str, model: Model,
                skills: Sequence[Skill], facts: Sequence[Fact],
                step_budget: int = 12, max_tokens: int = 4096,
@@ -638,7 +663,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
                forged_root: str | None = None,
                plan_helper=None,
                on_step=None,
-               allow_web: bool = True) -> Transcript:
+               allow_web: bool = True,
+               static_system: bool = False,
+               prior_failure: str = "",
+               think: bool = False) -> Transcript:
     """on_done: optional `() -> (passed: bool, signal: str)` run when the
     agent says DONE -- False rejects the DONE and feeds the signal back.
     lessons: one-line takeaways from past lost battles on similar tasks
@@ -661,9 +689,27 @@ def run_battle(task: Task, repo_path: str, model: Model,
     if readonly:
         phase_gate = False
     snapshotting = autocommit and not readonly and _git_begin(repo_path)
-    system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
     _check_cmd = task.verify_cmd or (
         f"python -m pytest -q" + (f" -k '{task.test_filter}'" if task.test_filter else ""))
+    if static_system:
+        system = _assemble_static_system(repo_path, toolhost)
+        ranked = sorted(
+            ((_skill_rank(s, task), i, s) for i, s in enumerate(skills)),
+            key=lambda t: (-t[0], t[1]),
+        )
+        matched_skills: list[Skill] = []
+        seen_names: set[str] = set()
+        for sc, _, s in ranked:
+            if sc < 2 or s.name in seen_names:
+                continue
+            seen_names.add(s.name)
+            matched_skills.append(s)
+            if len(matched_skills) >= 6:
+                break
+        available_skill_ids = [s.id for s in matched_skills]
+    else:
+        matched_skills = []
+        system, available_skill_ids = _assemble_system(task, facts, skills, toolhost)
     # cheap, Aider-style -- but NOT on a protected-src task (a fuzz harness
     # build: there are no pytest tests, and auto-running pytest just feeds
     # the model "check failed" noise so it thrashes on src/ it can't edit)
@@ -693,6 +739,23 @@ def run_battle(task: Task, repo_path: str, model: Model,
             pass
 
     opening = f"TASK: {task.prompt}\n\nThe repository is your working directory."
+    if static_system:
+        opening += f"\n\nVerification command: `{_check_cmd}`"
+        if matched_skills:
+            full_cards = [s.render() for s in matched_skills[:3]]
+            index_cards = [
+                f"- {s.name}: {s.purpose}" for s in matched_skills[3:]
+            ]
+            opening += (
+                "\n\nRELEVANT SKILLS:\n" + "\n".join(full_cards + index_cards)
+            )[:2400]
+        if facts:
+            opening += "\n\nREMEMBERED:\n" + "\n".join(f"- {f.text}" for f in list(facts)[-8:])
+    if prior_failure and prior_failure.strip():
+        opening += (
+            "\n\nPRIOR ATTEMPT VERIFIER FAILURE (fix this concrete error; do not repeat the same mistake):\n"
+            + prior_failure.strip()
+        )
     _scout = _initial_scout(task, repo_path, toolhost)
     if _scout:
         opening += f"\n\nINITIAL LOCATE SCOUT (read exact target lines before editing):\n{_scout}"
@@ -755,6 +818,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
                 _git(repo_path, "tag", "-f", "magic-best")
         messages[0]["content"] += f"\n\nBASELINE CHECK (`{_check_cmd}`):\n{base_vc.output[:1200]}"
         _emit("baseline", f"passed={base_pc}" if base_pc >= 0 else ("ok" if base_vc.ok else "red"), ok=base_vc.ok)
+    _prefix_hits = 0
+    _prefix_cached_tokens = 0
     for _ in range(step_budget):
         if time.monotonic() - _start > time_budget_s:
             transcript.final_message = "(gave up: time budget exhausted)"
@@ -778,8 +843,18 @@ def run_battle(task: Task, repo_path: str, model: Model,
         _grammar = (grammars.react_turn_grammar(toolhost.allowed)
                     if grammar_constrained else None)
         try:
-            reply = model.complete(messages, system=system,
-                                   max_tokens=max_tokens, grammar=_grammar)
+            reply = _call_model_complete(
+                model, messages, system=system,
+                max_tokens=max_tokens, grammar=_grammar,
+                think=(True if think else None),
+            )
+            rmeta = getattr(reply, "meta", None) or {}
+            pc_meta = rmeta.get("prefix_cache") if isinstance(rmeta.get("prefix_cache"), dict) else rmeta
+            if pc_meta.get("prefix_cache_hit"):
+                _prefix_hits += 1
+                _prefix_cached_tokens = max(
+                    _prefix_cached_tokens, int(pc_meta.get("prefix_cached_tokens") or 0)
+                )
         except QuotaExhausted:
             raise                       # campaign.py stops the run cleanly on this
         except Exception as e:          # a transient backend error ends this battle, doesn't crash the caller
@@ -976,7 +1051,8 @@ def run_battle(task: Task, repo_path: str, model: Model,
         if (phase_gate and result.ok and "write_file" not in toolhost.allowed
                 and call.name in ("repo_map", "read_file", "read_files", "view_file", "find_symbol", "grep", "find_callers", "git_diff")):
             toolhost.unlock_all()
-            system, _ = _assemble_system(task, facts, skills, toolhost)
+            if not static_system:
+                system, _ = _assemble_system(task, facts, skills, toolhost)
             result_msg += "\n\n(editing tools are now available: write_file, edit_file, multi_edit, revert_to_best)"
 
         # Reflection nudge (#7): after a failing test run, make the model
@@ -1065,4 +1141,10 @@ def run_battle(task: Task, repo_path: str, model: Model,
         if _skill_score(s, task) >= 6:
             invoked.add(s.id)
     transcript.skills_invoked = sorted(invoked)
+    transcript._telemetry = {
+        "prefix_cache_hits": _prefix_hits,
+        "prefix_cached_tokens": _prefix_cached_tokens,
+        "think": bool(think),
+        "static_system": bool(static_system),
+    }
     return transcript

@@ -629,6 +629,25 @@ def one_generate_battle(store: Store, model, tgt: dict, best: dict, log) -> floa
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _select_zoid_model(reg: ModelRegistry, preferred: str | None = None):
+    """Select Gemma 4 (`gemma4-26b-a4b` or configured primary) with safe fallbacks."""
+    candidates = []
+    if preferred:
+        candidates.append(preferred)
+    env_m = os.environ.get("ZOID_MODEL", "").strip() or os.environ.get("MAGIC_PRIMARY_MODEL", "").strip()
+    if env_m:
+        candidates.append(env_m)
+    candidates.extend(["gemma4-26b-a4b", reg.primary_model_name() or "", "llama-3.1-8b-abliterated"])
+    for cand in candidates:
+        if not cand:
+            continue
+        try:
+            return reg.get(cand)
+        except Exception:
+            continue
+    return reg.get("magic")
+
+
 def commit_progress(round_i: int, log) -> None:
     # Explicit paths, not `git add -A` -- the episodes leak (500+
     # untracked files, 34MB) happened because a new data/magic/
@@ -637,8 +656,14 @@ def commit_progress(round_i: int, log) -> None:
     # doesn't repeat, and so it actually gets pushed each night --
     # cross-night regression evidence is exactly the kind of thing
     # worth real git history for, unlike the (gitignored) episodes.
-    subprocess.run(["git", "-C", str(ROOT), "add", "data/skills", "data/magic/lessons.jsonl",
-                    "data/magic/regression"], capture_output=True)
+    add_paths = [
+        p for p in (
+            "data/skills", "data/magic/lessons.jsonl", "data/magic/regression",
+        )
+        if (ROOT / p).exists()
+    ]
+    if add_paths:
+        subprocess.run(["git", "-C", str(ROOT), "add", *add_paths], capture_output=True)
     r = subprocess.run(["git", "-C", str(ROOT), "commit", "-q", "-m",
                         f"zoid loop: skills after round {round_i}",
                         "--author=mickey <mickeymidwest@gmail.com>"], capture_output=True, text=True)
@@ -651,30 +676,29 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--minutes", type=float, default=180.0)
     ap.add_argument("--rounds", type=int, default=100)
+    ap.add_argument("--max-bouts", type=int, default=8)
+    ap.add_argument("--max-attempts", type=int, default=3)
+    ap.add_argument("--bout-timeout", type=float, default=120.0)
+    ap.add_argument("--model", type=str, default=None)
+    ap.add_argument("--v2", action="store_true", help="Run Zoids v2 adaptive tiered loop")
+    ap.add_argument("--legacy", action="store_true", help="Force legacy round-robin loop")
     args = ap.parse_args()
 
     def log(m): print(m, flush=True)
 
+    from magic_core.magic import zoids_v2
+    zoids_v2.apply_low_priority()
+
     reg = ModelRegistry.from_yaml(CONFIG)
-    # Real bug found live 2026-09-19: qwen2.5-coder-7b was pruned from
-    # config/models.yaml at some point (the "5-model migration" other
-    # comments in this repo reference) and this line was never updated
-    # -- the whole nightly loop has been crashing at startup, silently,
-    # every single night since 2026-09-13 (6 nights straight, confirmed
-    # by reading every data/zoid/nightly-*.log; zoid-nightly.sh has no
-    # `set -e` so the crash never surfaced as a failed systemd unit).
-    # llama-3.1-8b-abliterated over qwen2.5-14b on purpose, not just for
-    # the safer VRAM margin (7.6GB footprint left ~160MB headroom after
-    # stopping the service; this one measures ~5.4GB in real use, ~2.4GB
-    # spare): it's mickey's actual, final, permanent primary/persona
-    # model, so skills this loop builds get practiced on the exact model
-    # that will use them in real chat, not a different one that never
-    # otherwise runs.
-    coder = reg.get("llama-3.1-8b-abliterated")
-    model = BackendModel(coder, temperature=0.2)
+    coder = _select_zoid_model(reg, preferred=args.model)
+    model = BackendModel(coder, temperature=0.2, yield_foreground=True)
+    log(f"zoid coder model: {model.name}")
     # CPU reflect helper: lesson distillation runs on the 4B (CPU, zero VRAM)
     # in the background, overlapping the next GPU battle. None -> stays on GPU.
-    _cpu_refl = reg.get("qwen3.5-4b-cpu")
+    try:
+        _cpu_refl = reg.get("qwen3.5-4b-cpu")
+    except Exception:
+        _cpu_refl = None
     reflect_model = BackendModel(_cpu_refl, temperature=0.2) if _cpu_refl is not None else None
     # gemini if configured (API, no VRAM) -- writes failure lessons
     try:
@@ -689,6 +713,23 @@ def main() -> None:
         log(f"seeded {len(newly)} new skill cards: {newly}")
     T = targets()
     log(f"zoid loop: {len(T)} targets {[t['name'] for t in T]}  budget {args.minutes:.0f}min / {args.rounds} rounds")
+
+    use_v2 = bool(args.v2 or (not args.legacy and os.environ.get("ZOID_V2", "1") == "1"))
+    if use_v2:
+        code_targets = [t for t in T if not t.get("generate") and not t.get("builder")]
+        digest = zoids_v2.run_nightly_v2(
+            store,
+            model,
+            code_targets,
+            max_bouts=args.max_bouts,
+            max_wall_minutes=args.minutes,
+            max_attempts=args.max_attempts,
+            bout_timeout_s=args.bout_timeout,
+            log=log,
+        )
+        if digest.get("bouts_attempted", 0) > 0:
+            commit_progress(int(digest.get("round") or 1), log)
+        return
 
     # one_battle()-style targets (not generate/builder) now run through
     # Campaign.step() instead -- built once here, not per round, so

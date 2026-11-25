@@ -603,6 +603,11 @@ def create_app(
         except Exception:
             pass
         try:
+            from .magic import zoids_v2 as _zv2
+            data["battles"] = _zv2.battle_status_summary(project_root, state_store=state_store)
+        except Exception:
+            pass
+        try:
             from . import netsec_scheduler as _ns_sched
             _ns_sum = state_store.netsec_summary()
             data["netsec"] = {

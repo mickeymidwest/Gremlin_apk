@@ -1278,10 +1278,28 @@ async def _good(args: str, ctx: CommandContext) -> dict:
 
 async def _doctor(args: str, ctx: CommandContext) -> dict:
     from .. import resource, snapshots
+    from . import zoids_v2
     pruned = snapshots.prune_workdirs(ctx.project_root) if "--prune" in (args or "") else 0
     ok, summary, checks = resource.doctor_report(ctx.project_root)
     if pruned:
         summary += f"\nOK   prune: removed {pruned} stale temp workdir(s)"
+    try:
+        bsum = zoids_v2.battle_status_summary(ctx.project_root)
+        latest = zoids_v2.read_latest_battle_digest(ctx.project_root)
+        if bsum.get("last_run_at") or latest:
+            digest_obj = latest or bsum
+            if "total_verified_exemplars" not in digest_obj and bsum.get("total_verified_exemplars") is not None:
+                digest_obj = dict(digest_obj, total_verified_exemplars=bsum["total_verified_exemplars"])
+            summary += f"\nINFO battles: {zoids_v2.format_morning_digest(digest_obj)}"
+            checks.append({"name": "battles", "ok": True, "detail": zoids_v2.format_morning_digest(digest_obj)})
+        else:
+            checks.append({
+                "name": "battles",
+                "ok": True,
+                "detail": f"0 runs logged; {int(bsum.get('total_verified_exemplars') or 0)} verified exemplars",
+            })
+    except Exception:
+        pass
     return {"ok": ok, "answer": summary, "checks": checks, "action": "doctor"}
 
 
