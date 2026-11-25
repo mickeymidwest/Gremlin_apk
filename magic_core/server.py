@@ -488,6 +488,16 @@ def create_app(
         str(project_root), primary_n_ctx=_primary_n_ctx(registry),
     )
 
+    # SQLite WAL state store: ensures schema, backfills existing regular JSONL threads
+    # idempotently into FTS5, and prepares persisted /controls restore after helpers exist.
+    from . import state_db as _state_db_mod
+    state_store = _state_db_mod.get_state_db(project_root)
+    try:
+        state_store.ensure_schema()
+        state_store.backfill_from_conversations(project_root)
+    except Exception as _sb_exc:
+        print(f"[state_db] warning during init/backfill: {_sb_exc}", flush=True)
+
     # Explicit, observable state for one /chat turn's progress -- see
     # agent_state.py's module docstring. Wrapping actions.execute() in
     # this also fixes a real gap: those two call sites below previously
@@ -577,6 +587,15 @@ def create_app(
         try:
             from . import hooks as _hooks
             data["hooks"] = _hooks.stats()
+        except Exception:
+            pass
+        try:
+            from . import approvals as _approvals
+            data["approvals"] = _approvals.stats()
+        except Exception:
+            pass
+        try:
+            data["state_db"] = state_store.stats()
         except Exception:
             pass
         try:
@@ -749,6 +768,81 @@ def create_app(
             "reranker_enabled": bool(_rr.get_reranker().is_enabled()),
         }
 
+    def _restore_persisted_controls() -> None:
+        from . import control_vectors as _cv
+        from . import hooks as _hooks
+        from . import registry as _reg_mod
+        from . import reranker as _rr
+
+        try:
+            saved = state_store.load_controls_state()
+        except Exception as exc:
+            print(f"[state_db] warning: could not load persisted controls ({exc})", flush=True)
+            return
+        if not saved:
+            return
+
+        if "hooks" in saved and isinstance(saved["hooks"], dict):
+            h_s = saved["hooks"]
+            if "enabled" in h_s:
+                _hooks.set_enabled(bool(h_s["enabled"]))
+            if isinstance(h_s.get("hook_states"), dict):
+                for hname, hval in h_s["hook_states"].items():
+                    _hooks.set_hook_enabled(str(hname), bool(hval))
+
+        if "reranker_enabled" in saved:
+            _rr.set_enabled(bool(saved["reranker_enabled"]))
+
+        if "thinking_mode" in saved and saved["thinking_mode"]:
+            try:
+                magic_reply.set_thinking_mode(str(saved["thinking_mode"]))
+            except Exception as exc:
+                print(f"[state_db] warning: invalid saved thinking_mode ({exc})", flush=True)
+
+        if "primary_model" in saved and saved["primary_model"]:
+            saved_pm = str(saved["primary_model"]).strip()
+            avail_names = {m["name"] for m in _available_primary_models()}
+            target_be = registry.get(saved_pm)
+            if (
+                (not avail_names or saved_pm in avail_names)
+                and target_be is not None
+                and getattr(getattr(target_be, "info", None), "kind", None) != "persona"
+            ):
+                if callable(getattr(registry, "set_primary_model", None)):
+                    registry.set_primary_model(saved_pm)
+                else:
+                    magic_be = registry.get("magic")
+                    if magic_be is not None and hasattr(magic_be, "primary"):
+                        magic_be.primary = target_be
+                    _reg_mod.set_runtime_primary_model(saved_pm)
+            else:
+                print(
+                    f"[state_db] warning: persisted primary_model {saved_pm!r} is unavailable; keeping default",
+                    flush=True,
+                )
+
+        if "control_vector" in saved and isinstance(saved["control_vector"], dict):
+            cv_s = saved["control_vector"]
+            vec_name = cv_s.get("name")
+            alpha_val = float(cv_s.get("alpha") or 0.0)
+            if vec_name and alpha_val != 0.0:
+                _, active_be = _active_primary_backend()
+                if active_be is not None and callable(getattr(active_be, "apply_control_vector", None)):
+                    try:
+                        vec_path = _cv.resolve_cvec_path(str(vec_name), str(project_root))
+                        il_s = int(cv_s["il_start"]) if cv_s.get("il_start") is not None else None
+                        il_e = int(cv_s["il_end"]) if cv_s.get("il_end") is not None else None
+                        active_be.apply_control_vector(
+                            str(vec_path), alpha=alpha_val, il_start=il_s, il_end=il_e
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[state_db] warning: skipping persisted control_vector {vec_name!r} ({exc})",
+                            flush=True,
+                        )
+
+    _restore_persisted_controls()
+
     @app.route("/controls", methods=["GET", "POST"])
     def controls():
         auth_error = _check_auth()
@@ -826,7 +920,101 @@ def create_app(
         except Exception as exc:
             return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
+        snap = _controls_snapshot()
+        persist_patch: dict = {}
+        for k in ("primary_model", "thinking_mode", "reranker_enabled", "hooks"):
+            if k in body:
+                persist_patch[k] = snap[k] if k != "hooks" else body["hooks"]
+        if "control_vector" in body:
+            persist_patch["control_vector"] = snap["control_vector"]
+        elif "primary_model" in body:
+            persist_patch["control_vector"] = {"off": True}
+        try:
+            state_store.save_controls_patch(persist_patch)
+        except Exception as exc:
+            print(f"[state_db] warning: could not persist controls ({exc})", flush=True)
+
+        return jsonify(snap)
+
+    @app.route("/controls/reset", methods=["POST"])
+    def controls_reset():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import hooks as _hooks
+        from . import registry as _reg_mod
+        from . import reranker as _rr
+
+        try:
+            state_store.clear_controls_state()
+            magic_reply.set_thinking_mode("auto")
+            _rr.set_enabled(None)
+            _hooks.set_enabled(True)
+            _hooks.reload()
+
+            _reg_mod.set_runtime_primary_model(None)
+            cfg_prim = ((getattr(registry, "raw_config", None) or {}).get("persona") or {}).get("primary_model")
+            default_prim = _reg_mod.resolve_primary_model_name(
+                cfg_prim,
+                list(getattr(registry, "backends", {}).keys()) if hasattr(registry, "backends") else None,
+                strict=False,
+            )
+            if default_prim and registry.primary_model_name() != default_prim and registry.get(default_prim):
+                _switch_primary_model(default_prim)
+            else:
+                _, active_be = _active_primary_backend()
+                if active_be is not None and callable(getattr(active_be, "clear_control_vector", None)):
+                    if callable(getattr(active_be, "async_clear_control_vector", None)):
+                        run_coro(loop, active_be.async_clear_control_vector(), timeout=60.0)
+                    else:
+                        active_be.clear_control_vector()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
         return jsonify(_controls_snapshot())
+
+    @app.route("/threads/search", methods=["GET"])
+    def threads_search():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        q = (request.args.get("q") or "").strip()
+        if not q:
+            return jsonify({"ok": False, "error": "missing query parameter q", "results": []}), 400
+        thread_id = (request.args.get("thread_id") or "").strip() or None
+        raw_limit = request.args.get("limit", "20")
+        try:
+            limit = max(1, min(int(raw_limit), 50))
+        except (TypeError, ValueError):
+            limit = 20
+        results = state_store.search_messages(q, thread_id=thread_id, limit=limit)
+        return jsonify({"ok": True, "query": q, "results": results})
+
+    @app.route("/approvals/pending", methods=["GET"])
+    def approvals_pending():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import approvals as _approvals
+        return jsonify({"ok": True, "pending": _approvals.list_pending(), "stats": _approvals.stats()})
+
+    @app.route("/approvals/<approval_id>", methods=["POST"])
+    def approvals_resolve(approval_id):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import approvals as _approvals
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "expected JSON object"}), 400
+        decision = str(body.get("decision") or "").strip()
+        note = str(body.get("note") or "")
+        try:
+            resolved = _approvals.resolve(approval_id, decision, note=note)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        if resolved is None:
+            return jsonify({"ok": False, "error": "approval not found or already expired"}), 404
+        return jsonify({"ok": True, "approval": resolved, "stats": _approvals.stats()})
 
     @app.route("/conversations", methods=["GET", "POST"])
     def conversations():
@@ -888,8 +1076,16 @@ def create_app(
             asyncio.run_coroutine_threadsafe(_w(), loop)
 
         heavy = cmd in ("fix", "build", "override")
+        from . import approvals as _approvals_mod
+        _cmd_tid = str(body.get("thread") or _state_db_mod.normalize_thread_id(ctx.conversation_key)).strip()
+        async def _dispatch_cmd():
+            tok = _approvals_mod.set_thread_context(_cmd_tid)
+            try:
+                return await dispatch(f"{cmd} {args}", ctx)
+            finally:
+                _approvals_mod.reset_thread_context(tok)
         try:
-            result = run_coro(loop, dispatch(f"{cmd} {args}", ctx), timeout=900.0)
+            result = run_coro(loop, _dispatch_cmd(), timeout=900.0)
         except job_control.JobAborted:
             raise
         except Exception as e:
@@ -1499,14 +1695,14 @@ def create_app(
             out["receipt"] = receipt
         return out
 
-    def _handle_possible_action(message: str, history: str = "") -> Optional[dict]:
+    def _handle_possible_action(message: str, history: str = "", auth_key: Optional[str] = None) -> Optional[dict]:
         """Returns a response dict if this message was (or completed) an
         action, or None to let it be handled as ordinary conversation.
 
         Conversation key is the auth token: this is a single-user
         system, so one paired client is one conversation, and a "yes"
         can only ever confirm that client's own most recent proposal."""
-        key = request.headers.get("Authorization", "") or "default"
+        key = auth_key if auth_key is not None else (request.headers.get("Authorization", "") or "default")
 
         pending = pending_confirmations.get(key)
         if pending is not None:
@@ -1744,7 +1940,19 @@ def create_app(
         _t_req0 = time.perf_counter()
         _action_ms = 0.0
         _bg_at_start = bool(_wd_busy["on"])
-        _handed_to_pump = False
+        _handed_to_worker = False
+        bridge: _queue.Queue = _queue.Queue(maxsize=512)
+        _STOP = object()
+        from . import approvals as _approvals_mod
+        stream_tid = str(body.get("thread") or _state_db_mod.normalize_thread_id(conv_key)).strip()
+
+        def _on_approval(ev_type: str, payload: dict) -> None:
+            try:
+                bridge.put_nowait((ev_type, payload))
+            except _queue.Full:
+                pass
+
+        _unsub_approval = _approvals_mod.subscribe(_on_approval, thread_id=stream_tid)
         _fg_enter()
         try:
             if not is_continue:
@@ -1753,6 +1961,7 @@ def create_app(
                     pending_confirmations.clear(conv_key)
                     done = _chat_reply("Cleared -- fresh start. I won't reference anything from before this.")
                     done["synced_count"] = synced_count
+                    _unsub_approval()
                     return _sse_done("/chat/stream", message, done)
 
                 from . import notes as notes_mod
@@ -1765,6 +1974,7 @@ def create_app(
                         notes_mod.remember_fact(str(project_root), last)
                         done = _chat_reply(f"Got it — I'll remember that: {last}")
                     done["synced_count"] = synced_count
+                    _unsub_approval()
                     return _sse_done("/chat/stream", message, done)
 
                 from . import lora_dataset as _lora_ds
@@ -1772,41 +1982,17 @@ def create_app(
                 if _is_good:
                     done = _handle_good_command(conv_key, _good_edit)
                     done["synced_count"] = synced_count
+                    _unsub_approval()
                     return _sse_done("/chat/stream", message, done)
 
-                _t_act0 = time.perf_counter()
-                action_result = _handle_possible_action(message, history=_render_stream_history())
-                _action_ms = round((time.perf_counter() - _t_act0) * 1000, 1)
-                if action_result is not None:
-                    if is_reroll and action_result.get("ok", True):
-                        conversation_history.drop_last(conv_key)
-                    conversation_history.record(
-                    conv_key, message, action_result.get("answer", ""),
-                    head=action_result.get("head", ""),
-                    source=action_result.get("source", ""),
-                )
-                    action_result["synced_count"] = synced_count
-                    action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
-                    _emit_turn_timing("/chat/stream", action_result,
-                                      {"action_ms": _action_ms, "bg_active": _bg_at_start}, _t_req0)
-                    return _sse_done("/chat/stream", message, action_result)
-
-            history = _render_stream_history()
             fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
                 or registry.get("gemini")
 
-            # Bridge: the async generator (and every backend lock it touches)
-            # lives on the one event loop; this bounded thread-safe queue is
-            # the only thing that crosses into the Flask worker thread. A
-            # queue that fills up means the client isn't draining -- stop
-            # generating rather than blocking the loop.
-            bridge: _queue.Queue = _queue.Queue(maxsize=512)
-            _STOP = object()
-
-            async def _pump():
+            async def _pump(history_txt: str, action_ms: float):
                 final = None
-                _timing: dict = {"action_ms": _action_ms, "bg_active": _bg_at_start}
+                _timing: dict = {"action_ms": action_ms, "bg_active": _bg_at_start}
                 _tok = magic_reply._TIMING_SINK.set(_timing)
+                _ap_tok = _approvals_mod.set_thread_context(stream_tid)
                 _fg_released = False
                 try:
                     async with state_machine.phase(agent_state.AgentState.REASONING):
@@ -1814,19 +2000,12 @@ def create_app(
                         stream_head = _backend_head_name(stream_be)
                         async for kind, payload in magic_reply.answer_stream(
                             stream_be, message, str(project_root),
-                            history=history, fallback=fallback,
+                            history=history_txt, fallback=fallback,
                         ):
                             if kind == "done":
                                 final = payload
                                 if stream_head and not final.get("head"):
                                     final["head"] = stream_head
-                                # Record + compute the running total BEFORE
-                                # this frame goes out -- the client needs to
-                                # see conversation_usage in the SAME "done"
-                                # frame it gets over SSE, not a beat later
-                                # (this frame is the only thing that reaches
-                                # the client; the finally block below only
-                                # ever runs after it's already been sent).
                                 _note_answer(final)
                                 turn_usage = final.get("usage") or {}
                                 ans_text = (final.get("answer") or "").strip()
@@ -1872,7 +2051,7 @@ def create_app(
                         bridge.put_nowait(("done", err_done))
                     except _queue.Full:
                         pass
-                except Exception as e:  # noqa
+                except Exception:  # noqa
                     health["consec_fail"] += 1
                     try:
                         err_done = _chat_reply(
@@ -1885,8 +2064,8 @@ def create_app(
                     if not _fg_released:
                         _fg_released = True
                         _fg_exit()
+                    _approvals_mod.reset_thread_context(_ap_tok)
                     magic_reply._TIMING_SINK.reset(_tok)
-                    # make room for the stop marker if we have to
                     while True:
                         try:
                             bridge.put_nowait(_STOP)
@@ -1897,33 +2076,102 @@ def create_app(
                             except _queue.Empty:
                                 break
 
-            pump_fut = job_control.submit(_pump(), loop, label="chat_stream")
-            _handed_to_pump = True
-            pump_fut.add_done_callback(job_control.untrack)
+            def _stream_worker() -> None:
+                _ap_tok = _approvals_mod.set_thread_context(stream_tid)
+                _handed_sub = False
+                try:
+                    hist_now = _render_stream_history()
+                    action_result = None
+                    action_ms = 0.0
+                    if not is_continue:
+                        t0 = time.perf_counter()
+                        action_result = _handle_possible_action(message, history=hist_now, auth_key=conv_key)
+                        action_ms = round((time.perf_counter() - t0) * 1000, 1)
+                    if action_result is not None:
+                        if is_reroll and action_result.get("ok", True):
+                            conversation_history.drop_last(conv_key)
+                        conversation_history.record(
+                            conv_key, message, action_result.get("answer", ""),
+                            head=action_result.get("head", ""),
+                            source=action_result.get("source", ""),
+                        )
+                        action_result["synced_count"] = synced_count
+                        action_result["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                        _emit_turn_timing(
+                            "/chat/stream", action_result,
+                            {"action_ms": action_ms, "bg_active": _bg_at_start}, _t_req0,
+                        )
+                        try:
+                            bridge.put_nowait(("done", action_result))
+                        except _queue.Full:
+                            pass
+                        return
+
+                    pump_fut = job_control.submit(_pump(hist_now, action_ms), loop, label="chat_stream")
+                    _handed_sub = True
+                    pump_fut.add_done_callback(job_control.untrack)
+                except job_control.JobAborted:
+                    try:
+                        err_done = _chat_reply("Stopped.", ok=False)
+                        err_done["synced_count"] = synced_count
+                        bridge.put_nowait(("done", err_done))
+                    except _queue.Full:
+                        pass
+                except Exception:  # noqa
+                    health["consec_fail"] += 1
+                    try:
+                        err_done = _chat_reply(
+                            "That hit an error -- try again in a moment.", ok=False)
+                        err_done["synced_count"] = synced_count
+                        bridge.put_nowait(("done", err_done))
+                    except _queue.Full:
+                        pass
+                finally:
+                    _approvals_mod.reset_thread_context(_ap_tok)
+                    if not _handed_sub:
+                        _fg_exit()
+                        while True:
+                            try:
+                                bridge.put_nowait(_STOP)
+                                break
+                            except _queue.Full:
+                                try:
+                                    bridge.get_nowait()
+                                except _queue.Empty:
+                                    break
+
+            threading.Thread(target=_stream_worker, daemon=True, name="magic-sse-worker").start()
+            _handed_to_worker = True
         finally:
-            if not _handed_to_pump:
+            if not _handed_to_worker:
+                _unsub_approval()
                 _fg_exit()
 
         def _emit():
             idle_windows = 0
-            while True:
-                try:
-                    item = bridge.get(timeout=12)
-                    idle_windows = 0
-                except _queue.Empty:
-                    idle_windows += 1
-                    if idle_windows >= 15:
-                        break  # 180s max idle backstop
-                    yield ": ping\n\n"
-                    continue
-                if item is _STOP:
-                    break
-                kind, payload = item
-                if kind == "delta":
-                    yield _sse({"type": "delta", "text": payload})
-                else:
-                    yield _sse({"type": "done", **payload})
-                    _fire_post_turn("/chat/stream", message, payload)
+            try:
+                while True:
+                    try:
+                        item = bridge.get(timeout=12)
+                        idle_windows = 0
+                    except _queue.Empty:
+                        idle_windows += 1
+                        if idle_windows >= 15:
+                            break  # 180s max idle backstop
+                        yield ": ping\n\n"
+                        continue
+                    if item is _STOP:
+                        break
+                    kind, payload = item
+                    if kind == "delta":
+                        yield _sse({"type": "delta", "text": payload})
+                    elif kind in ("approval_required", "approval_resolved"):
+                        yield _sse({"type": kind, **payload})
+                    else:
+                        yield _sse({"type": "done", **payload})
+                        _fire_post_turn("/chat/stream", message, payload)
+            finally:
+                _unsub_approval()
 
         return Response(_emit(), mimetype="text/event-stream", headers=_SSE_HEADERS)
 

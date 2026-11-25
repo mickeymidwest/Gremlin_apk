@@ -343,7 +343,7 @@ async def _tool_run_command(args: dict[str, Any], ctx: ExecContext) -> dict[str,
     if not command:
         return {"answer": "What command do you want me to run?", "action": "run_command", "ok": False}
     from . import hooks as hooks_mod
-    dec = hooks_mod.run_pre_tool(
+    dec = await hooks_mod.async_authorize_pre_tool(
         "run_command",
         {"command": command, "as_root": bool(args.get("as_root"))},
         root=ctx.project_root,
@@ -466,7 +466,7 @@ async def _tool_self_edit(args: dict[str, Any], ctx: ExecContext) -> dict[str, A
     if not goal:
         return {"answer": "What do you want me to change about myself?", "action": "self_edit", "ok": False}
     from . import hooks as hooks_mod
-    dec = hooks_mod.run_pre_tool("self_edit", {"goal": goal}, root=ctx.project_root)
+    dec = await hooks_mod.async_authorize_pre_tool("self_edit", {"goal": goal}, root=ctx.project_root)
     if not dec.allowed:
         return {"answer": dec.reason or "Blocked by pre_tool hook.", "action": "self_edit", "ok": False}
     # Just the primary, not every registered model -- confirmed live
@@ -539,7 +539,7 @@ async def _tool_build_project(args: dict[str, Any], ctx: ExecContext) -> dict[st
         }
     target_root = str(Path.home() / "Downloads" / safe_name)
     from . import hooks as hooks_mod
-    dec = hooks_mod.run_pre_tool(
+    dec = await hooks_mod.async_authorize_pre_tool(
         "build_project",
         {"name": name, "goal": goal, "path": target_root},
         root=ctx.project_root,
@@ -612,7 +612,7 @@ async def _tool_script_fix(args: dict[str, Any], ctx: ExecContext) -> dict[str, 
         return {"answer": f"I won't touch that one: {refusal}", "action": "script_fix", "ok": False}
 
     from . import hooks as hooks_mod
-    dec = hooks_mod.run_pre_tool(
+    dec = await hooks_mod.async_authorize_pre_tool(
         "script_fix",
         {"path": path, "resolved_path": path, "problem": problem},
         root=ctx.project_root,

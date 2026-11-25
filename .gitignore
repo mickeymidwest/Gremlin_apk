@@ -112,4 +112,5 @@ data/guard/
 data/fuzz_state/
 data/forged_tools/
 data/rea_uploads/
+data/magic/*.db*
 .magic/

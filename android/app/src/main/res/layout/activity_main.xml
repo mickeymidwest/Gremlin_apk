@@ -54,6 +54,15 @@
             android:textSize="12sp" />
 
         <ImageButton
+            android:id="@+id/search_threads_button"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Search threads"
+            android:tint="@color/magic_accent"
+            android:src="@android:drawable/ic_menu_search" />
+
+        <ImageButton
             android:id="@+id/more_button"
             android:layout_width="36dp"
             android:layout_height="36dp"
@@ -96,6 +105,15 @@
             android:paddingTop="8dp"
             android:paddingBottom="8dp" />
     </ScrollView>
+
+    <LinearLayout
+        android:id="@+id/approval_cards_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp" />
 
     <TextView
         android:id="@+id/thinking_status"

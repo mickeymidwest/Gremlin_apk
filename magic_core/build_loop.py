@@ -740,7 +740,7 @@ def verify_step_sync(
         if not parsed_cmd:
             return VerifyResult(ok=False, command=cmd, output="", exit_code=1, reason="empty verify command")
         from . import hooks as _hooks_mod
-        _vdec = _hooks_mod.run_pre_tool(
+        _vdec = _hooks_mod.authorize_pre_tool(
             "run_shell",
             {"command": cmd, "cmd": cmd, "tool": "verify_step"},
             root=root_abs,
@@ -1681,7 +1681,7 @@ async def run_build_loop(
         )
         _hook_block = ""
         for _rel in _touched:
-            _pre_d = _hooks_mod.run_pre_tool(
+            _pre_d = await _hooks_mod.async_authorize_pre_tool(
                 "edit_file",
                 {"path": _rel, "resolved_path": str(Path(root_abs) / _rel)},
                 root=root_abs,
