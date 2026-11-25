@@ -987,6 +987,49 @@ def create_app(
             return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
         return jsonify(_controls_snapshot())
 
+    def _resolve_thread_key(conv_key_auth: str, raw_thread: Optional[str]) -> tuple[str, str]:
+        """Resolve an optional client `thread` onto ``(history_key, thread_id)``.
+
+        Preserves existing single-thread behavior when ``raw_thread`` is omitted
+        or matches the caller's normalized default thread, and rejects Private Mode
+        identifiers cleanly.
+        """
+        default_tid = _state_db_mod.normalize_thread_id(conv_key_auth)
+        req_tid = str(raw_thread or "").strip()
+        if not req_tid or req_tid == default_tid:
+            return conv_key_auth, default_tid
+        if _state_db_mod.is_private_identifier(req_tid):
+            raise ValueError("private thread is isolated from /threads")
+        if req_tid == "desktop":
+            return "desktop", "desktop"
+        from .magic.conversation import Threads
+        th = Threads(str(project_root), owner=conv_key_auth)
+        idx = th._load()
+        if req_tid not in idx:
+            now = time.time()
+            idx[req_tid] = {
+                "owner": th.owner,
+                "title": "New chat",
+                "created": now,
+                "updated": now,
+            }
+            th._save(idx)
+        return th._key(req_tid), req_tid
+
+    @app.route("/threads", methods=["GET"])
+    def threads_list():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        owner = request.headers.get("Authorization", "") or "default"
+        raw_limit = request.args.get("limit", "100")
+        try:
+            limit = max(1, min(int(raw_limit), 200))
+        except (TypeError, ValueError):
+            limit = 100
+        items = state_store.list_threads(project_root=project_root, owner=owner, limit=limit)
+        return jsonify({"ok": True, "threads": items})
+
     @app.route("/threads/search", methods=["GET"])
     def threads_search():
         auth_error = _check_auth()
@@ -1003,6 +1046,77 @@ def create_app(
             limit = 20
         results = state_store.search_messages(q, thread_id=thread_id, limit=limit)
         return jsonify({"ok": True, "query": q, "results": results})
+
+    @app.route("/threads/<thread_id>", methods=["GET", "POST", "PATCH", "DELETE"])
+    def thread_detail(thread_id):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        tid = str(thread_id or "").strip()
+        if not tid or _state_db_mod.is_private_identifier(tid):
+            return jsonify({"ok": False, "error": "invalid thread_id"}), 400
+        owner = request.headers.get("Authorization", "") or "default"
+
+        if request.method == "GET":
+            messages = state_store.get_thread_messages(tid)
+            threads_all = state_store.list_threads(project_root=project_root, owner=owner, limit=200)
+            meta = next((t for t in threads_all if t["thread_id"] == tid), None)
+            return jsonify({"ok": True, "thread_id": tid, "thread": meta, "messages": messages})
+
+        if request.method == "DELETE":
+            from .magic.conversation import Threads
+            th = Threads(str(project_root), owner=owner)
+            th.clear(tid)
+            if tid == _state_db_mod.normalize_thread_id(owner):
+                conversation_history.clear(owner)
+            elif tid == "desktop":
+                conversation_history.clear("desktop")
+            deleted = state_store.delete_thread(tid)
+            return jsonify({"ok": True, "thread_id": tid, "deleted": deleted})
+
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or ("title" not in body and "pinned" not in body):
+            return jsonify({"ok": False, "error": "expected JSON object with title and/or pinned"}), 400
+        title_val = str(body["title"]) if "title" in body and body["title"] is not None else None
+        pinned_val = bool(body["pinned"]) if "pinned" in body else None
+        updated = state_store.upsert_thread_meta(tid, title=title_val, pinned=pinned_val)
+        if updated is None:
+            return jsonify({"ok": False, "error": "invalid thread_id"}), 400
+        if title_val is not None:
+            from .magic.conversation import Threads
+            th = Threads(str(project_root), owner=owner)
+            idx = th._load()
+            if tid in idx and idx[tid].get("owner") == th.owner:
+                idx[tid]["title"] = updated["title"]
+                th._save(idx)
+        return jsonify({"ok": True, "thread": updated})
+
+    @app.route("/attachments/upload", methods=["POST"])
+    def attachments_upload():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import attachments as _att
+        if request.content_length is not None and request.content_length > (_att.MAX_APK_BYTES + 1024 * 1024):
+            return jsonify({"ok": False, "error": "uploaded file exceeds 50 MB limit"}), 413
+        up = request.files.get("file") or request.files.get("attachment")
+        if up is None or not getattr(up, "filename", ""):
+            return jsonify({"ok": False, "error": "missing multipart file field 'file'"}), 400
+        try:
+            saved = _att.save_upload(
+                up.stream,
+                up.filename,
+                content_type=up.content_type or "",
+                project_root=project_root,
+                content_length=up.content_length if getattr(up, "content_length", 0) else None,
+            )
+            return jsonify(saved)
+        except _att.UploadTooLargeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 413
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 500
 
     @app.route("/approvals/pending", methods=["GET"])
     def approvals_pending():
@@ -1161,6 +1275,8 @@ def create_app(
         from .magic.conversation import Threads
         owner = request.headers.get("Authorization", "") or "default"
         Threads(str(project_root), owner=owner).clear(thread_id)
+        if not _state_db_mod.is_private_identifier(thread_id):
+            state_store.delete_thread(thread_id)
         return jsonify({"ok": True})
 
     @app.route("/command", methods=["POST"])
@@ -1412,10 +1528,17 @@ def create_app(
 
         body = request.get_json(silent=True) or {}
         message = body.get("message", "").strip()
+        attachment_ids = body.get("attachment_ids")
+        if isinstance(attachment_ids, str):
+            attachment_ids = [attachment_ids]
+        elif not isinstance(attachment_ids, list):
+            attachment_ids = []
         image_b64 = body.get("image")
         image_mime = body.get("image_mime") or "image/jpeg"
-        if not message and not image_b64:
+        if not message and not image_b64 and not attachment_ids:
             return jsonify({"error": "empty message"}), 400
+        if not message and attachment_ids:
+            message = "Inspect this attachment."
 
         # Away-mode exchanges the phone couldn't deliver until now --
         # rides along with the first successful reconnection rather than
@@ -1425,7 +1548,11 @@ def create_app(
         if pending_sync:
             synced_count = away_sync.append_away_session(str(project_root), pending_sync)
 
-        conv_key = request.headers.get("Authorization", "") or "default"
+        conv_key_auth = request.headers.get("Authorization", "") or "default"
+        try:
+            conv_key, _active_tid = _resolve_thread_key(conv_key_auth, body.get("thread"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
         # An attached image can't be seen by the local text-only models --
         # straight to Gemini's real multimodal path, no action-classifying
@@ -1473,30 +1600,13 @@ def create_app(
 
         magic_backend = registry.get("magic")
 
-        # Natural-language actions: "check for updates", "fix my backup
-        # script", "reboot the desktop" all arrive on this same /chat
-        # route as ordinary messages -- there is no separate command
-        # channel any more (see magic_core/intent.py). Anything that
-        # isn't an action falls straight through to the normal consult
-        # path below, at zero added cost.
-        conv_key = request.headers.get("Authorization", "") or "default"
-
-        # "clear the conversation" / "start fresh" wipes this thread's
-        # memory (kept until told to clear -- see history.py). Checked
-        # before anything else so it can't be mistaken for a chat message.
-        if history_mod.is_clear_command(message):
+        if not attachment_ids and history_mod.is_clear_command(message):
             conversation_history.clear(conv_key)
             pending_confirmations.clear(conv_key)
             return jsonify(_chat_reply("Cleared -- fresh start. I won't reference anything from before this."))
 
-        # "remember that" / "save that" with nothing restated -- keep
-        # Magic's own last reply (typically a web_search answer) as a
-        # durable fact, no retyping needed. Checked before action
-        # classification for the same reason is_clear_command is: this
-        # is never a real action request even though "remember" isn't
-        # itself in the action-hint list.
         from . import notes as notes_mod
-        if notes_mod.is_remember_last_reply_command(message):
+        if not attachment_ids and notes_mod.is_remember_last_reply_command(message):
             pending_confirmations.clear(conv_key)
             last = conversation_history.last_assistant(conv_key)
             if not last:
@@ -1505,16 +1615,49 @@ def create_app(
             return jsonify(_chat_reply(f"Got it — I'll remember that: {last}"))
 
         from . import lora_dataset as _lora_ds
-        _is_good, _good_edit = _lora_ds.parse_good_command(message)
+        _is_good, _good_edit = _lora_ds.parse_good_command(message) if not attachment_ids else (False, "")
         if _is_good:
             return jsonify(_handle_good_command(conv_key, _good_edit))
+
+        from . import attachments as _attachments_mod
+        _att_prep = _attachments_mod.prepare_turn_attachments(
+            attachment_ids, project_root=project_root, message=message
+        )
+        if _att_prep.get("direct_inspect_apk") is not None:
+            apk_meta = _att_prep["direct_inspect_apk"]
+            from . import tools as _tools_mod
+            _t0 = time.perf_counter()
+            exec_ctx = _tools_mod.ExecContext(
+                router=router, registry=registry, project_root=str(project_root)
+            )
+            insp = run_coro(
+                loop,
+                _in_phase(
+                    agent_state.AgentState.TOOL_EXECUTION,
+                    _tools_mod._tool_inspect({"target": apk_meta["path"]}, exec_ctx),
+                ),
+                timeout=180.0,
+            )
+            ans_txt = insp.get("answer", "")
+            rep = _chat_reply(ans_txt, insp.get("action", "inspect"), insp.get("ok", True))
+            rep["activity_summary"] = [{
+                "stage": "tool",
+                "label": f"Analyzed APK {apk_meta['filename']}",
+                "detail": "REA / offline APK inspect",
+                "duration_ms": round((time.perf_counter() - _t0) * 1000, 1),
+            }]
+            conversation_history.record(conv_key, message, ans_txt, source="inspect")
+            rep["synced_count"] = synced_count
+            rep["conversation_usage"] = conversation_history.usage_totals(conv_key)
+            _fire_post_turn("/chat", message, rep)
+            return jsonify(rep)
 
         _timing: dict = {"bg_active": bool(_wd_busy["on"])}
         _t_req0 = time.perf_counter()
         _fg_enter()
         try:
             _t_act0 = time.perf_counter()
-            action_result = _handle_possible_action(message, history=conversation_history.render(conv_key))
+            action_result = _handle_possible_action(message, history=conversation_history.render(conv_key), auth_key=conv_key)
             _timing["action_ms"] = round((time.perf_counter() - _t_act0) * 1000, 1)
             if action_result is not None:
                 action_result["synced_count"] = synced_count
@@ -1548,12 +1691,14 @@ def create_app(
                 chat_be = await _resolve_chat_backend(message, magic_backend, timing=_timing)
                 selected_head_box["name"] = _backend_head_name(chat_be) or selected_head_box["name"]
                 tok = magic_reply._TIMING_SINK.set(_timing)
+                att_tok = _attachments_mod.set_turn_attachment_context(_att_prep.get("dynamic_context") or "")
                 try:
                     return await magic_reply.answer(
                         chat_be, message, str(project_root),
                         history=history, fallback=fallback,
                     )
                 finally:
+                    _attachments_mod.reset_turn_attachment_context(att_tok)
                     magic_reply._TIMING_SINK.reset(tok)
 
             try:
@@ -2025,7 +2170,16 @@ def create_app(
         if pending_sync:
             synced_count = away_sync.append_away_session(str(project_root), pending_sync)
 
-        conv_key = request.headers.get("Authorization", "") or "default"
+        conv_key_auth = request.headers.get("Authorization", "") or "default"
+        try:
+            conv_key, stream_tid = _resolve_thread_key(conv_key_auth, body.get("thread"))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        attachment_ids = body.get("attachment_ids")
+        if isinstance(attachment_ids, str):
+            attachment_ids = [attachment_ids]
+        elif not isinstance(attachment_ids, list):
+            attachment_ids = []
         is_continue = bool(body.get("continue"))
         is_reroll = bool(body.get("reroll")) and not is_continue
         message = body.get("message", "").strip()
@@ -2043,6 +2197,8 @@ def create_app(
             prev_user = conversation_history.last_user(conv_key)
             if not message and prev_user:
                 message = prev_user
+        elif not message and attachment_ids:
+            message = "Inspect this attachment."
         if not message:
             return jsonify({"error": "empty message"}), 400
         magic_backend = registry.get("magic")
@@ -2068,7 +2224,6 @@ def create_app(
         bridge: _queue.Queue = _queue.Queue(maxsize=512)
         _STOP = object()
         from . import approvals as _approvals_mod
-        stream_tid = str(body.get("thread") or _state_db_mod.normalize_thread_id(conv_key)).strip()
 
         def _on_approval(ev_type: str, payload: dict) -> None:
             try:
@@ -2079,7 +2234,7 @@ def create_app(
         _unsub_approval = _approvals_mod.subscribe(_on_approval, thread_id=stream_tid)
         _fg_enter()
         try:
-            if not is_continue:
+            if not is_continue and not attachment_ids:
                 if history_mod.is_clear_command(message):
                     conversation_history.clear(conv_key)
                     pending_confirmations.clear(conv_key)
@@ -2112,13 +2267,62 @@ def create_app(
             fallback = next(iter(getattr(magic_backend, "fallbacks", []) or []), None) \
                 or registry.get("gemini")
 
-            async def _pump(history_txt: str, action_ms: float):
+            def _emit_stream_activity(ev: dict) -> None:
+                try:
+                    bridge.put_nowait(("activity", {
+                        "stage": str(ev.get("stage") or "tool"),
+                        "label": str(ev.get("label") or ""),
+                        "detail": str(ev.get("detail") or ""),
+                        "duration_ms": float(ev.get("duration_ms") or 0.0),
+                    }))
+                except _queue.Full:
+                    pass
+
+            async def _pump(history_txt: str, action_ms: float, att_prep: Optional[dict] = None):
                 final = None
                 _timing: dict = {"action_ms": action_ms, "bg_active": _bg_at_start}
+                _act_list: list[dict] = list((att_prep or {}).get("activities") or [])
+                for _ev0 in _act_list:
+                    _emit_stream_activity(_ev0)
                 _tok = magic_reply._TIMING_SINK.set(_timing)
+                _act_list_tok = magic_reply._ACTIVITY_LIST.set(_act_list)
+                _act_sink_tok = magic_reply._ACTIVITY_SINK.set(_emit_stream_activity)
                 _ap_tok = _approvals_mod.set_thread_context(stream_tid)
+                from . import attachments as _att_mod
+                _att_tok = _att_mod.set_turn_attachment_context((att_prep or {}).get("dynamic_context") or "")
                 _fg_released = False
                 try:
+                    if (att_prep or {}).get("direct_inspect_apk") is not None:
+                        apk_meta = att_prep["direct_inspect_apk"]
+                        from . import tools as _tools_mod
+                        _t_insp = time.perf_counter()
+                        exec_ctx = _tools_mod.ExecContext(
+                            router=router, registry=registry, project_root=str(project_root)
+                        )
+                        async with state_machine.phase(agent_state.AgentState.TOOL_EXECUTION):
+                            insp = await _tools_mod._tool_inspect({"target": apk_meta["path"]}, exec_ctx)
+                        ans_text = (insp.get("answer") or "").strip()
+                        magic_reply._emit_activity(
+                            "tool",
+                            f"Analyzed APK {apk_meta['filename']}",
+                            detail="REA / offline APK inspect",
+                            duration_ms=(time.perf_counter() - _t_insp) * 1000,
+                        )
+                        done_insp = _chat_reply(ans_text, insp.get("action", "inspect"), insp.get("ok", True))
+                        done_insp["activity_summary"] = list(_act_list)
+                        done_insp["synced_count"] = synced_count
+                        with state_machine.sync_phase(agent_state.AgentState.WRITING_MEMORY):
+                            conversation_history.record(conv_key, message, ans_text, source="inspect")
+                        done_insp["conversation_usage"] = conversation_history.usage_totals(conv_key)
+                        _emit_turn_timing("/chat/stream", done_insp, _timing, _t_req0)
+                        if not _fg_released:
+                            _fg_released = True
+                            _fg_exit()
+                        if ans_text:
+                            bridge.put_nowait(("delta", ans_text))
+                        bridge.put_nowait(("done", done_insp))
+                        return
+
                     async with state_machine.phase(agent_state.AgentState.REASONING):
                         stream_be = await _resolve_chat_backend(message, magic_backend, timing=_timing)
                         stream_head = _backend_head_name(stream_be)
@@ -2131,6 +2335,8 @@ def create_app(
                                 if stream_head and not final.get("head"):
                                     final["head"] = stream_head
                                 _note_answer(final)
+                                if _act_list and not final.get("activity_summary"):
+                                    final["activity_summary"] = list(_act_list)
                                 turn_usage = final.get("usage") or {}
                                 ans_text = (final.get("answer") or "").strip()
                                 ans_ok = bool(final.get("action_ok", True)) and bool(ans_text)
@@ -2188,7 +2394,10 @@ def create_app(
                     if not _fg_released:
                         _fg_released = True
                         _fg_exit()
+                    _att_mod.reset_turn_attachment_context(_att_tok)
                     _approvals_mod.reset_thread_context(_ap_tok)
+                    magic_reply._ACTIVITY_SINK.reset(_act_sink_tok)
+                    magic_reply._ACTIVITY_LIST.reset(_act_list_tok)
                     magic_reply._TIMING_SINK.reset(_tok)
                     while True:
                         try:
@@ -2204,14 +2413,28 @@ def create_app(
                 _ap_tok = _approvals_mod.set_thread_context(stream_tid)
                 _handed_sub = False
                 try:
+                    from . import attachments as _att_mod
+                    att_prep = _att_mod.prepare_turn_attachments(
+                        attachment_ids, project_root=project_root, message=message
+                    )
                     hist_now = _render_stream_history()
                     action_result = None
                     action_ms = 0.0
-                    if not is_continue:
+                    if not is_continue and not attachment_ids:
                         t0 = time.perf_counter()
                         action_result = _handle_possible_action(message, history=hist_now, auth_key=conv_key)
                         action_ms = round((time.perf_counter() - t0) * 1000, 1)
                     if action_result is not None:
+                        act_name = str(action_result.get("action") or "tool")
+                        act_stage = "netsec" if ("defense" in act_name or "netsec" in act_name or "surface" in act_name) else "tool"
+                        act_ev = {
+                            "stage": act_stage,
+                            "label": f"Ran {act_name}",
+                            "detail": "",
+                            "duration_ms": action_ms,
+                        }
+                        _emit_stream_activity(act_ev)
+                        action_result["activity_summary"] = [act_ev]
                         if is_reroll and action_result.get("ok", True):
                             conversation_history.drop_last(conv_key)
                         conversation_history.record(
@@ -2231,7 +2454,7 @@ def create_app(
                             pass
                         return
 
-                    pump_fut = job_control.submit(_pump(hist_now, action_ms), loop, label="chat_stream")
+                    pump_fut = job_control.submit(_pump(hist_now, action_ms, att_prep=att_prep), loop, label="chat_stream")
                     _handed_sub = True
                     pump_fut.add_done_callback(job_control.untrack)
                 except job_control.JobAborted:
@@ -2289,6 +2512,8 @@ def create_app(
                     kind, payload = item
                     if kind == "delta":
                         yield _sse({"type": "delta", "text": payload})
+                    elif kind == "activity":
+                        yield _sse(payload if payload.get("type") == "activity" else {"type": "activity", **payload})
                     elif kind in ("approval_required", "approval_resolved"):
                         yield _sse({"type": kind, **payload})
                     else:

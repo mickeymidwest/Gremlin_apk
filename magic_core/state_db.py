@@ -66,6 +66,14 @@ def normalize_thread_id(raw_key_or_tid: Optional[str]) -> str:
     return raw
 
 
+def default_title_from(text: Optional[str], limit: int = 48) -> str:
+    """Auto-trim a thread title from the first prompt without newlines."""
+    t = " ".join(str(text or "").split())
+    if not t:
+        return "New chat"
+    return (t[:limit].rstrip() + "…") if len(t) > limit else t
+
+
 def sanitize_fts5_query(raw: Optional[str]) -> str:
     """Convert arbitrary user input into a safe FTS5 MATCH query expression.
 
@@ -117,6 +125,16 @@ class StateDB:
                     CREATE TABLE IF NOT EXISTS controls_state (
                         key TEXT PRIMARY KEY,
                         value_json TEXT NOT NULL,
+                        updated_at REAL NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS thread_meta (
+                        thread_id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL DEFAULT '',
+                        pinned INTEGER NOT NULL DEFAULT 0,
                         updated_at REAL NOT NULL
                     );
                     """
@@ -390,6 +408,7 @@ class StateDB:
             return 0
 
         prefix = external_prefix or f"{tid}:{int(ts * 1000)}"
+        auto_title = default_title_from(user_text) if (user_text or "").strip() else ""
         inserted = 0
         with self._write_tx() as conn:
             for role, text in pairs:
@@ -407,6 +426,19 @@ class StateDB:
                 )
                 if cur.rowcount and cur.rowcount > 0:
                     inserted += int(cur.rowcount)
+            conn.execute(
+                """
+                INSERT INTO thread_meta(thread_id, title, pinned, updated_at)
+                VALUES (?, ?, 0, ?)
+                ON CONFLICT(thread_id) DO UPDATE SET
+                    updated_at = MAX(thread_meta.updated_at, excluded.updated_at),
+                    title = CASE
+                        WHEN thread_meta.title = '' AND excluded.title != '' THEN excluded.title
+                        ELSE thread_meta.title
+                    END
+                """,
+                (tid, auto_title, ts),
+            )
         return inserted
 
     def update_last_assistant(self, thread_or_key: str, new_assistant_text: str) -> bool:
@@ -451,7 +483,7 @@ class StateDB:
         return deleted
 
     def delete_thread(self, thread_or_key: str) -> int:
-        """Delete all indexed messages for a cleared thread (triggers FTS5 delete)."""
+        """Delete all indexed messages and metadata for a cleared thread."""
         raw = str(thread_or_key or "").strip()
         if not raw:
             return 0
@@ -463,6 +495,10 @@ class StateDB:
             cur = conn.execute(
                 f"DELETE FROM chat_messages WHERE thread_id IN ({placeholders}) OR external_key LIKE ?",
                 (*candidates, f"jsonl:{stem}:%"),
+            )
+            conn.execute(
+                f"DELETE FROM thread_meta WHERE thread_id IN ({placeholders})",
+                tuple(candidates),
             )
             return max(0, int(cur.rowcount or 0))
 
@@ -863,6 +899,203 @@ class StateDB:
                 "detail": json.loads(r[4] or "{}"),
                 "acknowledged": bool(r[5]),
                 "created_at": float(r[6] or 0.0),
+            }
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------ thread_meta
+
+    def upsert_thread_meta(
+        self,
+        thread_or_key: str,
+        *,
+        title: Optional[str] = None,
+        pinned: Optional[bool] = None,
+        updated_at: Optional[float] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Create or update `title` / `pinned` metadata for a non-private thread."""
+        raw = str(thread_or_key or "").strip()
+        if not raw or is_private_identifier(raw):
+            return None
+        tid = normalize_thread_id(raw)
+        if not tid or is_private_identifier(tid):
+            return None
+
+        clean_title: Optional[str] = None
+        if title is not None:
+            clean_title = " ".join(str(title).split())[:120]
+
+        with self._write_tx() as conn:
+            existing = conn.execute(
+                "SELECT title, pinned, updated_at FROM thread_meta WHERE thread_id = ?",
+                (tid,),
+            ).fetchone()
+            msg_max = conn.execute(
+                "SELECT MAX(created_at) FROM chat_messages WHERE thread_id = ?",
+                (tid,),
+            ).fetchone()
+            base_ts = float(msg_max[0] or 0.0) if msg_max and msg_max[0] else time.time()
+            new_title = clean_title if clean_title is not None else (str(existing[0]) if existing else "")
+            new_pinned = int(bool(pinned)) if pinned is not None else (int(existing[1]) if existing else 0)
+            new_ts = float(updated_at) if updated_at is not None else (float(existing[2]) if existing else base_ts)
+            conn.execute(
+                """
+                INSERT INTO thread_meta(thread_id, title, pinned, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(thread_id) DO UPDATE SET
+                    title = excluded.title,
+                    pinned = excluded.pinned,
+                    updated_at = MAX(thread_meta.updated_at, excluded.updated_at)
+                """,
+                (tid, new_title, new_pinned, new_ts),
+            )
+            stats_row = conn.execute(
+                "SELECT COUNT(*), MAX(created_at) FROM chat_messages WHERE thread_id = ?",
+                (tid,),
+            ).fetchone()
+            last_row = conn.execute(
+                "SELECT content FROM chat_messages WHERE thread_id = ? ORDER BY id DESC LIMIT 1",
+                (tid,),
+            ).fetchone()
+            first_user = conn.execute(
+                "SELECT content FROM chat_messages WHERE thread_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
+                (tid,),
+            ).fetchone()
+
+        eff_title = new_title or (default_title_from(first_user[0]) if first_user else tid)
+        preview = " ".join(str(last_row[0]).split())[:120] if last_row else ""
+        return {
+            "thread_id": tid,
+            "title": eff_title,
+            "pinned": bool(new_pinned),
+            "message_count": int(stats_row[0] or 0) if stats_row else 0,
+            "preview": preview,
+            "updated_at": float(stats_row[1] or new_ts) if stats_row and stats_row[1] else float(new_ts),
+        }
+
+    def list_threads(
+        self,
+        *,
+        project_root: Optional[str | Path] = None,
+        owner: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List non-Private-Mode threads sorted by ``pinned DESC, updated_at DESC``."""
+        root = Path(project_root) if project_root else DEFAULT_ROOT
+        threads_idx: dict[str, dict[str, Any]] = {}
+        threads_file = root / "data" / "conversations" / "threads.json"
+        if threads_file.is_file():
+            try:
+                raw_idx = json.loads(threads_file.read_text(encoding="utf-8"))
+                if isinstance(raw_idx, dict):
+                    threads_idx = raw_idx
+            except (OSError, ValueError):
+                threads_idx = {}
+
+        owner_hash: Optional[str] = None
+        if owner:
+            owner_hash = "h:" + hashlib.sha256(owner.encode("utf-8")).hexdigest()[:16]
+
+        with self._read_conn() as conn:
+            msg_rows = conn.execute(
+                """
+                SELECT thread_id, COUNT(*) AS cnt, MAX(created_at) AS max_ts
+                FROM chat_messages
+                GROUP BY thread_id
+                """
+            ).fetchall()
+            meta_rows = conn.execute(
+                "SELECT thread_id, title, pinned, updated_at FROM thread_meta"
+            ).fetchall()
+
+            meta_map: dict[str, tuple[str, int, float]] = {
+                str(r[0]): (str(r[1] or ""), int(r[2] or 0), float(r[3] or 0.0))
+                for r in meta_rows
+            }
+            msg_map: dict[str, tuple[int, float]] = {
+                str(r[0]): (int(r[1] or 0), float(r[2] or 0.0))
+                for r in msg_rows
+            }
+
+            all_tids: set[str] = set(msg_map.keys()) | set(meta_map.keys())
+            for tid_k, tmeta in threads_idx.items():
+                if not isinstance(tmeta, dict) or is_private_identifier(tid_k):
+                    continue
+                if owner_hash and tmeta.get("owner") not in (owner_hash, owner):
+                    continue
+                all_tids.add(str(tid_k))
+
+            items: list[dict[str, Any]] = []
+            for tid in all_tids:
+                if not tid or is_private_identifier(tid):
+                    continue
+                m_title, m_pinned, m_ts = meta_map.get(tid, ("", 0, 0.0))
+                msg_cnt, msg_ts = msg_map.get(tid, (0, 0.0))
+                tidx = threads_idx.get(tid) if isinstance(threads_idx.get(tid), dict) else {}
+
+                first_user_row = None
+                last_msg_row = None
+                if msg_cnt > 0:
+                    first_user_row = conn.execute(
+                        "SELECT content FROM chat_messages WHERE thread_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
+                        (tid,),
+                    ).fetchone()
+                    last_msg_row = conn.execute(
+                        "SELECT content FROM chat_messages WHERE thread_id = ? ORDER BY id DESC LIMIT 1",
+                        (tid,),
+                    ).fetchone()
+
+                idx_title = str(tidx.get("title") or "").strip()
+                if idx_title == "New chat":
+                    idx_title = ""
+                eff_title = (
+                    m_title
+                    or idx_title
+                    or (default_title_from(first_user_row[0]) if first_user_row else "")
+                    or tid
+                )
+                preview = " ".join(str(last_msg_row[0]).split())[:120] if last_msg_row else ""
+                idx_ts = float(tidx.get("updated") or 0.0)
+                eff_ts = max(msg_ts, m_ts, idx_ts)
+                items.append({
+                    "thread_id": tid,
+                    "title": eff_title,
+                    "pinned": bool(m_pinned),
+                    "message_count": int(msg_cnt),
+                    "preview": preview,
+                    "updated_at": float(eff_ts),
+                })
+
+        items.sort(key=lambda it: (1 if it["pinned"] else 0, it["updated_at"]), reverse=True)
+        return items[: max(1, min(int(limit or 100), 200))]
+
+    def get_thread_messages(self, thread_or_key: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        """Return chronological messages for a non-private thread."""
+        raw = str(thread_or_key or "").strip()
+        if not raw or is_private_identifier(raw):
+            return []
+        tid = normalize_thread_id(raw)
+        if is_private_identifier(tid):
+            return []
+        eff_limit = max(1, min(int(limit or 100), 300))
+        with self._read_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, role, content, created_at
+                FROM chat_messages
+                WHERE thread_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (tid, eff_limit),
+            ).fetchall()
+        rows.reverse()
+        return [
+            {
+                "id": int(r[0]),
+                "role": str(r[1]),
+                "content": str(r[2]),
+                "created_at": float(r[3]),
             }
             for r in rows
         ]
