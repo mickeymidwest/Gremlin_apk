@@ -14,8 +14,17 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator, Optional
+
+
+@dataclass
+class DriftReport:
+    new_devices: list[dict[str, Any]] = field(default_factory=list)
+    disappeared_devices: list[dict[str, Any]] = field(default_factory=list)
+    new_ports: list[dict[str, Any]] = field(default_factory=list)
+    ip_changes: list[dict[str, Any]] = field(default_factory=list)
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -169,6 +178,63 @@ class StateDB:
                         INSERT INTO chat_messages_fts(rowid, content, thread_id, role)
                         VALUES (new.id, new.content, new.thread_id, new.role);
                     END;
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS known_devices (
+                        mac TEXT PRIMARY KEY,
+                        ip TEXT,
+                        hostname TEXT,
+                        vendor TEXT,
+                        label TEXT DEFAULT '',
+                        trusted INTEGER DEFAULT 0,
+                        open_ports_json TEXT DEFAULT '[]',
+                        first_seen REAL,
+                        last_seen REAL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sec_audit_runs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        module TEXT NOT NULL,
+                        target TEXT NOT NULL,
+                        score INTEGER,
+                        critical_count INTEGER,
+                        high_count INTEGER,
+                        medium_count INTEGER,
+                        low_count INTEGER,
+                        info_count INTEGER,
+                        findings_json TEXT NOT NULL,
+                        created_at REAL NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_sec_audit_runs_mod_tgt_time
+                        ON sec_audit_runs(module, target, created_at);
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sec_alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alert_type TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        detail_json TEXT NOT NULL,
+                        acknowledged INTEGER DEFAULT 0,
+                        created_at REAL NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_sec_alerts_ack_time
+                        ON sec_alerts(acknowledged, created_at);
                     """
                 )
                 conn.execute("COMMIT;")
@@ -535,6 +601,309 @@ class StateDB:
             }
             for r in rows
         ]
+
+    # ---------------------------------------------- netsec assets & alerts
+
+    def upsert_lan_snapshot(
+        self,
+        devices: list[dict[str, Any]],
+        *,
+        disappeared_grace_s: float = 0.0,
+        now_ts: Optional[float] = None,
+    ) -> DriftReport:
+        now = float(now_ts if now_ts is not None else time.time())
+        drift = DriftReport()
+        seen_macs: set[str] = set()
+
+        with self._write_tx() as conn:
+            existing_rows = conn.execute(
+                "SELECT mac, ip, hostname, vendor, label, trusted, open_ports_json, first_seen, last_seen FROM known_devices"
+            ).fetchall()
+            existing = {
+                str(r[0]): {
+                    "mac": str(r[0]),
+                    "ip": str(r[1] or ""),
+                    "hostname": str(r[2] or ""),
+                    "vendor": str(r[3] or ""),
+                    "label": str(r[4] or ""),
+                    "trusted": bool(r[5]),
+                    "open_ports": json.loads(r[6] or "[]"),
+                    "first_seen": float(r[7] or now),
+                    "last_seen": float(r[8] or now),
+                }
+                for r in existing_rows
+            }
+
+            for dev in devices:
+                mac = str(dev.get("mac") or "").strip().lower()
+                if not mac:
+                    continue
+                seen_macs.add(mac)
+                ip_str = str(dev.get("ip") or "").strip()
+                hostname = str(dev.get("hostname") or "").strip()
+                vendor = str(dev.get("vendor") or "").strip()
+                has_ports = "open_ports" in dev and dev["open_ports"] is not None
+                in_ports = sorted({int(p) for p in (dev.get("open_ports") or []) if int(p) > 0}) if has_ports else None
+
+                prev = existing.get(mac)
+                if prev is None:
+                    ports_to_store = in_ports if in_ports is not None else []
+                    conn.execute(
+                        """
+                        INSERT INTO known_devices(mac, ip, hostname, vendor, label, trusted, open_ports_json, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, '', 0, ?, ?, ?)
+                        """,
+                        (mac, ip_str, hostname, vendor, json.dumps(ports_to_store), now, now),
+                    )
+                    drift.new_devices.append({
+                        "mac": mac,
+                        "ip": ip_str,
+                        "hostname": hostname,
+                        "vendor": vendor,
+                        "open_ports": ports_to_store,
+                    })
+                    if ports_to_store:
+                        drift.new_ports.append({"mac": mac, "ip": ip_str, "ports": ports_to_store})
+                else:
+                    prev_ports = [int(p) for p in prev["open_ports"]]
+                    merged_ports = in_ports if in_ports is not None else prev_ports
+                    if in_ports is not None:
+                        added_ports = sorted(set(in_ports) - set(prev_ports))
+                        if added_ports:
+                            drift.new_ports.append({"mac": mac, "ip": ip_str or prev["ip"], "ports": added_ports})
+                    if prev["ip"] and ip_str and prev["ip"] != ip_str:
+                        drift.ip_changes.append({
+                            "mac": mac,
+                            "hostname": hostname or prev["hostname"],
+                            "old_ip": prev["ip"],
+                            "new_ip": ip_str,
+                        })
+                    conn.execute(
+                        """
+                        UPDATE known_devices
+                        SET ip = ?,
+                            hostname = ?,
+                            vendor = ?,
+                            open_ports_json = ?,
+                            last_seen = ?
+                        WHERE mac = ?
+                        """,
+                        (
+                            ip_str or prev["ip"],
+                            hostname or prev["hostname"],
+                            vendor or prev["vendor"],
+                            json.dumps(merged_ports),
+                            now,
+                            mac,
+                        ),
+                    )
+
+            if seen_macs:
+                for mac, prev in existing.items():
+                    if mac not in seen_macs and (now - prev["last_seen"]) >= disappeared_grace_s:
+                        drift.disappeared_devices.append({
+                            "mac": mac,
+                            "ip": prev["ip"],
+                            "hostname": prev["hostname"],
+                            "last_seen": prev["last_seen"],
+                        })
+        return drift
+
+    def list_devices(self) -> list[dict[str, Any]]:
+        with self._read_conn() as conn:
+            rows = conn.execute(
+                "SELECT mac, ip, hostname, vendor, label, trusted, open_ports_json, first_seen, last_seen "
+                "FROM known_devices ORDER BY trusted DESC, last_seen DESC"
+            ).fetchall()
+        return [
+            {
+                "mac": str(r[0]),
+                "ip": str(r[1] or ""),
+                "hostname": str(r[2] or ""),
+                "vendor": str(r[3] or ""),
+                "label": str(r[4] or ""),
+                "trusted": bool(r[5]),
+                "open_ports": json.loads(r[6] or "[]"),
+                "first_seen": float(r[7] or 0.0),
+                "last_seen": float(r[8] or 0.0),
+            }
+            for r in rows
+        ]
+
+    def mark_device_trusted(self, mac: str, label: str = "", trusted: bool = True) -> Optional[dict[str, Any]]:
+        norm = str(mac or "").strip().lower()
+        if not norm:
+            return None
+        with self._write_tx() as conn:
+            row = conn.execute(
+                "SELECT mac, ip, hostname, vendor, label, trusted, open_ports_json, first_seen, last_seen "
+                "FROM known_devices WHERE mac = ?",
+                (norm,),
+            ).fetchone()
+            if not row:
+                return None
+            new_label = str(label).strip() if str(label or "").strip() else str(row[4] or "")
+            conn.execute(
+                "UPDATE known_devices SET trusted = ?, label = ? WHERE mac = ?",
+                (1 if trusted else 0, new_label, norm),
+            )
+        for d in self.list_devices():
+            if d["mac"] == norm:
+                return d
+        return None
+
+    def record_audit_run(
+        self,
+        module: str,
+        target: str,
+        *,
+        score: Optional[int],
+        counts: dict[str, int],
+        findings: list[dict[str, Any]],
+        created_at: Optional[float] = None,
+    ) -> int:
+        ts = float(created_at if created_at is not None else time.time())
+        with self._write_tx() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO sec_audit_runs(
+                    module, target, score, critical_count, high_count, medium_count,
+                    low_count, info_count, findings_json, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(module),
+                    str(target),
+                    int(score) if score is not None else None,
+                    int(counts.get("critical", 0)),
+                    int(counts.get("high", 0)),
+                    int(counts.get("medium", 0)),
+                    int(counts.get("low", 0)),
+                    int(counts.get("info", 0)),
+                    json.dumps(findings),
+                    ts,
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def get_last_audit_run(self, module: str, target: Optional[str] = None) -> Optional[dict[str, Any]]:
+        with self._read_conn() as conn:
+            if target is not None:
+                row = conn.execute(
+                    "SELECT id, module, target, score, critical_count, high_count, medium_count, low_count, info_count, findings_json, created_at "
+                    "FROM sec_audit_runs WHERE module = ? AND target = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (str(module), str(target)),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT id, module, target, score, critical_count, high_count, medium_count, low_count, info_count, findings_json, created_at "
+                    "FROM sec_audit_runs WHERE module = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (str(module),),
+                ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": int(row[0]),
+            "module": str(row[1]),
+            "target": str(row[2]),
+            "score": int(row[3]) if row[3] is not None else None,
+            "counts": {
+                "critical": int(row[4] or 0),
+                "high": int(row[5] or 0),
+                "medium": int(row[6] or 0),
+                "low": int(row[7] or 0),
+                "info": int(row[8] or 0),
+            },
+            "findings": json.loads(row[9] or "[]"),
+            "created_at": float(row[10] or 0.0),
+        }
+
+    def add_alert(
+        self,
+        alert_type: str,
+        severity: str,
+        title: str,
+        detail: Optional[dict[str, Any]] = None,
+        *,
+        created_at: Optional[float] = None,
+    ) -> int:
+        ts = float(created_at if created_at is not None else time.time())
+        with self._write_tx() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO sec_alerts(alert_type, severity, title, detail_json, acknowledged, created_at)
+                VALUES (?, ?, ?, ?, 0, ?)
+                """,
+                (str(alert_type), str(severity), str(title), json.dumps(detail or {}), ts),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_alerts(self, unacked_only: bool = True, limit: int = 50) -> list[dict[str, Any]]:
+        eff_limit = max(1, min(int(limit or 50), 200))
+        with self._read_conn() as conn:
+            if unacked_only:
+                rows = conn.execute(
+                    "SELECT id, alert_type, severity, title, detail_json, acknowledged, created_at "
+                    "FROM sec_alerts WHERE acknowledged = 0 ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (eff_limit,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, alert_type, severity, title, detail_json, acknowledged, created_at "
+                    "FROM sec_alerts ORDER BY created_at DESC, id DESC LIMIT ?",
+                    (eff_limit,),
+                ).fetchall()
+        return [
+            {
+                "id": int(r[0]),
+                "alert_type": str(r[1]),
+                "severity": str(r[2]),
+                "title": str(r[3]),
+                "detail": json.loads(r[4] or "{}"),
+                "acknowledged": bool(r[5]),
+                "created_at": float(r[6] or 0.0),
+            }
+            for r in rows
+        ]
+
+    def ack_alert(self, alert_id: int) -> Optional[dict[str, Any]]:
+        aid = int(alert_id)
+        with self._write_tx() as conn:
+            cur = conn.execute("UPDATE sec_alerts SET acknowledged = 1 WHERE id = ?", (aid,))
+            if not cur.rowcount:
+                return None
+            row = conn.execute(
+                "SELECT id, alert_type, severity, title, detail_json, acknowledged, created_at FROM sec_alerts WHERE id = ?",
+                (aid,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": int(row[0]),
+            "alert_type": str(row[1]),
+            "severity": str(row[2]),
+            "title": str(row[3]),
+            "detail": json.loads(row[4] or "{}"),
+            "acknowledged": bool(row[5]),
+            "created_at": float(row[6] or 0.0),
+        }
+
+    def netsec_summary(self) -> dict[str, Any]:
+        with self._read_conn() as conn:
+            known = conn.execute("SELECT COUNT(*) FROM known_devices").fetchone()[0]
+            untrusted = conn.execute("SELECT COUNT(*) FROM known_devices WHERE trusted = 0").fetchone()[0]
+            unacked = conn.execute("SELECT COUNT(*) FROM sec_alerts WHERE acknowledged = 0").fetchone()[0]
+            host_row = conn.execute(
+                "SELECT score, created_at FROM sec_audit_runs WHERE module = 'host_posture' ORDER BY created_at DESC, id DESC LIMIT 1"
+            ).fetchone()
+        return {
+            "known_devices": int(known),
+            "untrusted_devices": int(untrusted),
+            "unacked_alerts": int(unacked),
+            "last_host_score": int(host_row[0]) if (host_row and host_row[0] is not None) else None,
+            "last_host_run_at": float(host_row[1]) if host_row else None,
+        }
 
     def stats(self) -> dict[str, Any]:
         with self._read_conn() as conn:

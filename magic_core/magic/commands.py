@@ -911,33 +911,91 @@ async def _do(args: str, ctx: CommandContext) -> dict:
 
 
 async def _defense(args: str, ctx: CommandContext) -> dict:
-    """Defensive checks on mickey's own box (MAGIC.md section 7).
-    surface | updates | ssh | secrets <path> | report (default)."""
+    """Defensive host/home-LAN checks:
+    [report] | lan | ports <ip> | web <url> | adb | alerts [ack <id>] | trust <mac> [label] | surface | updates | ssh | secrets.
+    """
     from . import defense
+    from .. import netsec, state_db as _state_db
     import asyncio
-    parts = args.split(None, 1)
-    sub = (parts[0].lower() if parts else "report")
-    rest = parts[1].strip() if len(parts) > 1 else ""
+
+    parts = (args or "").split()
+    sub = parts[0].lower() if parts else "report"
+    rest = " ".join(parts[1:]).strip()
     loop = asyncio.get_event_loop()
 
-    def run():
+    def run() -> tuple[bool, str]:
         if sub == "surface":
             s = defense.attack_surface()
             lines = [s["summary"], ""]
             lines += [f"  exposed  {e['port']:>6}  {e['process'] or '(unknown / container)'}"
                       for e in s["exposed"]]
             lines += [f"  local    {e['port']:>6}  {e['process'] or '?'}" for e in s["loopback_only"]]
-            return "\n".join(lines)
+            return True, "\n".join(lines)
         if sub == "updates":
-            return defense.pending_security_updates()["summary"]
+            return True, defense.pending_security_updates()["summary"]
         if sub == "ssh":
             a = defense.audit_ssh()
-            return a["summary"] + "".join(f"\n  - {f}" for f in a["findings"])
+            return True, a["summary"] + "".join(f"\n  - {f}" for f in a["findings"])
         if sub == "secrets":
-            return defense.secrets_in_repo(rest or ctx.project_root)["summary"]
-        return defense.report(repo_for_secrets=rest or ctx.project_root)
+            return True, defense.secrets_in_repo(rest or ctx.project_root)["summary"]
+        if sub == "lan":
+            rep = netsec.lan_watch(rest or "auto", project_root=ctx.project_root)
+            return rep.status == "ok", netsec.format_report_markdown(rep)
+        if sub == "ports":
+            if not rest:
+                return False, "Usage: /defense ports <local_ip_or_cidr>"
+            rep = netsec.port_audit(rest, project_root=ctx.project_root)
+            return rep.status == "ok", netsec.format_report_markdown(rep)
+        if sub == "web":
+            if not rest:
+                return False, "Usage: /defense web <local_url>"
+            rep = netsec.web_posture(rest, project_root=ctx.project_root)
+            return rep.status == "ok", netsec.format_report_markdown(rep)
+        if sub == "adb":
+            rep = netsec.adb_posture(rest or None, project_root=ctx.project_root)
+            return rep.status == "ok", netsec.format_report_markdown(rep)
+        if sub == "alerts":
+            db = _state_db.get_state_db(ctx.project_root)
+            if len(parts) >= 3 and parts[1].lower() == "ack":
+                try:
+                    aid = int(parts[2])
+                except ValueError:
+                    return False, "Usage: /defense alerts ack <id>"
+                ackd = db.ack_alert(aid)
+                return (ackd is not None), (
+                    f"Acknowledged alert #{aid}." if ackd else f"Alert #{aid} not found."
+                )
+            alerts = db.list_alerts(unacked_only=True, limit=25)
+            if not alerts:
+                return True, "No unacknowledged security alerts."
+            rows = [
+                f"#{a['id']} [{a['severity'].upper()}] {a['alert_type']}: {a['title']}"
+                for a in alerts
+            ]
+            return True, "Unacknowledged alerts:\n" + "\n".join(rows)
+        if sub == "trust":
+            if len(parts) < 2:
+                return False, "Usage: /defense trust <mac> [friendly_label]"
+            mac = parts[1].strip()
+            label = " ".join(parts[2:]).strip()
+            db = _state_db.get_state_db(ctx.project_root)
+            dev = db.mark_device_trusted(mac, label=label, trusted=True)
+            if dev is None:
+                return False, f"Unknown device MAC {mac!r} — run `/defense lan` first."
+            return True, f"Marked {dev['mac']} ({dev.get('label') or dev.get('ip') or 'unnamed'}) as trusted."
 
-    return {"ok": True, "action": "defense", "answer": await loop.run_in_executor(None, run)}
+        # Default: host_posture() + summarize unacknowledged alerts
+        rep = netsec.host_posture(project_root=ctx.project_root)
+        md = netsec.format_report_markdown(rep)
+        alerts = _state_db.get_state_db(ctx.project_root).list_alerts(unacked_only=True, limit=10)
+        if alerts:
+            md += "\n\n**Unacknowledged Alerts:**\n" + "\n".join(
+                f"- `#{a['id']}` [{a['severity'].upper()}] {a['title']}" for a in alerts
+            )
+        return rep.status == "ok", md
+
+    ok, answer = await loop.run_in_executor(None, run)
+    return {"ok": ok, "action": "defense", "answer": answer}
 
 
 

@@ -103,6 +103,7 @@ class HookEntry:
 _DEFAULT_DESCRIPTIONS: dict[str, str] = {
     "block_destructive_git": "Block git add -A/., reset --hard, checkout -- ., restore, push --force",
     "protect_sensitive_paths": "Block writes/deletes to campaign_*.json, .env, keys & credentials",
+    "enforce_sec_scope": "Fail-closed private-network scope & offensive-flag lock for network auditing tools",
     "approve_privileged_or_net_cmds": "Ask phone approval before systemctl, ufw, nmap, arp-scan, nuclei, adb, pip install, or apt",
     "py_syntax_check": "Run py_compile after Python edits in /fix & /build",
     "notify_build_complete": "Send desktop notification after a /build or /fix turn",
@@ -443,6 +444,63 @@ def _builtin_py_syntax_check(ctx: dict[str, Any]) -> HookDecision:
     return HookDecision(allowed=True)
 
 
+_NETSEC_TOOL_RE = re.compile(
+    r"(?:^|[;&|\n]|\$\()\s*(?:sudo\s+|env\s+|nice(?:\s+-n\s+\S+)?\s+|ionice(?:\s+\S+)*\s+|timeout\s+\S+\s+)?(?:\S*/)?(nmap|arp-scan|nuclei|adb)\b",
+    re.IGNORECASE,
+)
+
+
+def _builtin_enforce_sec_scope(ctx: dict[str, Any]) -> HookDecision:
+    from . import sec_scope as _scope_mod
+
+    scope = _scope_mod.load_sec_scope(ctx.get("root") or None)
+    tool_name = str(ctx.get("tool") or ctx.get("tool_name") or "").strip().lower()
+    cmd = str(ctx.get("command") or ctx.get("cmd") or "").strip()
+    target = str(ctx.get("target") or ctx.get("url") or "").strip()
+
+    if tool_name in ("netsec", "lan_watch", "port_audit", "web_posture", "adb_posture"):
+        if tool_name == "adb_posture":
+            return HookDecision(allowed=True, inject_context="SCOPE: HOME LAN OK", hook_name="enforce_sec_scope")
+        if target:
+            res = _scope_mod.validate_target(target, scope)
+            if not res.allowed:
+                return HookDecision(
+                    allowed=False,
+                    action="block",
+                    risk_level="high",
+                    reason=f"Blocked by enforce_sec_scope: {res.reason}",
+                    hook_name="enforce_sec_scope",
+                )
+        return HookDecision(allowed=True, inject_context="SCOPE: HOME LAN OK", hook_name="enforce_sec_scope")
+
+    if cmd and _NETSEC_TOOL_RE.search(cmd):
+        res = _scope_mod.inspect_shell_command_scope(cmd, scope)
+        if not res.allowed:
+            return HookDecision(
+                allowed=False,
+                action="block",
+                risk_level="high",
+                reason=f"Blocked by enforce_sec_scope: {res.reason}",
+                hook_name="enforce_sec_scope",
+            )
+        if res.reason:
+            return HookDecision(allowed=True, inject_context=res.reason, hook_name="enforce_sec_scope")
+
+    if target and any(tok in tool_name for tok in ("scan", "nmap", "nuclei", "net")):
+        res = _scope_mod.validate_target(target, scope)
+        if not res.allowed:
+            return HookDecision(
+                allowed=False,
+                action="block",
+                risk_level="high",
+                reason=f"Blocked by enforce_sec_scope: {res.reason}",
+                hook_name="enforce_sec_scope",
+            )
+        return HookDecision(allowed=True, inject_context=res.reason, hook_name="enforce_sec_scope")
+
+    return HookDecision(allowed=True)
+
+
 _PRIV_OR_NET_CMD_RE = re.compile(
     r"(?:^|[;&|\n]|\$\()\s*(?:sudo\s+|env\s+)?(?:\S*/)?"
     r"(?:systemctl|ufw|nmap|arp-scan|nuclei|adb|apt(?:-get)?)\b"
@@ -455,13 +513,18 @@ def _builtin_approve_privileged_or_net_cmds(ctx: dict[str, Any]) -> HookDecision
     cmd = str(ctx.get("command") or ctx.get("cmd") or "").strip()
     tool_name = str(ctx.get("tool") or ctx.get("tool_name") or "").strip().lower()
     as_root = bool(ctx.get("as_root"))
+    is_scoped_net = bool(
+        tool_name in ("lan_watch", "port_audit", "web_posture", "adb_posture")
+        or (cmd and _NETSEC_TOOL_RE.search(cmd))
+    )
+    badge = "SCOPE: HOME LAN OK — " if is_scoped_net else ""
     if as_root and cmd:
         return HookDecision(
             allowed=False,
             action="ask",
             risk_level="high",
             prompt_title="Approve privileged command?",
-            reason=f"Privileged root execution requested: {cmd}",
+            reason=f"{badge}Privileged root execution requested: {cmd}",
             hook_name="approve_privileged_or_net_cmds",
         )
     if cmd and _PRIV_OR_NET_CMD_RE.search(cmd):
@@ -469,18 +532,18 @@ def _builtin_approve_privileged_or_net_cmds(ctx: dict[str, Any]) -> HookDecision
             allowed=False,
             action="ask",
             risk_level="high",
-            prompt_title="Approve service, package, or network command?",
-            reason=f"Requires phone approval before running: {cmd}",
+            prompt_title=("Approve home-LAN audit? [SCOPE: HOME LAN OK]" if is_scoped_net else "Approve service, package, or network command?"),
+            reason=f"{badge}Requires phone approval before running: {cmd}",
             hook_name="approve_privileged_or_net_cmds",
         )
-    if tool_name in ("service_restart", "service_stop", "root_command", "apply_updates"):
-        desc = cmd or str(ctx.get("name") or tool_name)
+    if tool_name in ("service_restart", "service_stop", "root_command", "apply_updates", "port_audit", "lan_watch", "web_posture", "adb_posture"):
+        desc = cmd or str(ctx.get("target") or ctx.get("name") or tool_name)
         return HookDecision(
             allowed=False,
             action="ask",
-            risk_level="high",
-            prompt_title="Approve privileged action?",
-            reason=f"Requires phone approval for {tool_name}: {desc}",
+            risk_level="medium" if is_scoped_net else "high",
+            prompt_title=("Approve home-LAN audit? [SCOPE: HOME LAN OK]" if is_scoped_net else "Approve privileged action?"),
+            reason=f"{badge}Requires phone approval for {tool_name}: {desc}",
             hook_name="approve_privileged_or_net_cmds",
         )
     return HookDecision(allowed=True)
@@ -489,6 +552,7 @@ def _builtin_approve_privileged_or_net_cmds(ctx: dict[str, Any]) -> HookDecision
 BUILTIN_HANDLERS: dict[str, Callable[[dict[str, Any]], HookDecision]] = {
     "block_destructive_git": _builtin_block_destructive_git,
     "protect_sensitive_paths": _builtin_protect_sensitive_paths,
+    "enforce_sec_scope": _builtin_enforce_sec_scope,
     "approve_privileged_or_net_cmds": _builtin_approve_privileged_or_net_cmds,
     "py_syntax_check": _builtin_py_syntax_check,
 }

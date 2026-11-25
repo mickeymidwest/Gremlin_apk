@@ -25,6 +25,18 @@ hooks:
     timeout_ms: 2000
     fail_mode: closed
 
+  - name: enforce_sec_scope
+    event: pre_tool
+    enabled: true
+    action: block
+    risk_level: high
+    description: "Fail-closed private-network scope & offensive-flag lock for network auditing tools"
+    match: "^(run_command|run_shell|shell|bash|verify_step|netsec|lan_watch|port_audit|web_posture|adb_posture)$|\\b(?:nmap|arp-scan|nuclei|adb)\\b"
+    type: builtin
+    handler: enforce_sec_scope
+    timeout_ms: 2000
+    fail_mode: closed
+
   - name: approve_privileged_or_net_cmds
     event: pre_tool
     enabled: true
