@@ -19,6 +19,7 @@ from typing import Optional
 from .base import ModelBackend, ModelInfo, GenerationResult
 from . import grammars
 from . import chatfmt  # noqa: F401  registers chatml-nothink & gemma4
+from .. import control_vectors
 from .. import output_health
 from .. import prefix_cache
 
@@ -276,6 +277,16 @@ class LlamaCppBackend(ModelBackend):
         self._last_stream_usage: dict = {}  # see generate_stream's usage note
         self._last_prefix_stats: dict = {}
         self._override_keepalive: list = []
+        self._cvec_path: Optional[str] = None
+        self._cvec_alpha: float = 0.0
+        self._cvec_il_start: int = -1
+        self._cvec_il_end: int = -1
+        self._cvec_req_il_start: Optional[int] = None
+        self._cvec_req_il_end: Optional[int] = None
+        self._cvec_keepalive = None
+        self._cvec_sig: str = "none"
+        self._cvec_warning: str = ""
+        self._init_env_cvec()
         self._lock = asyncio.Lock()  # llama.cpp isn't safely reentrant per-instance --
         # also now the one thing serializing load/generate/unload against
         # each other, so unload() can never race a generate() that's
@@ -416,6 +427,217 @@ class LlamaCppBackend(ModelBackend):
             self._loading = False
         self._llm = fut.result()
         self._last_used = time.monotonic()
+        if self._cvec_path and self._cvec_alpha != 0.0:
+            try:
+                self._apply_cvec_to_llm(self._llm)
+            except Exception as exc:
+                _log.warning("control vector startup apply failed (%s): %s", type(exc).__name__, exc)
+                self._clear_cvec_state()
+
+    def _init_env_cvec(self) -> None:
+        env_path = os.environ.get("MAGIC_CVEC_PATH", "").strip()
+        if not env_path:
+            return
+        try:
+            alpha = float(os.environ.get("MAGIC_CVEC_ALPHA", "0.0").strip() or "0.0")
+        except ValueError:
+            _log.warning("Invalid MAGIC_CVEC_ALPHA; ignoring startup control vector")
+            return
+        if alpha == 0.0:
+            return
+        il_s, il_e = None, None
+        layers_raw = os.environ.get("MAGIC_CVEC_LAYERS", "").strip()
+        if layers_raw:
+            try:
+                il_s, il_e = control_vectors.parse_layer_spec(layers_raw)
+            except ValueError as exc:
+                _log.warning("Invalid MAGIC_CVEC_LAYERS (%s); using model default layers", exc)
+        clamped, warn = control_vectors.clamp_alpha(alpha)
+        self._cvec_path = str(Path(env_path).expanduser())
+        self._cvec_alpha = clamped
+        self._cvec_req_il_start = il_s
+        self._cvec_req_il_end = il_e
+        self._cvec_warning = warn
+        self._cvec_sig = control_vectors.cache_fingerprint(
+            self._cvec_path, clamped, il_s or -1, il_e or -1
+        )
+
+    def _clear_cvec_state(self) -> None:
+        self._cvec_path = None
+        self._cvec_alpha = 0.0
+        self._cvec_il_start = -1
+        self._cvec_il_end = -1
+        self._cvec_req_il_start = None
+        self._cvec_req_il_end = None
+        self._cvec_keepalive = None
+        self._cvec_sig = "none"
+        self._cvec_warning = ""
+
+    @staticmethod
+    def _reset_llm_caches(llm) -> None:
+        try:
+            llm.reset()
+        except Exception:
+            pass
+        cache = getattr(llm, "cache", None)
+        if cache is not None and hasattr(cache, "cache_state"):
+            try:
+                cache.cache_state.clear()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _llm_dims(llm) -> tuple[int, int, str]:
+        import llama_cpp.llama_cpp as _C  # type: ignore
+
+        meta = getattr(llm, "metadata", None) or {}
+        arch = str(meta.get("general.architecture") or "")
+        n_embd = 0
+        if callable(getattr(llm, "n_embd", None)):
+            try:
+                n_embd = int(llm.n_embd())
+            except Exception:
+                n_embd = 0
+        model_obj = getattr(llm, "_model", None)
+        model_ptr = getattr(model_obj, "model", None)
+        if n_embd <= 0 and model_ptr is not None and hasattr(_C, "llama_model_n_embd"):
+            n_embd = int(_C.llama_model_n_embd(model_ptr))
+
+        n_layers = int(getattr(llm, "_n_layer", 0) or 0)
+        if n_layers <= 0 and model_ptr is not None and hasattr(_C, "llama_model_n_layer"):
+            try:
+                n_layers = int(_C.llama_model_n_layer(model_ptr))
+            except Exception:
+                n_layers = 0
+        if n_layers <= 0 and arch:
+            try:
+                n_layers = int(meta.get(f"{arch}.block_count", 0) or 0)
+            except (TypeError, ValueError):
+                n_layers = 0
+        return n_embd, n_layers, arch
+
+    @staticmethod
+    def _set_adapter_cvec(ctx_ptr, data_ptr, length: int, n_embd: int, il_start: int, il_end: int) -> int:
+        import llama_cpp.llama_cpp as _C  # type: ignore
+
+        fn = getattr(_C, "llama_set_adapter_cvec", None)
+        if fn is None or getattr(fn, "argtypes", None) is None:
+            fn = getattr(_C, "llama_apply_adapter_cvec", None)
+        if fn is None:
+            raise RuntimeError("llama_cpp does not export llama_set_adapter_cvec")
+        return int(fn(ctx_ptr, data_ptr, length, n_embd, il_start, il_end))
+
+    def _apply_cvec_to_llm(self, llm) -> dict:
+        ctx_obj = getattr(llm, "_ctx", None)
+        ctx_ptr = getattr(ctx_obj, "ctx", None)
+        if ctx_ptr is None:
+            raise RuntimeError("Loaded Llama instance has no _ctx.ctx pointer")
+
+        if not self._cvec_path or self._cvec_alpha == 0.0:
+            rc = self._set_adapter_cvec(ctx_ptr, None, 0, 0, -1, -1)
+            if rc != 0:
+                raise RuntimeError(f"llama_set_adapter_cvec clear failed with rc={rc}")
+            self._clear_cvec_state()
+            self._reset_llm_caches(llm)
+            return self.control_vector_status()
+
+        cvec = control_vectors.load_cvec_gguf(self._cvec_path)
+        n_embd, n_layers, arch = self._llm_dims(llm)
+        control_vectors.validate_for_model(cvec, model_n_embd=n_embd, model_arch=arch)
+        if n_layers < 2:
+            n_layers = cvec.max_layer + 1
+        il_start, il_end = control_vectors.resolve_layer_range(
+            n_layers,
+            self._cvec_req_il_start,
+            self._cvec_req_il_end,
+            max_cvec_layer=cvec.max_layer,
+        )
+        alpha, warn = control_vectors.clamp_alpha(self._cvec_alpha)
+        buf, buf_len = control_vectors.build_scaled_buffer(cvec, alpha, n_layers=n_layers)
+        ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_float))
+        rc = self._set_adapter_cvec(ctx_ptr, ptr, buf_len, cvec.n_embd, il_start, il_end)
+        if rc != 0:
+            raise RuntimeError(f"llama_set_adapter_cvec failed with rc={rc}")
+
+        self._cvec_keepalive = buf
+        self._cvec_alpha = alpha
+        self._cvec_il_start = il_start
+        self._cvec_il_end = il_end
+        if warn:
+            self._cvec_warning = warn
+        self._cvec_sig = control_vectors.cache_fingerprint(
+            cvec.path, alpha, il_start, il_end, file_sha256=cvec.file_sha256
+        )
+        self._reset_llm_caches(llm)
+        return self.control_vector_status()
+
+    def apply_control_vector(
+        self,
+        path: Optional[str],
+        alpha: float = 0.0,
+        il_start: Optional[int] = None,
+        il_end: Optional[int] = None,
+    ) -> dict:
+        """Load, validate, scale, and apply (or clear when alpha==0/path is None) a control vector."""
+        if path is None or float(alpha) == 0.0:
+            return self.clear_control_vector()
+        clamped, warn = control_vectors.clamp_alpha(alpha)
+        cvec = control_vectors.load_cvec_gguf(path)
+        self._cvec_path = cvec.path
+        self._cvec_alpha = clamped
+        self._cvec_req_il_start = il_start
+        self._cvec_req_il_end = il_end
+        self._cvec_warning = warn
+        if self._llm is not None:
+            return self._apply_cvec_to_llm(self._llm)
+        self._cvec_il_start = il_start if il_start is not None else -1
+        self._cvec_il_end = il_end if il_end is not None else -1
+        self._cvec_sig = control_vectors.cache_fingerprint(
+            cvec.path, clamped, self._cvec_il_start, self._cvec_il_end, file_sha256=cvec.file_sha256
+        )
+        return self.control_vector_status()
+
+    def clear_control_vector(self) -> dict:
+        """Disable active control-vector steering and restore neutral model state."""
+        if self._llm is not None:
+            self._cvec_alpha = 0.0
+            self._cvec_path = None
+            return self._apply_cvec_to_llm(self._llm)
+        self._clear_cvec_state()
+        return self.control_vector_status()
+
+    async def async_apply_control_vector(
+        self,
+        path: Optional[str],
+        alpha: float = 0.0,
+        il_start: Optional[int] = None,
+        il_end: Optional[int] = None,
+    ) -> dict:
+        async with self._lock:
+            if path is None or float(alpha) == 0.0:
+                return self.clear_control_vector()
+            await self._ensure_loaded()
+            return self.apply_control_vector(path, alpha=alpha, il_start=il_start, il_end=il_end)
+
+    async def async_clear_control_vector(self) -> dict:
+        async with self._lock:
+            return self.clear_control_vector()
+
+    def control_vector_signature(self) -> str:
+        return self._cvec_sig or "none"
+
+    def control_vector_status(self) -> dict:
+        active = bool(self._cvec_path and self._cvec_alpha != 0.0)
+        return {
+            "active": active,
+            "path": self._cvec_path if active else None,
+            "name": Path(self._cvec_path).name if (active and self._cvec_path) else None,
+            "alpha": self._cvec_alpha if active else 0.0,
+            "il_start": self._cvec_il_start if active else -1,
+            "il_end": self._cvec_il_end if active else -1,
+            "signature": self.control_vector_signature(),
+            "warning": self._cvec_warning,
+        }
 
     @staticmethod
     def _build_grammar(grammar):
@@ -480,6 +702,7 @@ class LlamaCppBackend(ModelBackend):
                 chat_format=self.chat_format,
                 override_tensor=self.override_tensor,
                 cpu_tensor_patterns=self.cpu_tensor_patterns,
+                cvec_signature=self.control_vector_signature(),
             ),
             prefix_sha256=prefix_cache.prefix_sha256(prefix_str),
         )
@@ -832,6 +1055,7 @@ class LlamaCppBackend(ModelBackend):
         used twice in quick succession doesn't pay reload cost twice."""
         async with self._lock:
             self._llm = None
+            self._cvec_keepalive = None
 
     def idle_seconds(self) -> float:
         """0.0 whenever nothing is actually loaded (nothing to evict,

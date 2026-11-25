@@ -70,10 +70,13 @@ def runtime_cfg_hash(
     chat_format: Optional[str],
     override_tensor: Any,
     cpu_tensor_patterns: Any = None,
+    cvec_signature: str = "none",
 ) -> str:
     items = [n_ctx, n_gpu_layers, kv_cache_type, bool(flash_attn), chat_format, override_tensor]
     if cpu_tensor_patterns:
         items.append(list(cpu_tensor_patterns))
+    if cvec_signature and cvec_signature != "none":
+        items.append({"cvec": str(cvec_signature)})
     payload = json.dumps(
         items,
         sort_keys=True,

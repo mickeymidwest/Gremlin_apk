@@ -579,6 +579,17 @@ def create_app(
             data["hooks"] = _hooks.stats()
         except Exception:
             pass
+        try:
+            active_name = registry.primary_model_name()
+            active_be = registry.get(active_name) if active_name else None
+            active_be = getattr(active_be, "primary", active_be) or primary
+            cv_fn = getattr(active_be, "control_vector_status", None)
+            data["control_vector"] = cv_fn() if callable(cv_fn) else {
+                "active": False, "path": None, "name": None, "alpha": 0.0,
+                "il_start": -1, "il_end": -1, "signature": "none", "warning": "",
+            }
+        except Exception:
+            pass
         data.update(_status_extras())
 
         # 3+ answers in a row failed -> almost certainly a wedged model
