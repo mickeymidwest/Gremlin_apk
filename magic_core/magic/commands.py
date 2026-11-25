@@ -1227,6 +1227,136 @@ async def _doctor(args: str, ctx: CommandContext) -> dict:
     return {"ok": ok, "answer": summary, "checks": checks, "action": "doctor"}
 
 
+def _resolve_steer_backend(ctx: CommandContext):
+    reg = ctx.registry
+    if reg is None:
+        return None
+    primary_name = _primary_model_name(reg)
+    be = reg.get(primary_name) if primary_name else None
+    if be is None:
+        be = reg.get("magic")
+    return getattr(be, "primary", be)
+
+
+async def _steer(args: str, ctx: CommandContext) -> dict:
+    """Zero-LLM runtime control-vector steering command."""
+    from .. import control_vectors as cv_mod
+
+    be = _resolve_steer_backend(ctx)
+    raw = (args or "").strip()
+    available = [p.name for p in cv_mod.list_cvecs(ctx.project_root)]
+
+    if not raw or raw.lower() == "status":
+        st = (
+            be.control_vector_status()
+            if (be is not None and callable(getattr(be, "control_vector_status", None)))
+            else {"active": False, "path": None, "name": None, "alpha": 0.0,
+                  "il_start": -1, "il_end": -1, "signature": "none", "warning": ""}
+        )
+        if st.get("active"):
+            state_line = (
+                f"Active: {st['name']} (alpha={st['alpha']}, "
+                f"layers={st['il_start']}-{st['il_end']}, sig={st['signature']})"
+            )
+        else:
+            state_line = "Active: off (neutral)"
+        avail_line = ", ".join(available) if available else "none in models/cvecs/"
+        return {
+            "ok": True,
+            "action": "steer",
+            "control_vector": st,
+            "available": available,
+            "answer": f"{state_line}\nAvailable: {avail_line}",
+        }
+
+    if be is None or not callable(getattr(be, "apply_control_vector", None)):
+        return {
+            "ok": False,
+            "action": "steer",
+            "answer": "Active model backend does not support runtime control vectors.",
+        }
+
+    parts = shlex.split(raw)
+    if len(parts) == 1 and parts[0].lower() in ("off", "clear", "reset", "none"):
+        if callable(getattr(be, "async_clear_control_vector", None)):
+            st = await be.async_clear_control_vector()
+        else:
+            st = be.clear_control_vector()
+        return {
+            "ok": True,
+            "action": "steer",
+            "control_vector": st,
+            "available": available,
+            "answer": "Control vector steering cleared (neutral).",
+        }
+
+    if len(parts) < 2 or len(parts) > 3:
+        return {
+            "ok": False,
+            "action": "steer",
+            "answer": "Usage: /steer | /steer off | /steer <name_or_path> <alpha> [il_start-il_end]",
+        }
+
+    name_or_path, alpha_raw = parts[0], parts[1]
+    try:
+        alpha_val = float(alpha_raw)
+    except ValueError:
+        return {
+            "ok": False,
+            "action": "steer",
+            "answer": f"Invalid alpha {alpha_raw!r} (expected a float between -{cv_mod.MAX_ALPHA} and {cv_mod.MAX_ALPHA}).",
+        }
+
+    il_start, il_end = None, None
+    if len(parts) == 3:
+        try:
+            il_start, il_end = cv_mod.parse_layer_spec(parts[2])
+        except ValueError as exc:
+            return {"ok": False, "action": "steer", "answer": str(exc)}
+
+    if alpha_val == 0.0:
+        if callable(getattr(be, "async_clear_control_vector", None)):
+            st = await be.async_clear_control_vector()
+        else:
+            st = be.clear_control_vector()
+        return {
+            "ok": True,
+            "action": "steer",
+            "control_vector": st,
+            "available": available,
+            "answer": "Control vector steering cleared (alpha=0.0).",
+        }
+
+    try:
+        cvec_path = cv_mod.resolve_cvec_path(name_or_path, ctx.project_root)
+        if callable(getattr(be, "async_apply_control_vector", None)):
+            st = await be.async_apply_control_vector(
+                str(cvec_path), alpha=alpha_val, il_start=il_start, il_end=il_end
+            )
+        else:
+            st = be.apply_control_vector(
+                str(cvec_path), alpha=alpha_val, il_start=il_start, il_end=il_end
+            )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "action": "steer",
+            "answer": f"Couldn't apply control vector: {exc}",
+        }
+
+    warn_note = f"\nWarning: {st['warning']}" if st.get("warning") else ""
+    return {
+        "ok": True,
+        "action": "steer",
+        "control_vector": st,
+        "available": available,
+        "answer": (
+            f"Applied {st['name']} (alpha={st['alpha']}, "
+            f"layers={st['il_start']}-{st['il_end']}, sig={st['signature']}).{warn_note}"
+        ),
+    }
+
+
 COMMANDS: dict[str, Command] = {
     "chat": Command("chat", "Plain talk to Magic. No tools, no routing.", _chat),
     "inspect": Command("inspect", "Reverse-engineer / inspect a binary, APK, JS/Electron/.NET/WASM app, or URL via REA MCP (`rea.tools`). Usage: `/inspect [rea_tool] <target>`.", _inspect_cmd),
@@ -1254,6 +1384,7 @@ COMMANDS: dict[str, Command] = {
     "hive": Command("hive", "The CPU specialist hive: `list` shows the team (watchdog, summarizer, critic, ...); `<name> <text>` runs one on the CPU helper, bounded + best-effort so it never blocks the top-dog.", _hive_cmd),
     "doctor": Command("doctor", "Fast box & repo health check (RAM, disk, VRAM, git locks, config, pitfalls; add `--prune` to clean stale workdirs).", _doctor),
     "model": Command("model", "Base model: list | search <q> | download <repo> [file] | switch <name>.", _model),
+    "steer": Command("steer", "Runtime control-vector steering: status | off | <name_or_path> <alpha> [il_start-il_end].", _steer),
     "good": Command("good", "Save the previous turn as a LoRA training exemplar (`/good [edited reply]`).", _good),
     "override": Command("override", "Answer this one message through the uncensored model directly, no filtering.", _override),
 }
