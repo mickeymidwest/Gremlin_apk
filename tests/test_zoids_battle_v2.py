@@ -372,6 +372,8 @@ def test_morning_digest_persistence_status_and_doctor(tmp_path):
             assert "battles" in payload
             assert payload["battles"]["pass_rate"] == 0.75
             assert payload["battles"]["total_verified_exemplars"] == 1
+            assert isinstance(payload.get("idle_seconds"), (int, float))
+            assert payload["idle_seconds"] >= 0.0
     finally:
         loop.close()
 
@@ -380,3 +382,52 @@ def test_morning_digest_persistence_status_and_doctor(tmp_path):
     doc_res = asyncio.run(commands._doctor("", ctx))
     assert "Zoids Morning Digest" in doc_res["answer"]
     assert any(c["name"] == "battles" for c in doc_res["checks"])
+
+
+def test_server_idle_seconds_tracks_non_polling_posts(tmp_path, monkeypatch):
+    import magic_core.server as srv_mod
+
+    root = tmp_path / "srv_idle"
+    root.mkdir()
+    (root / "config").mkdir()
+    (root / "config" / "models.yaml").write_text("models: {}\n", encoding="utf-8")
+
+    class _FakePrimary:
+        _llm = object()
+        def control_vector_status(self):
+            return {"active": False}
+
+    class _FakeReg:
+        raw_config = {"persona": {"primary_model": "gemma4-26b-a4b"}}
+        def get(self, name):
+            return SimpleNamespace(system_prompt="hi", primary=_FakePrimary())
+        def primary_model_name(self):
+            return "gemma4-26b-a4b"
+        def available_names(self):
+            return ["gemma4-26b-a4b"]
+
+    fake_clock = [1000.0]
+    monkeypatch.setattr(srv_mod.time, "monotonic", lambda: fake_clock[0])
+
+    loop = asyncio.new_event_loop()
+    try:
+        tok = "test-tok-idle"
+        app = server.create_app(_FakeReg(), SimpleNamespace(), root, loop, tok, "admin-tok")
+        with app.test_client() as client:
+            # Advance clock 120s and poll GET /status -> should report 120.0s and NOT reset clock
+            fake_clock[0] = 1120.0
+            r1 = client.get("/status", headers={"Authorization": f"Bearer {tok}"})
+            assert r1.status_code == 200
+            assert r1.get_json()["idle_seconds"] == 120.0
+
+            fake_clock[0] = 1150.0
+            r2 = client.get("/status", headers={"Authorization": f"Bearer {tok}"})
+            assert r2.get_json()["idle_seconds"] == 150.0
+
+            # Non-polling POST resets _last_user_activity_mono cleanly
+            client.post("/controls", json={"token": tok})
+            fake_clock[0] = 1152.5
+            r3 = client.get("/status", headers={"Authorization": f"Bearer {tok}"})
+            assert r3.get_json()["idle_seconds"] == 2.5
+    finally:
+        loop.close()

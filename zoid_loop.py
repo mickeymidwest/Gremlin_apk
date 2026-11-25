@@ -674,7 +674,7 @@ def commit_progress(round_i: int, log) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--minutes", type=float, default=180.0)
+    ap.add_argument("--minutes", "--max-wall-minutes", dest="minutes", type=float, default=180.0)
     ap.add_argument("--rounds", type=int, default=100)
     ap.add_argument("--max-bouts", type=int, default=8)
     ap.add_argument("--max-attempts", type=int, default=3)
