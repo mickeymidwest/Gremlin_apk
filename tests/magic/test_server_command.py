@@ -65,9 +65,9 @@ def test_command_requires_auth(client):
 
 def test_bare_command_returns_help_and_command_list(client):
     r = client.post("/command", json={"cmd": ""}, headers=_hdr()).get_json()
-    assert r["ok"] and "/chat" in r["answer"]
+    assert r["ok"] and "/deep" in r["answer"] and "/build" in r["answer"]
     names = {c["name"] for c in r["commands"]}
-    assert {"chat", "skill", "build", "fix", "model"} <= names
+    assert {"deep", "skill", "build", "fix", "doctor"} <= names
 
 
 def test_chat_command_runs(client):

@@ -312,6 +312,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun setUpTuningControls(prefs: SharedPreferences) {
         val statusLabel = findViewById<TextView>(R.id.controls_status_label)
+        val modelSpinner = findViewById<Spinner>(R.id.controls_model_spinner)
         val cvecSpinner = findViewById<Spinner>(R.id.controls_cvec_spinner)
         val alphaValue = findViewById<TextView>(R.id.controls_alpha_value)
         val alphaResetBtn = findViewById<Button>(R.id.controls_alpha_reset_btn)
@@ -332,6 +333,9 @@ class SettingsActivity : AppCompatActivity() {
         val thinkButtons = listOf(thinkAutoBtn, thinkOnBtn, thinkOffBtn)
 
         var hydrating = false
+        var modelNames = listOf<String>()
+        var modelDisplayLabels = listOf<String>()
+        var syncedModelName = ""
         var vecOptions = listOf("Off (none)")
         var syncedVecLabel = "Off (none)"
         var selectedLayerPreset = "default"
@@ -339,6 +343,7 @@ class SettingsActivity : AppCompatActivity() {
         var lastRenderedSnapshot: JSONObject? = null
 
         fun setControlsEnabled(enabled: Boolean) {
+            modelSpinner.isEnabled = enabled
             cvecSpinner.isEnabled = enabled
             alphaResetBtn.isEnabled = enabled
             alphaSeekBar.isEnabled = enabled
@@ -411,6 +416,37 @@ class SettingsActivity : AppCompatActivity() {
             hydrating = true
             try {
                 lastRenderedSnapshot = json
+                val activeModel = if (json.isNull("primary_model")) "" else json.optString("primary_model", "")
+                val availModelsArr = json.optJSONArray("available_models")
+                val nextModelNames = mutableListOf<String>()
+                val nextModelLabels = mutableListOf<String>()
+                if (availModelsArr != null) {
+                    for (i in 0 until availModelsArr.length()) {
+                        val m = availModelsArr.optJSONObject(i) ?: continue
+                        val nm = m.optString("name", "")
+                        if (nm.isEmpty()) continue
+                        val disp = m.optString("display_name", nm).ifEmpty { nm }
+                        nextModelNames.add(nm)
+                        nextModelLabels.add(disp)
+                    }
+                }
+                if (activeModel.isNotEmpty() && !nextModelNames.contains(activeModel)) {
+                    nextModelNames.add(0, activeModel)
+                    nextModelLabels.add(0, activeModel)
+                }
+                if (nextModelNames != modelNames || nextModelLabels != modelDisplayLabels || modelSpinner.adapter == null) {
+                    modelNames = nextModelNames
+                    modelDisplayLabels = nextModelLabels
+                    val mAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modelDisplayLabels)
+                    mAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                    modelSpinner.adapter = mAdapter
+                }
+                val modelIdx = modelNames.indexOf(activeModel).let { if (it >= 0) it else 0 }
+                syncedModelName = modelNames.getOrElse(modelIdx) { activeModel }
+                if (modelNames.isNotEmpty()) {
+                    modelSpinner.setSelection(modelIdx, false)
+                }
+
                 val cv = json.optJSONObject("control_vector") ?: JSONObject()
                 val cvActive = cv.optBoolean("active", false)
                 val cvName = if (cv.isNull("name")) "" else cv.optString("name", "")
@@ -530,15 +566,17 @@ class SettingsActivity : AppCompatActivity() {
                     "off"
                 }
                 val hookLabel = if (hooksMaster) "on" else "off"
-                statusLabel.text = "Live · Steer: $steerSummary · Think: $thinkMode · Hooks: $hookLabel"
+                val modelLabel = syncedModelName.ifEmpty { activeModel.ifEmpty { "default" } }
+                statusLabel.text = "Live · Model: $modelLabel · Steer: $steerSummary · Think: $thinkMode · Hooks: $hookLabel"
                 setControlsEnabled(true)
             } finally {
                 hydrating = false
             }
         }
 
-        fun postPatch(patch: JSONObject, busyMessage: String) {
+        fun postPatch(patch: JSONObject, busyMessage: String, disableAllDuringCall: Boolean = false) {
             statusLabel.text = busyMessage
+            if (disableAllDuringCall) setControlsEnabled(false)
             Thread {
                 val (updated, err) = client.postControls(patch)
                 runOnUiThread {
@@ -546,6 +584,7 @@ class SettingsActivity : AppCompatActivity() {
                         renderControlsSnapshot(updated)
                     } else {
                         lastRenderedSnapshot?.let { renderControlsSnapshot(it) }
+                        if (disableAllDuringCall && lastRenderedSnapshot == null) setControlsEnabled(true)
                         statusLabel.text = "Failed: ${err ?: "error"}"
                         Toast.makeText(this@SettingsActivity, err ?: "Controls update failed", Toast.LENGTH_SHORT).show()
                     }
@@ -585,6 +624,22 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }.start()
+
+        modelSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                if (hydrating || pos !in modelNames.indices) return
+                val chosen = modelNames[pos]
+                if (chosen == syncedModelName) return
+                syncedModelName = chosen
+                postPatch(
+                    JSONObject().put("primary_model", chosen),
+                    "Switching model...",
+                    disableAllDuringCall = true
+                )
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         cvecSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
@@ -676,21 +731,19 @@ class SettingsActivity : AppCompatActivity() {
     private fun showCommandsReference() {
         val text = """
             Core & Reasoning (in main chat):
-            - /chat [clear]  Plain talk or reset thread (/clear, /reset also work)
             - /deep <q>      Deep reasoning turn (/think <q> is an alias)
             - /do <task>     Live read-only system probe (/do learn distills skill)
             - /inspect <t>   Reverse-engineer binary, APK, JS/WASM, or URL
             - /defense <k>   Security audit: surface | updates | ssh | secrets | report
             - /override <m>  Unfiltered local reply for one message
 
-            Build, Repair & Tools:
+            Build & Repair:
             - /build <spec>  Build a script, project, or Android APK on desktop
             - /fix <goal>    Run battle loop on Magic's harness
-            - /forge / /recipe   Custom sandboxed tools & saved workflows
 
-            Memory, Skills & System:
-            - /memory | /profile | /skill | /model | /doctor
-            - Steering, thinking mode, hooks & reranker live in Settings -> Tuning & Controls.
+            Memory & System:
+            - /memory | /profile | /skill | /doctor
+            - Primary model, steering, thinking mode, hooks & reranker live in Settings -> Tuning & Controls.
 
             Desktop admin commands (require Admin token below):
             - /desktop <command>   Run sandboxed desktop command

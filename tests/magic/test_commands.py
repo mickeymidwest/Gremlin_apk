@@ -45,13 +45,17 @@ def test_parse():
 
 def test_help_lists_every_command():
     h = help_text()
-    for name in ("chat", "build", "fix", "model"):
+    for name in (
+        "deep", "do", "inspect", "defense", "override",
+        "build", "fix",
+        "memory", "profile", "skill", "doctor",
+    ):
         assert f"/{name}" in h
 
 
 def test_unknown_command_returns_help(tmp_path):
     r = asyncio.run(dispatch("/wat is this", _ctx(tmp_path)))
-    assert r["action"] == "help" and "/chat" in r["answer"]
+    assert r["action"] == "help" and "/deep" in r["answer"] and "/build" in r["answer"]
 
 
 def test_chat_routes_to_backend(tmp_path):

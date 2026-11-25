@@ -1392,7 +1392,6 @@ async def _remember_cmd(args: str, ctx: CommandContext) -> dict:
 
 
 COMMANDS: dict[str, Command] = {
-    "chat": Command("chat", "Plain talk to Magic (`/chat clear` resets thread).", _chat),
     "deep": Command("deep", "Deep reasoning turn (forces `<think>`; `/think` is an alias).", _deep_cmd),
     "do": Command("do", "Live read-only system probe (`/do learn <q>` distills a skill).", _do),
     "inspect": Command("inspect", "Reverse-engineer a binary, APK, JS/WASM app, or URL via REA.", _inspect_cmd),
@@ -1400,18 +1399,19 @@ COMMANDS: dict[str, Command] = {
     "override": Command("override", "Unfiltered local reply for one message.", _override),
     "build": Command("build", "Build a script, project, or Android APK on the desktop.", _build),
     "fix": Command("fix", "Run Magic's battle loop on its own harness code.", _fix),
-    "forge": Command("forge", "Author and manage sandboxed custom tools.", _forge),
-    "recipe": Command("recipe", "Run saved parameterized workflows (`list | <name> k=v...`).", _recipe),
     "memory": Command("memory", "View or forget durable memory notes.", _memory),
     "profile": Command("profile", "View or curate your preference profile.", _profile),
     "skill": Command("skill", "List, inspect, or draft learned skill cards.", _skill),
-    "model": Command("model", "Base model management (`list | search | download | switch`).", _model),
     "doctor": Command("doctor", "Fast box & repo health check (`--prune`).", _doctor),
 }
 
 # Hidden legacy/UI-superseded commands & aliases: keep working silently for scripts & tests
 # without cluttering `/help`.
 _HIDDEN_COMMANDS: dict[str, Command] = {
+    "chat": Command("chat", "Plain talk to Magic (`/chat clear` resets thread).", _chat),
+    "model": Command("model", "Base model management (`list | search | download | switch`).", _model),
+    "forge": Command("forge", "Author and manage sandboxed custom tools.", _forge),
+    "recipe": Command("recipe", "Run saved parameterized workflows (`list | <name> k=v...`).", _recipe),
     "think": Command("think", "Alias for /deep.", _deep_cmd),
     "steer": Command("steer", "Control-vector steering (also in Settings -> Tuning & Controls).", _steer),
     "act": Command("act", "Toggle Act mode (`on | off`).", _act_cmd),
@@ -1430,9 +1430,9 @@ _HIDDEN_COMMANDS: dict[str, Command] = {
 }
 
 _HELP_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("Core & Reasoning", ("chat", "deep", "do", "inspect", "defense", "override")),
-    ("Build & Repair", ("build", "fix", "forge", "recipe")),
-    ("Memory, Skills & System", ("memory", "profile", "skill", "model", "doctor")),
+    ("Core & Reasoning", ("deep", "do", "inspect", "defense", "override")),
+    ("Build & Repair", ("build", "fix")),
+    ("Memory & System", ("memory", "profile", "skill", "doctor")),
 )
 
 
@@ -1442,7 +1442,7 @@ def help_text() -> str:
         rows = [f"  /{name} — {COMMANDS[name].help}" for name in names if name in COMMANDS]
         if rows:
             sections.append(f"{title}:\n" + "\n".join(rows))
-    sections.append("Tip: Steering, reasoning mode, hooks, and reranker toggles live in Settings → Tuning & Controls.")
+    sections.append("Tip: Primary model, steering, reasoning mode, hooks, and reranker toggles live in Settings → Tuning & Controls.")
     return "\n\n".join(sections)
 
 

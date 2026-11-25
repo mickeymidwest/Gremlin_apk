@@ -616,10 +616,87 @@ def create_app(
             be = registry.get("magic")
         return active_name, getattr(be, "primary", be)
 
+    _controls_swap_lock = threading.Lock()
+
+    def _available_primary_models() -> list[dict]:
+        from . import model_scan as _ms
+        avail_models = []
+        try:
+            for e in _ms.list_all_entries(Path(config_path).read_text(encoding="utf-8")):
+                if e.get("type") != "local_gguf":
+                    continue
+                nm = str(e.get("name") or "")
+                low = nm.lower()
+                if "stheno" in low or "lotus" in low or ("abliterated" in low and nm != "qwen3-30b-a3b"):
+                    continue
+                avail_models.append({
+                    "name": nm,
+                    "display_name": e.get("display_name", nm),
+                    "type": e["type"],
+                })
+        except Exception:
+            pass
+        return avail_models
+
+    def _switch_primary_model(target_name: str) -> None:
+        from . import registry as _reg_mod
+        from .magic import vram as _vram
+
+        clean = str(target_name or "").strip()
+        avail_models = _available_primary_models()
+        allowed_names = {m["name"] for m in avail_models}
+        target_be = registry.get(clean) if clean else None
+        if (
+            not clean
+            or (allowed_names and clean not in allowed_names)
+            or target_be is None
+            or getattr(getattr(target_be, "info", None), "kind", None) == "persona"
+        ):
+            raise ValueError(f"Unknown or disallowed primary_model {target_name!r}")
+
+        with _controls_swap_lock:
+            cur_name, cur_be = _active_primary_backend()
+            if cur_name == clean:
+                return
+
+            # Clear any active control vector on the outgoing backend before swapping
+            # so architecture-specific steering never leaks across heads.
+            if cur_be is not None:
+                if callable(getattr(cur_be, "async_clear_control_vector", None)):
+                    run_coro(loop, cur_be.async_clear_control_vector(), timeout=60.0)
+                elif callable(getattr(cur_be, "clear_control_vector", None)):
+                    cur_be.clear_control_vector()
+
+            async def _swap_coro():
+                await _vram.ensure_only(registry, keep=clean)
+                if callable(getattr(registry, "set_primary_model", None)):
+                    registry.set_primary_model(clean)
+                else:
+                    magic_be = registry.get("magic")
+                    if magic_be is not None and hasattr(magic_be, "primary"):
+                        magic_be.primary = target_be
+                    _reg_mod.set_runtime_primary_model(clean)
+
+                if target_be is not cur_be and callable(getattr(target_be, "clear_control_vector", None)):
+                    cv_st = (
+                        target_be.control_vector_status()
+                        if callable(getattr(target_be, "control_vector_status", None))
+                        else {}
+                    )
+                    if cv_st.get("active"):
+                        if callable(getattr(target_be, "async_clear_control_vector", None)):
+                            await target_be.async_clear_control_vector()
+                        else:
+                            target_be.clear_control_vector()
+
+                if getattr(target_be, "_llm", None) is None and callable(getattr(target_be, "warmup", None)):
+                    await target_be.warmup()
+
+            run_coro(loop, _swap_coro(), timeout=180.0)
+
     def _controls_snapshot() -> dict:
         from . import control_vectors as _cv
         from . import hooks as _hooks
-        from . import model_scan as _ms
         from . import reranker as _rr
 
         active_name, active_be = _active_primary_backend()
@@ -637,6 +714,8 @@ def create_app(
                     n_layers = int(dims_fn(llm_obj)[1] or 0)
                 except Exception:
                     n_layers = 0
+            if n_layers <= 0:
+                n_layers = int(getattr(llm_obj, "_n_layer", 0) or 0)
         avail_vecs = [p.name for p in _cv.list_cvecs(project_root)]
         if n_layers <= 0 and avail_vecs:
             try:
@@ -645,22 +724,7 @@ def create_app(
             except Exception:
                 pass
 
-        avail_models = []
-        try:
-            for e in _ms.list_all_entries(Path(config_path).read_text(encoding="utf-8")):
-                if e.get("type") != "local_gguf":
-                    continue
-                nm = str(e.get("name") or "")
-                low = nm.lower()
-                if "stheno" in low or "lotus" in low or ("abliterated" in low and nm != "qwen3-30b-a3b"):
-                    continue
-                avail_models.append({
-                    "name": nm,
-                    "display_name": e.get("display_name", nm),
-                    "type": e["type"],
-                })
-        except Exception:
-            pass
+        avail_models = _available_primary_models()
 
         return {
             "ok": True,
@@ -702,6 +766,9 @@ def create_app(
             return jsonify({"ok": False, "error": "expected JSON object"}), 400
 
         try:
+            if "primary_model" in body:
+                _switch_primary_model(str(body["primary_model"]))
+
             if "thinking_mode" in body:
                 magic_reply.set_thinking_mode(str(body["thinking_mode"]))
 

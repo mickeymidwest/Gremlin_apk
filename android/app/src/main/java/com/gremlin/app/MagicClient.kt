@@ -561,7 +561,7 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                 setRequestProperty("Authorization", "Bearer $token")
                 setRequestProperty("Content-Type", "application/json")
                 connectTimeout = 6_000
-                readTimeout = 30_000
+                readTimeout = 120_000
             }
             OutputStreamWriter(c.outputStream).use { it.write(patch.toString()) }
             val code = c.responseCode

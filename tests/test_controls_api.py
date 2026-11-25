@@ -197,15 +197,16 @@ def test_commands_help_and_hidden_aliases(tmp_path: Path, monkeypatch):
     ht = commands.help_text()
     assert "Core & Reasoning:" in ht
     assert "Build & Repair:" in ht
-    assert "Memory, Skills & System:" in ht
-    for primary in ("chat", "deep", "do", "inspect", "defense", "override",
-                    "build", "fix", "forge", "recipe",
-                    "memory", "profile", "skill", "model", "doctor"):
+    assert "Memory & System:" in ht
+    for primary in ("deep", "do", "inspect", "defense", "override",
+                    "build", "fix",
+                    "memory", "profile", "skill", "doctor"):
         assert f"/{primary}" in ht
 
     # Hidden / UI-superseded commands should stay out of primary COMMANDS & /help rows
     help_lines = [line.strip() for line in ht.splitlines()]
-    for hidden in ("steer", "think", "clear", "reset", "status",
+    for hidden in ("chat", "model", "forge", "recipe",
+                   "steer", "think", "clear", "reset", "status",
                    "health", "check", "good", "act", "hive",
                    "skills", "mem", "re", "remember"):
         assert hidden not in commands.COMMANDS
@@ -243,7 +244,108 @@ def test_commands_help_and_hidden_aliases(tmp_path: Path, monkeypatch):
     assert r_mem["ok"] is True
     assert "coffee at 7am" in r_mem["answer"]
 
-    # /steer & /skills & /help still work silently via hidden table
+    # /chat, /model, /forge, /recipe, /steer, /skills, /help still dispatch via hidden table
     assert asyncio.run(commands.dispatch("/help", ctx))["action"] == "help"
     assert asyncio.run(commands.dispatch("/skills list", ctx))["ok"] is True
     assert asyncio.run(commands.dispatch("/steer", ctx))["ok"] is True
+    assert asyncio.run(commands.dispatch("/model list", ctx))["ok"] is True
+    assert asyncio.run(commands.dispatch("/chat", ctx))["ok"] is False  # usage prompt
+    assert asyncio.run(commands.dispatch("/forge list", ctx))["ok"] is True
+    assert asyncio.run(commands.dispatch("/recipe list", ctx))["ok"] is True
+
+
+def test_controls_primary_model_switcher(tmp_path: Path, monkeypatch):
+    from magic_core import registry as reg_mod
+    from magic_core.magic import vram as vram_mod
+
+    prev_runtime_primary = reg_mod.get_runtime_primary_model()
+    prev_vram_active = vram_mod.active()
+    reg = _setup_controls_env(tmp_path, monkeypatch)
+
+    # Add a second registered local_gguf head (qwen2.5-coder-14b) and an illegal private head
+    coder_be = LlamaCppBackend(
+        ModelInfo(name="qwen2.5-coder-14b", kind="local_gguf", display_name="Qwen Coder"),
+        model_path=str(tmp_path / "coder.gguf"),
+        chat_format="chatml",
+    )
+    coder_be._llm = SimpleNamespace(
+        _ctx=SimpleNamespace(ctx=ctypes.c_void_p(0x8888)),
+        _model=SimpleNamespace(model=ctypes.c_void_p(0x9999)),
+        _n_layer=24,
+        metadata={"general.architecture": "qwen2"},
+        n_embd=lambda: 8,
+        reset=lambda: None,
+    )
+    private_be = LlamaCppBackend(
+        ModelInfo(name="l3-8b-stheno-v3.2", kind="local_gguf"),
+        model_path=str(tmp_path / "stheno.gguf"),
+        chat_format="chatml",
+    )
+    reg.backends["qwen2.5-coder-14b"] = coder_be
+    reg.backends["l3-8b-stheno-v3.2"] = private_be
+
+    # Delegate primary_model_name / set_primary_model / names like ModelRegistry
+    def _names():
+        return list(reg.backends.keys())
+
+    def _primary_name():
+        p = getattr(reg.backends["magic"], "primary", None)
+        return p.info.name if p else None
+
+    def _set_primary(nm: str):
+        target = reg.backends.get(nm)
+        if target is None:
+            raise ValueError(nm)
+        reg.backends["magic"].primary = target
+        reg_mod.set_runtime_primary_model(nm)
+        return target
+
+    reg.names = _names
+    reg.primary_model_name = _primary_name
+    reg.set_primary_model = _set_primary
+
+    models_yaml_path = tmp_path / "config" / "models.yaml"
+    yaml_before = models_yaml_path.read_text(encoding="utf-8")
+
+    loop = server.start_background_loop()
+    try:
+        app = server.create_app(reg, Router(reg), tmp_path, loop, token="tok", admin_token="adm")
+        client = app.test_client()
+        headers = {"Authorization": "Bearer tok"}
+
+        # Activate steering on Gemma 4 first
+        r_steer = client.post(
+            "/controls",
+            headers=headers,
+            json={"control_vector": {"name": "gemma4_directness.cvec.gguf", "alpha": 0.7}},
+        )
+        assert r_steer.status_code == 200
+        assert r_steer.get_json()["control_vector"]["active"] is True
+
+        # Switch primary_model -> qwen2.5-coder-14b
+        r_swap = client.post(
+            "/controls",
+            headers=headers,
+            json={"primary_model": "qwen2.5-coder-14b"},
+        )
+        assert r_swap.status_code == 200
+        sw = r_swap.get_json()
+        assert sw["primary_model"] == "qwen2.5-coder-14b"
+        assert sw["control_vector"]["active"] is False
+        assert sw["control_vector"]["alpha"] == 0.0
+        assert sw["control_vector"]["n_layers"] == 24
+        assert reg.get("gemma4-26b-a4b").control_vector_status()["active"] is False
+        assert reg.get("gemma4-26b-a4b")._llm is None  # unloaded by vram.ensure_only
+
+        # config/models.yaml stays completely untouched on disk
+        assert models_yaml_path.read_text(encoding="utf-8") == yaml_before
+
+        # Reject invalid & Private-Mode model names with HTTP 400
+        r_bad = client.post("/controls", headers=headers, json={"primary_model": "nonexistent-model"})
+        assert r_bad.status_code == 400
+        r_priv = client.post("/controls", headers=headers, json={"primary_model": "l3-8b-stheno-v3.2"})
+        assert r_priv.status_code == 400
+    finally:
+        reg_mod.set_runtime_primary_model(prev_runtime_primary)
+        vram_mod.set_active(next(iter(prev_vram_active), None))
+        loop.call_soon_threadsafe(loop.stop)
