@@ -67,6 +67,29 @@ data class BuildInfo(
  * three through one appendSystemTurn call. */
 data class AdminResult(val ok: Boolean, val message: String)
 
+data class PendingApproval(
+    val approvalId: String,
+    val threadId: String,
+    val hookName: String,
+    val toolName: String,
+    val commandPreview: String,
+    val reason: String,
+    val riskLevel: String,
+    val promptTitle: String,
+    val createdAt: Double,
+    val expiresAt: Double,
+    val status: String,
+)
+
+data class ThreadSearchHit(
+    val id: Long,
+    val threadId: String,
+    val role: String,
+    val snippet: String,
+    val createdAt: Double,
+    val rank: Double,
+)
+
 class MagicClient(private val prefs: SharedPreferences, private val appContext: Context) {
 
     // Short connect timeout for the desktop attempt -- on the home LAN
@@ -232,12 +255,127 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
         } catch (e: Exception) { null }
     }
 
+    private fun parsePendingApproval(obj: JSONObject): PendingApproval = PendingApproval(
+        approvalId = obj.optString("approval_id", ""),
+        threadId = obj.optString("thread_id", ""),
+        hookName = obj.optString("hook_name", ""),
+        toolName = obj.optString("tool_name", ""),
+        commandPreview = obj.optString("command_preview", ""),
+        reason = obj.optString("reason", ""),
+        riskLevel = obj.optString("risk_level", "medium"),
+        promptTitle = obj.optString("prompt_title", "Approval required"),
+        createdAt = obj.optDouble("created_at", 0.0),
+        expiresAt = obj.optDouble("expires_at", 0.0),
+        status = obj.optString("status", "pending"),
+    )
+
+    fun getPendingApprovals(): Pair<List<PendingApproval>, String?> {
+        val host = prefs.getString("host", null) ?: return emptyList<PendingApproval>() to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return emptyList<PendingApproval>() to "Missing token"
+        if (port == 0) return emptyList<PendingApproval>() to "Invalid port"
+        return try {
+            val c = (URL("http://$host:$port/approvals/pending").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 8_000
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code !in 200..299) return emptyList<PendingApproval>() to json.optString("error", "HTTP $code")
+            val arr = json.optJSONArray("pending") ?: JSONArray()
+            val out = mutableListOf<PendingApproval>()
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val parsed = parsePendingApproval(item)
+                if (parsed.approvalId.isNotEmpty()) out.add(parsed)
+            }
+            out to null
+        } catch (e: Exception) {
+            emptyList<PendingApproval>() to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun resolveApproval(approvalId: String, decision: String, note: String = ""): Pair<JSONObject?, String?> {
+        val host = prefs.getString("host", null) ?: return null to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return null to "Missing token"
+        if (port == 0) return null to "Invalid port"
+        return try {
+            val encodedId = URLEncoder.encode(approvalId, "UTF-8")
+            val c = (URL("http://$host:$port/approvals/$encodedId").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Content-Type", "application/json")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 10_000
+            }
+            OutputStreamWriter(c.outputStream).use {
+                it.write(JSONObject().put("decision", decision).put("note", note).toString())
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code in 200..299 && json.optBoolean("ok", true)) json to null
+            else null to json.optString("error", "HTTP $code")
+        } catch (e: Exception) {
+            null to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
+    fun searchThreads(query: String, limit: Int = 20): Pair<List<ThreadSearchHit>, String?> {
+        val host = prefs.getString("host", null) ?: return emptyList<ThreadSearchHit>() to "Not paired"
+        val port = prefs.getInt("port", 0)
+        val token = prefs.getString("token", null) ?: return emptyList<ThreadSearchHit>() to "Missing token"
+        if (port == 0) return emptyList<ThreadSearchHit>() to "Invalid port"
+        return try {
+            val encodedQ = URLEncoder.encode(query.trim(), "UTF-8")
+            val url = URL("http://$host:$port/threads/search?q=$encodedQ&limit=$limit")
+            val c = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Authorization", "Bearer $token")
+                connectTimeout = desktopConnectTimeoutMs
+                readTimeout = 10_000
+            }
+            val code = c.responseCode
+            val stream = if (code in 200..299) c.inputStream else c.errorStream
+            val text = stream?.bufferedReader()?.use { it.readText() } ?: "{}"
+            val json = JSONObject(text)
+            if (code !in 200..299) return emptyList<ThreadSearchHit>() to json.optString("error", "HTTP $code")
+            val arr = json.optJSONArray("results") ?: JSONArray()
+            val out = mutableListOf<ThreadSearchHit>()
+            for (i in 0 until arr.length()) {
+                val r = arr.optJSONObject(i) ?: continue
+                out.add(
+                    ThreadSearchHit(
+                        id = r.optLong("id", 0L),
+                        threadId = r.optString("thread_id", ""),
+                        role = r.optString("role", ""),
+                        snippet = r.optString("snippet", ""),
+                        createdAt = r.optDouble("created_at", 0.0),
+                        rank = r.optDouble("rank", 0.0),
+                    )
+                )
+            }
+            out to null
+        } catch (e: Exception) {
+            emptyList<ThreadSearchHit>() to (e.message ?: e.javaClass.simpleName)
+        }
+    }
+
     fun chatStream(
         message: String,
         reroll: Boolean = false,
         cont: Boolean = false,
         onDelta: (String) -> Unit,
         onDone: (ChatResult) -> Unit,
+        onApprovalRequired: (PendingApproval) -> Unit = {},
+        onApprovalResolved: (JSONObject) -> Unit = {},
     ) {
         val host = prefs.getString("host", null)
         val port = prefs.getInt("port", 0)
@@ -289,6 +427,13 @@ class MagicClient(private val prefs: SharedPreferences, private val appContext: 
                         "delta" -> {
                             val t = obj.optString("text")
                             if (t.isNotEmpty()) { answer.append(t); onDelta(t) }
+                        }
+                        "approval_required" -> {
+                            val parsed = parsePendingApproval(obj)
+                            if (parsed.approvalId.isNotEmpty()) onApprovalRequired(parsed)
+                        }
+                        "approval_resolved" -> {
+                            onApprovalResolved(obj)
                         }
                         "done" -> {
                             val full = obj.optString("answer", answer.toString())

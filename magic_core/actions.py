@@ -73,7 +73,7 @@ async def execute(
     if tool.capability != "read_only" and tool.name not in ("run_command", "script_fix", "self_edit", "build_project"):
         try:
             from . import hooks as _hooks_mod
-            _hdec = _hooks_mod.run_pre_tool(tool.name, intent.args or {}, root=project_root)
+            _hdec = await _hooks_mod.async_authorize_pre_tool(tool.name, intent.args or {}, root=project_root)
             if not _hdec.allowed:
                 return {"answer": _hdec.reason or f"Blocked by pre_tool hook.", "action": tool.name, "ok": False}
         except Exception:

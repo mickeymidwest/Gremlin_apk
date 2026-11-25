@@ -505,7 +505,7 @@ class ShellToolHost:
                 return ToolResult(False, f"read-only mode: `{hit}` can change state and is blocked. "
                                          "Use a command that only reads (df, du, ls, ps, cat, ...).")
         from .. import hooks as _hooks_mod
-        _hdec = _hooks_mod.run_pre_tool("run_shell", {"command": cmd, "cmd": cmd}, root=str(self.root))
+        _hdec = _hooks_mod.authorize_pre_tool("run_shell", {"command": cmd, "cmd": cmd}, root=str(self.root))
         if not _hdec.allowed:
             return ToolResult(False, _hdec.reason or "Blocked by pre_tool hook.")
         run_cmd = cmd
@@ -683,7 +683,7 @@ class ShellToolHost:
 
     def _check_edit_pre_hook(self, tool_name: str, rel: str, p: Path) -> Optional[ToolResult]:
         from .. import hooks as _hooks_mod
-        dec = _hooks_mod.run_pre_tool(
+        dec = _hooks_mod.authorize_pre_tool(
             tool_name,
             {"path": rel, "resolved_path": str(p)},
             root=str(self.root),

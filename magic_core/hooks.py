@@ -11,6 +11,7 @@ Controlled by MAGIC_HOOKS (default "1"). Zero external runtime dependencies
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import py_compile
@@ -65,6 +66,21 @@ class HookDecision:
     reason: str = ""
     inject_context: str = ""
     feedback: str = ""
+    action: str = ""  # "allow" | "block" | "ask"
+    risk_level: str = "medium"
+    prompt_title: str = ""
+    hook_name: str = ""
+
+    def __post_init__(self) -> None:
+        act = str(self.action or "").strip().lower()
+        if not act:
+            act = "allow" if self.allowed else "block"
+        elif act not in ("allow", "block", "ask"):
+            act = "allow" if self.allowed else "block"
+        self.action = act
+        self.allowed = (act == "allow")
+        rl = str(self.risk_level or "medium").strip().lower()
+        self.risk_level = rl if rl in ("low", "medium", "high") else "medium"
 
 
 @dataclass
@@ -80,11 +96,14 @@ class HookEntry:
     timeout_ms: int = 2000
     fail_mode: str = "open"
     description: str = ""
+    action: str = "block"
+    risk_level: str = "medium"
 
 
 _DEFAULT_DESCRIPTIONS: dict[str, str] = {
     "block_destructive_git": "Block git add -A/., reset --hard, checkout -- ., restore, push --force",
     "protect_sensitive_paths": "Block writes/deletes to campaign_*.json, .env, keys & credentials",
+    "approve_privileged_or_net_cmds": "Ask phone approval before systemctl, ufw, nmap, arp-scan, nuclei, adb, pip install, or apt",
     "py_syntax_check": "Run py_compile after Python edits in /fix & /build",
     "notify_build_complete": "Send desktop notification after a /build or /fix turn",
 }
@@ -424,9 +443,53 @@ def _builtin_py_syntax_check(ctx: dict[str, Any]) -> HookDecision:
     return HookDecision(allowed=True)
 
 
+_PRIV_OR_NET_CMD_RE = re.compile(
+    r"(?:^|[;&|\n]|\$\()\s*(?:sudo\s+|env\s+)?(?:\S*/)?"
+    r"(?:systemctl|ufw|nmap|arp-scan|nuclei|adb|apt(?:-get)?)\b"
+    r"|\bpip[23]?\s+install\b",
+    re.IGNORECASE,
+)
+
+
+def _builtin_approve_privileged_or_net_cmds(ctx: dict[str, Any]) -> HookDecision:
+    cmd = str(ctx.get("command") or ctx.get("cmd") or "").strip()
+    tool_name = str(ctx.get("tool") or ctx.get("tool_name") or "").strip().lower()
+    as_root = bool(ctx.get("as_root"))
+    if as_root and cmd:
+        return HookDecision(
+            allowed=False,
+            action="ask",
+            risk_level="high",
+            prompt_title="Approve privileged command?",
+            reason=f"Privileged root execution requested: {cmd}",
+            hook_name="approve_privileged_or_net_cmds",
+        )
+    if cmd and _PRIV_OR_NET_CMD_RE.search(cmd):
+        return HookDecision(
+            allowed=False,
+            action="ask",
+            risk_level="high",
+            prompt_title="Approve service, package, or network command?",
+            reason=f"Requires phone approval before running: {cmd}",
+            hook_name="approve_privileged_or_net_cmds",
+        )
+    if tool_name in ("service_restart", "service_stop", "root_command", "apply_updates"):
+        desc = cmd or str(ctx.get("name") or tool_name)
+        return HookDecision(
+            allowed=False,
+            action="ask",
+            risk_level="high",
+            prompt_title="Approve privileged action?",
+            reason=f"Requires phone approval for {tool_name}: {desc}",
+            hook_name="approve_privileged_or_net_cmds",
+        )
+    return HookDecision(allowed=True)
+
+
 BUILTIN_HANDLERS: dict[str, Callable[[dict[str, Any]], HookDecision]] = {
     "block_destructive_git": _builtin_block_destructive_git,
     "protect_sensitive_paths": _builtin_protect_sensitive_paths,
+    "approve_privileged_or_net_cmds": _builtin_approve_privileged_or_net_cmds,
     "py_syntax_check": _builtin_py_syntax_check,
 }
 
@@ -479,6 +542,12 @@ class HookDispatcher:
                     fail_mode = str(item.get("fail_mode") or "open").strip().lower()
                     if fail_mode not in ("open", "closed"):
                         fail_mode = "open"
+                    action = str(item.get("action") or "block").strip().lower()
+                    if action not in ("allow", "block", "ask"):
+                        action = "block"
+                    risk_level = str(item.get("risk_level") or "medium").strip().lower()
+                    if risk_level not in ("low", "medium", "high"):
+                        risk_level = "medium"
                     desc = str(item.get("description") or _DEFAULT_DESCRIPTIONS.get(name, "")).strip()
                     entry = HookEntry(
                         name=name,
@@ -492,6 +561,8 @@ class HookDispatcher:
                         timeout_ms=timeout_ms,
                         fail_mode=fail_mode,
                         description=desc,
+                        action=action,
+                        risk_level=risk_level,
                     )
                     hooks.append(entry)
                     if entry.enabled:
@@ -540,6 +611,8 @@ class HookDispatcher:
                     "name": h.name,
                     "event": h.event,
                     "enabled": bool(h.enabled),
+                    "action": h.action,
+                    "risk_level": h.risk_level,
                     "description": h.description or _DEFAULT_DESCRIPTIONS.get(h.name, ""),
                 }
                 for h in self._hooks
@@ -626,11 +699,17 @@ class HookDispatcher:
             try:
                 parsed = json.loads(out)
                 if isinstance(parsed, dict):
+                    act = str(parsed.get("action") or "").strip().lower()
+                    allowed_val = bool(parsed.get("allowed", act not in ("block", "ask")))
                     return HookDecision(
-                        allowed=bool(parsed.get("allowed", True)),
+                        allowed=allowed_val,
                         reason=str(parsed.get("reason") or ""),
                         inject_context=str(parsed.get("inject_context") or ""),
                         feedback=str(parsed.get("feedback") or ""),
+                        action=act,
+                        risk_level=str(parsed.get("risk_level") or entry.risk_level),
+                        prompt_title=str(parsed.get("prompt_title") or ""),
+                        hook_name=entry.name,
                     )
             except ValueError:
                 pass
@@ -652,15 +731,30 @@ class HookDispatcher:
                 dec = fn(ctx)
             else:
                 dec = self._run_shell_hook(entry, event, ctx)
+            if not dec.allowed and entry.action == "ask" and dec.action != "ask":
+                dec = HookDecision(
+                    allowed=False,
+                    action="ask",
+                    reason=dec.reason,
+                    inject_context=dec.inject_context,
+                    feedback=dec.feedback,
+                    risk_level=dec.risk_level or entry.risk_level,
+                    prompt_title=dec.prompt_title,
+                    hook_name=dec.hook_name or entry.name,
+                )
+            elif not dec.hook_name:
+                dec.hook_name = entry.name
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
-            self._record(elapsed_ms, blocked=(not dec.allowed), error=False)
+            self._record(elapsed_ms, blocked=(dec.action == "block"), error=False)
             return dec, False
         except Exception as exc:
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
             if entry.fail_mode == "closed":
                 dec = HookDecision(
                     allowed=False,
+                    action="block",
                     reason=f"Hook '{entry.name}' failed ({type(exc).__name__}: {exc}) [fail_mode=closed]",
+                    hook_name=entry.name,
                 )
                 self._record(elapsed_ms, blocked=True, error=True)
                 return dec, True
@@ -679,6 +773,7 @@ class HookDispatcher:
         payload.setdefault("event", event)
         inject_parts: list[str] = []
         feedback_parts: list[str] = []
+        ask_dec: Optional[HookDecision] = None
 
         for entry in entries:
             if not self._matches(entry, payload):
@@ -688,13 +783,29 @@ class HookDispatcher:
                 inject_parts.append(dec.inject_context.strip())
             if dec.feedback.strip():
                 feedback_parts.append(dec.feedback.strip())
-            if not dec.allowed:
+            if dec.action == "block":
                 return HookDecision(
                     allowed=False,
+                    action="block",
                     reason=dec.reason or f"Blocked by hook '{entry.name}'",
                     inject_context="\n\n".join(inject_parts),
                     feedback="\n".join(feedback_parts),
+                    hook_name=dec.hook_name or entry.name,
                 )
+            if dec.action == "ask" and ask_dec is None:
+                ask_dec = HookDecision(
+                    allowed=False,
+                    action="ask",
+                    reason=dec.reason or f"Approval required by hook '{entry.name}'",
+                    inject_context="\n\n".join(inject_parts),
+                    feedback="\n".join(feedback_parts),
+                    risk_level=dec.risk_level or entry.risk_level,
+                    prompt_title=dec.prompt_title or f"Approve {payload.get('tool_name') or 'command'}?",
+                    hook_name=dec.hook_name or entry.name,
+                )
+
+        if ask_dec is not None:
+            return ask_dec
 
         return HookDecision(
             allowed=True,
@@ -805,6 +916,103 @@ def run_pre_tool(tool: str, args: Optional[dict[str, Any]] = None, *, root: str 
     if root and "root" not in ctx:
         ctx["root"] = root
     return get_dispatcher().dispatch("pre_tool", ctx)
+
+
+def _build_approval_preview(tool: str, args: Optional[dict[str, Any]]) -> str:
+    a = args or {}
+    cmd = str(a.get("command") or a.get("cmd") or "").strip()
+    if cmd:
+        return cmd
+    path = str(a.get("resolved_path") or a.get("path") or "").strip()
+    if path:
+        return f"{tool}: {path}"
+    return f"{tool}({json.dumps(a, default=str)[:300]})" if a else tool
+
+
+def authorize_pre_tool(
+    tool: str,
+    args: Optional[dict[str, Any]] = None,
+    *,
+    root: str = "",
+    thread_id: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+) -> HookDecision:
+    dec = run_pre_tool(tool, args, root=root)
+    if dec.action != "ask":
+        return dec
+    from . import approvals as _approvals
+    outcome = _approvals.request_approval(
+        tool_name=tool,
+        command_preview=_build_approval_preview(tool, args),
+        reason=dec.reason,
+        hook_name=dec.hook_name,
+        risk_level=dec.risk_level,
+        prompt_title=dec.prompt_title or "Approve command execution?",
+        thread_id=thread_id,
+        timeout_s=timeout_s,
+    )
+    if outcome.approved:
+        return HookDecision(
+            allowed=True,
+            action="allow",
+            inject_context=dec.inject_context,
+            feedback=dec.feedback,
+            hook_name=dec.hook_name,
+        )
+    return HookDecision(
+        allowed=False,
+        action="block",
+        reason=(
+            f"Approval timed out (fail-closed): {dec.reason or tool}"
+            if outcome.status == "timeout"
+            else f"Denied by user ({outcome.status}): {dec.reason or tool}"
+        ),
+        hook_name=dec.hook_name,
+    )
+
+
+async def async_authorize_pre_tool(
+    tool: str,
+    args: Optional[dict[str, Any]] = None,
+    *,
+    root: str = "",
+    thread_id: Optional[str] = None,
+    timeout_s: Optional[float] = None,
+) -> HookDecision:
+    dec = run_pre_tool(tool, args, root=root)
+    if dec.action != "ask":
+        return dec
+    from . import approvals as _approvals
+    eff_tid = thread_id if thread_id is not None else _approvals.current_thread_context()
+    outcome = await asyncio.to_thread(
+        _approvals.request_approval,
+        tool_name=tool,
+        command_preview=_build_approval_preview(tool, args),
+        reason=dec.reason,
+        hook_name=dec.hook_name,
+        risk_level=dec.risk_level,
+        prompt_title=dec.prompt_title or "Approve command execution?",
+        thread_id=eff_tid,
+        timeout_s=timeout_s,
+    )
+    if outcome.approved:
+        return HookDecision(
+            allowed=True,
+            action="allow",
+            inject_context=dec.inject_context,
+            feedback=dec.feedback,
+            hook_name=dec.hook_name,
+        )
+    return HookDecision(
+        allowed=False,
+        action="block",
+        reason=(
+            f"Approval timed out (fail-closed): {dec.reason or tool}"
+            if outcome.status == "timeout"
+            else f"Denied by user ({outcome.status}): {dec.reason or tool}"
+        ),
+        hook_name=dec.hook_name,
+    )
 
 
 def run_post_tool(tool: str, args: Optional[dict[str, Any]] = None, *, root: str = "") -> HookDecision:

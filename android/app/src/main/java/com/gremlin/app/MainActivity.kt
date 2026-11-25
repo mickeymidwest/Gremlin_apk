@@ -9,12 +9,20 @@ import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.text.Editable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.ForegroundColorSpan
+import android.text.style.StyleSpan
+import android.view.KeyEvent
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -24,6 +32,9 @@ import android.widget.ScrollView
 import android.widget.ListPopupWindow
 import android.widget.TextView
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -53,6 +64,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sendButton: ImageButton
     private lateinit var hologramFrame: FrameLayout
     private lateinit var thinkingStatus: TextView
+    private lateinit var approvalCardsContainer: LinearLayout
+    private val approvalCards = LinkedHashMap<String, View>()
     private lateinit var messageInput: EditText
     private var lastUserMessage: String? = null
     private lateinit var hologramView: WebView
@@ -157,6 +170,7 @@ class MainActivity : AppCompatActivity() {
             chat.load(historyFile.readText())
         }
         thinkingStatus = findViewById(R.id.thinking_status)
+        approvalCardsContainer = findViewById(R.id.approval_cards_container)
         messageInput = findViewById(R.id.message_input)
 
         hologramView = findViewById(R.id.hologram_view)
@@ -167,6 +181,7 @@ class MainActivity : AppCompatActivity() {
         hologramView.loadUrl("file:///android_asset/hologram.html")
 
         messageInput.setOnFocusChangeListener { _, focused -> setHologramSmall(focused) }
+        findViewById<View>(R.id.search_threads_button).setOnClickListener { openThreadSearchDialog() }
         findViewById<View>(R.id.more_button).setOnClickListener { showMoreMenu(it) }
         findViewById<View>(R.id.builds_button).setOnClickListener {
             startActivity(Intent(this, BuildsActivity::class.java))
@@ -307,6 +322,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         updateConnectionLabel()
         statusHandler.post(statusPoll)
+        refreshPendingApprovals()
     }
 
     override fun onPause() {
@@ -834,6 +850,24 @@ class MainActivity : AppCompatActivity() {
                         updateTokenUsageLabel(result.tokenUsage)
                     }
                 },
+                onApprovalRequired = { ap ->
+                    runOnUiThread {
+                        if (id != turnId) return@runOnUiThread
+                        thinkingStatus.text = "Waiting for your approval..."
+                        thinkingStatus.visibility = View.VISIBLE
+                        showApprovalCard(ap)
+                    }
+                },
+                onApprovalResolved = { ev ->
+                    runOnUiThread {
+                        val aid = ev.optString("approval_id", "")
+                        val st = ev.optString("status", "resolved")
+                        if (aid.isNotEmpty()) markApprovalResolved(aid, st)
+                        if (id == turnId && !started.get()) {
+                            thinkingStatus.text = getString(R.string.thinking)
+                        }
+                    }
+                },
             )
         }.start()
     }
@@ -989,6 +1023,231 @@ class MainActivity : AppCompatActivity() {
                 thinkingStatus.visibility = View.GONE
             }
         }.start()
+    }
+
+    private fun refreshPendingApprovals() {
+        if (prefs.getString("host", null).isNullOrEmpty()) return
+        Thread {
+            val (pending, err) = magicClient.getPendingApprovals()
+            if (err != null) return@Thread
+            runOnUiThread {
+                val liveIds = pending.map { it.approvalId }.toSet()
+                val staleIds = approvalCards.keys.filter { it !in liveIds }
+                for (sid in staleIds) {
+                    approvalCards.remove(sid)?.let { approvalCardsContainer.removeView(it) }
+                }
+                for (ap in pending) {
+                    showApprovalCard(ap)
+                }
+                approvalCardsContainer.visibility = if (approvalCards.isEmpty()) View.GONE else View.VISIBLE
+            }
+        }.start()
+    }
+
+    private fun showApprovalCard(ap: PendingApproval) {
+        if (ap.approvalId.isEmpty() || approvalCards.containsKey(ap.approvalId)) return
+        val card = LayoutInflater.from(this).inflate(R.layout.view_approval_card, approvalCardsContainer, false)
+        val badge = card.findViewById<TextView>(R.id.approval_risk_badge)
+        val title = card.findViewById<TextView>(R.id.approval_title)
+        val meta = card.findViewById<TextView>(R.id.approval_meta)
+        val cmdView = card.findViewById<TextView>(R.id.approval_command)
+        val reasonView = card.findViewById<TextView>(R.id.approval_reason)
+        val approveBtn = card.findViewById<Button>(R.id.approval_approve_btn)
+        val denyBtn = card.findViewById<Button>(R.id.approval_deny_btn)
+        val statusView = card.findViewById<TextView>(R.id.approval_status)
+
+        val riskUpper = ap.riskLevel.uppercase(Locale.US).ifEmpty { "MEDIUM" }
+        badge.text = riskUpper
+        badge.setBackgroundColor(
+            ContextCompat.getColor(this, if (riskUpper == "HIGH") R.color.magic_error else R.color.magic_system)
+        )
+        title.text = ap.promptTitle.ifEmpty { "Approval required" }
+        meta.text = listOf(ap.toolName, ap.hookName).filter { it.isNotEmpty() }.joinToString(" · ")
+        cmdView.text = ap.commandPreview.ifEmpty { "(no preview)" }
+        reasonView.text = ap.reason
+        reasonView.visibility = if (ap.reason.isEmpty()) View.GONE else View.VISIBLE
+
+        fun submitDecision(decision: String) {
+            approveBtn.isEnabled = false
+            denyBtn.isEnabled = false
+            statusView.visibility = View.VISIBLE
+            statusView.text = if (decision == "approve") "Approving..." else "Denying..."
+            Thread {
+                val (res, err) = magicClient.resolveApproval(ap.approvalId, decision)
+                runOnUiThread {
+                    if (res != null) {
+                        val st = res.optJSONObject("approval")?.optString("status", decision) ?: decision
+                        markApprovalResolved(ap.approvalId, st)
+                    } else {
+                        approveBtn.isEnabled = true
+                        denyBtn.isEnabled = true
+                        statusView.text = "Failed: ${err ?: "error"}"
+                        Toast.makeText(this@MainActivity, err ?: "Approval request failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
+        }
+
+        approveBtn.setOnClickListener { submitDecision("approve") }
+        denyBtn.setOnClickListener { submitDecision("deny") }
+
+        approvalCards[ap.approvalId] = card
+        approvalCardsContainer.addView(card)
+        approvalCardsContainer.visibility = View.VISIBLE
+    }
+
+    private fun markApprovalResolved(approvalId: String, status: String) {
+        val card = approvalCards[approvalId] ?: return
+        val approveBtn = card.findViewById<Button>(R.id.approval_approve_btn)
+        val denyBtn = card.findViewById<Button>(R.id.approval_deny_btn)
+        val statusView = card.findViewById<TextView>(R.id.approval_status)
+        approveBtn.isEnabled = false
+        denyBtn.isEnabled = false
+        statusView.visibility = View.VISIBLE
+        statusView.text = when (status.lowercase(Locale.US)) {
+            "approved", "approve" -> "Approved ✓"
+            "denied", "deny" -> "Denied ✕"
+            "timeout" -> "Timed out (denied)"
+            else -> status
+        }
+        approvalCardsContainer.postDelayed({
+            approvalCards.remove(approvalId)?.let { approvalCardsContainer.removeView(it) }
+            if (approvalCards.isEmpty()) approvalCardsContainer.visibility = View.GONE
+        }, 700L)
+    }
+
+    private fun openThreadSearchDialog() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        val queryRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val queryInput = EditText(this).apply {
+            hint = "Search messages & threads..."
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val goBtn = Button(this).apply { text = "Go" }
+        queryRow.addView(queryInput)
+        queryRow.addView(goBtn)
+        container.addView(queryRow)
+
+        val statusTv = TextView(this).apply {
+            text = "Type keywords and tap Go"
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.magic_text_secondary))
+            setPadding(0, pad / 3, 0, pad / 3)
+        }
+        container.addView(statusTv)
+
+        val resultsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(resultsBox) }
+        container.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (280 * resources.displayMetrics.density).toInt()))
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Search threads")
+            .setView(container)
+            .setNegativeButton("Close", null)
+            .create()
+
+        fun highlightSnippet(raw: String): CharSequence {
+            val sb = SpannableStringBuilder()
+            val accent = ContextCompat.getColor(this, R.color.magic_accent)
+            var idx = 0
+            while (idx < raw.length) {
+                val open = raw.indexOf('«', idx)
+                if (open < 0) {
+                    sb.append(raw.substring(idx))
+                    break
+                }
+                sb.append(raw.substring(idx, open))
+                val close = raw.indexOf('»', open + 1)
+                if (close < 0) {
+                    sb.append(raw.substring(open + 1))
+                    break
+                }
+                val startSpan = sb.length
+                sb.append(raw.substring(open + 1, close))
+                val endSpan = sb.length
+                sb.setSpan(ForegroundColorSpan(accent), startSpan, endSpan, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(StyleSpan(android.graphics.Typeface.BOLD), startSpan, endSpan, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                idx = close + 1
+            }
+            return sb
+        }
+
+        fun runSearch() {
+            val q = queryInput.text.toString().trim()
+            if (q.isEmpty()) {
+                statusTv.text = "Enter a search query first."
+                return
+            }
+            statusTv.text = "Searching..."
+            resultsBox.removeAllViews()
+            Thread {
+                val (hits, err) = magicClient.searchThreads(q, limit = 20)
+                runOnUiThread {
+                    resultsBox.removeAllViews()
+                    if (err != null) {
+                        statusTv.text = "Search failed: $err"
+                        return@runOnUiThread
+                    }
+                    statusTv.text = if (hits.isEmpty()) "No matches for \"$q\"" else "${hits.size} match(es)"
+                    val fmt = SimpleDateFormat("MMM d HH:mm", Locale.US)
+                    for (hit in hits) {
+                        val row = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            setPadding(pad / 2, pad / 2, pad / 2, pad / 2)
+                            setBackgroundResource(R.drawable.bg_row)
+                            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                            lp.bottomMargin = (6 * resources.displayMetrics.density).toInt()
+                            layoutParams = lp
+                        }
+                        val ts = if (hit.createdAt > 0.0) fmt.format(Date((hit.createdAt * 1000.0).toLong())) else ""
+                        val hdr = TextView(this@MainActivity).apply {
+                            text = "${hit.threadId} · ${hit.role.uppercase(Locale.US)}" + if (ts.isNotEmpty()) " · $ts" else ""
+                            textSize = 11f
+                            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.magic_system))
+                        }
+                        val snip = TextView(this@MainActivity).apply {
+                            text = highlightSnippet(hit.snippet)
+                            textSize = 13f
+                            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.magic_text_primary))
+                        }
+                        row.addView(hdr)
+                        row.addView(snip)
+                        row.setOnClickListener {
+                            dialog.dismiss()
+                            abandonTurn()
+                            chat.clear()
+                            historyFile.writeText("")
+                            currentThread = if (hit.threadId == "desktop" || hit.threadId.startsWith("default:")) null else hit.threadId
+                            updateTokenUsageLabel(null)
+                            appendSystemTurn("— Thread ${hit.threadId} (${hit.role}) —\n${hit.snippet}", false)
+                        }
+                        resultsBox.addView(row)
+                    }
+                }
+            }.start()
+        }
+
+        goBtn.setOnClickListener { runSearch() }
+        queryInput.setOnEditorActionListener { _, actionId, event ->
+            if (actionId == EditorInfo.IME_ACTION_SEARCH ||
+                (event != null && event.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_DOWN)
+            ) {
+                runSearch()
+                true
+            } else {
+                false
+            }
+        }
+        dialog.show()
     }
 
     private fun appendSystemTurn(text: String, isError: Boolean) {

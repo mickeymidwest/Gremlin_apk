@@ -384,11 +384,19 @@ def test_zero_dep_yaml_fallback_and_timeout_caps():
         Path(__file__).resolve().parent.parent.joinpath("config", "hooks.yaml").read_text(encoding="utf-8")
     )
     items = parsed["hooks"]
-    assert len(items) == 4
+    assert len(items) == 5
     names = [h["name"] for h in items]
-    assert names == ["block_destructive_git", "protect_sensitive_paths", "py_syntax_check", "notify_build_complete"]
+    assert names == [
+        "block_destructive_git",
+        "protect_sensitive_paths",
+        "approve_privileged_or_net_cmds",
+        "py_syntax_check",
+        "notify_build_complete",
+    ]
     assert items[0]["enabled"] is True
-    assert items[3]["enabled"] is False
+    assert items[2]["action"] == "ask"
+    assert items[2]["risk_level"] == "high"
+    assert items[4]["enabled"] is False
 
     # Strict timeout caps
     assert hooks._clamp_timeout_ms("pre_prompt", 9999) == 50

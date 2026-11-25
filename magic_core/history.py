@@ -351,6 +351,17 @@ class ConversationHistory:
                 pass
             seq = len(self._all_turns(key)) or len(dq)
             self._db_insert_turn(key, seq, turn)
+            try:
+                from . import state_db as _state_db
+                _state_db.get_state_db(self._root).index_turn(
+                    key,
+                    turn.user,
+                    turn.assistant,
+                    created_at=turn.at,
+                    external_prefix=f"jsonl:{_key_id(key)}:{seq}",
+                )
+            except Exception:
+                pass
 
     def drop_last(self, key: str) -> bool:
         """Remove the most recent exchange so it can be re-generated (re-roll).
@@ -390,6 +401,16 @@ class ConversationHistory:
                     pass
                 finally:
                     conn.close()
+            try:
+                from . import state_db as _state_db
+                _state_db.get_state_db(self._root).delete_thread(key)
+            except Exception:
+                pass
+            try:
+                from . import state_db as _state_db
+                _state_db.get_state_db(self._root).drop_last_turn(key)
+            except Exception:
+                pass
             return True
 
     def append_to_last(self, key: str, extra: str,
@@ -448,6 +469,16 @@ class ConversationHistory:
                     pass
                 finally:
                     conn.close()
+            try:
+                from . import state_db as _state_db
+                _state_db.get_state_db(self._root).delete_thread(key)
+            except Exception:
+                pass
+            try:
+                from . import state_db as _state_db
+                _state_db.get_state_db(self._root).update_last_assistant(key, last.assistant)
+            except Exception:
+                pass
             return True
 
     def last_user(self, key: str) -> Optional[str]:
@@ -560,6 +591,11 @@ class ConversationHistory:
                     pass
                 finally:
                     conn.close()
+            try:
+                from . import state_db as _state_db
+                _state_db.get_state_db(self._root).delete_thread(key)
+            except Exception:
+                pass
 
     # ---- long-thread compaction (summarise the aged-out older turns) -------
 

@@ -1,0 +1,555 @@
+"""SQLite-backed state store (persistent /controls + FTS5 thread search).
+
+Stored at `data/magic/magic_state.db` by default (override via `MAGIC_STATE_DB`
+env var for isolated tests). Uses WAL mode + BEGIN IMMEDIATE serialized writes
+under a reentrant lock so concurrent readers never hit SQLITE_BUSY.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import threading
+import time
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator, Optional
+
+DEFAULT_ROOT = Path(__file__).resolve().parent.parent
+
+_WRITE_LOCK = threading.RLock()
+_INITIALIZED_PATHS: set[str] = set()
+
+_PRIVATE_SEG_RE = re.compile(r"(?:^|[:_/])private(?:[:_/]|$)", re.IGNORECASE)
+
+
+def resolve_db_path(project_root: Optional[str | Path] = None) -> Path:
+    override = os.environ.get("MAGIC_STATE_DB", "").strip()
+    if override:
+        return Path(override)
+    base = Path(project_root) if project_root else DEFAULT_ROOT
+    return base / "data" / "magic" / "magic_state.db"
+
+
+def is_private_identifier(value: Optional[str]) -> bool:
+    """True if `value` belongs to Private Mode and must never be indexed in FTS5."""
+    s = str(value or "").strip()
+    if not s:
+        return False
+    return bool(_PRIVATE_SEG_RE.search(s))
+
+
+def normalize_thread_id(raw_key_or_tid: Optional[str]) -> str:
+    """Map ConversationHistory keys (`h:<owner>:<tid>`, Bearer headers, etc.)
+    into a clean non-secret thread identifier safe for storage and display."""
+    raw = str(raw_key_or_tid or "").strip()
+    if not raw:
+        return "default"
+    if raw.lower().startswith("bearer "):
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:12]
+        return f"default:{digest}"
+    if ":" in raw:
+        prefix, _, tail = raw.rpartition(":")
+        if prefix.startswith("h:") and tail:
+            return tail
+    return raw
+
+
+def sanitize_fts5_query(raw: Optional[str]) -> str:
+    """Convert arbitrary user input into a safe FTS5 MATCH query expression.
+
+    Strips operators and punctuation (-, :, *, quotes, parens) by extracting
+    word tokens and double-quoting each token cleanly.
+    """
+    tokens = re.findall(r"[^\W_]+(?:_[^\W_]+)*", str(raw or ""), re.UNICODE)
+    cleaned: list[str] = []
+    for tok in tokens:
+        t = tok.replace('"', "").strip()
+        if t:
+            cleaned.append(f'"{t}"')
+        if len(cleaned) >= 16:
+            break
+    return " ".join(cleaned)
+
+
+class StateDB:
+    """WAL-mode SQLite persistence for `/controls` and FTS5 chat message search."""
+
+    def __init__(self, db_path: Optional[str | Path] = None, project_root: Optional[str | Path] = None) -> None:
+        self.db_path = Path(db_path) if db_path else resolve_db_path(project_root)
+        self._lock = _WRITE_LOCK
+
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(
+            str(self.db_path),
+            timeout=5.0,
+            isolation_level=None,
+            check_same_thread=False,
+        )
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("PRAGMA foreign_keys=ON;")
+        return conn
+
+    def ensure_schema(self) -> None:
+        key = str(self.db_path.resolve())
+        with self._lock:
+            if key in _INITIALIZED_PATHS and self.db_path.exists():
+                return
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE;")
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS controls_state (
+                        key TEXT PRIMARY KEY,
+                        value_json TEXT NOT NULL,
+                        updated_at REAL NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS chat_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        external_key TEXT UNIQUE,
+                        thread_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at REAL NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_chat_messages_thread_time
+                        ON chat_messages(thread_id, created_at);
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts USING fts5(
+                        content,
+                        thread_id UNINDEXED,
+                        role UNINDEXED,
+                        content='chat_messages',
+                        content_rowid='id',
+                        tokenize='porter unicode61'
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS chat_messages_ai
+                    AFTER INSERT ON chat_messages BEGIN
+                        INSERT INTO chat_messages_fts(rowid, content, thread_id, role)
+                        VALUES (new.id, new.content, new.thread_id, new.role);
+                    END;
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS chat_messages_ad
+                    AFTER DELETE ON chat_messages BEGIN
+                        INSERT INTO chat_messages_fts(chat_messages_fts, rowid, content, thread_id, role)
+                        VALUES ('delete', old.id, old.content, old.thread_id, old.role);
+                    END;
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TRIGGER IF NOT EXISTS chat_messages_au
+                    AFTER UPDATE ON chat_messages BEGIN
+                        INSERT INTO chat_messages_fts(chat_messages_fts, rowid, content, thread_id, role)
+                        VALUES ('delete', old.id, old.content, old.thread_id, old.role);
+                        INSERT INTO chat_messages_fts(rowid, content, thread_id, role)
+                        VALUES (new.id, new.content, new.thread_id, new.role);
+                    END;
+                    """
+                )
+                conn.execute("COMMIT;")
+                _INITIALIZED_PATHS.add(key)
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK;")
+                except sqlite3.Error:
+                    pass
+                raise
+            finally:
+                conn.close()
+
+    @contextmanager
+    def _write_tx(self) -> Iterator[sqlite3.Connection]:
+        self.ensure_schema()
+        with self._lock:
+            conn = self._connect()
+            try:
+                conn.execute("BEGIN IMMEDIATE;")
+                yield conn
+                conn.execute("COMMIT;")
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK;")
+                except sqlite3.Error:
+                    pass
+                raise
+            finally:
+                conn.close()
+
+    @contextmanager
+    def _read_conn(self) -> Iterator[sqlite3.Connection]:
+        self.ensure_schema()
+        conn = self._connect()
+        try:
+            yield conn
+        finally:
+            conn.close()
+
+    # -------------------------------------------------------- controls_state
+
+    def load_controls_state(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        with self._read_conn() as conn:
+            rows = conn.execute("SELECT key, value_json FROM controls_state").fetchall()
+        for key, raw in rows:
+            try:
+                out[str(key)] = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def save_controls_patch(self, patch: dict[str, Any]) -> None:
+        if not isinstance(patch, dict) or not patch:
+            return
+        now = time.time()
+        updates: dict[str, Any] = {}
+
+        if "primary_model" in patch and patch["primary_model"]:
+            updates["primary_model"] = str(patch["primary_model"]).strip()
+
+        if "thinking_mode" in patch and patch["thinking_mode"]:
+            updates["thinking_mode"] = str(patch["thinking_mode"]).strip().lower()
+
+        if "reranker_enabled" in patch:
+            updates["reranker_enabled"] = bool(patch["reranker_enabled"])
+
+        if "hooks" in patch and isinstance(patch["hooks"], dict):
+            existing = self.load_controls_state().get("hooks")
+            merged_hooks: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
+            h_upd = patch["hooks"]
+            if "enabled" in h_upd:
+                merged_hooks["enabled"] = bool(h_upd["enabled"])
+            if "hook_states" in h_upd and isinstance(h_upd["hook_states"], dict):
+                prev_states = dict(merged_hooks.get("hook_states") or {})
+                for hk, hv in h_upd["hook_states"].items():
+                    prev_states[str(hk)] = bool(hv)
+                merged_hooks["hook_states"] = prev_states
+            updates["hooks"] = merged_hooks
+
+        if "control_vector" in patch:
+            cv_upd = patch["control_vector"]
+            if (
+                not isinstance(cv_upd, dict)
+                or cv_upd.get("off")
+                or cv_upd.get("active") is False
+                or not cv_upd.get("name")
+                or str(cv_upd.get("name")).strip().lower() in ("off", "none")
+                or float(cv_upd.get("alpha", 0.0)) == 0.0
+            ):
+                updates["control_vector"] = {
+                    "name": None,
+                    "alpha": 0.0,
+                    "il_start": None,
+                    "il_end": None,
+                }
+            else:
+                updates["control_vector"] = {
+                    "name": str(cv_upd["name"]),
+                    "alpha": float(cv_upd["alpha"]),
+                    "il_start": int(cv_upd["il_start"]) if cv_upd.get("il_start") is not None else None,
+                    "il_end": int(cv_upd["il_end"]) if cv_upd.get("il_end") is not None else None,
+                }
+
+        if not updates:
+            return
+
+        with self._write_tx() as conn:
+            for k, val in updates.items():
+                conn.execute(
+                    """
+                    INSERT INTO controls_state(key, value_json, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value_json = excluded.value_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (k, json.dumps(val), now),
+                )
+
+    def clear_controls_state(self) -> None:
+        with self._write_tx() as conn:
+            conn.execute("DELETE FROM controls_state")
+
+    # --------------------------------------------------- chat_messages + FTS5
+
+    def index_turn(
+        self,
+        thread_or_key: str,
+        user_text: str,
+        assistant_text: str,
+        *,
+        created_at: Optional[float] = None,
+        external_prefix: Optional[str] = None,
+    ) -> int:
+        """Dual-write a regular user+assistant exchange idempotently.
+
+        Never indexes Private Mode threads or empty messages. Returns rows inserted.
+        """
+        if is_private_identifier(thread_or_key):
+            return 0
+        tid = normalize_thread_id(thread_or_key)
+        if is_private_identifier(tid):
+            return 0
+        ts = float(created_at if created_at is not None else time.time())
+        pairs: list[tuple[str, str]] = []
+        if (user_text or "").strip():
+            pairs.append(("user", user_text.strip()))
+        if (assistant_text or "").strip():
+            pairs.append(("assistant", assistant_text.strip()))
+        if not pairs:
+            return 0
+
+        prefix = external_prefix or f"{tid}:{int(ts * 1000)}"
+        inserted = 0
+        with self._write_tx() as conn:
+            for role, text in pairs:
+                ext_key = (
+                    f"{external_prefix}:{role}"
+                    if external_prefix and external_prefix.startswith("jsonl:")
+                    else f"{prefix}:{role}:{hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]}"
+                )
+                cur = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO chat_messages(external_key, thread_id, role, content, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (ext_key, tid, role, text, ts),
+                )
+                if cur.rowcount and cur.rowcount > 0:
+                    inserted += int(cur.rowcount)
+        return inserted
+
+    def update_last_assistant(self, thread_or_key: str, new_assistant_text: str) -> bool:
+        """Update the latest assistant message in `thread_or_key` (triggers FTS5 update)."""
+        if is_private_identifier(thread_or_key) or not (new_assistant_text or "").strip():
+            return False
+        tid = normalize_thread_id(thread_or_key)
+        with self._write_tx() as conn:
+            row = conn.execute(
+                "SELECT id FROM chat_messages WHERE thread_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1",
+                (tid,),
+            ).fetchone()
+            if not row:
+                return False
+            conn.execute(
+                "UPDATE chat_messages SET content = ? WHERE id = ?",
+                (new_assistant_text.strip(), row[0]),
+            )
+            return True
+
+    def drop_last_turn(self, thread_or_key: str) -> int:
+        """Remove the most recent assistant (and paired user) message when re-rolling."""
+        if is_private_identifier(thread_or_key):
+            return 0
+        tid = normalize_thread_id(thread_or_key)
+        deleted = 0
+        with self._write_tx() as conn:
+            a_row = conn.execute(
+                "SELECT id, created_at FROM chat_messages WHERE thread_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1",
+                (tid,),
+            ).fetchone()
+            if a_row:
+                conn.execute("DELETE FROM chat_messages WHERE id = ?", (a_row[0],))
+                deleted += 1
+                u_row = conn.execute(
+                    "SELECT id FROM chat_messages WHERE thread_id = ? AND role = 'user' AND ABS(created_at - ?) < 2.0 ORDER BY id DESC LIMIT 1",
+                    (tid, a_row[1]),
+                ).fetchone()
+                if u_row:
+                    conn.execute("DELETE FROM chat_messages WHERE id = ?", (u_row[0],))
+                    deleted += 1
+        return deleted
+
+    def delete_thread(self, thread_or_key: str) -> int:
+        """Delete all indexed messages for a cleared thread (triggers FTS5 delete)."""
+        raw = str(thread_or_key or "").strip()
+        if not raw:
+            return 0
+        tid = normalize_thread_id(raw)
+        stem = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+        candidates = {raw, tid, f"conv:{stem[:12]}", f"default:{stem[:12]}"}
+        with self._write_tx() as conn:
+            placeholders = ",".join("?" for _ in candidates)
+            cur = conn.execute(
+                f"DELETE FROM chat_messages WHERE thread_id IN ({placeholders}) OR external_key LIKE ?",
+                (*candidates, f"jsonl:{stem}:%"),
+            )
+            return max(0, int(cur.rowcount or 0))
+
+    def backfill_from_conversations(self, project_root: Optional[str | Path] = None) -> dict[str, int]:
+        """Idempotently index existing non-Private-Mode JSONL threads into SQLite FTS5."""
+        root = Path(project_root) if project_root else DEFAULT_ROOT
+        conv_dir = root / "data" / "conversations"
+        if not conv_dir.is_dir():
+            return {"files": 0, "inserted": 0}
+
+        # Map ConversationHistory filename stem (_key_id(key)) -> friendly thread_id via threads.json
+        stem_to_tid: dict[str, str] = {}
+        threads_file = conv_dir / "threads.json"
+        if threads_file.is_file():
+            try:
+                idx = json.loads(threads_file.read_text(encoding="utf-8"))
+                if isinstance(idx, dict):
+                    for tid, meta in idx.items():
+                        if is_private_identifier(str(tid)) or not isinstance(meta, dict):
+                            continue
+                        owner = str(meta.get("owner") or "")
+                        if owner:
+                            key = f"{owner}:{tid}"
+                            stem = hashlib.sha256(key.encode("utf-8")).hexdigest()[:24]
+                            stem_to_tid[stem] = str(tid)
+            except (OSError, ValueError):
+                pass
+        # Also recognize desktop default key
+        desktop_stem = hashlib.sha256(b"desktop").hexdigest()[:24]
+        stem_to_tid.setdefault(desktop_stem, "desktop")
+
+        files_seen = 0
+        inserted = 0
+        jsonl_paths = sorted(conv_dir.glob("*.jsonl"))
+        if not jsonl_paths:
+            return {"files": 0, "inserted": 0}
+
+        with self._write_tx() as conn:
+            for path in jsonl_paths:
+                stem = path.stem
+                tid = stem_to_tid.get(stem, f"conv:{stem[:12]}")
+                if is_private_identifier(stem) or is_private_identifier(tid):
+                    continue
+                files_seen += 1
+                try:
+                    lines = path.read_text(encoding="utf-8").splitlines()
+                except OSError:
+                    continue
+                for line_no, raw_ln in enumerate(lines, 1):
+                    raw_ln = raw_ln.strip()
+                    if not raw_ln:
+                        continue
+                    try:
+                        obj = json.loads(raw_ln)
+                    except ValueError:
+                        continue
+                    if not isinstance(obj, dict):
+                        continue
+                    ts = float(obj.get("at") or 0.0) or time.time()
+                    for role_key, role_name in (("user", "user"), ("assistant", "assistant")):
+                        txt = str(obj.get(role_key) or "").strip()
+                        if not txt:
+                            continue
+                        ext_key = f"jsonl:{stem}:{line_no}:{role_name}"
+                        cur = conn.execute(
+                            """
+                            INSERT OR IGNORE INTO chat_messages(external_key, thread_id, role, content, created_at)
+                            VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (ext_key, tid, role_name, txt, ts),
+                        )
+                        if cur.rowcount and cur.rowcount > 0:
+                            inserted += int(cur.rowcount)
+        return {"files": files_seen, "inserted": inserted}
+
+    def search_messages(
+        self,
+        query: str,
+        *,
+        thread_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Run BM25-ranked full-text search with safe query sanitization."""
+        fts_query = sanitize_fts5_query(query)
+        if not fts_query:
+            return []
+        eff_limit = max(1, min(int(limit or 20), 50))
+        norm_tid = normalize_thread_id(thread_id) if thread_id else None
+        if norm_tid and is_private_identifier(norm_tid):
+            return []
+
+        with self._read_conn() as conn:
+            if norm_tid:
+                rows = conn.execute(
+                    """
+                    SELECT m.id,
+                           m.thread_id,
+                           m.role,
+                           snippet(chat_messages_fts, 0, '«', '»', '…', 18) AS snip,
+                           m.created_at,
+                           bm25(chat_messages_fts) AS rank
+                    FROM chat_messages_fts
+                    JOIN chat_messages m ON m.id = chat_messages_fts.rowid
+                    WHERE chat_messages_fts MATCH ? AND m.thread_id = ?
+                    ORDER BY rank ASC, m.created_at DESC
+                    LIMIT ?
+                    """,
+                    (fts_query, norm_tid, eff_limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT m.id,
+                           m.thread_id,
+                           m.role,
+                           snippet(chat_messages_fts, 0, '«', '»', '…', 18) AS snip,
+                           m.created_at,
+                           bm25(chat_messages_fts) AS rank
+                    FROM chat_messages_fts
+                    JOIN chat_messages m ON m.id = chat_messages_fts.rowid
+                    WHERE chat_messages_fts MATCH ?
+                    ORDER BY rank ASC, m.created_at DESC
+                    LIMIT ?
+                    """,
+                    (fts_query, eff_limit),
+                ).fetchall()
+
+        return [
+            {
+                "id": int(r[0]),
+                "thread_id": str(r[1]),
+                "role": str(r[2]),
+                "snippet": str(r[3]),
+                "created_at": float(r[4]),
+                "rank": float(r[5]),
+            }
+            for r in rows
+        ]
+
+    def stats(self) -> dict[str, Any]:
+        with self._read_conn() as conn:
+            jm = conn.execute("PRAGMA journal_mode;").fetchone()
+            msg_count = conn.execute("SELECT COUNT(*) FROM chat_messages").fetchone()[0]
+            thread_count = conn.execute("SELECT COUNT(DISTINCT thread_id) FROM chat_messages").fetchone()[0]
+            ctrl_count = conn.execute("SELECT COUNT(*) FROM controls_state").fetchone()[0]
+        return {
+            "db_path": str(self.db_path),
+            "journal_mode": str(jm[0]).lower() if jm else "",
+            "controls_keys": int(ctrl_count),
+            "indexed_messages": int(msg_count),
+            "indexed_threads": int(thread_count),
+        }
+
+
+def get_state_db(project_root: Optional[str | Path] = None) -> StateDB:
+    return StateDB(project_root=project_root)

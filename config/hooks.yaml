@@ -25,6 +25,18 @@ hooks:
     timeout_ms: 2000
     fail_mode: closed
 
+  - name: approve_privileged_or_net_cmds
+    event: pre_tool
+    enabled: true
+    action: ask
+    risk_level: high
+    description: "Ask phone approval before systemctl, ufw, nmap, arp-scan, nuclei, adb, pip install, or apt"
+    match: "^(run_command|run_shell|shell|bash|verify_step)$|\\b(?:systemctl|ufw|nmap|arp-scan|nuclei|adb|apt(?:-get)?|pip[23]?\\s+install)\\b"
+    type: builtin
+    handler: approve_privileged_or_net_cmds
+    timeout_ms: 2000
+    fail_mode: closed
+
   - name: py_syntax_check
     event: post_tool
     enabled: true
