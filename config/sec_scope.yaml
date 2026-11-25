@@ -1,0 +1,42 @@
+# Fail-closed security scope policy for Magic's defensive home-network & device posture suite.
+# Targets outside private/loopback/Tailscale ranges or blocked intrusive flags are ALWAYS denied.
+
+enabled: true
+
+# Hard lock requiring every resolved IP/CIDR to fall inside RFC1918, loopback, or Tailscale CGNAT
+# (100.64.0.0/10), even if someone manually adds a public IP to allowed_cidrs below.
+require_private_ip: true
+
+allowed_cidrs:
+  - "127.0.0.1/32"
+  - "::1/128"
+  - "192.168.0.0/16"
+  - "10.0.0.0/8"
+  - "172.16.0.0/12"
+  - "100.64.0.0/10"
+
+allowed_hosts:
+  - "localhost"
+  - "127.0.0.1"
+  - "::1"
+
+allowed_urls: []
+
+# Offensive/intrusive/exploitation/DoS/brute/fuzz flags are hard-blocked across all wrappers & hooks.
+blocked_flags:
+  - "--script=exploit"
+  - "--script=intrusive"
+  - "--script=brute"
+  - "--script=dos"
+  - "-tags exploit"
+  - "-tags intrusive"
+  - "-tags dos"
+  - "-tags fuzz"
+
+# Background LAN drift monitor (stays OFF by default until you opt into watching your home subnet).
+lan_watch:
+  enabled: false
+  interval_minutes: 30
+  cidr: "auto"
+  alert_on_new_device: true
+  alert_on_new_port: true

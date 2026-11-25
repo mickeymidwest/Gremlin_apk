@@ -97,11 +97,15 @@ def test_auto_think_wiring_for_chatml_nothink(monkeypatch, tmp_path):
     assert not calls[1][0].endswith(" /think") and calls[1][1] == 2048
 
     # In reply: casual chat skips /think, substantive turns enable it (not on fallback)
+    async def _no_web(*a, **k):
+        return [], ""
+
     monkeypatch.setattr(reply, "_PLAN", False)
     monkeypatch.setattr(reply, "_REVISE", False)
     monkeypatch.setattr(reply, "_GROUNDING_CHECK", False)
     monkeypatch.setattr(reply.look, "wants", lambda *a, **k: [])
     monkeypatch.setattr(reply.look, "workspace_probe", lambda *a, **k: ([], ""))
+    monkeypatch.setattr(reply.autoresearch, "gather", _no_web)
 
     seen = []
 

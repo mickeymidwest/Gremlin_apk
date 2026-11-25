@@ -498,6 +498,10 @@ def create_app(
     except Exception as _sb_exc:
         print(f"[state_db] warning during init/backfill: {_sb_exc}", flush=True)
 
+    from . import netsec_scheduler as _netsec_sched_mod
+    netsec_sched = _netsec_sched_mod.NetSecScheduler(project_root)
+    app._netsec_scheduler = netsec_sched
+
     # Explicit, observable state for one /chat turn's progress -- see
     # agent_state.py's module docstring. Wrapping actions.execute() in
     # this also fixes a real gap: those two call sites below previously
@@ -596,6 +600,17 @@ def create_app(
             pass
         try:
             data["state_db"] = state_store.stats()
+        except Exception:
+            pass
+        try:
+            from . import netsec_scheduler as _ns_sched
+            _ns_sum = state_store.netsec_summary()
+            data["netsec"] = {
+                "watchdog_enabled": bool(netsec_sched.is_enabled()),
+                "known_devices": _ns_sum["known_devices"],
+                "unacked_alerts": _ns_sum["unacked_alerts"],
+                "last_host_score": _ns_sum["last_host_score"],
+            }
         except Exception:
             pass
         try:
@@ -1015,6 +1030,115 @@ def create_app(
         if resolved is None:
             return jsonify({"ok": False, "error": "approval not found or already expired"}), 404
         return jsonify({"ok": True, "approval": resolved, "stats": _approvals.stats()})
+
+    @app.route("/netsec/summary", methods=["GET"])
+    def netsec_summary():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import netsec as _netsec
+        s = state_store.netsec_summary()
+        return jsonify({
+            "ok": True,
+            **s,
+            "watchdog": netsec_sched.status(),
+            "tools": {k: bool(v) for k, v in _netsec.installed_tools().items()},
+        })
+
+    @app.route("/netsec/devices", methods=["GET"])
+    def netsec_devices():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        return jsonify({"ok": True, "devices": state_store.list_devices()})
+
+    @app.route("/netsec/devices/<mac>/trust", methods=["POST"])
+    def netsec_trust_device(mac):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "expected JSON object"}), 400
+        trusted = bool(body.get("trusted", True))
+        label = str(body.get("label") or "")
+        dev = state_store.mark_device_trusted(mac, label=label, trusted=trusted)
+        if dev is None:
+            return jsonify({"ok": False, "error": f"device {mac!r} not found"}), 404
+        return jsonify({"ok": True, "device": dev})
+
+    @app.route("/netsec/alerts", methods=["GET"])
+    def netsec_alerts():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        unacked = str(request.args.get("unacked_only", "1")).strip().lower() not in ("0", "false", "no")
+        raw_lim = request.args.get("limit", "50")
+        try:
+            lim = max(1, min(int(raw_lim), 200))
+        except (TypeError, ValueError):
+            lim = 50
+        return jsonify({"ok": True, "alerts": state_store.list_alerts(unacked_only=unacked, limit=lim)})
+
+    @app.route("/netsec/alerts/<int:alert_id>/ack", methods=["POST"])
+    def netsec_ack_alert(alert_id):
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        ackd = state_store.ack_alert(alert_id)
+        if ackd is None:
+            return jsonify({"ok": False, "error": f"alert {alert_id} not found"}), 404
+        return jsonify({"ok": True, "alert": ackd})
+
+    @app.route("/netsec/run", methods=["POST"])
+    def netsec_run():
+        auth_error = _check_auth()
+        if auth_error:
+            return auth_error
+        from . import approvals as _approvals
+        from . import netsec as _netsec
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "expected JSON object"}), 400
+        mod_name = str(body.get("module") or "").strip().lower()
+        target = str(body.get("target") or "").strip()
+        conv_key = request.headers.get("Authorization", "") or "default"
+        tok_ctx = _approvals.set_thread_context(
+            str(body.get("thread") or _state_db_mod.normalize_thread_id(conv_key)).strip()
+        )
+        try:
+            if mod_name == "host_posture":
+                rep = _netsec.host_posture(project_root=project_root)
+            elif mod_name == "lan_watch":
+                rep = _netsec.lan_watch(target or "auto", project_root=project_root)
+            elif mod_name == "port_audit":
+                if not target:
+                    return jsonify({"ok": False, "error": "port_audit requires a target IP/CIDR"}), 400
+                rep = _netsec.port_audit(target, project_root=project_root)
+            elif mod_name == "web_posture":
+                if not target:
+                    return jsonify({"ok": False, "error": "web_posture requires a target URL"}), 400
+                rep = _netsec.web_posture(target, project_root=project_root)
+            elif mod_name == "adb_posture":
+                rep = _netsec.adb_posture(target or None, project_root=project_root)
+            else:
+                return jsonify({
+                    "ok": False,
+                    "error": f"Unknown netsec module {mod_name!r}; expected host_posture|lan_watch|port_audit|web_posture|adb_posture",
+                }), 400
+        finally:
+            _approvals.reset_thread_context(tok_ctx)
+
+        payload = {
+            "ok": rep.status == "ok",
+            "status": rep.status,
+            "report": rep.to_dict(),
+            "markdown": _netsec.format_report_markdown(rep),
+        }
+        if rep.status == "blocked":
+            payload["error"] = rep.summary
+            return jsonify(payload), 403
+        return jsonify(payload)
 
     @app.route("/conversations", methods=["GET", "POST"])
     def conversations():
@@ -3778,6 +3902,8 @@ def serve(registry: ModelRegistry, router: Router, project_root: str, port: int 
         except Exception as e:  # noqa
             print(f"[warmup] skipped ({e}) -- first chat will cold-load.", flush=True)
     asyncio.run_coroutine_threadsafe(_warm(), loop)
+    if getattr(app, "_netsec_scheduler", None) is not None:
+        app._netsec_scheduler.start()
 
 
     import logging
